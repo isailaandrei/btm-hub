@@ -1,26 +1,44 @@
 @import "tailwindcss";
 
+/* ── Brand Design Tokens (from Figma Styleguide) ── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --brand-primary: #24A7BA;
+  --brand-background: #050505;
+  --brand-light-bg: #F5F5F5;
+  --brand-dark-navy: #001729;
+  --brand-near-black: #141618;
+  --brand-light-gray: #bebeba;
+  --brand-cyan-blue-gray: #abb8c3;
+
+  --background: var(--brand-background);
+  --foreground: var(--brand-light-bg);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Brand colors */
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-background: var(--brand-background);
+  --color-brand-light-bg: var(--brand-light-bg);
+  --color-brand-dark-navy: var(--brand-dark-navy);
+  --color-brand-near-black: var(--brand-near-black);
+  --color-brand-light-gray: var(--brand-light-gray);
+  --color-brand-cyan-blue-gray: var(--brand-cyan-blue-gray);
+
+  /* Font family */
+  --font-sans: var(--font-space-grotesk);
+
+  /* Font sizes — from Figma Styleguide */
+  --font-size-h1: 2.25rem;
+  --font-size-h2: 1.5rem;
+  --font-size-h3: 1.25rem;
+  --font-size-h4: 1rem;
+  --font-size-h5: 0.875rem;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
