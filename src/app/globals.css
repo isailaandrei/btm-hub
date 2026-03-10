@@ -9,6 +9,9 @@
   --brand-near-black: #141618;
   --brand-light-gray: #bebeba;
   --brand-cyan-blue-gray: #abb8c3;
+  --brand-secondary: #32373C;
+  --brand-text: #1A1A1A;
+  --brand-border: #E6E6E6;
 
   --background: var(--brand-background);
   --foreground: var(--brand-light-bg);
@@ -26,6 +29,9 @@
   --color-brand-near-black: var(--brand-near-black);
   --color-brand-light-gray: var(--brand-light-gray);
   --color-brand-cyan-blue-gray: var(--brand-cyan-blue-gray);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-text: var(--brand-text);
+  --color-brand-border: var(--brand-border);
 
   /* Font family */
   --font-sans: var(--font-space-grotesk);
