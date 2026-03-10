@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 export interface NavbarProps {
@@ -16,21 +17,48 @@ const NAV_LINKS = [
   { label: "Contact", href: "/contact" },
 ] as const;
 
+function LogoText({ className }: { className?: string }) {
+  return (
+    <span className={className}>Behind the Mask</span>
+  );
+}
+
 export function Navbar({ variant = "dark" }: NavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [logoError, setLogoError] = useState(false);
 
   const isLight = variant === "light";
 
   const bgClass = isLight ? "bg-white border-b border-brand-border" : "bg-brand-near-black";
   const textClass = isLight ? "text-brand-text" : "text-white";
-  const logoClass = isLight ? "text-brand-text" : "text-white";
 
   return (
     <nav className={`relative z-50 ${bgClass}`}>
       <div className="flex items-center justify-between px-5 py-4 md:px-24 md:py-6">
         {/* Logo */}
-        <Link href="/" className={`text-lg font-medium md:text-2xl md:font-bold ${logoClass}`}>
-          Behind the Mask
+        <Link href="/" className="shrink-0">
+          {isLight ? (
+            <LogoText className="text-lg font-medium text-brand-text md:text-2xl md:font-bold" />
+          ) : (
+            <>
+              {/* Desktop: brand logo image (falls back to text if missing) */}
+              {logoError ? (
+                <LogoText className="hidden text-2xl font-bold text-white md:block" />
+              ) : (
+                <Image
+                  src="/logo-white.png"
+                  alt="Behind the Mask"
+                  width={122}
+                  height={40}
+                  className="hidden md:block"
+                  onError={() => setLogoError(true)}
+                  priority
+                />
+              )}
+              {/* Mobile: always text */}
+              <LogoText className="text-lg font-medium text-white md:hidden" />
+            </>
+          )}
         </Link>
 
         {/* Desktop links */}
