@@ -4,16 +4,13 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { AuthButtons } from "./AuthButtons";
+import type { NavbarUser } from "@/lib/data/auth";
 
-export interface NavbarUser {
-  id: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-}
+export type { NavbarUser };
 
 export interface NavbarProps {
   variant?: "light" | "dark";
-  user?: NavbarUser | null;
+  user?: NavbarUser;
 }
 
 const NAV_LINKS = [

@@ -33,8 +33,13 @@ export async function login(
     };
   }
 
-  const redirectTo = formData.get("redirect") as string;
-  redirect(redirectTo || "/profile");
+  // Validate redirect is a safe relative path (prevent open redirect attacks)
+  const rawRedirect = formData.get("redirect") as string;
+  const safePath =
+    rawRedirect?.startsWith("/") && !rawRedirect.startsWith("//")
+      ? rawRedirect
+      : "/profile";
+  redirect(safePath);
 }
 
 export async function register(

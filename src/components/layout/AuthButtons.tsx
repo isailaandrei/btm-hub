@@ -3,13 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import type { NavbarUser } from "@/lib/data/auth";
 
 interface AuthButtonsProps {
-  user: {
-    id: string;
-    displayName: string | null;
-    avatarUrl: string | null;
-  } | null;
+  user: NavbarUser;
   variant?: "light" | "dark";
 }
 

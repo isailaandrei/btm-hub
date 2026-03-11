@@ -1,31 +1,13 @@
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
-import { createClient } from "@/lib/supabase/server";
+import { getNavbarUser } from "@/lib/data/auth";
 
 export default async function MarketingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
-
-  let user = null;
-  if (authUser) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("display_name, avatar_url")
-      .eq("id", authUser.id)
-      .single();
-
-    user = {
-      id: authUser.id,
-      displayName: profile?.display_name ?? null,
-      avatarUrl: profile?.avatar_url ?? null,
-    };
-  }
+  const user = await getNavbarUser();
 
   return (
     <>

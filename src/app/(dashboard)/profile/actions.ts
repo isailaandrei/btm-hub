@@ -54,7 +54,7 @@ export async function updateProfile(
     };
   }
 
-  revalidatePath("/profile");
+  revalidatePath("/profile", "layout");
   return { errors: null, message: "Profile updated!", success: true };
 }
 
@@ -80,12 +80,17 @@ export async function uploadAvatar(
     return { url: null, error: "File must be under 2MB." };
   }
 
-  const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-  if (!allowedTypes.includes(file.type)) {
+  const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+  if (!(file.type in ALLOWED_IMAGE_TYPES)) {
     return { url: null, error: "File must be JPEG, PNG, or WebP." };
   }
 
-  const ext = file.name.split(".").pop();
+  // Derive extension from validated MIME type, not filename (prevents spoofed extensions)
+  const ext = ALLOWED_IMAGE_TYPES[file.type];
   const filePath = `${user.id}/avatar.${ext}`;
 
   const { error: uploadError } = await supabase.storage
@@ -100,12 +105,18 @@ export async function uploadAvatar(
     data: { publicUrl },
   } = supabase.storage.from("avatars").getPublicUrl(filePath);
 
-  const avatarUrl = `${publicUrl}?t=${Date.now()}`;
-  await supabase
+  const { error: updateError } = await supabase
     .from("profiles")
-    .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
+    .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
     .eq("id", user.id);
 
-  revalidatePath("/profile");
-  return { url: avatarUrl, error: null };
+  if (updateError) {
+    return {
+      url: null,
+      error: "Avatar uploaded but profile update failed. Please try again.",
+    };
+  }
+
+  revalidatePath("/profile", "layout");
+  return { url: `${publicUrl}?t=${Date.now()}`, error: null };
 }
