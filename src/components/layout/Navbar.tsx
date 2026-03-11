@@ -3,9 +3,14 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { AuthButtons } from "./AuthButtons";
+import type { NavbarUser } from "@/lib/data/auth";
+
+export type { NavbarUser };
 
 export interface NavbarProps {
   variant?: "light" | "dark";
+  user?: NavbarUser;
 }
 
 const NAV_LINKS = [
@@ -23,7 +28,7 @@ function LogoText({ className }: { className?: string }) {
   );
 }
 
-export function Navbar({ variant = "dark" }: NavbarProps) {
+export function Navbar({ variant = "dark", user = null }: NavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoError, setLogoError] = useState(false);
 
@@ -61,7 +66,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
           )}
         </Link>
 
-        {/* Desktop links */}
+        {/* Desktop links + auth */}
         <div className="hidden items-center gap-8 md:flex">
           {NAV_LINKS.map((link) => (
             <Link
@@ -72,6 +77,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
               {link.label}
             </Link>
           ))}
+          <AuthButtons user={user} variant={variant} />
         </div>
 
         {/* Mobile hamburger */}
@@ -100,7 +106,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
           mobileOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="flex flex-col gap-6 px-5 py-8">
+        <div className="flex h-full flex-col gap-6 px-5 py-8">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}
@@ -111,6 +117,9 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
               {link.label}
             </Link>
           ))}
+          <div className="mt-auto border-t border-brand-secondary pt-6">
+            <AuthButtons user={user} variant={variant} />
+          </div>
         </div>
       </div>
     </nav>
