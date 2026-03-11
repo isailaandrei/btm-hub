@@ -2,7 +2,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function MarketingLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -30,7 +30,9 @@ export default async function MarketingLayout({
   return (
     <>
       <Navbar variant="dark" user={user} />
-      <main>{children}</main>
+      <main className="min-h-screen bg-brand-background px-5 py-10 md:px-24 md:py-16">
+        {children}
+      </main>
       <Footer />
     </>
   );
