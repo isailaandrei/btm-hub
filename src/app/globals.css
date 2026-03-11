@@ -44,6 +44,11 @@
   --font-size-h5: 0.875rem;
 }
 
+button,
+[role="button"] {
+  cursor: pointer;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
