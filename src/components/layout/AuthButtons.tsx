@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { logout } from "@/app/(auth)/actions";
 import type { NavbarUser } from "@/lib/data/auth";
 
 interface AuthButtonsProps {
@@ -11,15 +10,7 @@ interface AuthButtonsProps {
 }
 
 export function AuthButtons({ user, variant = "dark" }: AuthButtonsProps) {
-  const router = useRouter();
   const isLight = variant === "light";
-
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.refresh();
-    router.push("/");
-  }
 
   if (!user) {
     return (
@@ -67,14 +58,16 @@ export function AuthButtons({ user, variant = "dark" }: AuthButtonsProps) {
           </span>
         )}
       </Link>
-      <button
-        onClick={handleLogout}
-        className={`text-sm font-medium transition-opacity hover:opacity-75 ${
-          isLight ? "text-brand-text" : "text-brand-cyan-blue-gray"
-        }`}
-      >
-        Log Out
-      </button>
+      <form action={logout}>
+        <button
+          type="submit"
+          className={`text-sm font-medium transition-opacity hover:opacity-75 ${
+            isLight ? "text-brand-text" : "text-brand-cyan-blue-gray"
+          }`}
+        >
+          Log Out
+        </button>
+      </form>
     </div>
   );
 }

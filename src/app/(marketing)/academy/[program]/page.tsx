@@ -12,7 +12,7 @@ export default async function ProgramPage({
   if (!program) return notFound();
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-brand-background px-5 py-20">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-brand-secondary px-5 py-20">
       <span className="mb-4 text-5xl">{program.icon}</span>
       <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-white">
         {program.name}

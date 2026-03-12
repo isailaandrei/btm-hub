@@ -5,7 +5,7 @@ export default function AcademyPage() {
   const programs = Object.values(PROGRAMS);
 
   return (
-    <div className="min-h-screen bg-brand-background px-5 py-20">
+    <div className="min-h-screen bg-brand-secondary px-5 py-20">
       <div className="mx-auto max-w-4xl">
         <h1 className="mb-4 text-center text-[length:var(--font-size-h1)] font-medium text-white">
           BTM Academy

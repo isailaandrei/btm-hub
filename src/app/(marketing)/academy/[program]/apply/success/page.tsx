@@ -13,7 +13,7 @@ export default async function ApplicationSuccessPage({
   if (!program) return notFound();
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-brand-background px-5 py-20">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-brand-secondary px-5 py-20">
       <ClearFormStorage programSlug={programSlug} />
 
       <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-brand-primary/20">

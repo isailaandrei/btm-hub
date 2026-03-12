@@ -125,7 +125,7 @@ export default function ApplyPage({
 
   if (!program.applicationOpen) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-brand-background px-5 py-20">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-brand-secondarypx-5 py-20">
         <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-white">
           Applications Closed
         </h1>
@@ -207,7 +207,7 @@ export default function ApplyPage({
   const err = (key: string) => allErrors[key];
 
   return (
-    <div className="min-h-screen bg-brand-background px-5 py-20">
+    <div className="min-h-screen bg-brand-secondary px-5 py-20">
       {formState.message && !formState.success && (
         <div className="mx-auto mb-6 max-w-2xl rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           {formState.message}

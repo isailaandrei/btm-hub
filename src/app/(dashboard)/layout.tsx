@@ -12,7 +12,7 @@ export default async function DashboardLayout({
   return (
     <>
       <Navbar variant="dark" user={user} />
-      <main className="min-h-screen bg-brand-background px-5 py-10 md:px-24 md:py-16">
+      <main className="min-h-screen bg-brand-secondary px-5 py-10 md:px-24 md:py-16">
         {children}
       </main>
       <Footer />
