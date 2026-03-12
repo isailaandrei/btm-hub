@@ -11,7 +11,7 @@ export async function getProfile(): Promise<Profile | null> {
 
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, display_name, bio, avatar_url, created_at, updated_at")
+    .select("id, email, role, display_name, bio, avatar_url, created_at, updated_at")
     .eq("id", user.id)
     .single();
 
@@ -23,7 +23,7 @@ export async function getProfileById(id: string): Promise<Profile | null> {
 
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, display_name, bio, avatar_url, created_at, updated_at")
+    .select("id, email, role, display_name, bio, avatar_url, created_at, updated_at")
     .eq("id", id)
     .single();
 
