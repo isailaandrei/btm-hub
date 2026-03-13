@@ -9,6 +9,20 @@ import type {
 } from "@/types/database";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+export function getApplicantName(
+  answers: Record<string, unknown>,
+  fallback = "—",
+): string {
+  return (
+    [answers.first_name, answers.last_name].filter(Boolean).join(" ") ||
+    fallback
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Filters / pagination
 // ---------------------------------------------------------------------------
 
@@ -42,7 +56,11 @@ export async function getApplications(
   if (program) query = query.eq("program", program);
   if (status) query = query.eq("status", status);
   if (tag) query = query.contains("tags", [tag]);
-  if (search) query = query.or(`answers->>first_name.ilike.%${search}%,answers->>last_name.ilike.%${search}%,answers->>email.ilike.%${search}%`);
+  if (search) {
+    // Escape PostgREST filter special characters and LIKE wildcards
+    const escaped = search.replace(/[%_\\]/g, "\\$&").replace(/[.,()]/g, "");
+    query = query.or(`answers->>first_name.ilike.%${escaped}%,answers->>last_name.ilike.%${escaped}%,answers->>email.ilike.%${escaped}%`);
+  }
 
   const { data, count, error } = await query;
 
@@ -87,10 +105,9 @@ export async function submitApplication(
       program,
       answers,
       user_id: userId ?? null,
-      status: "new" as ApplicationStatus,
+      status: "reviewing" as ApplicationStatus,
       tags: [],
       admin_notes: [],
-      files: [],
     })
     .select()
     .single();
@@ -124,6 +141,11 @@ export async function updateApplicationStatus(
 
 // ---------------------------------------------------------------------------
 // Tags
+// TODO: addApplicationTag, removeApplicationTag, and addAdminNote use a
+// read-modify-write pattern that is not concurrency-safe. If two admins
+// mutate the same application's tags/notes simultaneously, the second write
+// can silently overwrite the first. Replace with Postgres RPC functions using
+// atomic array_append / array_remove to eliminate the race window.
 // ---------------------------------------------------------------------------
 
 export async function addApplicationTag(

@@ -9,7 +9,7 @@ export interface Profile {
   updated_at: string;
 }
 
-export type ApplicationStatus = "new" | "reviewing" | "accepted" | "rejected" | "waitlisted";
+export type ApplicationStatus = "reviewing" | "accepted";
 
 export type ProgramSlug = "photography" | "filmmaking" | "freediving" | "modelling" | "internship";
 
@@ -19,19 +19,10 @@ export interface Application {
   program: ProgramSlug;
   status: ApplicationStatus;
   answers: Record<string, unknown>;
-  files: ApplicationFile[];
   tags: string[];
   admin_notes: AdminNote[];
   submitted_at: string;
   updated_at: string;
-}
-
-export interface ApplicationFile {
-  key: string;
-  url: string;
-  filename: string;
-  size: number;
-  mime_type: string;
 }
 
 export interface AdminNote {
@@ -55,7 +46,6 @@ export interface SharedApplicationView {
   program: string;
   status: string;
   answers: Record<string, unknown>;
-  files: ApplicationFile[];
   submitted_at: string;
   expires_at: string | null;
 }
