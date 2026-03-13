@@ -67,6 +67,12 @@ export function buildStepSchema(
 
 // ---------------------------------------------------------------------------
 // Build a full schema from all steps (flat merge)
+// NOTE: This includes all fields regardless of visibleWhen conditions.
+// Currently safe because all conditional fields use required: false, but if a
+// required field ever gets a visibleWhen condition, server-side validation
+// will reject submissions where that field was hidden. In that case, filter
+// fields by visibility before building the schema (same as buildStepSchema
+// does on the client).
 // ---------------------------------------------------------------------------
 
 export function buildFullSchema(

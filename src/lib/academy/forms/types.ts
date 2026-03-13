@@ -5,6 +5,7 @@
 interface FieldBase {
   name: string;
   label: string;
+  /** Defaults to `true` when omitted — set to `false` to make the field optional. */
   required?: boolean;
   visibleWhen?: { field: string; operator: "eq" | "neq" | "in"; value: unknown };
 }

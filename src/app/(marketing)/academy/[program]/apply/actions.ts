@@ -63,17 +63,17 @@ export async function submitAcademyApplication(
 
     const strValue = value as string;
 
-    // Try parsing as JSON (multi-select arrays)
-    if (strValue.startsWith("[")) {
+    // Parse multi-select arrays (JSON-encoded on the client)
+    if (fieldTypes.get(key) === "multiselect") {
       try {
         answers[key] = JSON.parse(strValue);
         continue;
       } catch {
-        // not JSON, treat as string
+        // malformed, treat as string
       }
     }
 
-    // Parse ratings as numbers based on field type
+    // Parse ratings as numbers
     if (fieldTypes.get(key) === "rating" && /^\d+$/.test(strValue)) {
       answers[key] = parseInt(strValue, 10);
       continue;

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getProfile } from "@/lib/data/profiles";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import {
   updateApplicationStatus,
   addApplicationTag,
@@ -16,14 +16,6 @@ function validateId(id: string) {
   if (!UUID_RE.test(id)) throw new Error("Invalid application ID");
 }
 
-async function requireAdmin() {
-  const profile = await getProfile();
-  if (!profile || profile.role !== "admin") {
-    throw new Error("Unauthorized");
-  }
-  return profile;
-}
-
 export async function changeStatus(applicationId: string, status: ApplicationStatus) {
   validateId(applicationId);
   await requireAdmin();
@@ -35,7 +27,7 @@ export async function changeStatus(applicationId: string, status: ApplicationSta
 export async function addTag(applicationId: string, tag: string) {
   validateId(applicationId);
   await requireAdmin();
-  const trimmed = tag.trim();
+  const trimmed = tag.trim().slice(0, 50);
   if (!trimmed) return;
   await addApplicationTag(applicationId, trimmed);
   revalidatePath(`/admin/applications/${applicationId}`);

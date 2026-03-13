@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplicationById, getApplicantName } from "@/lib/data/applications";
 import { getFormDefinition } from "@/lib/academy/forms";
@@ -29,12 +30,12 @@ export default async function ApplicationDetailPage({
       {/* Header */}
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <a
+          <Link
             href="/admin/applications"
             className="mb-2 inline-block text-sm text-brand-cyan-blue-gray transition-colors hover:text-white"
           >
             &larr; Back to applications
-          </a>
+          </Link>
           <h1 className="text-[length:var(--font-size-h2)] font-medium text-white">
             {getApplicantName(application.answers, "Unnamed Application")}
           </h1>
@@ -128,9 +129,9 @@ export default async function ApplicationDetailPage({
             </h3>
             {application.admin_notes.length > 0 && (
               <div className="mb-4 flex flex-col gap-3">
-                {application.admin_notes.map((note, i) => (
+                {application.admin_notes.map((note) => (
                   <div
-                    key={i}
+                    key={`${note.created_at}-${note.author_id}`}
                     className="rounded-md border border-brand-secondary bg-brand-secondary/30 p-3"
                   >
                     <p className="text-sm text-white">{note.text}</p>

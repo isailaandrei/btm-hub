@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import type {
   Application,
   ApplicationStatus,
@@ -125,6 +126,7 @@ export async function updateApplicationStatus(
   id: string,
   status: ApplicationStatus,
 ): Promise<Application> {
+  await requireAdmin();
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -152,6 +154,7 @@ export async function addApplicationTag(
   id: string,
   tag: string,
 ): Promise<Application> {
+  await requireAdmin();
   const supabase = await createClient();
 
   const existing = await getApplicationById(id);
@@ -177,6 +180,7 @@ export async function removeApplicationTag(
   id: string,
   tag: string,
 ): Promise<Application> {
+  await requireAdmin();
   const supabase = await createClient();
 
   const existing = await getApplicationById(id);
@@ -206,6 +210,7 @@ export async function addAdminNote(
   authorName: string,
   text: string,
 ): Promise<Application> {
+  await requireAdmin();
   const supabase = await createClient();
 
   const existing = await getApplicationById(applicationId);
