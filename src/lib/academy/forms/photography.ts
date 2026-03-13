@@ -1,102 +1,12 @@
-import { z } from "zod/v4";
+import type { FieldDefinition, FormStepDefinition, FormDefinition } from "./types";
+import { personalStep } from "./common/personal";
+import { backgroundStep } from "./common/background";
+import { healthStep } from "./common/health";
+import { registerForm } from "./registry";
 
 // ---------------------------------------------------------------------------
-// Step definitions
+// Photography-specific option lists
 // ---------------------------------------------------------------------------
-
-export interface StepDefinition {
-  id: string;
-  title: string;
-  description: string;
-}
-
-export const PHOTOGRAPHY_STEPS: StepDefinition[] = [
-  {
-    id: "personal",
-    title: "Personal Information",
-    description: "Tell us a bit about yourself so we can get to know you.",
-  },
-  {
-    id: "background",
-    title: "Background",
-    description: "Where are you from and what do you do?",
-  },
-  {
-    id: "health",
-    title: "Health & Fitness",
-    description:
-      "Help us understand your physical readiness for underwater activities.",
-  },
-  {
-    id: "diving",
-    title: "Diving Experience",
-    description: "Tell us about your diving background and comfort level.",
-  },
-  {
-    id: "equipment",
-    title: "Equipment",
-    description: "What gear do you currently own or plan to acquire?",
-  },
-  {
-    id: "skills",
-    title: "Photography Skills",
-    description: "Rate your current skill levels honestly — there are no wrong answers.",
-  },
-  {
-    id: "creative_profile",
-    title: "Creative Profile",
-    description: "Help us understand your creative journey and online presence.",
-  },
-  {
-    id: "goals",
-    title: "Goals & Learning",
-    description: "What do you want to achieve through the program?",
-  },
-  {
-    id: "logistics",
-    title: "Logistics",
-    description: "Practical details about your availability and commitment.",
-  },
-  {
-    id: "open_questions",
-    title: "Open Questions",
-    description: "Share your vision, motivation, and anything else we should know.",
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Option lists (as const for type safety)
-// ---------------------------------------------------------------------------
-
-export const AGE_RANGES = [
-  "Under 18",
-  "18-24",
-  "25-34",
-  "35-44",
-  "45-54",
-  "55-64",
-  "65+",
-] as const;
-
-export const GENDERS = [
-  "Male",
-  "Female",
-  "Non-binary",
-  "Prefer not to say",
-] as const;
-
-export const FITNESS_LEVELS = [
-  "Low",
-  "Moderate",
-  "Good",
-  "Excellent",
-] as const;
-
-export const HEALTH_CONDITIONS = [
-  "None",
-  "Minor conditions (managed)",
-  "Conditions that may affect diving",
-] as const;
 
 export const DIVING_TYPES = [
   "Scuba diving",
@@ -294,180 +204,137 @@ export const REFERRAL_SOURCES = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Photography-specific steps
 // ---------------------------------------------------------------------------
 
-const rating = z.number().int().min(1).max(10);
+const divingFields: FieldDefinition[] = [
+  { type: "multiselect", name: "diving_types", label: "Types of Diving", options: DIVING_TYPES, required: true },
+  { type: "select", name: "certification_level", label: "Certification Level", options: CERTIFICATION_LEVELS, required: true },
+  { type: "text", name: "certification_details", label: "Certification Details (optional)", placeholder: "Agency, cert number, etc.", required: false, visibleWhen: { field: "certification_level", operator: "neq", value: "None" } },
+  { type: "select", name: "number_of_dives", label: "Number of Dives", options: NUMBER_OF_DIVES, required: true },
+  { type: "date", name: "last_dive_date", label: "Last Dive Date", required: true },
+  { type: "multiselect", name: "diving_environments", label: "Diving Environments", options: DIVING_ENVIRONMENTS, required: true },
+  { type: "rating", name: "buoyancy_skill", label: "Buoyancy Skill (1 = beginner, 10 = expert)" },
+];
 
-const atLeastOne = (arr: z.ZodType<string[]>, message = "Select at least one option") =>
-  arr.check(z.minLength(1, message));
-
-// ---------------------------------------------------------------------------
-// Full schema (all 51 fields)
-// ---------------------------------------------------------------------------
-
-export const photographyAnswersSchema = z.object({
-  // Step 1 — Personal
-  first_name: z.string().min(1, "First name is required"),
-  last_name: z.string().min(1, "Last name is required"),
-  nickname: z.string().min(1, "Nickname is required"),
-  email: z.email("Please enter a valid email"),
-  phone: z.string().min(1, "Phone number is required"),
-  age: z.enum(AGE_RANGES),
-  gender: z.enum(GENDERS),
-
-  // Step 2 — Background
-  nationality: z.string().min(1, "Nationality is required"),
-  country_of_residence: z.string().min(1, "Country of residence is required"),
-  languages: atLeastOne(z.array(z.string()), "Select at least one language"),
-  current_occupation: z.string().min(1, "Current occupation is required"),
-
-  // Step 3 — Health
-  physical_fitness: z.enum(FITNESS_LEVELS),
-  health_conditions: z.enum(HEALTH_CONDITIONS),
-  health_details: z.string().optional(),
-
-  // Step 4 — Diving
-  diving_types: atLeastOne(z.array(z.enum(DIVING_TYPES))),
-  certification_level: z.enum(CERTIFICATION_LEVELS),
-  certification_details: z.string().optional(),
-  number_of_dives: z.enum(NUMBER_OF_DIVES),
-  last_dive_date: z.string().min(1, "Last dive date is required"),
-  diving_environments: atLeastOne(z.array(z.enum(DIVING_ENVIRONMENTS))),
-  buoyancy_skill: rating,
-
-  // Step 5 — Equipment
-  equipment_owned: z.array(z.enum(EQUIPMENT_OWNED)),
-  photography_equipment: z.string().min(1, "Please describe your photography equipment"),
-  planning_to_invest: z.enum(PLANNING_TO_INVEST),
-
-  // Step 6 — Skills
-  years_experience: z.enum(YEARS_EXPERIENCE),
-  skill_camera_settings: rating,
-  skill_lighting: rating,
-  skill_post_production: rating,
-  skill_color_correction: rating,
-  skill_composition: rating,
-  skill_drone: rating,
-  skill_over_water: rating,
-
-  // Step 7 — Creative Profile
-  content_created: atLeastOne(z.array(z.enum(CONTENT_CREATED))),
-  btm_category: z.enum(BTM_CATEGORIES),
-  involvement_level: z.enum(INVOLVEMENT_LEVELS),
-  online_presence: z.enum(ONLINE_PRESENCE),
-  online_links: z.string().optional(),
-  income_from_photography: z.enum(INCOME_FROM_PHOTOGRAPHY),
-
-  // Step 8 — Goals
-  primary_goal: z.enum(PRIMARY_GOALS),
-  secondary_goal: z.string().optional(),
-  learning_aspects: atLeastOne(z.array(z.enum(LEARNING_ASPECTS))),
-  content_to_create: atLeastOne(z.array(z.enum(CONTENT_TO_CREATE))),
-  learning_approach: atLeastOne(z.array(z.enum(LEARNING_APPROACHES))),
-  marine_subjects: atLeastOne(z.array(z.enum(MARINE_SUBJECTS))),
-
-  // Step 9 — Logistics
-  time_availability: z.enum(TIME_AVAILABILITY),
-  travel_willingness: z.enum(TRAVEL_WILLINGNESS),
-  budget: z.enum(BUDGETS),
-  start_timeline: z.enum(START_TIMELINES),
-
-  // Step 10 — Open Questions
-  ultimate_vision: z.string().min(10, "Please share at least a short answer (10+ characters)"),
-  inspiration_to_apply: z.string().min(10, "Please share at least a short answer (10+ characters)"),
-  referral_source: atLeastOne(z.array(z.enum(REFERRAL_SOURCES))),
-  questions_or_concerns: z.string().optional(),
-  anything_else: z.string().optional(),
-});
-
-export type PhotographyAnswers = z.infer<typeof photographyAnswersSchema>;
-
-// ---------------------------------------------------------------------------
-// Per-step validation schemas
-// ---------------------------------------------------------------------------
-
-export const photographyStepSchemas: Record<string, z.ZodType> = {
-  personal: z.object({
-    first_name: z.string().min(1, "First name is required"),
-    last_name: z.string().min(1, "Last name is required"),
-    nickname: z.string().min(1, "Nickname is required"),
-    email: z.email("Please enter a valid email"),
-    phone: z.string().min(1, "Phone number is required"),
-    age: z.enum(AGE_RANGES),
-    gender: z.enum(GENDERS),
-  }),
-
-  background: z.object({
-    nationality: z.string().min(1, "Nationality is required"),
-    country_of_residence: z.string().min(1, "Country of residence is required"),
-    languages: atLeastOne(z.array(z.string()), "Select at least one language"),
-    current_occupation: z.string().min(1, "Current occupation is required"),
-  }),
-
-  health: z.object({
-    physical_fitness: z.enum(FITNESS_LEVELS),
-    health_conditions: z.enum(HEALTH_CONDITIONS),
-    health_details: z.string().optional(),
-  }),
-
-  diving: z.object({
-    diving_types: atLeastOne(z.array(z.enum(DIVING_TYPES))),
-    certification_level: z.enum(CERTIFICATION_LEVELS),
-    certification_details: z.string().optional(),
-    number_of_dives: z.enum(NUMBER_OF_DIVES),
-    last_dive_date: z.string().min(1, "Last dive date is required"),
-    diving_environments: atLeastOne(z.array(z.enum(DIVING_ENVIRONMENTS))),
-    buoyancy_skill: rating,
-  }),
-
-  equipment: z.object({
-    equipment_owned: z.array(z.enum(EQUIPMENT_OWNED)),
-    photography_equipment: z.string().min(1, "Please describe your photography equipment"),
-    planning_to_invest: z.enum(PLANNING_TO_INVEST),
-  }),
-
-  skills: z.object({
-    years_experience: z.enum(YEARS_EXPERIENCE),
-    skill_camera_settings: rating,
-    skill_lighting: rating,
-    skill_post_production: rating,
-    skill_color_correction: rating,
-    skill_composition: rating,
-    skill_drone: rating,
-    skill_over_water: rating,
-  }),
-
-  creative_profile: z.object({
-    content_created: atLeastOne(z.array(z.enum(CONTENT_CREATED))),
-    btm_category: z.enum(BTM_CATEGORIES),
-    involvement_level: z.enum(INVOLVEMENT_LEVELS),
-    online_presence: z.enum(ONLINE_PRESENCE),
-    online_links: z.string().optional(),
-    income_from_photography: z.enum(INCOME_FROM_PHOTOGRAPHY),
-  }),
-
-  goals: z.object({
-    primary_goal: z.enum(PRIMARY_GOALS),
-    secondary_goal: z.string().optional(),
-    learning_aspects: atLeastOne(z.array(z.enum(LEARNING_ASPECTS))),
-    content_to_create: atLeastOne(z.array(z.enum(CONTENT_TO_CREATE))),
-    learning_approach: atLeastOne(z.array(z.enum(LEARNING_APPROACHES))),
-    marine_subjects: atLeastOne(z.array(z.enum(MARINE_SUBJECTS))),
-  }),
-
-  logistics: z.object({
-    time_availability: z.enum(TIME_AVAILABILITY),
-    travel_willingness: z.enum(TRAVEL_WILLINGNESS),
-    budget: z.enum(BUDGETS),
-    start_timeline: z.enum(START_TIMELINES),
-  }),
-
-  open_questions: z.object({
-    ultimate_vision: z.string().min(10, "Please share at least a short answer (10+ characters)"),
-    inspiration_to_apply: z.string().min(10, "Please share at least a short answer (10+ characters)"),
-    referral_source: atLeastOne(z.array(z.enum(REFERRAL_SOURCES))),
-    questions_or_concerns: z.string().optional(),
-    anything_else: z.string().optional(),
-  }),
+const divingStep: FormStepDefinition = {
+  id: "diving",
+  title: "Diving Experience",
+  description: "Tell us about your diving background and comfort level.",
+  fields: divingFields,
 };
+
+const equipmentFields: FieldDefinition[] = [
+  { type: "multiselect", name: "equipment_owned", label: "Equipment Owned", options: EQUIPMENT_OWNED, required: false },
+  { type: "text", multiline: true, name: "photography_equipment", label: "Describe Your Photography Equipment", placeholder: "Camera body, lenses, housing, lights, editing software...", required: true },
+  { type: "select", name: "planning_to_invest", label: "Planning to Invest in New Equipment?", options: PLANNING_TO_INVEST, required: true },
+];
+
+const equipmentStep: FormStepDefinition = {
+  id: "equipment",
+  title: "Equipment",
+  description: "What gear do you currently own or plan to acquire?",
+  fields: equipmentFields,
+};
+
+const skillsFields: FieldDefinition[] = [
+  { type: "select", name: "years_experience", label: "Years of Photography Experience", options: YEARS_EXPERIENCE, required: true },
+  { type: "rating", name: "skill_camera_settings", label: "Camera Settings & Exposure" },
+  { type: "rating", name: "skill_lighting", label: "Lighting" },
+  { type: "rating", name: "skill_post_production", label: "Post-Production" },
+  { type: "rating", name: "skill_color_correction", label: "Color Correction" },
+  { type: "rating", name: "skill_composition", label: "Composition" },
+  { type: "rating", name: "skill_drone", label: "Drone Operation" },
+  { type: "rating", name: "skill_over_water", label: "Over-Water Photography" },
+];
+
+const skillsStep: FormStepDefinition = {
+  id: "skills",
+  title: "Photography Skills",
+  description: "Rate your current skill levels honestly — there are no wrong answers.",
+  fields: skillsFields,
+};
+
+const creativeProfileFields: FieldDefinition[] = [
+  { type: "multiselect", name: "content_created", label: "Content You've Created", options: CONTENT_CREATED, required: true },
+  { type: "select", name: "btm_category", label: "How Would You Categorize Yourself?", options: BTM_CATEGORIES, required: true },
+  { type: "select", name: "involvement_level", label: "Level of Involvement in Photography", options: INVOLVEMENT_LEVELS, required: true },
+  { type: "select", name: "online_presence", label: "Online Presence", options: ONLINE_PRESENCE, required: true },
+  { type: "text", name: "online_links", label: "Links to Your Work (optional)", placeholder: "Instagram, website, portfolio...", required: false },
+  { type: "select", name: "income_from_photography", label: "Income from Photography", options: INCOME_FROM_PHOTOGRAPHY, required: true },
+];
+
+const creativeProfileStep: FormStepDefinition = {
+  id: "creative_profile",
+  title: "Creative Profile",
+  description: "Help us understand your creative journey and online presence.",
+  fields: creativeProfileFields,
+};
+
+const goalsFields: FieldDefinition[] = [
+  { type: "select", name: "primary_goal", label: "Primary Goal", options: PRIMARY_GOALS, required: true },
+  { type: "text", name: "secondary_goal", label: "Secondary Goal (optional)", placeholder: "Any other goals you'd like to achieve?", required: false },
+  { type: "multiselect", name: "learning_aspects", label: "Aspects You Want to Learn", options: LEARNING_ASPECTS, required: true },
+  { type: "multiselect", name: "content_to_create", label: "Content You Want to Create", options: CONTENT_TO_CREATE, required: true },
+  { type: "multiselect", name: "learning_approach", label: "Preferred Learning Approach", options: LEARNING_APPROACHES, required: true },
+  { type: "multiselect", name: "marine_subjects", label: "Marine Subjects of Interest", options: MARINE_SUBJECTS, required: true },
+];
+
+const goalsStep: FormStepDefinition = {
+  id: "goals",
+  title: "Goals & Learning",
+  description: "What do you want to achieve through the program?",
+  fields: goalsFields,
+};
+
+const logisticsFields: FieldDefinition[] = [
+  { type: "select", name: "time_availability", label: "Time Availability", options: TIME_AVAILABILITY, required: true },
+  { type: "select", name: "travel_willingness", label: "Willingness to Travel", options: TRAVEL_WILLINGNESS, required: true },
+  { type: "select", name: "budget", label: "Budget", options: BUDGETS, required: true },
+  { type: "select", name: "start_timeline", label: "When Can You Start?", options: START_TIMELINES, required: true },
+];
+
+const logisticsStep: FormStepDefinition = {
+  id: "logistics",
+  title: "Logistics",
+  description: "Practical details about your availability and commitment.",
+  fields: logisticsFields,
+};
+
+const openQuestionsFields: FieldDefinition[] = [
+  { type: "text", multiline: true, name: "ultimate_vision", label: "What is your ultimate vision for your underwater photography career or journey?", minLength: 10, required: true },
+  { type: "text", multiline: true, name: "inspiration_to_apply", label: "What inspired you to apply to the BTM Academy?", minLength: 10, required: true },
+  { type: "multiselect", name: "referral_source", label: "How Did You Hear About Us?", options: REFERRAL_SOURCES, required: true },
+  { type: "text", multiline: true, name: "questions_or_concerns", label: "Questions or Concerns (optional)", placeholder: "Anything you'd like to ask or flag before submitting?", required: false },
+  { type: "text", multiline: true, name: "anything_else", label: "Anything Else? (optional)", placeholder: "Share anything else you'd like us to know...", required: false },
+];
+
+const openQuestionsStep: FormStepDefinition = {
+  id: "open_questions",
+  title: "Open Questions",
+  description: "Share your vision, motivation, and anything else we should know.",
+  fields: openQuestionsFields,
+};
+
+// ---------------------------------------------------------------------------
+// Full photography form definition
+// ---------------------------------------------------------------------------
+
+export const photographyFormDefinition: FormDefinition = {
+  programSlug: "photography",
+  steps: [
+    personalStep,
+    backgroundStep,
+    healthStep,
+    divingStep,
+    equipmentStep,
+    skillsStep,
+    creativeProfileStep,
+    goalsStep,
+    logisticsStep,
+    openQuestionsStep,
+  ],
+};
+
+// Auto-register
+registerForm(photographyFormDefinition);
