@@ -22,13 +22,13 @@ export function TextField({
   className = "",
   ...props
 }: TextFieldProps) {
-  const sharedClassName = `rounded-lg border border-brand-secondary bg-brand-near-black px-4 py-3 text-white placeholder-brand-cyan-blue-gray outline-none transition-colors focus:border-brand-primary ${error ? "border-red-400" : ""} ${className}`;
+  const sharedClassName = `rounded-lg border border-border bg-card px-4 py-3 text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary ${error ? "border-red-400" : ""} ${className}`;
 
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor={name} className="text-sm font-medium text-brand-light-gray">
+      <label htmlFor={name} className="text-sm font-medium text-muted-foreground">
         {label}
-        {props.required && <span className="ml-1 text-brand-primary">*</span>}
+        {props.required && <span className="ml-1 text-primary">*</span>}
       </label>
       {multiline ? (
         <textarea
@@ -53,7 +53,6 @@ export function TextField({
           onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         />
       )}
-      {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
 }

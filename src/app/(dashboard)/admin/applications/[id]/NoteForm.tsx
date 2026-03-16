@@ -27,12 +27,12 @@ export function NoteForm({ applicationId }: NoteFormProps) {
         onChange={(e) => setText(e.target.value)}
         placeholder="Add a note..."
         rows={3}
-        className="resize-none rounded-lg border border-brand-secondary bg-brand-secondary px-3 py-2 text-sm text-white placeholder-brand-cyan-blue-gray outline-none focus:border-brand-primary"
+        className="resize-none rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
       />
       <button
         type="submit"
         disabled={isPending || !text.trim()}
-        className="self-end rounded-lg bg-brand-primary px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="self-end rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
       >
         {isPending ? "Adding..." : "Add Note"}
       </button>

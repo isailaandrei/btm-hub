@@ -35,23 +35,23 @@ export function FormStepper({
   return (
     <div className="mx-auto w-full max-w-2xl">
       {/* Progress bar */}
-      <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-brand-secondary">
+      <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-brand-primary transition-all duration-300"
+          className="h-full rounded-full bg-primary transition-all duration-300"
           style={{ width: `${progress}%` }}
         />
       </div>
 
       {/* Step indicator */}
-      <p className="mb-8 text-sm text-brand-cyan-blue-gray">
+      <p className="mb-8 text-sm text-muted-foreground">
         Step {currentStep + 1} of {totalSteps} — {title}
       </p>
 
       {/* Step header */}
-      <h2 className="mb-2 text-[length:var(--font-size-h2)] font-medium text-white">
+      <h2 className="mb-2 text-[length:var(--font-size-h2)] font-medium text-foreground">
         {title}
       </h2>
-      <p className="mb-8 text-brand-cyan-blue-gray">{description}</p>
+      <p className="mb-8 text-muted-foreground">{description}</p>
 
       {/* Step content */}
       <div className="flex flex-col gap-6">{children}</div>
@@ -62,7 +62,7 @@ export function FormStepper({
           type="button"
           onClick={onBack}
           disabled={isFirst}
-          className="rounded-lg border border-brand-secondary px-6 py-3 text-sm font-medium text-white transition-colors hover:border-brand-light-gray disabled:pointer-events-none disabled:opacity-30"
+          className="rounded-lg border border-border px-6 py-3 text-sm font-medium text-foreground transition-colors hover:border-border disabled:pointer-events-none disabled:opacity-30"
         >
           Back
         </button>
@@ -72,7 +72,7 @@ export function FormStepper({
             type="button"
             onClick={onSubmit}
             disabled={isSubmitting}
-            className="rounded-lg bg-brand-primary px-8 py-3 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="rounded-lg bg-primary px-8 py-3 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {isSubmitting ? "Submitting..." : "Submit Application"}
           </button>
@@ -80,7 +80,7 @@ export function FormStepper({
           <button
             type="button"
             onClick={onNext}
-            className="rounded-lg bg-brand-primary px-8 py-3 font-medium text-white transition-opacity hover:opacity-90"
+            className="rounded-lg bg-primary px-8 py-3 font-medium text-white transition-opacity hover:opacity-90"
           >
             {isLastFormStep ? "Review" : "Next"}
           </button>
@@ -88,7 +88,7 @@ export function FormStepper({
       </div>
 
       {/* Auto-save note */}
-      <p className="mt-6 text-center text-xs text-brand-cyan-blue-gray">
+      <p className="mt-6 text-center text-xs text-muted-foreground">
         Your progress is automatically saved — you can close this page and come back anytime.
       </p>
     </div>
