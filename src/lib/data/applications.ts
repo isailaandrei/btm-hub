@@ -90,6 +90,29 @@ export async function getApplicationById(
 }
 
 // ---------------------------------------------------------------------------
+// Current user's applications
+// ---------------------------------------------------------------------------
+
+export async function getMyApplications(): Promise<Application[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from("applications")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("submitted_at", { ascending: false });
+
+  if (error) throw new Error(`Failed to fetch your applications: ${error.message}`);
+
+  return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
 // Submit
 // ---------------------------------------------------------------------------
 

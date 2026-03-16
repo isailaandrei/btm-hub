@@ -47,7 +47,7 @@ export function AvatarUpload({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="group relative h-20 w-20 overflow-hidden rounded-full border-2 border-brand-secondary transition-colors hover:border-brand-primary"
+        className="group relative h-24 w-24 overflow-hidden rounded-full border-2 border-brand-secondary transition-colors hover:border-brand-primary"
         disabled={isPending}
       >
         {avatarUrl ? (
@@ -57,7 +57,7 @@ export function AvatarUpload({
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-brand-dark-navy text-lg font-medium text-brand-primary">
+          <div className="flex h-full w-full items-center justify-center bg-brand-dark-navy text-xl font-medium text-brand-primary">
             {initials}
           </div>
         )}
