@@ -1,11 +1,17 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { submitApplication } from "@/lib/data/applications";
-import { photographyAnswersSchema } from "@/lib/academy/forms/photography";
+import { submitApplication, getApplicantName } from "@/lib/data/applications";
+import { getFormDefinition } from "@/lib/academy/forms";
+import { buildFullSchema } from "@/lib/academy/forms/schema-builder";
 import { getProgram } from "@/lib/academy/programs";
 import type { ProgramSlug } from "@/types/database";
 import { redirect } from "next/navigation";
+import { sendEmail } from "@/lib/email/send";
+import { applicationConfirmationEmail } from "@/lib/email/templates/application-confirmation";
+import { adminNewApplicationEmail } from "@/lib/email/templates/admin-new-application";
+
+const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? "";
 
 export type ApplicationFormState = {
   errors: Record<string, string[]> | null;
@@ -31,6 +37,23 @@ export async function submitAcademyApplication(
     };
   }
 
+  const formDef = getFormDefinition(programSlug);
+  if (!formDef) {
+    return {
+      errors: null,
+      message: "Validation not configured for this program.",
+      success: false,
+    };
+  }
+
+  // Build a lookup of field types for parsing
+  const fieldTypes = new Map<string, string>();
+  for (const step of formDef.steps) {
+    for (const field of step.fields) {
+      fieldTypes.set(field.name, field.type);
+    }
+  }
+
   // Parse form data — multi-selects are JSON-encoded, ratings are numeric
   const raw = Object.fromEntries(formData.entries());
   const answers: Record<string, unknown> = {};
@@ -40,21 +63,18 @@ export async function submitAcademyApplication(
 
     const strValue = value as string;
 
-    // Try parsing as JSON (multi-select arrays)
-    if (strValue.startsWith("[")) {
+    // Parse multi-select arrays (JSON-encoded on the client)
+    if (fieldTypes.get(key) === "multiselect") {
       try {
         answers[key] = JSON.parse(strValue);
         continue;
       } catch {
-        // not JSON, treat as string
+        // malformed, treat as string
       }
     }
 
     // Parse ratings as numbers
-    if (
-      (key.startsWith("skill_") || key === "buoyancy_skill") &&
-      /^\d+$/.test(strValue)
-    ) {
+    if (fieldTypes.get(key) === "rating" && /^\d+$/.test(strValue)) {
       answers[key] = parseInt(strValue, 10);
       continue;
     }
@@ -62,18 +82,8 @@ export async function submitAcademyApplication(
     answers[key] = strValue;
   }
 
-  // Validate based on program
-  let schema;
-  if (programSlug === "photography") {
-    schema = photographyAnswersSchema;
-  } else {
-    return {
-      errors: null,
-      message: "Validation not configured for this program.",
-      success: false,
-    };
-  }
-
+  // Validate using generated schema
+  const schema = buildFullSchema(formDef.steps);
   const parsed = schema.safeParse(answers);
   if (!parsed.success) {
     const fieldErrors: Record<string, string[]> = {};
@@ -95,12 +105,14 @@ export async function submitAcademyApplication(
     data: { user },
   } = await supabase.auth.getUser();
 
+  let applicationId: string;
   try {
-    await submitApplication(
+    const application = await submitApplication(
       programSlug as ProgramSlug,
       parsed.data as Record<string, unknown>,
       user?.id,
     );
+    applicationId = application.id;
   } catch (err) {
     console.error("submitApplication error:", err);
     return {
@@ -109,6 +121,32 @@ export async function submitAcademyApplication(
       success: false,
     };
   }
+  
+
+  // TODO: comment out when you set the email API KEYS
+  // // Fire-and-forget email notifications
+  // const applicantName = getApplicantName(answers, "Applicant");
+  // const applicantEmail = answers.email as string;
+
+  // if (applicantEmail) {
+  //   const confirmation = applicationConfirmationEmail({
+  //     applicantName,
+  //     programName: program.name,
+  //   });
+  //   sendEmail({ to: applicantEmail, ...confirmation }).catch(() => {});
+  // }
+
+  // if (ADMIN_EMAIL) {
+  //   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://btmacademy.com";
+  //   const adminNotification = adminNewApplicationEmail({
+  //     applicantName,
+  //     applicantEmail: applicantEmail ?? "",
+  //     programName: program.name,
+  //     applicationId,
+  //     baseUrl,
+  //   });
+  //   sendEmail({ to: ADMIN_EMAIL, ...adminNotification }).catch(() => {});
+  // }
 
   redirect(`/academy/${programSlug}/apply/success`);
 }

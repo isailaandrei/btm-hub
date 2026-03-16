@@ -1,9 +1,9 @@
 "use client";
 
-import type { StepDefinition } from "@/lib/academy/forms/photography";
+import type { FormStepDefinition } from "@/lib/academy/forms/types";
 
 interface FormStepperProps {
-  steps: StepDefinition[];
+  steps: FormStepDefinition[];
   currentStep: number;
   onNext: () => void;
   onBack: () => void;
@@ -21,10 +21,16 @@ export function FormStepper({
   isSubmitting,
   children,
 }: FormStepperProps) {
-  const step = steps[currentStep];
+  const totalSteps = steps.length + 1; // +1 for review
+  const isReview = currentStep === steps.length;
   const isFirst = currentStep === 0;
-  const isLast = currentStep === steps.length - 1;
-  const progress = ((currentStep + 1) / steps.length) * 100;
+  const isLastFormStep = currentStep === steps.length - 1;
+  const progress = ((currentStep + 1) / totalSteps) * 100;
+
+  const title = isReview ? "Review Your Answers" : steps[currentStep].title;
+  const description = isReview
+    ? "Please review your answers before submitting. Click Edit to change any section."
+    : steps[currentStep].description;
 
   return (
     <div className="mx-auto w-full max-w-2xl">
@@ -38,14 +44,14 @@ export function FormStepper({
 
       {/* Step indicator */}
       <p className="mb-8 text-sm text-brand-cyan-blue-gray">
-        Step {currentStep + 1} of {steps.length} — {step.title}
+        Step {currentStep + 1} of {totalSteps} — {title}
       </p>
 
       {/* Step header */}
       <h2 className="mb-2 text-[length:var(--font-size-h2)] font-medium text-white">
-        {step.title}
+        {title}
       </h2>
-      <p className="mb-8 text-brand-cyan-blue-gray">{step.description}</p>
+      <p className="mb-8 text-brand-cyan-blue-gray">{description}</p>
 
       {/* Step content */}
       <div className="flex flex-col gap-6">{children}</div>
@@ -61,7 +67,7 @@ export function FormStepper({
           Back
         </button>
 
-        {isLast ? (
+        {isReview ? (
           <button
             type="button"
             onClick={onSubmit}
@@ -76,7 +82,7 @@ export function FormStepper({
             onClick={onNext}
             className="rounded-lg bg-brand-primary px-8 py-3 font-medium text-white transition-opacity hover:opacity-90"
           >
-            Next
+            {isLastFormStep ? "Review" : "Next"}
           </button>
         )}
       </div>
