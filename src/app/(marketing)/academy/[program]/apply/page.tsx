@@ -180,8 +180,6 @@ export default function ApplyPage({
     startTransition(() => formAction(fd));
   }
 
-  const allErrors = stepErrors;
-
   return (
     <div className="min-h-screen bg-muted px-5 py-20">
       <FormStepper
@@ -215,7 +213,7 @@ export default function ApplyPage({
             fields={steps[currentStep].fields}
             answers={answers}
             onChange={set}
-            errors={allErrors}
+            errors={stepErrors}
           />
         )}
       </FormStepper>

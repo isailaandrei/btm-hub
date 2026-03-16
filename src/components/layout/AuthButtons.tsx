@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { logout } from "@/app/(auth)/actions";
 import { createClient } from "@/lib/supabase/client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type NavbarUser = {
   id: string;
@@ -17,8 +18,9 @@ interface AuthButtonsProps {
   variant?: "light" | "dark";
 }
 
+const CACHE_KEY = "btm-navbar-user";
+
 export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
-  const CACHE_KEY = "btm-navbar-user";
 
   const [user, setUser] = useState<NavbarUser>(null);
   const [loading, setLoading] = useState(true);
@@ -108,7 +110,7 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
   }, []);
 
   if (loading) {
-    return null;
+    return <Skeleton className="h-8 w-32 rounded-full" />;
   }
   const isLight = variant === "light";
 

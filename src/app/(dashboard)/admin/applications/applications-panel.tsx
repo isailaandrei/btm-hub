@@ -52,8 +52,8 @@ export function ApplicationsPanel() {
     currentPage * PAGE_SIZE,
   );
 
-  function onFilterChange(setter: (v: any) => void) {
-    return (value: any) => {
+  function onFilterChange<T>(setter: (v: T) => void) {
+    return (value: T) => {
       setter(value);
       setPage(1);
     };
