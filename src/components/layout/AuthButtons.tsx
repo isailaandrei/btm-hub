@@ -18,14 +18,14 @@ export function AuthButtons({ user, variant = "dark" }: AuthButtonsProps) {
         <Link
           href="/login"
           className={`text-sm font-medium transition-opacity hover:opacity-75 ${
-            isLight ? "text-brand-text" : "text-white"
+            isLight ? "text-foreground" : "text-white"
           }`}
         >
           Log In
         </Link>
         <Link
           href="/register"
-          className="rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
         >
           Join
         </Link>
@@ -42,9 +42,17 @@ export function AuthButtons({ user, variant = "dark" }: AuthButtonsProps) {
 
   return (
     <div className="flex items-center gap-3">
+      {user.role === "admin" && (
+        <Link
+          href="/admin"
+          className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-2 text-sm font-normal text-white transition-opacity hover:opacity-90"
+        >
+          Admin
+        </Link>
+      )}
       <Link
         href="/profile"
-        className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-brand-secondary transition-colors hover:border-brand-primary"
+        className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-border transition-colors hover:border-primary"
       >
         {user.avatarUrl ? (
           <img
@@ -53,7 +61,7 @@ export function AuthButtons({ user, variant = "dark" }: AuthButtonsProps) {
             className="h-full w-full object-cover"
           />
         ) : (
-          <span className="flex h-full w-full items-center justify-center bg-brand-dark-navy text-xs font-medium text-brand-primary">
+          <span className="flex h-full w-full items-center justify-center bg-accent text-xs font-medium text-primary">
             {initials}
           </span>
         )}
@@ -62,7 +70,7 @@ export function AuthButtons({ user, variant = "dark" }: AuthButtonsProps) {
         <button
           type="submit"
           className={`text-sm font-medium transition-opacity hover:opacity-75 ${
-            isLight ? "text-brand-text" : "text-brand-cyan-blue-gray"
+            isLight ? "text-foreground" : "text-muted-foreground"
           }`}
         >
           Log Out

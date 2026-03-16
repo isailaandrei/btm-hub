@@ -13,12 +13,12 @@ export default async function ApplicationSuccessPage({
   if (!program) return notFound();
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-brand-secondary px-5 py-20">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-muted px-5 py-20">
       <ClearFormStorage programSlug={programSlug} />
 
-      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-brand-primary/20">
+      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/20">
         <svg
-          className="h-8 w-8 text-brand-primary"
+          className="h-8 w-8 text-primary"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -32,17 +32,17 @@ export default async function ApplicationSuccessPage({
         </svg>
       </div>
 
-      <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-white">
+      <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-foreground">
         Application Submitted!
       </h1>
-      <p className="mb-8 max-w-md text-center text-brand-cyan-blue-gray">
+      <p className="mb-8 max-w-md text-center text-muted-foreground">
         Thank you for applying to {program.name}. We&apos;ll review your
         application and get back to you soon.
       </p>
 
       <Link
         href="/academy"
-        className="rounded-lg bg-brand-primary px-6 py-3 font-medium text-white transition-opacity hover:opacity-90"
+        className="rounded-lg bg-primary px-6 py-3 font-medium text-white transition-opacity hover:opacity-90"
       >
         Back to Academy
       </Link>

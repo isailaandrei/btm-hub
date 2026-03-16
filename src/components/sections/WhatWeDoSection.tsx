@@ -30,7 +30,7 @@ function IconPlaceholder() {
 
 export function WhatWeDoSection() {
   return (
-    <section className="bg-white px-5 py-12 md:px-24 md:py-24">
+    <section className="bg-background px-5 py-12 md:px-24 md:py-24">
       <SectionHeader
         title="What We Do"
         description="Academy. Community. Shop. We connect people to the ocean through learning, stories, and shared passion."

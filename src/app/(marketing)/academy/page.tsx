@@ -5,12 +5,12 @@ export default function AcademyPage() {
   const programs = Object.values(PROGRAMS);
 
   return (
-    <div className="min-h-screen bg-brand-secondary px-5 py-20">
+    <div className="min-h-screen bg-muted px-5 py-20">
       <div className="mx-auto max-w-4xl">
-        <h1 className="mb-4 text-center text-[length:var(--font-size-h1)] font-medium text-white">
+        <h1 className="mb-4 text-center text-[length:var(--font-size-h1)] font-medium text-foreground">
           BTM Academy
         </h1>
-        <p className="mx-auto mb-12 max-w-lg text-center text-brand-cyan-blue-gray">
+        <p className="mx-auto mb-12 max-w-lg text-center text-muted-foreground">
           Mentorship-based programs for underwater creatives. Choose a program
           and start your journey.
         </p>
@@ -20,21 +20,21 @@ export default function AcademyPage() {
             <Link
               key={program.slug}
               href={`/academy/${program.slug}`}
-              className="group flex flex-col rounded-lg border border-brand-secondary bg-brand-near-black p-6 transition-colors hover:border-brand-primary"
+              className="group flex flex-col rounded-lg border border-border bg-card p-6 transition-colors hover:border-primary"
             >
               <span className="mb-4 text-4xl">{program.icon}</span>
-              <h2 className="mb-2 text-[length:var(--font-size-h3)] font-medium text-white">
+              <h2 className="mb-2 text-[length:var(--font-size-h3)] font-medium text-foreground">
                 {program.name}
               </h2>
-              <p className="mb-6 flex-1 text-sm text-brand-cyan-blue-gray">
+              <p className="mb-6 flex-1 text-sm text-muted-foreground">
                 {program.shortDescription}
               </p>
               {program.applicationOpen ? (
-                <span className="inline-flex w-fit items-center rounded-full border border-brand-primary bg-brand-primary/10 px-4 py-2 text-sm text-brand-primary">
+                <span className="inline-flex w-fit items-center rounded-full border border-primary bg-primary/10 px-4 py-2 text-sm text-primary">
                   Apply Now
                 </span>
               ) : (
-                <span className="inline-flex w-fit items-center rounded-full border border-brand-secondary px-4 py-2 text-sm text-brand-cyan-blue-gray">
+                <span className="inline-flex w-fit items-center rounded-full border border-border px-4 py-2 text-sm text-muted-foreground">
                   Coming Soon
                 </span>
               )}

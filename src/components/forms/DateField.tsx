@@ -1,6 +1,6 @@
 "use client";
 
-import { type InputHTMLAttributes } from "react";
+import { useRef, type InputHTMLAttributes } from "react";
 
 interface DateFieldProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "type"> {
@@ -18,21 +18,24 @@ export function DateField({
   className = "",
   ...props
 }: DateFieldProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor={name} className="text-sm font-medium text-brand-light-gray">
+      <label htmlFor={name} className="text-sm font-medium text-muted-foreground">
         {label}
-        {props.required && <span className="ml-1 text-brand-primary">*</span>}
+        {props.required && <span className="ml-1 text-primary">*</span>}
       </label>
       <input
+        ref={inputRef}
         id={name}
         name={name}
         type="date"
-        className={`[color-scheme:dark] rounded-lg border border-brand-secondary bg-brand-near-black px-4 py-3 text-white placeholder-brand-cyan-blue-gray outline-none transition-colors focus:border-brand-primary ${error ? "border-red-400" : ""} ${className}`}
+        className={`cursor-pointer [color-scheme:dark] rounded-lg border border-border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${error ? "border-red-400" : ""} ${className}`}
+        onClick={() => inputRef.current?.showPicker()}
         onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         {...props}
       />
-      {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
 }

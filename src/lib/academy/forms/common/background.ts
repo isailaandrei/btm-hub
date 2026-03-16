@@ -6,9 +6,7 @@ export const backgroundFields: FieldDefinition[] = [
   {
     type: "text",
     name: "languages",
-    label: "Languages (comma-separated)",
-    placeholder: "English, Spanish, French",
-    storeAs: "string[]",
+    label: "Languages",
     required: true,
   },
   { type: "text", name: "current_occupation", label: "Current Occupation", required: true },

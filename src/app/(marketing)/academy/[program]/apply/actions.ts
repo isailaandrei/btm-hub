@@ -82,8 +82,8 @@ export async function submitAcademyApplication(
     answers[key] = strValue;
   }
 
-  // Validate using generated schema
-  const schema = buildFullSchema(formDef.steps);
+  // Validate using generated schema (filtered by field visibility)
+  const schema = buildFullSchema(formDef.steps, answers);
   const parsed = schema.safeParse(answers);
   if (!parsed.success) {
     const fieldErrors: Record<string, string[]> = {};

@@ -91,17 +91,17 @@ export default function ApplyPage({
 
   if (!program.applicationOpen) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-brand-secondary px-5 py-20">
-        <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-white">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-muted px-5 py-20">
+        <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-foreground">
           Applications Closed
         </h1>
-        <p className="mb-8 max-w-md text-center text-brand-cyan-blue-gray">
+        <p className="mb-8 max-w-md text-center text-muted-foreground">
           Applications for {program.name} are not currently open. Check back
           soon!
         </p>
         <a
           href="/academy"
-          className="rounded-lg bg-brand-primary px-6 py-3 font-medium text-white transition-opacity hover:opacity-90"
+          className="rounded-lg bg-primary px-6 py-3 font-medium text-white transition-opacity hover:opacity-90"
         >
           Back to Academy
         </a>
@@ -169,22 +169,10 @@ export default function ApplyPage({
     startTransition(() => formAction(fd));
   }
 
-  // Merge server-side errors with step errors for display
-  const allErrors = { ...stepErrors };
-  if (formState.errors) {
-    for (const [key, messages] of Object.entries(formState.errors)) {
-      if (!allErrors[key]) allErrors[key] = messages[0];
-    }
-  }
+  const allErrors = stepErrors;
 
   return (
-    <div className="min-h-screen bg-brand-secondary px-5 py-20">
-      {formState.message && !formState.success && (
-        <div className="mx-auto mb-6 max-w-2xl rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {formState.message}
-        </div>
-      )}
-
+    <div className="min-h-screen bg-muted px-5 py-20">
       <FormStepper
         steps={steps}
         currentStep={currentStep}

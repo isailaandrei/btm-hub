@@ -34,8 +34,8 @@ export function Navbar({ variant = "dark", user = null }: NavbarProps) {
 
   const isLight = variant === "light";
 
-  const bgClass = isLight ? "bg-white border-b border-brand-border" : "bg-brand-near-black";
-  const textClass = isLight ? "text-brand-text" : "text-white";
+  const bgClass = isLight ? "bg-white border-b border-border" : "bg-neutral-950";
+  const textClass = isLight ? "text-foreground" : "text-white";
 
   return (
     <nav className={`relative z-50 ${bgClass}`}>
@@ -43,7 +43,7 @@ export function Navbar({ variant = "dark", user = null }: NavbarProps) {
         {/* Logo */}
         <Link href="/" className="shrink-0">
           {isLight ? (
-            <LogoText className="text-lg font-medium text-brand-text md:text-2xl md:font-bold" />
+            <LogoText className="text-lg font-medium text-foreground md:text-2xl md:font-bold" />
           ) : (
             <>
               {/* Desktop: brand logo image (falls back to text if missing) */}
@@ -102,7 +102,7 @@ export function Navbar({ variant = "dark", user = null }: NavbarProps) {
 
       {/* Mobile drawer */}
       <div
-        className={`fixed inset-0 top-[64px] z-40 bg-brand-near-black transition-transform duration-300 md:hidden ${
+        className={`fixed inset-0 top-[64px] z-40 bg-neutral-950 transition-transform duration-300 md:hidden ${
           mobileOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -117,7 +117,7 @@ export function Navbar({ variant = "dark", user = null }: NavbarProps) {
               {link.label}
             </Link>
           ))}
-          <div className="mt-auto border-t border-brand-secondary pt-6">
+          <div className="mt-auto border-t border-border pt-6">
             <AuthButtons user={user} variant={variant} />
           </div>
         </div>

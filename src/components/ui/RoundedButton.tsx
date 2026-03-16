@@ -9,8 +9,8 @@ const variantClasses: Record<
   NonNullable<RoundedButtonProps["variant"]>,
   string
 > = {
-  primary: "bg-brand-primary text-white",
-  secondary: "bg-brand-secondary text-white",
+  primary: "bg-primary text-white",
+  secondary: "bg-muted text-white",
   ghost: "bg-transparent border border-white text-white",
 };
 
