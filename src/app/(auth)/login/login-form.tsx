@@ -11,7 +11,12 @@ export function LoginForm() {
   const [state, formAction, isPending] = useActionState(login, initialState);
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") ?? "";
-  const successMessage = searchParams.get("message");
+
+  const MESSAGE_MAP: Record<string, string> = {
+    "email-confirmation": "Check your email to confirm your account.",
+    "password-reset": "Check your email for a password reset link.",
+  };
+  const successMessage = MESSAGE_MAP[searchParams.get("message") ?? ""];
 
   return (
     <>

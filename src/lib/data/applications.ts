@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/auth/require-admin";
 import type {
   Application,
   ApplicationStatus,
+  ApplicationSummary,
   ApplicationShare,
   AdminNote,
   ProgramSlug,
@@ -87,14 +88,14 @@ export const getApplicationById = cache(async function getApplicationById(
 // Current user's applications
 // ---------------------------------------------------------------------------
 
-export const getMyApplications = cache(async function getMyApplications(): Promise<Application[]> {
+export const getMyApplications = cache(async function getMyApplications(): Promise<ApplicationSummary[]> {
   const user = await getAuthUser();
   if (!user) return [];
 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("applications")
-    .select("*")
+    .select("id, program, status, answers, submitted_at, updated_at")
     .eq("user_id", user.id)
     .order("submitted_at", { ascending: false });
 

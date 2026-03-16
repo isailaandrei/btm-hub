@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { addTag, removeTag } from "../actions";
 import { Badge } from "@/components/ui/badge";
 
@@ -17,13 +18,23 @@ export function TagManager({ applicationId, tags }: TagManagerProps) {
     e.preventDefault();
     if (!newTag.trim()) return;
     startTransition(async () => {
-      await addTag(applicationId, newTag);
-      setNewTag("");
+      try {
+        await addTag(applicationId, newTag);
+        setNewTag("");
+      } catch {
+        toast.error("Failed to add tag. Please try again.");
+      }
     });
   }
 
   function handleRemove(tag: string) {
-    startTransition(() => removeTag(applicationId, tag));
+    startTransition(async () => {
+      try {
+        await removeTag(applicationId, tag);
+      } catch {
+        toast.error("Failed to remove tag. Please try again.");
+      }
+    });
   }
 
   return (

@@ -20,7 +20,7 @@ import { ApplicationFilters } from "./filters";
 const PAGE_SIZE = 20;
 
 export function ApplicationsPanel() {
-  const { applications } = useAdminData();
+  const { applications, appsError, ensureApplications } = useAdminData();
 
   const [program, setProgram] = useState<ProgramSlug | undefined>();
   const [status, setStatus] = useState<ApplicationStatus | undefined>();
@@ -60,6 +60,21 @@ export function ApplicationsPanel() {
   }
 
   if (applications === null) {
+    if (appsError) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-destructive/50 bg-destructive/5 p-12 text-center">
+          <p className="text-sm font-medium text-destructive">{appsError}</p>
+          <button
+            type="button"
+            onClick={() => ensureApplications()}
+            className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div className="animate-pulse">
         <div className="mb-6 h-8 w-48 rounded bg-muted" />

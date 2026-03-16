@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { toast } from "sonner";
 import type { ApplicationStatus } from "@/types/database";
 import { changeStatus } from "../actions";
 import { STATUSES } from "../constants";
@@ -21,7 +22,13 @@ export function StatusSelector({ applicationId, currentStatus }: StatusSelectorP
   const [isPending, startTransition] = useTransition();
 
   function handleChange(status: string) {
-    startTransition(() => changeStatus(applicationId, status as ApplicationStatus));
+    startTransition(async () => {
+      try {
+        await changeStatus(applicationId, status as ApplicationStatus);
+      } catch {
+        toast.error("Failed to update status. Please try again.");
+      }
+    });
   }
 
   return (

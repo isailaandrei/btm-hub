@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { addNote } from "../actions";
 
 interface NoteFormProps {
@@ -15,8 +16,12 @@ export function NoteForm({ applicationId }: NoteFormProps) {
     e.preventDefault();
     if (!text.trim()) return;
     startTransition(async () => {
-      await addNote(applicationId, text);
-      setText("");
+      try {
+        await addNote(applicationId, text);
+        setText("");
+      } catch {
+        toast.error("Failed to add note. Please try again.");
+      }
     });
   }
 

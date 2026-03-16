@@ -4,13 +4,9 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { AuthButtons } from "./AuthButtons";
-import type { NavbarUser } from "@/lib/data/auth";
-
-export type { NavbarUser };
 
 export interface NavbarProps {
   variant?: "light" | "dark";
-  user?: NavbarUser;
 }
 
 const NAV_LINKS = [
@@ -28,7 +24,7 @@ function LogoText({ className }: { className?: string }) {
   );
 }
 
-export function Navbar({ variant = "dark", user = null }: NavbarProps) {
+export function Navbar({ variant = "dark" }: NavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoError, setLogoError] = useState(false);
 
@@ -77,7 +73,7 @@ export function Navbar({ variant = "dark", user = null }: NavbarProps) {
               {link.label}
             </Link>
           ))}
-          <AuthButtons user={user} variant={variant} />
+          <AuthButtons variant={variant} />
         </div>
 
         {/* Mobile hamburger */}
@@ -118,7 +114,7 @@ export function Navbar({ variant = "dark", user = null }: NavbarProps) {
             </Link>
           ))}
           <div className="mt-auto border-t border-border pt-6">
-            <AuthButtons user={user} variant={variant} />
+            <AuthButtons variant={variant} />
           </div>
         </div>
       </div>
