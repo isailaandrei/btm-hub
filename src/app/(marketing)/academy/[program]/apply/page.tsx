@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useEffect, useCallback, useActionState, useTransition } from "react";
+import { use, useState, useMemo, useEffect, useCallback, useActionState, useTransition } from "react";
 import { notFound } from "next/navigation";
 import { getProgram } from "@/lib/academy/programs";
 import { getFormDefinition } from "@/lib/academy/forms";
