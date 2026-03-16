@@ -45,7 +45,7 @@ export async function removeTag(applicationId: string, tag: string) {
 export async function addNote(applicationId: string, text: string) {
   validateId(applicationId);
   const profile = await requireAdmin();
-  const trimmed = text.trim();
+  const trimmed = text.trim().slice(0, 2000);
   if (!trimmed) return;
   await addAdminNote(applicationId, profile.id, profile.display_name ?? profile.email, trimmed);
   revalidatePath(`/admin/applications/${applicationId}`);

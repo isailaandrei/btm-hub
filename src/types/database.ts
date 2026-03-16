@@ -4,12 +4,12 @@ export interface Profile {
   display_name: string | null;
   bio: string | null;
   avatar_url: string | null;
-  role: string;
+  role: "admin" | "member";
   created_at: string;
   updated_at: string;
 }
 
-export type ApplicationStatus = "reviewing" | "accepted";
+export type ApplicationStatus = "reviewing" | "accepted" | "rejected";
 
 export type ProgramSlug = "photography" | "filmmaking" | "freediving" | "modelling" | "internship";
 
@@ -24,6 +24,11 @@ export interface Application {
   submitted_at: string;
   updated_at: string;
 }
+
+export type ApplicationSummary = Pick<
+  Application,
+  "id" | "program" | "status" | "answers" | "submitted_at" | "updated_at"
+>;
 
 export interface AdminNote {
   author_id: string;
@@ -43,8 +48,8 @@ export interface ApplicationShare {
 
 export interface SharedApplicationView {
   application_id: string;
-  program: string;
-  status: string;
+  program: ProgramSlug;
+  status: ApplicationStatus;
   answers: Record<string, unknown>;
   submitted_at: string;
   expires_at: string | null;

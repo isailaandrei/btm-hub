@@ -26,6 +26,7 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Application, Profile } from "@/types/database";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -35,6 +36,8 @@ type FetchState = "idle" | "loading" | "done";
 interface AdminDataContextValue {
   applications: Application[] | null;
   profiles: Profile[] | null;
+  appsError: string | null;
+  profilesError: string | null;
   ensureApplications: () => void;
   ensureProfiles: () => void;
 }
@@ -50,6 +53,8 @@ export function useAdminData() {
 export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [applications, setApplications] = useState<Application[] | null>(null);
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [appsError, setAppsError] = useState<string | null>(null);
+  const [profilesError, setProfilesError] = useState<string | null>(null);
 
   const appsFetchState = useRef<FetchState>("idle");
   const profilesFetchState = useRef<FetchState>("idle");
@@ -74,12 +79,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         .order("submitted_at", { ascending: false });
 
       if (error) {
-        // Reset to idle so the next tab visit retries the fetch.
-        // Leave applications as null so the skeleton shows on retry.
+        // Reset to idle so the next ensure call retries the fetch.
         appsFetchState.current = "idle";
+        setAppsError("Failed to load applications.");
+        toast.error("Failed to load applications. Please try again.");
         return;
       }
 
+      setAppsError(null);
       setApplications(data ?? []);
       appsFetchState.current = "done";
 
@@ -88,13 +95,29 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         .channel("admin-applications")
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "applications" },
-          async () => {
-            const { data: fresh } = await supabase
-              .from("applications")
-              .select("*")
-              .order("submitted_at", { ascending: false });
-            if (fresh) setApplications(fresh);
+          { event: "INSERT", schema: "public", table: "applications" },
+          (payload) => {
+            setApplications((prev) => [payload.new as Application, ...(prev ?? [])]);
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "applications" },
+          (payload) => {
+            setApplications((prev) =>
+              (prev ?? []).map((a) =>
+                a.id === (payload.new as Application).id ? (payload.new as Application) : a
+              )
+            );
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "applications" },
+          (payload) => {
+            setApplications((prev) =>
+              (prev ?? []).filter((a) => a.id !== (payload.old as Application).id)
+            );
           },
         )
         .subscribe();
@@ -119,9 +142,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         profilesFetchState.current = "idle";
+        setProfilesError("Failed to load profiles.");
+        toast.error("Failed to load profiles. Please try again.");
         return;
       }
 
+      setProfilesError(null);
       setProfiles(data ?? []);
       profilesFetchState.current = "done";
 
@@ -129,13 +155,29 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         .channel("admin-profiles")
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "profiles" },
-          async () => {
-            const { data: fresh } = await supabase
-              .from("profiles")
-              .select("id, email, role, display_name, bio, avatar_url, created_at, updated_at")
-              .order("created_at", { ascending: false });
-            if (fresh) setProfiles(fresh);
+          { event: "INSERT", schema: "public", table: "profiles" },
+          (payload) => {
+            setProfiles((prev) => [payload.new as Profile, ...(prev ?? [])]);
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "profiles" },
+          (payload) => {
+            setProfiles((prev) =>
+              (prev ?? []).map((p) =>
+                p.id === (payload.new as Profile).id ? (payload.new as Profile) : p
+              )
+            );
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "profiles" },
+          (payload) => {
+            setProfiles((prev) =>
+              (prev ?? []).filter((p) => p.id !== (payload.old as Profile).id)
+            );
           },
         )
         .subscribe();
@@ -159,7 +201,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   return (
     <AdminDataContext.Provider
-      value={{ applications, profiles, ensureApplications, ensureProfiles }}
+      value={{ applications, profiles, appsError, profilesError, ensureApplications, ensureProfiles }}
     >
       {children}
     </AdminDataContext.Provider>

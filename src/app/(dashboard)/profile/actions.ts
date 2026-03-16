@@ -43,13 +43,12 @@ export async function updateProfile(
       display_name: parsed.data.displayName,
       bio: parsed.data.bio || null,
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", user.id);
+    }).eq("id", user.id);
 
   if (error) {
     return {
       errors: null,
-      message: "Failed to update profile. Please try again.",
+      message: `Failed to update profile: ${error.message}`,
       success: false,
     };
   }
@@ -105,9 +104,11 @@ export async function uploadAvatar(
     data: { publicUrl },
   } = supabase.storage.from("avatars").getPublicUrl(filePath);
 
+  const cacheBustedUrl = `${publicUrl}?t=${Date.now()}`;
+
   const { error: updateError } = await supabase
     .from("profiles")
-    .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
+    .update({ avatar_url: cacheBustedUrl, updated_at: new Date().toISOString() })
     .eq("id", user.id);
 
   if (updateError) {
@@ -118,5 +119,5 @@ export async function uploadAvatar(
   }
 
   revalidatePath("/profile", "layout");
-  return { url: `${publicUrl}?t=${Date.now()}`, error: null };
+  return { url: cacheBustedUrl, error: null };
 }

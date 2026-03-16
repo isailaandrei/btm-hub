@@ -31,6 +31,13 @@ export default function ApplyPage({
   const { program: programSlug } = use(params);
   const program = getProgram(programSlug);
 
+  const formDef = getFormDefinition(programSlug);
+
+  // Version key derived from field names — changes whenever fields are added/removed/renamed
+  const formVersion = formDef
+    ? formDef.steps.map((s) => s.fields.map((f) => f.name).join(",")).join("|")
+    : "";
+
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
   const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
@@ -46,33 +53,38 @@ export default function ApplyPage({
   );
   const [isPending, startTransition] = useTransition();
 
-  // Restore from localStorage on mount
+  // Restore from localStorage on mount (discard if form version changed)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_PREFIX + programSlug);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.answers) setAnswers(parsed.answers);
-        if (typeof parsed.step === "number") setCurrentStep(parsed.step);
+        if (parsed.formVersion !== formVersion) {
+          // Form definition changed — discard stale data
+          localStorage.removeItem(STORAGE_PREFIX + programSlug);
+        } else {
+          if (parsed.answers) setAnswers(parsed.answers);
+          if (typeof parsed.step === "number") setCurrentStep(parsed.step);
+        }
       }
     } catch {
       // ignore corrupt storage
     }
     setMounted(true);
-  }, [programSlug]);
+  }, [programSlug, formVersion]);
 
-  // Save to localStorage on changes
+  // Save to localStorage on changes (include formVersion for staleness detection)
   useEffect(() => {
     if (!mounted) return;
     try {
       localStorage.setItem(
         STORAGE_PREFIX + programSlug,
-        JSON.stringify({ answers, step: currentStep }),
+        JSON.stringify({ answers, step: currentStep, formVersion }),
       );
     } catch {
       // storage full or unavailable
     }
-  }, [answers, currentStep, programSlug, mounted]);
+  }, [answers, currentStep, programSlug, mounted, formVersion]);
 
   const set = useCallback(
     (key: string, value: unknown) => {
@@ -109,7 +121,6 @@ export default function ApplyPage({
     );
   }
 
-  const formDef = getFormDefinition(programSlug);
   if (!formDef) return notFound();
 
   const steps = formDef.steps;
@@ -169,8 +180,6 @@ export default function ApplyPage({
     startTransition(() => formAction(fd));
   }
 
-  const allErrors = stepErrors;
-
   return (
     <div className="min-h-screen bg-muted px-5 py-20">
       <FormStepper
@@ -181,6 +190,18 @@ export default function ApplyPage({
         onSubmit={handleSubmit}
         isSubmitting={isPending}
       >
+        {isReviewStep && formState.message && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {formState.message}
+          </div>
+        )}
+
+        {isReviewStep && !formState.message && formState.errors && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            Please fix the errors and try again.
+          </div>
+        )}
+
         {isReviewStep ? (
           <ReviewStep
             formDef={formDef}
@@ -192,7 +213,7 @@ export default function ApplyPage({
             fields={steps[currentStep].fields}
             answers={answers}
             onChange={set}
-            errors={allErrors}
+            errors={stepErrors}
           />
         )}
       </FormStepper>
