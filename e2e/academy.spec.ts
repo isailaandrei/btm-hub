@@ -31,12 +31,13 @@ test.describe("Academy", () => {
   test("application form validates required fields", async ({ page }) => {
     await page.goto("/academy/photography/apply");
 
-    // Try to proceed without filling anything — look for a Next button
     const nextButton = page.getByRole("button", { name: /next/i });
     if (await nextButton.isVisible()) {
       await nextButton.click();
-      // Should show validation errors or stay on the same step
-      await expect(page.getByText(/required|please/i).first()).toBeVisible();
+      // Should stay on step 1 — validation prevents advancing
+      await expect(
+        page.getByRole("heading", { name: /personal information/i }),
+      ).toBeVisible();
     }
   });
 });

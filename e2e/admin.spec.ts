@@ -34,11 +34,11 @@ test.describe("Admin", () => {
     await page.getByRole("button", { name: /sign in|log in/i }).click();
     await page.waitForURL("**/profile");
 
-    // Navigate to admin
-    await page.goto("/admin/applications");
-    await expect(page).toHaveURL(/\/admin\/applications/);
+    // Navigate to admin (applications tab is within /admin, not a separate route)
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/admin/);
 
-    // Should see the applications page content
+    // Should see the applications content
     await expect(page.getByText(/application/i).first()).toBeVisible();
   });
 });
