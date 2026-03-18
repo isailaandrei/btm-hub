@@ -167,7 +167,7 @@ describe("buildFullSchema", () => {
       },
     ];
 
-    const schema = buildFullSchema(steps);
+    const schema = buildFullSchema(steps, {});
 
     expect(
       schema.safeParse({ first_name: "Alice", email: "a@b.com" }).success,
