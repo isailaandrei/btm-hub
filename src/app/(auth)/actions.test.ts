@@ -73,10 +73,11 @@ describe("login", () => {
     formData.set("email", "user@test.com");
     formData.set("password", "password123");
 
-    await expect(login(prevState, formData)).rejects.toThrow(RedirectError);
     try {
       await login(prevState, formData);
+      expect.unreachable("Should have thrown RedirectError");
     } catch (e) {
+      expect(e).toBeInstanceOf(RedirectError);
       expect((e as RedirectError).url).toBe("/profile");
     }
   });
