@@ -9,15 +9,10 @@ import {
   addAdminNote,
 } from "@/lib/data/applications";
 import type { ApplicationStatus } from "@/types/database";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function validateId(id: string) {
-  if (!UUID_RE.test(id)) throw new Error("Invalid application ID");
-}
+import { validateUUID } from "@/lib/validation-helpers";
 
 export async function changeStatus(applicationId: string, status: ApplicationStatus) {
-  validateId(applicationId);
+  validateUUID(applicationId);
   await requireAdmin();
   await updateApplicationStatus(applicationId, status);
   revalidatePath(`/admin/applications/${applicationId}`);
@@ -25,7 +20,7 @@ export async function changeStatus(applicationId: string, status: ApplicationSta
 }
 
 export async function addTag(applicationId: string, tag: string) {
-  validateId(applicationId);
+  validateUUID(applicationId);
   await requireAdmin();
   const trimmed = tag.trim().slice(0, 50);
   if (!trimmed) return;
@@ -35,7 +30,7 @@ export async function addTag(applicationId: string, tag: string) {
 }
 
 export async function removeTag(applicationId: string, tag: string) {
-  validateId(applicationId);
+  validateUUID(applicationId);
   await requireAdmin();
   await removeApplicationTag(applicationId, tag);
   revalidatePath(`/admin/applications/${applicationId}`);
@@ -43,7 +38,7 @@ export async function removeTag(applicationId: string, tag: string) {
 }
 
 export async function addNote(applicationId: string, text: string) {
-  validateId(applicationId);
+  validateUUID(applicationId);
   const profile = await requireAdmin();
   const trimmed = text.trim().slice(0, 2000);
   if (!trimmed) return;

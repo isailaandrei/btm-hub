@@ -18,6 +18,11 @@ import type {
 
 export { getApplicantName } from "./applicant-name";
 
+/** Escape PostgREST ILIKE special characters for safe search queries. */
+export function escapeSearchTerm(term: string): string {
+  return term.replace(/[%_\\]/g, "\\$&").replace(/[.,()]/g, "");
+}
+
 // ---------------------------------------------------------------------------
 // Filters / pagination
 // ---------------------------------------------------------------------------
@@ -53,8 +58,7 @@ export const getApplications = cache(async function getApplications(
   if (status) query = query.eq("status", status);
   if (tag) query = query.contains("tags", [tag]);
   if (search) {
-    // Escape PostgREST filter special characters and LIKE wildcards
-    const escaped = search.replace(/[%_\\]/g, "\\$&").replace(/[.,()]/g, "");
+    const escaped = escapeSearchTerm(search);
     query = query.or(`answers->>first_name.ilike.%${escaped}%,answers->>last_name.ilike.%${escaped}%,answers->>email.ilike.%${escaped}%`);
   }
 
