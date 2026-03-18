@@ -1,9 +1,17 @@
 "use client";
 
 import { useTransition } from "react";
+import { toast } from "sonner";
 import type { ApplicationStatus } from "@/types/database";
 import { changeStatus } from "../actions";
 import { STATUSES } from "../constants";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 interface StatusSelectorProps {
   applicationId: string;
@@ -13,23 +21,26 @@ interface StatusSelectorProps {
 export function StatusSelector({ applicationId, currentStatus }: StatusSelectorProps) {
   const [isPending, startTransition] = useTransition();
 
-  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const status = e.target.value as ApplicationStatus;
-    startTransition(() => changeStatus(applicationId, status));
+  function handleChange(status: string) {
+    startTransition(async () => {
+      try {
+        await changeStatus(applicationId, status as ApplicationStatus);
+      } catch {
+        toast.error("Failed to update status. Please try again.");
+      }
+    });
   }
 
   return (
-    <select
-      value={currentStatus}
-      onChange={handleChange}
-      disabled={isPending}
-      className="w-full rounded-lg border border-brand-secondary bg-brand-secondary px-3 py-2 text-sm capitalize text-white outline-none transition-colors focus:border-brand-primary disabled:opacity-50"
-    >
-      {STATUSES.map((s) => (
-        <option key={s} value={s} className="capitalize">
-          {s}
-        </option>
-      ))}
-    </select>
+    <Select value={currentStatus} onValueChange={handleChange} disabled={isPending}>
+      <SelectTrigger className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {STATUSES.map((s) => (
+          <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

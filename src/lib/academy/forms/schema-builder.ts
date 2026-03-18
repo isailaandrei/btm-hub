@@ -2,6 +2,27 @@ import { z } from "zod/v4";
 import type { FieldDefinition, FormStepDefinition } from "./types";
 
 // ---------------------------------------------------------------------------
+// Field visibility helper (shared between client and server)
+// ---------------------------------------------------------------------------
+
+export function isFieldVisible(
+  field: FieldDefinition,
+  answers: Record<string, unknown>,
+): boolean {
+  if (!field.visibleWhen) return true;
+  const { field: depField, operator, value } = field.visibleWhen;
+  const actual = answers[depField];
+  switch (operator) {
+    case "eq":
+      return actual === value;
+    case "neq":
+      return actual !== value;
+    case "in":
+      return Array.isArray(value) && value.includes(actual);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Build a Zod schema for a single field
 // ---------------------------------------------------------------------------
 
@@ -66,22 +87,19 @@ export function buildStepSchema(
 }
 
 // ---------------------------------------------------------------------------
-// Build a full schema from all steps (flat merge)
-// NOTE: This includes all fields regardless of visibleWhen conditions.
-// Currently safe because all conditional fields use required: false, but if a
-// required field ever gets a visibleWhen condition, server-side validation
-// will reject submissions where that field was hidden. In that case, filter
-// fields by visibility before building the schema (same as buildStepSchema
-// does on the client).
+// Build a full schema from all steps (flat merge), filtered by visibility
 // ---------------------------------------------------------------------------
 
 export function buildFullSchema(
   steps: FormStepDefinition[],
+  answers: Record<string, unknown>,
 ): z.ZodObject<Record<string, z.ZodType>> {
   const shape: Record<string, z.ZodType> = {};
   for (const step of steps) {
     for (const field of step.fields) {
-      shape[field.name] = buildFieldSchema(field);
+      if (isFieldVisible(field, answers)) {
+        shape[field.name] = buildFieldSchema(field);
+      }
     }
   }
   return z.object(shape);

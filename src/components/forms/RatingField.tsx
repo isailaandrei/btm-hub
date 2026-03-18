@@ -17,9 +17,9 @@ export function RatingField({
 }: RatingFieldProps) {
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-sm font-medium text-brand-light-gray">{label}</label>
+      <label className="text-sm font-medium text-muted-foreground">{label}</label>
       <input type="hidden" name={name} value={value ?? ""} />
-      <div className="flex gap-2">
+      <div className={`flex gap-2 ${error ? "rounded-lg ring-1 ring-red-400 p-1" : ""}`}>
         {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
           <button
             key={n}
@@ -27,15 +27,14 @@ export function RatingField({
             onClick={() => onChange(n)}
             className={`flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium transition-colors ${
               value === n
-                ? "border-brand-primary bg-brand-primary text-white"
-                : "border-brand-secondary bg-brand-near-black text-brand-light-gray hover:border-brand-light-gray"
+                ? "border-primary bg-primary text-white"
+                : "border-border bg-card text-muted-foreground hover:border-border"
             }`}
           >
             {n}
           </button>
         ))}
       </div>
-      {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
 }

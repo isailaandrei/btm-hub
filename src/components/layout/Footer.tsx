@@ -16,7 +16,7 @@ const CONTACT_EMAILS = [
 
 export function Footer() {
   return (
-    <footer className="bg-brand-dark-navy px-5 py-10 md:px-24 md:py-12">
+    <footer className="bg-neutral-950 px-5 py-10 md:px-24 md:py-12">
       {/* Top section */}
       <div className="flex flex-col gap-8 md:flex-row md:gap-12">
         {/* Brand */}
@@ -24,7 +24,7 @@ export function Footer() {
           <span className="text-lg font-medium text-white md:text-xl md:font-bold">
             Behind the Mask
           </span>
-          <p className="text-sm text-brand-cyan-blue-gray md:text-sm">
+          <p className="text-sm text-neutral-400 md:text-sm">
             A community of creative ocean enthusiasts who observe, listen and
             document the underwater world.
           </p>
@@ -38,7 +38,7 @@ export function Footer() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm text-brand-cyan-blue-gray transition-opacity hover:opacity-75"
+                className="text-sm text-neutral-400 transition-opacity hover:opacity-75"
               >
                 {link.label}
               </Link>
@@ -53,7 +53,7 @@ export function Footer() {
             <a
               key={email}
               href={`mailto:${email}`}
-              className="text-sm text-brand-cyan-blue-gray transition-opacity hover:opacity-75"
+              className="text-sm text-neutral-400 transition-opacity hover:opacity-75"
             >
               {email}
             </a>
@@ -63,11 +63,11 @@ export function Footer() {
 
       {/* Bottom bar */}
       <div className="mt-8 flex flex-col items-center gap-2 md:flex-row md:justify-between">
-        <span className="text-xs text-brand-cyan-blue-gray md:text-[13px]">
+        <span className="text-xs text-neutral-400 md:text-[13px]">
           &copy; {new Date().getFullYear()} Behind the Mask. All rights
           reserved.
         </span>
-        <div className="flex gap-2 text-xs text-brand-cyan-blue-gray md:text-[13px]">
+        <div className="flex gap-2 text-xs text-neutral-400 md:text-[13px]">
           <Link href="/imprint" className="transition-opacity hover:opacity-75">
             Imprint
           </Link>

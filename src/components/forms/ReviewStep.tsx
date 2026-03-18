@@ -28,23 +28,23 @@ export function ReviewStep({ formDef, answers, onEditStep }: ReviewStepProps) {
         return (
           <div key={step.id}>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-medium text-white">{step.title}</h3>
+              <h3 className="text-lg font-medium text-foreground">{step.title}</h3>
               <button
                 type="button"
                 onClick={() => onEditStep(stepIndex)}
-                className="text-sm text-brand-primary transition-opacity hover:opacity-80"
+                className="text-sm text-primary transition-opacity hover:opacity-80"
               >
                 Edit
               </button>
             </div>
-            <div className="rounded-lg border border-brand-secondary bg-brand-near-black p-4">
+            <div className="rounded-lg border border-border bg-card p-4">
               <dl className="flex flex-col gap-3">
                 {visibleFields.map((field) => (
                   <div key={field.name} className="flex flex-col gap-0.5">
-                    <dt className="text-xs text-brand-cyan-blue-gray">
+                    <dt className="text-xs text-muted-foreground">
                       {field.label}
                     </dt>
-                    <dd className="text-sm text-white">
+                    <dd className="text-sm text-foreground">
                       {formatValue(answers[field.name])}
                     </dd>
                   </div>

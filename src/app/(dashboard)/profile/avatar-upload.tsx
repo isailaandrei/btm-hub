@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import Image from "next/image";
+import { Spinner } from "@/components/ui/spinner";
 import { uploadAvatar } from "./actions";
 
 interface AvatarUploadProps {
@@ -38,6 +40,7 @@ export function AvatarUpload({
         setError(result.error);
       } else if (result.url) {
         setAvatarUrl(result.url);
+        window.dispatchEvent(new Event("profile-updated"));
       }
     });
   }
@@ -47,24 +50,28 @@ export function AvatarUpload({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="group relative h-24 w-24 overflow-hidden rounded-full border-2 border-brand-secondary transition-colors hover:border-brand-primary"
+        className="group relative h-24 w-24 overflow-hidden rounded-full border-2 border-border transition-colors hover:border-primary"
         disabled={isPending}
       >
         {avatarUrl ? (
-          <img
+          <Image
             src={avatarUrl}
             alt={displayName || "Avatar"}
+            width={96}
+            height={96}
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-brand-dark-navy text-xl font-medium text-brand-primary">
+          <div className="flex h-full w-full items-center justify-center bg-accent text-xl font-medium text-primary">
             {initials}
           </div>
         )}
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-          <span className="text-xs font-medium text-white">
-            {isPending ? "Uploading..." : "Change"}
-          </span>
+        <div className={`absolute inset-0 flex items-center justify-center bg-black/50 transition-opacity ${isPending ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+          {isPending ? (
+            <Spinner className="border-white/30 border-t-white" />
+          ) : (
+            <span className="text-xs font-medium text-white">Change</span>
+          )}
         </div>
       </button>
       <input

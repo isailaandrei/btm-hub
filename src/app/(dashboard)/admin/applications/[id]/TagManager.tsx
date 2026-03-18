@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { addTag, removeTag } from "../actions";
+import { Badge } from "@/components/ui/badge";
 
 interface TagManagerProps {
   applicationId: string;
@@ -16,13 +18,23 @@ export function TagManager({ applicationId, tags }: TagManagerProps) {
     e.preventDefault();
     if (!newTag.trim()) return;
     startTransition(async () => {
-      await addTag(applicationId, newTag);
-      setNewTag("");
+      try {
+        await addTag(applicationId, newTag);
+        setNewTag("");
+      } catch {
+        toast.error("Failed to add tag. Please try again.");
+      }
     });
   }
 
   function handleRemove(tag: string) {
-    startTransition(() => removeTag(applicationId, tag));
+    startTransition(async () => {
+      try {
+        await removeTag(applicationId, tag);
+      } catch {
+        toast.error("Failed to remove tag. Please try again.");
+      }
+    });
   }
 
   return (
@@ -30,20 +42,17 @@ export function TagManager({ applicationId, tags }: TagManagerProps) {
       {tags.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1.5">
           {tags.map((tag) => (
-            <span
-              key={tag}
-              className="flex items-center gap-1 rounded-full bg-brand-secondary px-2.5 py-0.5 text-xs text-brand-light-gray"
-            >
+            <Badge key={tag} variant="secondary" className="flex items-center gap-1">
               {tag}
               <button
                 type="button"
                 onClick={() => handleRemove(tag)}
                 disabled={isPending}
-                className="ml-0.5 text-brand-cyan-blue-gray transition-colors hover:text-red-400 disabled:opacity-50"
+                className="ml-0.5 text-muted-foreground transition-colors hover:text-red-400 disabled:opacity-50"
               >
                 &times;
               </button>
-            </span>
+            </Badge>
           ))}
         </div>
       )}
@@ -53,12 +62,12 @@ export function TagManager({ applicationId, tags }: TagManagerProps) {
           value={newTag}
           onChange={(e) => setNewTag(e.target.value)}
           placeholder="Add tag..."
-          className="flex-1 rounded-lg border border-brand-secondary bg-brand-secondary px-3 py-1.5 text-sm text-white placeholder-brand-cyan-blue-gray outline-none focus:border-brand-primary"
+          className="flex-1 rounded-lg border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
         />
         <button
           type="submit"
           disabled={isPending || !newTag.trim()}
-          className="rounded-lg bg-brand-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           Add
         </button>

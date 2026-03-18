@@ -5,12 +5,12 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<NonNullable<ButtonProps["variant"]>, string> = {
-  primary: "bg-brand-primary text-white",
-  secondary: "bg-brand-secondary text-white",
+  primary: "bg-primary text-white",
+  secondary: "bg-muted text-white",
   ghost: "bg-transparent border border-white text-white",
 };
 
-export function Button({
+export function BrandButton({
   variant = "primary",
   className = "",
   children,

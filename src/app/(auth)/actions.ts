@@ -27,6 +27,13 @@ export async function login(
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
 
   if (error) {
+    if (error.code === "email_not_confirmed") {
+      return {
+        errors: null,
+        message:
+          "Please confirm your email before logging in. Check your inbox for the confirmation link.",
+      };
+    }
     return {
       errors: null,
       message: "Invalid email or password. Please try again.",
@@ -70,7 +77,7 @@ export async function register(
   });
 
   if (error) {
-    if (error.message.includes("already registered")) {
+    if (error.code === "user_already_exists") {
       return {
         errors: null,
         message: "An account with this email already exists.",
@@ -79,7 +86,7 @@ export async function register(
     return { errors: null, message: "Something went wrong. Please try again." };
   }
 
-  redirect("/login?message=Check your email to confirm your account");
+  redirect("/login?message=email-confirmation");
 }
 
 export async function logout() {

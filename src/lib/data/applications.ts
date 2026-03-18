@@ -1,8 +1,11 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/data/auth";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import type {
   Application,
   ApplicationStatus,
+  ApplicationSummary,
   ApplicationShare,
   AdminNote,
   ProgramSlug,
@@ -13,15 +16,7 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function getApplicantName(
-  answers: Record<string, unknown>,
-  fallback = "—",
-): string {
-  return (
-    [answers.first_name, answers.last_name].filter(Boolean).join(" ") ||
-    fallback
-  );
-}
+export { getApplicantName } from "./applicant-name";
 
 /** Escape PostgREST ILIKE special characters for safe search queries. */
 export function escapeSearchTerm(term: string): string {
@@ -45,7 +40,7 @@ export interface ApplicationFilters {
 // Read
 // ---------------------------------------------------------------------------
 
-export async function getApplications(
+export const getApplications = cache(async function getApplications(
   filters: ApplicationFilters = {},
 ): Promise<{ data: Application[]; count: number }> {
   const supabase = await createClient();
@@ -72,9 +67,9 @@ export async function getApplications(
   if (error) throw new Error(`Failed to fetch applications: ${error.message}`);
 
   return { data: data ?? [], count: count ?? 0 };
-}
+});
 
-export async function getApplicationById(
+export const getApplicationById = cache(async function getApplicationById(
   id: string,
 ): Promise<Application | null> {
   const supabase = await createClient();
@@ -91,30 +86,27 @@ export async function getApplicationById(
   }
 
   return data;
-}
+});
 
 // ---------------------------------------------------------------------------
 // Current user's applications
 // ---------------------------------------------------------------------------
 
-export async function getMyApplications(): Promise<Application[]> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+export const getMyApplications = cache(async function getMyApplications(): Promise<ApplicationSummary[]> {
+  const user = await getAuthUser();
   if (!user) return [];
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("applications")
-    .select("*")
+    .select("id, program, status, answers, submitted_at, updated_at")
     .eq("user_id", user.id)
     .order("submitted_at", { ascending: false });
 
   if (error) throw new Error(`Failed to fetch your applications: ${error.message}`);
 
   return data ?? [];
-}
+});
 
 // ---------------------------------------------------------------------------
 // Submit

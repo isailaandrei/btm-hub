@@ -16,7 +16,7 @@ export async function changeStatus(applicationId: string, status: ApplicationSta
   await requireAdmin();
   await updateApplicationStatus(applicationId, status);
   revalidatePath(`/admin/applications/${applicationId}`);
-  revalidatePath("/admin/applications");
+  revalidatePath("/admin");
 }
 
 export async function addTag(applicationId: string, tag: string) {
@@ -26,7 +26,7 @@ export async function addTag(applicationId: string, tag: string) {
   if (!trimmed) return;
   await addApplicationTag(applicationId, trimmed);
   revalidatePath(`/admin/applications/${applicationId}`);
-  revalidatePath("/admin/applications");
+  revalidatePath("/admin");
 }
 
 export async function removeTag(applicationId: string, tag: string) {
@@ -34,13 +34,13 @@ export async function removeTag(applicationId: string, tag: string) {
   await requireAdmin();
   await removeApplicationTag(applicationId, tag);
   revalidatePath(`/admin/applications/${applicationId}`);
-  revalidatePath("/admin/applications");
+  revalidatePath("/admin");
 }
 
 export async function addNote(applicationId: string, text: string) {
   validateUUID(applicationId);
   const profile = await requireAdmin();
-  const trimmed = text.trim();
+  const trimmed = text.trim().slice(0, 2000);
   if (!trimmed) return;
   await addAdminNote(applicationId, profile.id, profile.display_name ?? profile.email, trimmed);
   revalidatePath(`/admin/applications/${applicationId}`);

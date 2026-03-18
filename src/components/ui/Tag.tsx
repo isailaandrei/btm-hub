@@ -6,10 +6,10 @@ export interface TagProps extends HTMLAttributes<HTMLSpanElement> {
 
 const variantClasses: Record<NonNullable<TagProps["variant"]>, string> = {
   primary:
-    "bg-brand-primary border-brand-primary text-brand-light-bg",
+    "bg-primary border-primary text-white",
   secondary:
-    "bg-brand-secondary border-brand-primary text-brand-light-bg",
-  ghost: "bg-transparent border-white text-white",
+    "bg-primary/10 border-primary/30 text-primary",
+  ghost: "bg-transparent border-border text-muted-foreground",
 };
 
 export function Tag({

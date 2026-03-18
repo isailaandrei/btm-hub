@@ -1,34 +1,20 @@
 "use client";
 
 import type { FieldDefinition } from "@/lib/academy/forms/types";
+import { isFieldVisible } from "@/lib/academy/forms/schema-builder";
 import { TextField } from "./TextField";
 import { SelectField } from "./SelectField";
 import { MultiSelectField } from "./MultiSelectField";
 import { RatingField } from "./RatingField";
 import { DateField } from "./DateField";
 
+export { isFieldVisible };
+
 interface DynamicFormRendererProps {
   fields: FieldDefinition[];
   answers: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
   errors: Record<string, string>;
-}
-
-export function isFieldVisible(
-  field: FieldDefinition,
-  answers: Record<string, unknown>,
-): boolean {
-  if (!field.visibleWhen) return true;
-  const { field: depField, operator, value } = field.visibleWhen;
-  const actual = answers[depField];
-  switch (operator) {
-    case "eq":
-      return actual === value;
-    case "neq":
-      return actual !== value;
-    case "in":
-      return Array.isArray(value) && value.includes(actual);
-  }
 }
 
 function inferColumns(optionCount: number): 1 | 2 | 3 {

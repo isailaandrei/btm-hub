@@ -29,12 +29,12 @@ export function SelectField({
 }: SelectFieldProps) {
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-sm font-medium text-brand-light-gray">
+      <label className="text-sm font-medium text-muted-foreground">
         {label}
-        {required && <span className="ml-1 text-brand-primary">*</span>}
+        {required && <span className="ml-1 text-primary">*</span>}
       </label>
       <input type="hidden" name={name} value={value ?? ""} />
-      <div className={`grid gap-2 ${gridCols[columns]}`}>
+      <div className={`grid gap-2 ${gridCols[columns]} ${error ? "rounded-lg ring-1 ring-red-400 p-1" : ""}`}>
         {options.map((option) => (
           <button
             key={option}
@@ -42,15 +42,14 @@ export function SelectField({
             onClick={() => onChange(option)}
             className={`rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
               value === option
-                ? "border-brand-primary bg-brand-primary/10 text-white"
-                : "border-brand-secondary bg-brand-near-black text-brand-light-gray hover:border-brand-light-gray"
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border bg-card text-muted-foreground hover:border-border"
             }`}
           >
             {option}
           </button>
         ))}
       </div>
-      {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
 }
