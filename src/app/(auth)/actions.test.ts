@@ -148,7 +148,7 @@ describe("register", () => {
   it("returns message for already registered email", async () => {
     mockSupabase.auth.signUp.mockResolvedValue({
       data: {},
-      error: { message: "User already registered" },
+      error: { message: "User already registered", code: "user_already_exists" },
     });
 
     const formData = new FormData();
