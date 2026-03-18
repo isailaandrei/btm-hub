@@ -39,10 +39,21 @@ export default function ApplyPage({
     ? formDef.steps.map((s) => s.fields.map((f) => f.name).join(",")).join("|")
     : "";
 
-  const [currentStep, setCurrentStep] = useState(0);
-  const [answers, setAnswers] = useState<Answers>({});
+  // Restore saved form state from localStorage (static one-time read with try/catch for SSR)
+  const saved = (() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_PREFIX + programSlug);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.formVersion === formVersion) return parsed;
+      }
+    } catch {}
+    return null;
+  })();
+
+  const [currentStep, setCurrentStep] = useState<number>(saved?.step ?? 0);
+  const [answers, setAnswers] = useState<Answers>(saved?.answers ?? {});
   const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
-  const [mounted, setMounted] = useState(false);
 
   const boundAction = useMemo(
     () => submitAcademyApplication.bind(null, programSlug),
@@ -54,30 +65,8 @@ export default function ApplyPage({
   );
   const [isPending, startTransition] = useTransition();
 
-  // Restore from localStorage on mount (discard if form version changed)
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_PREFIX + programSlug);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.formVersion !== formVersion) {
-          // Form definition changed — discard stale data
-          localStorage.removeItem(STORAGE_PREFIX + programSlug);
-        } else {
-          // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe localStorage restoration; cannot use lazy initializer (SSR has no localStorage)
-          if (parsed.answers) setAnswers(parsed.answers);
-          if (typeof parsed.step === "number") setCurrentStep(parsed.step);
-        }
-      }
-    } catch {
-      // ignore corrupt storage
-    }
-    setMounted(true);
-  }, [programSlug, formVersion]);
-
   // Save to localStorage on changes (include formVersion for staleness detection)
   useEffect(() => {
-    if (!mounted) return;
     try {
       localStorage.setItem(
         STORAGE_PREFIX + programSlug,
@@ -86,7 +75,7 @@ export default function ApplyPage({
     } catch {
       // storage full or unavailable
     }
-  }, [answers, currentStep, programSlug, mounted, formVersion]);
+  }, [answers, currentStep, programSlug, formVersion]);
 
   const set = useCallback(
     (key: string, value: unknown) => {

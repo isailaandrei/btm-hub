@@ -21,25 +21,22 @@ interface AuthButtonsProps {
 const CACHE_KEY = "btm-navbar-user";
 
 export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
+  // Read sessionStorage cache during render (static one-time read with try/catch for SSR)
+  const cached = (() => {
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (raw) return JSON.parse(raw) as NavbarUser;
+    } catch {}
+    return null;
+  })();
 
-  const [user, setUser] = useState<NavbarUser>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<NavbarUser>(cached);
+  const [loading, setLoading] = useState(!cached);
 
   useEffect(() => {
     const supabase = createClient();
-
-    // Read cache synchronously before any async work
-    let cached: NavbarUser = null;
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (raw) cached = JSON.parse(raw);
-    } catch {}
-
-    if (cached) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe sessionStorage cache read; cannot use lazy initializer (SSR)
-      setUser(cached);
-      setLoading(false);
-    }
+    let hadCache = false;
+    try { hadCache = !!sessionStorage.getItem(CACHE_KEY); } catch {}
 
     async function fetchProfile(userId: string) {
       const { data: profile } = await supabase
@@ -78,7 +75,7 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
       }
 
       // If we had cached data, we already rendered it — fetch profile in background to refresh
-      if (!cached) {
+      if (!hadCache) {
         await fetchProfile(session.user.id);
       } else {
         fetchProfile(session.user.id);
