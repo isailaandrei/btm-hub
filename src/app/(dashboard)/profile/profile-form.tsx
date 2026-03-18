@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { updateProfile, type ProfileState } from "./actions";
 import type { Profile } from "@/types/database";
 import {
@@ -26,11 +26,12 @@ export function ProfileForm({ profile }: { profile: Profile }) {
   );
 
   // Switch back to view mode when the action returns a successful state.
-  // `state` is a new object reference only when the action completes,
-  // so this effect fires exactly once per submission — not on re-renders.
-  useEffect(() => {
+  // Uses React's "adjusting state during render" pattern instead of useEffect.
+  const [prevState, setPrevState] = useState(state);
+  if (state !== prevState) {
+    setPrevState(state);
     if (state.success) setEditing(false);
-  }, [state]);
+  }
 
   return (
     <Card>

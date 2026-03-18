@@ -110,7 +110,7 @@ describe("submitAcademyApplication", () => {
 
   it("returns error on DB submission failure", async () => {
     mockSubmitApplication.mockRejectedValue(new Error("DB error"));
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
     // Bypass schema validation for this test — we're testing DB error handling
     mockBuildFullSchema.mockReturnValueOnce(z.object({}).passthrough());

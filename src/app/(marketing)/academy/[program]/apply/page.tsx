@@ -2,6 +2,7 @@
 
 import { use, useState, useMemo, useEffect, useCallback, useActionState, useTransition } from "react";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { getProgram } from "@/lib/academy/programs";
 import { getFormDefinition } from "@/lib/academy/forms";
 import { buildStepSchema } from "@/lib/academy/forms/schema-builder";
@@ -63,6 +64,7 @@ export default function ApplyPage({
           // Form definition changed — discard stale data
           localStorage.removeItem(STORAGE_PREFIX + programSlug);
         } else {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe localStorage restoration; cannot use lazy initializer (SSR has no localStorage)
           if (parsed.answers) setAnswers(parsed.answers);
           if (typeof parsed.step === "number") setCurrentStep(parsed.step);
         }
@@ -111,12 +113,12 @@ export default function ApplyPage({
           Applications for {program.name} are not currently open. Check back
           soon!
         </p>
-        <a
+        <Link
           href="/academy"
           className="rounded-lg bg-primary px-6 py-3 font-medium text-white transition-opacity hover:opacity-90"
         >
           Back to Academy
-        </a>
+        </Link>
       </div>
     );
   }

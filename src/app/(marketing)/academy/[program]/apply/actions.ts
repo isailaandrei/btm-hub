@@ -1,17 +1,18 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { submitApplication, getApplicantName } from "@/lib/data/applications";
+import { submitApplication } from "@/lib/data/applications";
 import { getFormDefinition } from "@/lib/academy/forms";
 import { buildFullSchema } from "@/lib/academy/forms/schema-builder";
 import { getProgram } from "@/lib/academy/programs";
 import type { ProgramSlug } from "@/types/database";
 import { redirect } from "next/navigation";
-import { sendEmail } from "@/lib/email/send";
-import { applicationConfirmationEmail } from "@/lib/email/templates/application-confirmation";
-import { adminNewApplicationEmail } from "@/lib/email/templates/admin-new-application";
-
-const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? "";
+// TODO: uncomment when email API keys are configured
+// import { getApplicantName } from "@/lib/data/applications";
+// import { sendEmail } from "@/lib/email/send";
+// import { applicationConfirmationEmail } from "@/lib/email/templates/application-confirmation";
+// import { adminNewApplicationEmail } from "@/lib/email/templates/admin-new-application";
+// const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? "";
 
 export type ApplicationFormState = {
   errors: Record<string, string[]> | null;
@@ -105,14 +106,12 @@ export async function submitAcademyApplication(
     data: { user },
   } = await supabase.auth.getUser();
 
-  let applicationId: string;
   try {
-    const application = await submitApplication(
+    await submitApplication(
       programSlug as ProgramSlug,
       parsed.data as Record<string, unknown>,
       user?.id,
     );
-    applicationId = application.id;
   } catch (err) {
     console.error("submitApplication error:", err);
     return {
