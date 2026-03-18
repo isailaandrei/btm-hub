@@ -4,8 +4,8 @@
 
 The project uses two testing tools:
 
-- **Vitest** — unit and integration tests (fast, runs in Node.js)
-- **Playwright** — end-to-end browser tests (runs a real browser against the app)
+- **Vitest** — unit and integration tests (fast, runs in Node.js, no browser)
+- **Playwright** — end-to-end browser tests (launches a real browser against the running app)
 
 All unit/integration tests are co-located next to the source files they test (`foo.ts` -> `foo.test.ts`). E2E tests live in the `e2e/` directory at the project root.
 
@@ -13,12 +13,154 @@ All unit/integration tests are co-located next to the source files they test (`f
 
 ## Commands
 
+### Unit Tests (Vitest)
+
 | Command | What it does |
 |---------|-------------|
 | `npm test` | Run unit tests in **watch mode** (re-runs on file changes) |
 | `npm run test:unit` | Run unit tests **once** (CI-friendly) |
-| `npm run test:e2e` | Run E2E tests with Playwright |
+
+### E2E Tests (Playwright)
+
+| Command | What it does |
+|---------|-------------|
+| `npm run test:e2e` | Run E2E tests **headless** (no browser window, fast) |
+| `npx playwright test --headed` | Run E2E tests with a **visible browser window** — watch tests click through the app |
+| `npx playwright test --ui` | Open Playwright's **interactive UI** — step through tests, see screenshots at each step, inspect DOM |
+| `npx playwright test --debug` | Run in **debug mode** — pauses at each step, lets you inspect the page |
+| `npx playwright test e2e/auth.spec.ts` | Run a **single test file** |
+| `npx playwright test --grep "can log in"` | Run tests **matching a name** |
+| `npx playwright show-report` | Open the **HTML report** from the last run |
+
+### Combined
+
+| Command | What it does |
+|---------|-------------|
 | `npm run test:ci` | Run unit tests + E2E tests sequentially |
+
+---
+
+## How E2E Tests Work
+
+Playwright launches a **real Chromium browser** (headless by default — no visible window, but it renders HTML, executes JavaScript, applies CSS, handles cookies — everything a real user's browser does). It is not simulating — it is automating a real browser.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          YOUR MACHINE                               │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  1. PLAYWRIGHT TEST RUNNER  (npx playwright test)             │  │
+│  │                                                               │  │
+│  │  Reads e2e/*.spec.ts files                                    │  │
+│  │  Launches Chromium (headless by default)                      │  │
+│  │  Sends commands: "goto /login", "fill email", "click"         │  │
+│  │  Asserts results: "expect URL to be /profile"                 │  │
+│  └────────────────┬──────────────────────────────────────────────┘  │
+│                   │                                                 │
+│                   │ Controls via CDP (Chrome DevTools Protocol)      │
+│                   ▼                                                 │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  2. CHROMIUM BROWSER  (headless — real rendering engine)      │  │
+│  │                                                               │  │
+│  │  Renders pages exactly like a user's browser                  │  │
+│  │  Executes React, handles cookies, runs JS                    │  │
+│  │  Makes HTTP requests to the Next.js app ──────────────────┐  │  │
+│  └───────────────────────────────────────────────────────────┼──┘  │
+│                                                              │     │
+│                   ┌──────────────────────────────────────────┘     │
+│                   ▼                                                │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  3. NEXT.JS APP  (http://localhost:3000)                      │  │
+│  │                                                               │  │
+│  │  Started automatically by Playwright via webServer config:    │  │
+│  │    command: "npm run build && npm run start"                   │  │
+│  │    Playwright waits until localhost:3000 responds before       │  │
+│  │    running any tests.                                         │  │
+│  │                                                               │  │
+│  │  If you already have a dev server on :3000, Playwright        │  │
+│  │  reuses it (locally) instead of building.                     │  │
+│  │                                                               │  │
+│  │  Env vars point to LOCAL Supabase (from .env.test.local):     │  │
+│  │    NEXT_PUBLIC_SUPABASE_URL = http://127.0.0.1:54321          │  │
+│  │                                                               │  │
+│  │  Server components, server actions, proxy — all real.         │  │
+│  │  Makes API calls to local Supabase ───────────────────────┐   │  │
+│  └───────────────────────────────────────────────────────────┼───┘  │
+│                                                              │      │
+│                   ┌──────────────────────────────────────────┘      │
+│                   ▼                                                 │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  4. LOCAL SUPABASE  (Docker containers via `supabase start`)  │  │
+│  │                                                               │  │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐       │  │
+│  │  │  PostgreSQL  │  │  GoTrue Auth │  │  PostgREST API │       │  │
+│  │  │  :54322      │  │  (auth)      │  │  (queries)     │       │  │
+│  │  │              │  │              │  │                │       │  │
+│  │  │  Your real   │  │  Handles     │  │  Handles       │       │  │
+│  │  │  schema:     │  │  login,      │  │  .from()       │       │  │
+│  │  │  - profiles  │  │  signup,     │  │  .select()     │       │  │
+│  │  │  - apps      │  │  sessions,   │  │  .insert()     │       │  │
+│  │  │  - shares    │  │  cookies     │  │  .update()     │       │  │
+│  │  └──────────────┘  └──────────────┘  └────────────────┘       │  │
+│  │                                                               │  │
+│  │  ┌─────────────┐  ┌──────────────┐                            │  │
+│  │  │  Kong API    │  │   Mailpit    │                            │  │
+│  │  │  Gateway     │  │   :54324     │                            │  │
+│  │  │  :54321      │  │              │                            │  │
+│  │  │              │  │  Catches all │                            │  │
+│  │  │  Single      │  │  emails for  │                            │  │
+│  │  │  entry point │  │  inspection  │                            │  │
+│  │  │  for all API │  │  (no real    │                            │  │
+│  │  │  requests    │  │  emails sent)│                            │  │
+│  │  └──────────────┘  └──────────────┘                            │  │
+│  │                                                               │  │
+│  │  Seeded with test users (via supabase/seed.sql):              │  │
+│  │    test@btmhub.com  / TestPass123   (member)                  │  │
+│  │    admin@btmhub.com / AdminPass123  (admin)                   │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### The Flow, Step by Step
+
+When you run `npx playwright test`:
+
+1. **Reads `playwright.config.ts`** — loads `.env.test.local` to get the local Supabase URL and key.
+
+2. **Starts your Next.js app** (the `webServer` config) — runs `npm run build && npm run start` with the local Supabase env vars. Waits until `http://localhost:3000` responds. If you already have a dev server running locally, it reuses that instead.
+
+3. **Launches headless Chromium** — a real browser, just without a visible window.
+
+4. **Executes each test** — Playwright drives the browser like a user:
+   - `page.goto("/login")` — browser navigates to your login page
+   - `page.getByLabel(/email/i).fill("test@btmhub.com")` — types into the input
+   - `page.getByRole("button").click()` — clicks the button
+   - Your Next.js server action runs, calls Supabase Auth in Docker, sets cookies
+   - `page.waitForURL("**/profile")` — waits for the redirect
+   - `expect(page).toHaveURL(/\/profile/)` — asserts the browser is on the right page
+
+5. **Everything is real** — the browser renders real HTML/CSS, React hydrates, server actions talk to a real Postgres database running in Docker. The only difference from production is the Supabase instance is local.
+
+This is why E2E tests catch bugs that unit tests can't: broken layouts, failed redirects, auth cookie issues, missing form fields, client/server mismatches.
+
+### The `webServer` config
+
+```typescript
+// playwright.config.ts
+webServer: {
+  command: "npm run build && npm run start",  // builds then starts your Next.js app
+  url: "http://localhost:3000",               // Playwright polls this until it responds
+  reuseExistingServer: !process.env.CI,       // locally: reuses if already running
+  timeout: 120_000,                           // waits up to 2 min for the app to start
+  env: {                                      // passes local Supabase env vars to the app
+    NEXT_PUBLIC_SUPABASE_URL: ...,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ...,
+  },
+},
+```
 
 ---
 
@@ -29,9 +171,11 @@ All unit/integration tests are co-located next to the source files they test (`f
 | File | Purpose |
 |------|---------|
 | `vitest.config.ts` | Vitest configuration — sets `@/` path alias, node environment, setup file |
-| `playwright.config.ts` | Playwright configuration — runs `npm run build && npm run start` before E2E tests |
-| `src/test/setup.ts` | Runs before every test file. Sets dummy Supabase env vars so server-side imports don't crash |
-| `src/test/mocks/supabase.ts` | Reusable Supabase mock factory used across all server-side tests |
+| `playwright.config.ts` | Playwright configuration — loads `.env.test.local`, starts Next.js app, configures Chromium |
+| `src/test/setup.ts` | Runs before every unit test file. Sets dummy Supabase env vars so server-side imports don't crash |
+| `src/test/mocks/supabase.ts` | Reusable Supabase mock factory used across all server-side unit tests |
+| `supabase/seed.sql` | Seeds the local Supabase DB with test users (member + admin) |
+| `.env.test.local` | Local Supabase URL and key for E2E tests (gitignored) |
 
 ### 2. Unit test files (98 tests total)
 
@@ -59,11 +203,14 @@ All unit/integration tests are co-located next to the source files they test (`f
 |------|-------|---------------|
 | `src/lib/supabase/proxy.test.ts` | 10 | `updateSession` — unauthenticated users redirected from `/profile`, `/admin`, `/dashboard`, `/settings` to `/login`. Authenticated users redirected from `/login`, `/register` to `/profile`. Public routes pass through for both |
 
-### 3. E2E test placeholder
+### 3. E2E test files (12 tests total)
 
-| File | Purpose |
-|------|---------|
-| `e2e/smoke.spec.ts` | Visits homepage and checks the title contains "BTM". Ready for expansion once a test Supabase environment is configured |
+| File | Tests | What it covers |
+|------|-------|---------------|
+| `e2e/smoke.spec.ts` | 1 | Homepage loads with correct title |
+| `e2e/auth.spec.ts` | 5 | Login validation errors, wrong credentials error, successful login + redirect to profile, unauthenticated redirect to login, authenticated redirect from login to profile |
+| `e2e/academy.spec.ts` | 4 | Academy page lists programs, navigate to application form, form shows first step, form validates required fields |
+| `e2e/admin.spec.ts` | 2 | Regular user cannot access admin, admin user can access admin dashboard |
 
 ### 4. Small refactors made
 
@@ -94,9 +241,9 @@ Lint, typecheck, and unit tests run in parallel for fast feedback. Build only ru
 
 ---
 
-## How Supabase mocking works
+## How Supabase mocking works (unit tests)
 
-Server-side code (`actions.ts`, data fetchers) calls `await createClient()` from `@/lib/supabase/server` to get a Supabase client. In tests, we mock this module so it returns a fake client instead.
+Server-side code (`actions.ts`, data fetchers) calls `await createClient()` from `@/lib/supabase/server` to get a Supabase client. In unit tests, we mock this module so it returns a fake client instead.
 
 The mock factory (`src/test/mocks/supabase.ts`) provides:
 
@@ -150,13 +297,9 @@ try {
 
 ---
 
-## Setting up Supabase for E2E tests
+## Setting up local Supabase for E2E tests
 
-E2E tests need a real Supabase instance to run against. You have two options:
-
-### Option A: Local Supabase (recommended)
-
-Local Supabase runs Postgres, Auth, Storage, etc. in Docker containers on your machine. It's hermetic (no shared state) and free.
+Local Supabase runs Postgres, Auth, and the API gateway in Docker containers on your machine. It's hermetic (no shared state) and free.
 
 **Prerequisites:** Docker Desktop must be running.
 
@@ -167,77 +310,56 @@ Local Supabase runs Postgres, Auth, Storage, etc. in Docker containers on your m
    brew install supabase/tap/supabase
    ```
 
-2. Initialize Supabase in the project (if not already done):
-   ```bash
-   supabase init
-   ```
-   This creates a `supabase/` directory with config and migration files.
-
-3. If you already have a remote Supabase project, pull the schema:
-   ```bash
-   supabase link --project-ref <your-project-ref>
-   supabase db pull
-   ```
-   This downloads your production schema as migration files into `supabase/migrations/`.
-
-4. Start the local instance:
+2. Start the local instance:
    ```bash
    supabase start
    ```
-   This prints the local URLs and keys:
-   ```
-   API URL:   http://127.0.0.1:54321
-   anon key:  eyJhbGciOiJIUzI1NiIs...
-   ```
+   This prints the local URLs and keys. Copy the **Publishable** key.
 
-5. Create a `.env.test.local` file (already gitignored by the `.env*` pattern):
+3. Update `.env.test.local` with the values from step 2:
    ```env
    NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<anon-key-from-step-4>
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key-from-step-2>
    ```
 
-6. Seed test data (create a seed file if needed):
+4. Seed the database with test users:
    ```bash
-   supabase db seed
+   supabase db reset
    ```
-   Or create `supabase/seed.sql` with test users and applications.
+   This applies migrations + runs `supabase/seed.sql`, which creates:
+   - `test@btmhub.com` / `TestPass123` (regular member)
+   - `admin@btmhub.com` / `AdminPass123` (admin)
 
-7. Run E2E tests:
+5. Run E2E tests:
    ```bash
    npm run test:e2e
    ```
 
-8. Stop when done:
+6. Stop when done:
    ```bash
    supabase stop
    ```
 
-### Option B: Remote test project
+### Apple Silicon note
 
-Use a separate Supabase project dedicated to testing (never your production project).
+Some Supabase Docker images (gotrue, storage-api) have broken ARM binaries. If `supabase start` fails with `exec format error`, pull the x86 image manually — Docker Rosetta will emulate it:
 
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Apply the same schema (run your migrations or manually replicate tables)
-3. Create test users via the Supabase dashboard or Auth API
-4. Set the URL and anon key in `.env.test.local`
-5. Run E2E tests
-
-**Downside:** Tests share state, so you need cleanup between runs and can't run tests in parallel from multiple machines.
+```bash
+docker image rm public.ecr.aws/supabase/gotrue:v2.187.0
+docker pull --platform linux/amd64 public.ecr.aws/supabase/gotrue:v2.187.0
+supabase start
+```
 
 ### Enabling E2E in CI
 
-Once your test environment is ready:
-
-1. Go to your GitHub repo → Settings → Secrets and variables → Actions
+1. Go to your GitHub repo -> Settings -> Secrets and variables -> Actions
 2. Add **repository secrets**:
    - `NEXT_PUBLIC_SUPABASE_URL` — your test Supabase URL
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — your test anon key
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — your test publishable key
 3. Add a **repository variable**:
    - `RUN_E2E` = `true`
 
-The E2E job in CI will now run. If `RUN_E2E` is not set, the job is skipped entirely (clearly shown in the GitHub Actions UI, not silently skipped).
-
-For local Supabase in CI, you would need to add `supabase start` as a step in the workflow and use Docker-in-Docker. The current CI config is set up for a remote test project — if you want local Supabase in CI, that's a follow-up change.
+The E2E job in CI will now run. If `RUN_E2E` is not set, the job is skipped entirely (clearly shown in GitHub Actions UI).
 
 ---
 
@@ -311,17 +433,25 @@ test("user can do the thing", async ({ page }) => {
 ```
 btm-hub/
 ├── vitest.config.ts              # Vitest configuration
-├── playwright.config.ts          # Playwright configuration
+├── playwright.config.ts          # Playwright configuration (loads .env.test.local)
+├── .env.test.local               # Local Supabase URL + key (gitignored)
 ├── .github/workflows/ci.yml     # CI pipeline (lint + typecheck + test + build + e2e)
 ├── e2e/
-│   └── smoke.spec.ts             # E2E smoke test
+│   ├── smoke.spec.ts             # Homepage smoke test
+│   ├── auth.spec.ts              # Auth flow E2E tests
+│   ├── academy.spec.ts           # Academy page E2E tests
+│   └── admin.spec.ts             # Admin access control E2E tests
+├── supabase/
+│   ├── config.toml               # Local Supabase config
+│   ├── seed.sql                  # Test users (member + admin)
+│   └── migrations/               # DB schema (pulled from remote)
 ├── src/
 │   ├── test/
 │   │   ├── setup.ts              # Global test setup (env vars)
 │   │   └── mocks/
 │   │       └── supabase.ts       # Reusable Supabase mock factory
 │   ├── lib/
-│   │   ├── validation-helpers.ts         # Extracted UUID validation (new)
+│   │   ├── validation-helpers.ts         # Extracted UUID validation
 │   │   ├── validation-helpers.test.ts    # Tests for UUID validation
 │   │   ├── validations/
 │   │   │   └── auth.test.ts              # Zod schema tests
