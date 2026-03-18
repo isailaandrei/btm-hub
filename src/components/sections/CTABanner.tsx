@@ -1,4 +1,3 @@
-import { BrandButton } from "@/components/ui/BrandButton";
 import { RoundedButton } from "../ui/RoundedButton";
 
 export interface CTABannerProps {

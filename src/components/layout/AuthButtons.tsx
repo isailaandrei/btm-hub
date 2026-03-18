@@ -36,6 +36,7 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
     } catch {}
 
     if (cached) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe sessionStorage cache read; cannot use lazy initializer (SSR)
       setUser(cached);
       setLoading(false);
     }

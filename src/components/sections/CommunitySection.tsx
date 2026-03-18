@@ -1,4 +1,3 @@
-import { SectionHeader } from "@/components/sections/SectionHeader";
 import { Tag } from "@/components/ui/Tag";
 
 const TOPICS = [

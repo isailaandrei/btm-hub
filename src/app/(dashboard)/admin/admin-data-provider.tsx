@@ -193,6 +193,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     return () => {
       const supabase = supabaseRef.current;
       if (!supabase) return;
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- channelsRef is intentionally read at cleanup time to get the latest channels
       for (const channel of channelsRef.current) {
         supabase.removeChannel(channel);
       }
