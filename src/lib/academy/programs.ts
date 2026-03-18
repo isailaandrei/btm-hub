@@ -21,28 +21,28 @@ export const PROGRAMS: Record<ProgramSlug, ProgramDefinition> = {
     name: "Underwater Filmmaking",
     shortDescription: "Learn to tell compelling underwater stories through film, from shooting to post-production.",
     icon: "🎬",
-    applicationOpen: false,
+    applicationOpen: true,
   },
   freediving: {
     slug: "freediving",
     name: "Freediving & Performance",
     shortDescription: "Develop your breath-hold diving skills with structured training and performance coaching.",
     icon: "🤿",
-    applicationOpen: false,
+    applicationOpen: true,
   },
   modelling: {
     slug: "modelling",
     name: "Modelling Underwater",
     shortDescription: "Explore underwater modelling with guidance on posing, movement, and collaboration with photographers.",
     icon: "🧜",
-    applicationOpen: false,
+    applicationOpen: true,
   },
   internship: {
     slug: "internship",
     name: "BTM Internship",
     shortDescription: "Join the Behind the Mask team for an extended hands-on learning experience across all disciplines.",
     icon: "🌊",
-    applicationOpen: false,
+    applicationOpen: true,
   },
 };
 

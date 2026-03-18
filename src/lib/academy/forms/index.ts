@@ -7,3 +7,6 @@ export { getFormDefinition, registerForm } from "./registry";
 // and the form definitions are available in the registry.
 // Add new program form imports here as they are created.
 import "./photography";
+import "./filmmaking";
+import "./freediving-modelling";
+import "./internship";
