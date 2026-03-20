@@ -7,7 +7,6 @@ import type {
   ApplicationStatus,
   ApplicationSummary,
   ApplicationShare,
-  AdminNote,
   ProgramSlug,
   SharedApplicationView,
 } from "@/types/database";
@@ -161,12 +160,7 @@ export async function updateApplicationStatus(
 }
 
 // ---------------------------------------------------------------------------
-// Tags
-// TODO: addApplicationTag, removeApplicationTag, and addAdminNote use a
-// read-modify-write pattern that is not concurrency-safe. If two admins
-// mutate the same application's tags/notes simultaneously, the second write
-// can silently overwrite the first. Replace with Postgres RPC functions using
-// atomic array_append / array_remove to eliminate the race window.
+// Tags (atomic via Postgres RPC — no read-modify-write race)
 // ---------------------------------------------------------------------------
 
 export async function addApplicationTag(
@@ -176,23 +170,15 @@ export async function addApplicationTag(
   await requireAdmin();
   const supabase = await createClient();
 
-  const existing = await getApplicationById(id);
-  if (!existing) throw new Error("Application not found");
-
-  const tags = existing.tags.includes(tag)
-    ? existing.tags
-    : [...existing.tags, tag];
-
-  const { data, error } = await supabase
-    .from("applications")
-    .update({ tags })
-    .eq("id", id)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc("add_application_tag", {
+    app_id: id,
+    new_tag: tag,
+  });
 
   if (error) throw new Error(`Failed to add tag: ${error.message}`);
 
-  return data;
+  // RPC returns applications row as jsonb — shape matches Application by definition
+  return data as Application;
 }
 
 export async function removeApplicationTag(
@@ -202,25 +188,19 @@ export async function removeApplicationTag(
   await requireAdmin();
   const supabase = await createClient();
 
-  const existing = await getApplicationById(id);
-  if (!existing) throw new Error("Application not found");
-
-  const tags = existing.tags.filter((t) => t !== tag);
-
-  const { data, error } = await supabase
-    .from("applications")
-    .update({ tags })
-    .eq("id", id)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc("remove_application_tag", {
+    app_id: id,
+    old_tag: tag,
+  });
 
   if (error) throw new Error(`Failed to remove tag: ${error.message}`);
 
-  return data;
+  // RPC returns applications row as jsonb — shape matches Application by definition
+  return data as Application;
 }
 
 // ---------------------------------------------------------------------------
-// Admin notes
+// Admin notes (atomic via Postgres RPC — no read-modify-write race)
 // ---------------------------------------------------------------------------
 
 export async function addAdminNote(
@@ -232,28 +212,17 @@ export async function addAdminNote(
   await requireAdmin();
   const supabase = await createClient();
 
-  const existing = await getApplicationById(applicationId);
-  if (!existing) throw new Error("Application not found");
-
-  const note: AdminNote = {
-    author_id: authorId,
-    author_name: authorName,
-    text,
-    created_at: new Date().toISOString(),
-  };
-
-  const admin_notes = [...existing.admin_notes, note];
-
-  const { data, error } = await supabase
-    .from("applications")
-    .update({ admin_notes })
-    .eq("id", applicationId)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc("add_admin_note", {
+    app_id: applicationId,
+    note_author_id: authorId,
+    note_author_name: authorName,
+    note_text: text,
+  });
 
   if (error) throw new Error(`Failed to add admin note: ${error.message}`);
 
-  return data;
+  // RPC returns applications row as jsonb — shape matches Application by definition
+  return data as Application;
 }
 
 // ---------------------------------------------------------------------------
