@@ -120,7 +120,6 @@ export async function submitAcademyApplication(
       success: false,
     };
   }
-  
 
   // TODO: comment out when you set the email API KEYS
   // // Fire-and-forget email notifications

@@ -1,5 +1,6 @@
 import type { FieldDefinition, FormStepDefinition, FormDefinition } from "./types";
 import { personalStep } from "./common/personal";
+import { backgroundFields } from "./common/background";
 import { registerForm } from "./registry";
 import { FITNESS_LEVELS, HEALTH_CONDITIONS } from "./common/health";
 import {
@@ -39,12 +40,9 @@ const CONTENT_CREATED = [
 // ---------------------------------------------------------------------------
 
 const backgroundEducationFields: FieldDefinition[] = [
-  { type: "text", name: "nationality", label: "Nationality", required: true },
-  { type: "text", name: "country_of_residence", label: "Country of Residence", required: true },
-  { type: "text", name: "languages", label: "Languages", required: true },
+  ...backgroundFields,
   { type: "text", name: "online_links", label: "If you have an online presence, please share your links.", placeholder: "Instagram, website, portfolio...", required: false },
   { type: "text", multiline: true, name: "azores_ties", label: "Do you already have accommodation, connections, or other ties to Faial, Azores?", required: false },
-  { type: "text", name: "current_occupation", label: "Current Occupation", required: true },
   { type: "select", name: "education_level", label: "Highest Level of Education or Training", options: EDUCATION_LEVELS, required: true },
   { type: "text", name: "field_of_study", label: "What is your field of study, training or profession?", required: true },
   { type: "text", multiline: true, name: "recent_activities", label: "Which activities (like jobs, studies, school, time-intensive interests) have primarily occupied your time over the past few years?", required: true },

@@ -9,21 +9,21 @@ import {
   NUMBER_OF_DIVES,
   DIVING_ENVIRONMENTS,
   BTM_CATEGORIES,
+  PLANNING_TO_INVEST,
+  YEARS_EXPERIENCE,
+  INVOLVEMENT_LEVELS,
   TIME_AVAILABILITY,
   TRAVEL_WILLINGNESS,
   BUDGETS,
   START_TIMELINES,
   REFERRAL_SOURCES,
-  PLANNING_TO_INVEST,
-  YEARS_EXPERIENCE,
-  INVOLVEMENT_LEVELS,
 } from "./common/options";
 
 // ---------------------------------------------------------------------------
 // Photography-specific option lists
 // ---------------------------------------------------------------------------
 
-export const EQUIPMENT_OWNED = [
+const EQUIPMENT_OWNED = [
   "Camera",
   "Underwater housing",
   "Strobes / Lights",
@@ -34,7 +34,7 @@ export const EQUIPMENT_OWNED = [
   "Editing software",
 ] as const;
 
-export const CONTENT_CREATED = [
+const CONTENT_CREATED = [
   "Stills — underwater",
   "Stills — topside",
   "Video — underwater",
@@ -44,7 +44,7 @@ export const CONTENT_CREATED = [
   "Social media content",
 ] as const;
 
-export const ONLINE_PRESENCE = [
+const ONLINE_PRESENCE = [
   "None",
   "Personal social media only",
   "Dedicated photography social media",
@@ -52,14 +52,14 @@ export const ONLINE_PRESENCE = [
   "Multiple platforms",
 ] as const;
 
-export const INCOME_FROM_PHOTOGRAPHY = [
+const INCOME_FROM_PHOTOGRAPHY = [
   "None",
   "Occasional / side income",
   "Part of my income",
   "Primary income source",
 ] as const;
 
-export const PRIMARY_GOALS = [
+const PRIMARY_GOALS = [
   "Learn underwater photography from scratch",
   "Improve existing skills",
   "Transition to professional",
@@ -68,7 +68,7 @@ export const PRIMARY_GOALS = [
   "Conservation / scientific documentation",
 ] as const;
 
-export const LEARNING_ASPECTS = [
+const LEARNING_ASPECTS = [
   "Camera settings & exposure",
   "Lighting techniques",
   "Composition",
@@ -80,7 +80,7 @@ export const LEARNING_ASPECTS = [
   "Conservation storytelling",
 ] as const;
 
-export const CONTENT_TO_CREATE = [
+const CONTENT_TO_CREATE = [
   "Social media content",
   "Fine art prints",
   "Editorial / magazine",
@@ -90,7 +90,7 @@ export const CONTENT_TO_CREATE = [
   "Educational content",
 ] as const;
 
-export const LEARNING_APPROACHES = [
+const LEARNING_APPROACHES = [
   "One-on-one mentorship",
   "Group workshops",
   "Online courses",
@@ -99,7 +99,7 @@ export const LEARNING_APPROACHES = [
   "Portfolio reviews",
 ] as const;
 
-export const MARINE_SUBJECTS = [
+const MARINE_SUBJECTS = [
   "Coral reefs",
   "Large marine life (sharks, rays, whales)",
   "Macro / small creatures",

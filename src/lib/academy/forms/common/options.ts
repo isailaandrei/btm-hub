@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Shared option lists used by 3+ program forms
+// Shared option lists used across program forms
 // ---------------------------------------------------------------------------
 
 // Diving-related
@@ -80,7 +80,7 @@ export const START_TIMELINES = [
   "Not sure yet",
 ] as const;
 
-// Equipment & experience
+// Experience & involvement
 export const PLANNING_TO_INVEST = [
   "Yes, significant investment planned",
   "Yes, moderate investment planned",
