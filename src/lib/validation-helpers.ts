@@ -5,6 +5,6 @@ export function isUUID(value: string): boolean {
   return UUID_RE.test(value);
 }
 
-export function validateUUID(value: string): void {
-  if (!isUUID(value)) throw new Error("Invalid application ID");
+export function validateUUID(value: string, label = "application"): void {
+  if (!isUUID(value)) throw new Error(`Invalid ${label} ID`);
 }
