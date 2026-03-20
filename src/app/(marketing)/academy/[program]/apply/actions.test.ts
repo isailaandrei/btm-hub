@@ -47,6 +47,14 @@ vi.mock("@/lib/academy/forms/schema-builder", async (importOriginal) => {
   return { ...orig, buildFullSchema: mockBuildFullSchema };
 });
 
+// Mock getProgram with spy — defaults to real impl, overrideable per test
+const mockGetProgram = vi.fn();
+vi.mock("@/lib/academy/programs", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@/lib/academy/programs")>();
+  mockGetProgram.mockImplementation(orig.getProgram);
+  return { ...orig, getProgram: mockGetProgram };
+});
+
 // Import form registration side-effects
 await import("@/lib/academy/forms");
 
@@ -94,6 +102,13 @@ describe("submitAcademyApplication", () => {
   });
 
   it("rejects closed program", async () => {
+    mockGetProgram.mockReturnValueOnce({
+      slug: "filmmaking",
+      name: "Underwater Filmmaking",
+      shortDescription: "",
+      icon: "",
+      applicationOpen: false,
+    });
     const formData = new FormData();
     const result = await submitAcademyApplication("filmmaking", prevState, formData);
     expect(result.message).toContain("closed");
