@@ -13,7 +13,7 @@ test.describe("Admin", () => {
     await page.waitForURL("**/profile");
 
     // Try to access admin
-    await page.goto("/admin/applications");
+    await page.goto("/admin");
 
     // Should be redirected or see unauthorized
     const url = page.url();
