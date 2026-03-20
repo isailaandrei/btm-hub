@@ -80,6 +80,29 @@ export const START_TIMELINES = [
   "Not sure yet",
 ] as const;
 
+// Equipment & experience
+export const PLANNING_TO_INVEST = [
+  "Yes, significant investment planned",
+  "Yes, moderate investment planned",
+  "Small investment planned",
+  "No investment planned at this time",
+] as const;
+
+export const YEARS_EXPERIENCE = [
+  "Less than 1 year",
+  "1-2 years",
+  "3-5 years",
+  "5-10 years",
+  "10+ years",
+] as const;
+
+export const INVOLVEMENT_LEVELS = [
+  "Hobby",
+  "Part-time",
+  "Full-time",
+  "Transitioning to full-time",
+] as const;
+
 // Referral
 export const REFERRAL_SOURCES = [
   "Social media",

@@ -14,6 +14,9 @@ import {
   BUDGETS,
   START_TIMELINES,
   REFERRAL_SOURCES,
+  PLANNING_TO_INVEST,
+  YEARS_EXPERIENCE,
+  INVOLVEMENT_LEVELS,
 } from "./common/options";
 
 // ---------------------------------------------------------------------------
@@ -31,21 +34,6 @@ export const EQUIPMENT_OWNED = [
   "Editing software",
 ] as const;
 
-export const PLANNING_TO_INVEST = [
-  "Yes, significant investment planned",
-  "Yes, moderate investment planned",
-  "Small investment planned",
-  "No investment planned at this time",
-] as const;
-
-export const YEARS_EXPERIENCE = [
-  "Less than 1 year",
-  "1-2 years",
-  "3-5 years",
-  "5-10 years",
-  "10+ years",
-] as const;
-
 export const CONTENT_CREATED = [
   "Stills — underwater",
   "Stills — topside",
@@ -54,13 +42,6 @@ export const CONTENT_CREATED = [
   "Drone footage",
   "360 / VR",
   "Social media content",
-] as const;
-
-export const INVOLVEMENT_LEVELS = [
-  "Hobby",
-  "Part-time",
-  "Full-time",
-  "Transitioning to full-time",
 ] as const;
 
 export const ONLINE_PRESENCE = [

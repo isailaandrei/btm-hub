@@ -39,6 +39,8 @@ const CONTENT_CREATED = [
 // ---------------------------------------------------------------------------
 
 const backgroundEducationFields: FieldDefinition[] = [
+  { type: "text", name: "nationality", label: "Nationality", required: true },
+  { type: "text", name: "country_of_residence", label: "Country of Residence", required: true },
   { type: "text", name: "languages", label: "Languages", required: true },
   { type: "text", name: "online_links", label: "If you have an online presence, please share your links.", placeholder: "Instagram, website, portfolio...", required: false },
   { type: "text", multiline: true, name: "azores_ties", label: "Do you already have accommodation, connections, or other ties to Faial, Azores?", required: false },

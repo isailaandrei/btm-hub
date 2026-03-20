@@ -349,6 +349,8 @@ describe("internship form", () => {
       first_name: "Test", last_name: "User", nickname: "Tester",
       email: "test@test.com", phone: "123456", age: "18-24", gender: "Male",
       // background & education
+      nationality: "German",
+      country_of_residence: "Germany",
       languages: "English, German",
       current_occupation: "Student",
       education_level: "Bachelor's degree",
