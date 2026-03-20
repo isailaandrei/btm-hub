@@ -177,6 +177,7 @@ export async function addApplicationTag(
 
   if (error) throw new Error(`Failed to add tag: ${error.message}`);
 
+  // RPC returns applications row as jsonb — shape matches Application by definition
   return data as Application;
 }
 
@@ -194,6 +195,7 @@ export async function removeApplicationTag(
 
   if (error) throw new Error(`Failed to remove tag: ${error.message}`);
 
+  // RPC returns applications row as jsonb — shape matches Application by definition
   return data as Application;
 }
 
@@ -219,6 +221,7 @@ export async function addAdminNote(
 
   if (error) throw new Error(`Failed to add admin note: ${error.message}`);
 
+  // RPC returns applications row as jsonb — shape matches Application by definition
   return data as Application;
 }
 
