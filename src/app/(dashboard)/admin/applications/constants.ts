@@ -7,4 +7,4 @@ export const STATUS_BADGE_CLASS: Record<ApplicationStatus, string> = {
 };
 
 export const STATUSES: ApplicationStatus[] = ["reviewing", "accepted", "rejected"];
-export const PROGRAMS: ProgramSlug[] = ["photography", "filmmaking", "freediving", "modelling", "internship"];
+export const PROGRAMS: ProgramSlug[] = ["photography", "filmmaking", "freediving", "internship"];

@@ -11,7 +11,7 @@ export interface Profile {
 
 export type ApplicationStatus = "reviewing" | "accepted" | "rejected";
 
-export type ProgramSlug = "photography" | "filmmaking" | "freediving" | "modelling" | "internship";
+export type ProgramSlug = "photography" | "filmmaking" | "freediving" | "internship";
 
 export interface Application {
   id: string;

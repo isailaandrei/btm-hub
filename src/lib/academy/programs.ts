@@ -25,16 +25,9 @@ export const PROGRAMS: Record<ProgramSlug, ProgramDefinition> = {
   },
   freediving: {
     slug: "freediving",
-    name: "Freediving & Performance",
-    shortDescription: "Develop your breath-hold diving skills with structured training and performance coaching.",
+    name: "Freediving & Modelling",
+    shortDescription: "Develop your breath-hold diving and underwater performance skills through structured training and creative coaching.",
     icon: "🤿",
-    applicationOpen: true,
-  },
-  modelling: {
-    slug: "modelling",
-    name: "Modelling Underwater",
-    shortDescription: "Explore underwater modelling with guidance on posing, movement, and collaboration with photographers.",
-    icon: "🧜",
     applicationOpen: true,
   },
   internship: {

@@ -229,7 +229,4 @@ const freedivingModellingFormDefinition: FormDefinition = {
   ],
 };
 
-// Register under both program slugs — the original Google Form was a single
-// combined form covering both Freediving and Modelling applicants.
 registerForm(freedivingModellingFormDefinition);
-registerForm({ ...freedivingModellingFormDefinition, programSlug: "modelling" });

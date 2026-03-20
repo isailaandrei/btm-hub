@@ -251,12 +251,9 @@ describe("filmmaking form", () => {
 });
 
 describe("freediving & modelling form", () => {
-  it("registers under both slugs", () => {
+  it("registers under freediving slug", () => {
     const freediving = getFormDefinition("freediving");
-    const modelling = getFormDefinition("modelling");
     expect(freediving).toBeDefined();
-    expect(modelling).toBeDefined();
-    expect(freediving!.steps).toHaveLength(modelling!.steps.length);
   });
 
   it("freediving form has 10 steps", () => {

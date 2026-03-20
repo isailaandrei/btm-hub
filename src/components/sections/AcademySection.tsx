@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Tag } from "@/components/ui/Tag";
 import { RoundedButton } from "@/components/ui/RoundedButton";
 
-const PROGRAMS = ["Filmmaking", "Photography", "Freediving", "Internships"];
+const PROGRAMS = ["Filmmaking", "Photography", "Freediving & Modelling", "Internship"];
 
 export function AcademySection() {
   return (
