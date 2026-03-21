@@ -2,7 +2,7 @@
 
 ## Overview
 
-The community forum is a two-level threaded discussion system: **threads** contain flat **replies** (no nested threading). It is public-read, requires authentication to post, and supports full admin moderation (pin, lock, edit, delete). The feature lives under ticket **BTM-8**.
+The community forum is a two-level threaded discussion system: **threads** contain flat **replies** (no nested threading). The entire forum is **restricted to authenticated users** — anonymous visitors cannot view or access any community content. It supports full admin moderation (pin, lock, edit, delete). The feature lives under ticket **BTM-8**.
 
 ---
 
@@ -15,7 +15,7 @@ The community forum is a two-level threaded discussion system: **threads** conta
 | `/community/[topic]/new` | `src/app/(marketing)/community/[topic]/new/page.tsx` | New thread form (auth-gated) |
 | `/community/[topic]/[slug]` | `src/app/(marketing)/community/[topic]/[slug]/page.tsx` | Thread detail — OP + paginated replies + reply form |
 
-All routes are under the `(marketing)` layout group and are **not** proxy-protected — the forum is publicly readable. Auth is checked at the component level to conditionally render write UI.
+All routes are under the `(marketing)` layout group but are **proxy-protected** — `/community` is in the `protectedPaths` array in `src/lib/supabase/proxy.ts`. Unauthenticated users are redirected to `/login?redirect=/community`. The nav link remains visible to all users; clicking it as an anonymous user triggers the redirect.
 
 ---
 
@@ -88,7 +88,7 @@ Both are `SECURITY INVOKER` (runs as the calling user, respects RLS) and re-chec
 
 | Operation | Who | Condition |
 |---|---|---|
-| SELECT (threads + posts) | Everyone | Always allowed |
+| SELECT (threads + posts) | Authenticated | `auth.uid() IS NOT NULL` |
 | INSERT thread | Authenticated | `auth.uid() = author_id` |
 | INSERT post | Authenticated | `auth.uid() = author_id` AND thread not locked |
 | INSERT post | Admin | Always (can post in locked threads) |
@@ -97,7 +97,7 @@ Both are `SECURITY INVOKER` (runs as the calling user, respects RLS) and re-chec
 
 ### Grants
 
-- **`anon`:** SELECT only (read-only for unauthenticated users)
+- **`anon`:** No grants (forum is invisible to unauthenticated users)
 - **`authenticated`:** SELECT, INSERT, UPDATE, DELETE (RLS still applies)
 - **`service_role`:** ALL (bypasses RLS)
 
@@ -159,13 +159,14 @@ The cursor condition is injected into PostgREST's `.or()` filter:
 
 ### Cursor Validation
 
-Cursor values come from URL query params (`?cursor=<ts>&cursor_id=<id>`). Before passing to fetchers, all three page components validate:
-- `cursor_id` with `isUUID()`
-- `cursor` with `isValidISODate()`
+Cursor values come from URL query params (`?cursor=<ts>&cursor_id=<id>`). Validation happens at two levels as defense-in-depth:
 
-This prevents injection into the PostgREST filter string. Invalid cursors are silently treated as "no cursor" (first page).
+1. **Page level:** all three page components validate `cursor_id` with `isUUID()` and `cursor` with `isValidISODate()` before passing to fetchers.
+2. **Data layer:** each fetcher calls `validateCursor()` internally, which silently drops invalid cursors (returns `undefined` → first page).
 
-**File:** `src/lib/validation-helpers.ts`
+This prevents injection into the PostgREST `.or()` filter string even if a new caller skips page-level validation.
+
+**File:** `src/lib/validation-helpers.ts`, `src/lib/data/forum.ts`
 
 ---
 
@@ -311,11 +312,13 @@ This avoids the `useEffect` + `setState` antipattern that triggers the `react-ho
 
 ### Three-Layer Security
 
-Every write operation is protected at three levels:
+Every operation (including reads) is protected at three levels:
 
-1. **Application layer** (server actions): `getAuthUser()` + ownership/admin checks
-2. **Database layer** (RLS policies): enforce the same rules even if the application layer is bypassed
+1. **Proxy layer** (`src/lib/supabase/proxy.ts`): `/community` is in `protectedPaths` — unauthenticated users are redirected to login before any page renders
+2. **Database layer** (RLS policies): SELECT requires `auth.uid() IS NOT NULL`; writes enforce ownership/admin checks. The `anon` role has zero grants on forum tables.
 3. **Database constraints** (CHECK constraints): prevent malformed data regardless of the access path
+
+Server actions additionally call `getAuthUser()` and check ownership/admin status before any DB write.
 
 ### Markdown Rendering
 
@@ -381,5 +384,5 @@ User fills form on /community/gear-talk/best-camera
 | **Utilities** | `src/lib/community/slugify.ts` |
 | **Pages** | `src/app/(marketing)/community/**/page.tsx` (4 routes) |
 | **Components** | `src/components/community/*.tsx` (12 components) |
-| **Auth** | `src/lib/data/auth.ts`, `src/lib/auth/require-admin.ts` |
+| **Auth** | `src/lib/data/auth.ts`, `src/lib/auth/require-admin.ts`, `src/lib/supabase/proxy.ts` |
 | **Tests** | `src/lib/validations/forum.test.ts` |
