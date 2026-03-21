@@ -28,6 +28,14 @@ export const testimonial = defineType({
       title: "Author Image",
       type: "image",
       options: { hotspot: true },
+      fields: [
+        {
+          name: "alt",
+          type: "string",
+          title: "Alt Text",
+          validation: (rule) => rule.required(),
+        },
+      ],
     }),
   ],
   preview: {

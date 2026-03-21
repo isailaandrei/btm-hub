@@ -19,7 +19,16 @@ export const program = defineType({
           { title: "BTM Internship", value: "internship" },
         ],
       },
-      validation: (rule) => rule.required(),
+      validation: (rule) =>
+        rule.required().custom(async (value, context) => {
+          if (!value) return true;
+          const client = context.getClient({ apiVersion: "2025-03-20" });
+          const count = await client.fetch(
+            `count(*[_type == "program" && slug == $slug && _id != $id])`,
+            { slug: value, id: context.document?._id?.replace("drafts.", "") },
+          );
+          return count > 0 ? "A program with this slug already exists" : true;
+        }),
     }),
     defineField({
       name: "heroImage",
@@ -84,6 +93,13 @@ export const program = defineType({
       name: "pricing",
       title: "Pricing Info",
       type: "portableText",
+    }),
+    defineField({
+      name: "applicationOpen",
+      title: "Applications Open",
+      type: "boolean",
+      description:
+        "Override the code-level default. When set, this takes priority over the static config.",
     }),
     defineField({
       name: "seoDescription",

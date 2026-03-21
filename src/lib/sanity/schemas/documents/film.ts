@@ -33,11 +33,13 @@ export const film = defineType({
       title: "Hero Image",
       type: "image",
       options: { hotspot: true },
+      validation: (rule) => rule.required(),
       fields: [
         {
           name: "alt",
           type: "string",
           title: "Alt Text",
+          validation: (rule) => rule.required(),
         },
       ],
     }),
@@ -60,8 +62,8 @@ export const film = defineType({
         {
           type: "object",
           fields: [
-            { name: "role", type: "string", title: "Role" },
-            { name: "name", type: "string", title: "Name" },
+            defineField({ name: "role", type: "string", title: "Role", validation: (rule) => rule.required() }),
+            defineField({ name: "name", type: "string", title: "Name", validation: (rule) => rule.required() }),
           ],
           preview: {
             select: { title: "name", subtitle: "role" },

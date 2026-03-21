@@ -1,16 +1,31 @@
+import { draftMode } from "next/headers";
+import { VisualEditing } from "next-sanity/visual-editing";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
+import { SanityLive } from "@/lib/sanity/live";
 
-export default function MarketingLayout({
+async function isDraftMode() {
+  try {
+    return (await draftMode()).isEnabled;
+  } catch {
+    return false;
+  }
+}
+
+export default async function MarketingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const draft = await isDraftMode();
+
   return (
     <>
       <Navbar variant="dark" />
       <main>{children}</main>
       <Footer />
+      <SanityLive />
+      {draft && <VisualEditing />}
     </>
   );
 }

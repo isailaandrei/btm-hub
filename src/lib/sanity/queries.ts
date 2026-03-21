@@ -35,7 +35,13 @@ export const PROGRAM_BY_SLUG_QUERY = defineQuery(`
   *[_type == "program" && slug == $slug][0] {
     _id, slug, heroImage, heroVideo, fullDescription, highlights,
     curriculum, instructor->{ _id, name, slug, photo, role, title },
-    gallery, faqs, testimonials, pricing, seoDescription
+    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen
+  }
+`);
+
+export const ALL_PROGRAMS_CMS_QUERY = defineQuery(`
+  *[_type == "program"] {
+    _id, slug, heroImage, applicationOpen
   }
 `);
 
@@ -45,8 +51,12 @@ export const PROGRAM_BY_SLUG_QUERY = defineQuery(`
 
 export const TEAM_MEMBERS_QUERY = defineQuery(`
   *[_type == "teamMember"] | order(sortOrder asc) {
-    _id, name, slug, photo, role, title, shortBio, fullBio, specialties, socialLinks, featured
+    _id, name, slug, photo, role, title, shortBio, specialties, socialLinks, featured
   }
+`);
+
+export const ALL_TEAM_MEMBER_SLUGS_QUERY = defineQuery(`
+  *[_type == "teamMember" && defined(slug.current)].slug.current
 `);
 
 export const TEAM_MEMBER_BY_SLUG_QUERY = defineQuery(`

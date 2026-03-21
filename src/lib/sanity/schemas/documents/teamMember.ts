@@ -28,6 +28,7 @@ export const teamMember = defineType({
           name: "alt",
           type: "string",
           title: "Alt Text",
+          validation: (rule) => rule.required(),
         },
       ],
     }),

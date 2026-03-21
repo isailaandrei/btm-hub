@@ -26,7 +26,7 @@ export function SanityImage({
   if (!source) return null;
 
   const url = fill
-    ? urlFor(source).width(1920).quality(80).auto("format").url()
+    ? urlFor(source).width(1920).fit("crop").crop("focalpoint").quality(80).auto("format").url()
     : urlFor(source).width(width).height(height).auto("format").url();
 
   if (fill) {

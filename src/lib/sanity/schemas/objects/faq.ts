@@ -15,6 +15,7 @@ export const faq = defineType({
       name: "answer",
       title: "Answer",
       type: "portableText",
+      validation: (rule) => rule.required(),
     }),
   ],
   preview: {

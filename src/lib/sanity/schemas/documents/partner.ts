@@ -27,6 +27,7 @@ export const partner = defineType({
           name: "alt",
           type: "string",
           title: "Alt Text",
+          validation: (rule) => rule.required(),
         },
       ],
     }),
@@ -62,6 +63,7 @@ export const partner = defineType({
       name: "tier",
       title: "Tier",
       type: "string",
+      validation: (rule) => rule.required(),
       options: {
         list: [
           { title: "Platinum", value: "platinum" },

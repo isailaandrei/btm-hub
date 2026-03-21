@@ -1,5 +1,4 @@
 import { cache } from "react";
-import type { PortableTextBlock } from "@portabletext/react";
 import { sanityFetch } from "@/lib/sanity/live";
 import { client } from "@/lib/sanity/client";
 import {
@@ -8,115 +7,33 @@ import {
   FEATURED_FILMS_QUERY,
   ALL_FILM_SLUGS_QUERY,
   PROGRAM_BY_SLUG_QUERY,
+  ALL_PROGRAMS_CMS_QUERY,
   TEAM_MEMBERS_QUERY,
   TEAM_MEMBER_BY_SLUG_QUERY,
+  ALL_TEAM_MEMBER_SLUGS_QUERY,
   PARTNERS_QUERY,
   FEATURED_PARTNERS_QUERY,
 } from "@/lib/sanity/queries";
+import type {
+  FILMS_QUERY_RESULT,
+  FILM_BY_SLUG_QUERY_RESULT,
+  PROGRAM_BY_SLUG_QUERY_RESULT,
+  ALL_PROGRAMS_CMS_QUERY_RESULT,
+  TEAM_MEMBERS_QUERY_RESULT,
+  TEAM_MEMBER_BY_SLUG_QUERY_RESULT,
+  PARTNERS_QUERY_RESULT,
+  FEATURED_PARTNERS_QUERY_RESULT,
+} from "@/../sanity.types";
 
-// ---------------------------------------------------------------------------
-// Sanity result types (until typegen is set up)
-// ---------------------------------------------------------------------------
-
-interface SanityImage {
-  asset?: unknown;
-  alt?: string;
-  hotspot?: unknown;
-}
-
-interface SanitySlug {
-  current: string;
-}
-
-interface Gallery {
-  images?: Array<SanityImage & { caption?: string }>;
-}
-
-export interface FilmSummary {
-  _id: string;
-  title: string | null;
-  slug: SanitySlug | null;
-  tagline: string | null;
-  heroImage: SanityImage | null;
-  duration: string | null;
-  releaseYear: number | null;
-  status: string | null;
-  featured: boolean | null;
-}
-
-export interface FilmDetail extends FilmSummary {
-  description: PortableTextBlock[] | null;
-  videoEmbed: string | null;
-  gallery: Gallery | null;
-  credits: Array<{ role?: string; name?: string }> | null;
-}
-
-export interface ProgramContent {
-  _id: string;
-  slug: string | null;
-  heroImage: SanityImage | null;
-  heroVideo: string | null;
-  fullDescription: PortableTextBlock[] | null;
-  highlights: string[] | null;
-  curriculum: PortableTextBlock[] | null;
-  instructor: {
-    _id: string;
-    name: string | null;
-    slug: SanitySlug | null;
-    photo: SanityImage | null;
-    role: string | null;
-    title: string | null;
-  } | null;
-  gallery: Gallery | null;
-  faqs: Array<{ question?: string; answer?: PortableTextBlock[] }> | null;
-  testimonials: Array<{
-    quote?: string;
-    authorName?: string;
-    authorDetail?: string;
-    authorImage?: SanityImage;
-  }> | null;
-  pricing: PortableTextBlock[] | null;
-  seoDescription: string | null;
-}
-
-export interface TeamMember {
-  _id: string;
-  name: string | null;
-  slug: SanitySlug | null;
-  photo: SanityImage | null;
-  role: string | null;
-  title: string | null;
-  shortBio: string | null;
-  fullBio: PortableTextBlock[] | null;
-  specialties: string[] | null;
-  socialLinks: Array<{ platform?: string; url?: string }> | null;
-  featured: boolean | null;
-}
-
-export interface Partner {
-  _id: string;
-  name: string | null;
-  slug: SanitySlug | null;
-  logo: SanityImage | null;
-  logoDark: SanityImage | null;
-  description: PortableTextBlock[] | null;
-  shortDescription: string | null;
-  website: string | null;
-  memberDiscount: string | null;
-  tier: string | null;
-  featured: boolean | null;
-}
-
-export interface FeaturedPartner {
-  _id: string;
-  name: string | null;
-  slug: SanitySlug | null;
-  logo: SanityImage | null;
-  logoDark: SanityImage | null;
-  shortDescription: string | null;
-  website: string | null;
-  memberDiscount: string | null;
-}
+// Re-export generated types for use by pages
+export type FilmSummary = FILMS_QUERY_RESULT[number];
+export type FilmDetail = FILM_BY_SLUG_QUERY_RESULT;
+export type ProgramContent = PROGRAM_BY_SLUG_QUERY_RESULT;
+export type ProgramCmsSummary = ALL_PROGRAMS_CMS_QUERY_RESULT[number];
+export type TeamMember = TEAM_MEMBERS_QUERY_RESULT[number];
+export type TeamMemberDetail = TEAM_MEMBER_BY_SLUG_QUERY_RESULT;
+export type Partner = PARTNERS_QUERY_RESULT[number];
+export type FeaturedPartner = FEATURED_PARTNERS_QUERY_RESULT[number];
 
 // ---------------------------------------------------------------------------
 // Films
@@ -124,7 +41,7 @@ export interface FeaturedPartner {
 
 export const getFilms = cache(async function getFilms() {
   const { data } = await sanityFetch({ query: FILMS_QUERY });
-  return data as FilmSummary[];
+  return data;
 });
 
 export const getFilmBySlug = cache(async function getFilmBySlug(slug: string) {
@@ -132,12 +49,12 @@ export const getFilmBySlug = cache(async function getFilmBySlug(slug: string) {
     query: FILM_BY_SLUG_QUERY,
     params: { slug },
   });
-  return data as FilmDetail | null;
+  return data;
 });
 
 export const getFeaturedFilms = cache(async function getFeaturedFilms() {
   const { data } = await sanityFetch({ query: FEATURED_FILMS_QUERY });
-  return data as FilmSummary[];
+  return data;
 });
 
 /** Uses plain client (not sanityFetch) — safe for generateStaticParams. */
@@ -156,7 +73,12 @@ export const getProgramContent = cache(async function getProgramContent(
     query: PROGRAM_BY_SLUG_QUERY,
     params: { slug },
   });
-  return data as ProgramContent | null;
+  return data;
+});
+
+export const getAllProgramsCms = cache(async function getAllProgramsCms() {
+  const { data } = await sanityFetch({ query: ALL_PROGRAMS_CMS_QUERY });
+  return data;
 });
 
 // ---------------------------------------------------------------------------
@@ -165,8 +87,13 @@ export const getProgramContent = cache(async function getProgramContent(
 
 export const getTeamMembers = cache(async function getTeamMembers() {
   const { data } = await sanityFetch({ query: TEAM_MEMBERS_QUERY });
-  return data as TeamMember[];
+  return data;
 });
+
+/** Uses plain client (not sanityFetch) — safe for generateStaticParams. */
+export async function getAllTeamMemberSlugs() {
+  return client.fetch<string[]>(ALL_TEAM_MEMBER_SLUGS_QUERY);
+}
 
 export const getTeamMemberBySlug = cache(async function getTeamMemberBySlug(
   slug: string,
@@ -175,7 +102,7 @@ export const getTeamMemberBySlug = cache(async function getTeamMemberBySlug(
     query: TEAM_MEMBER_BY_SLUG_QUERY,
     params: { slug },
   });
-  return data as TeamMember | null;
+  return data;
 });
 
 // ---------------------------------------------------------------------------
@@ -184,10 +111,10 @@ export const getTeamMemberBySlug = cache(async function getTeamMemberBySlug(
 
 export const getPartners = cache(async function getPartners() {
   const { data } = await sanityFetch({ query: PARTNERS_QUERY });
-  return data as Partner[];
+  return data;
 });
 
 export const getFeaturedPartners = cache(async function getFeaturedPartners() {
   const { data } = await sanityFetch({ query: FEATURED_PARTNERS_QUERY });
-  return data as FeaturedPartner[];
+  return data;
 });

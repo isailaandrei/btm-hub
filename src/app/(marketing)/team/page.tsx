@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import { SanityImage } from "@/components/sanity/SanityImage";
 import { getTeamMembers } from "@/lib/data/sanity";
@@ -82,10 +83,11 @@ function TeamSection({
     <section className="mb-16">
       <h2 className="mb-8 text-2xl font-bold text-foreground">{label}</h2>
       <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-        {members.map((member) => (
-          <div
+        {members.filter((m) => m.slug?.current).map((member) => (
+          <Link
             key={member._id}
-            className="overflow-hidden rounded-xl bg-background shadow-sm"
+            href={`/team/${member.slug!.current}`}
+            className="overflow-hidden rounded-xl bg-background shadow-sm transition-shadow hover:shadow-md"
           >
             <div className="relative aspect-[4/5] overflow-hidden">
               <SanityImage
@@ -133,7 +135,7 @@ function TeamSection({
                 </div>
               )}
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </section>

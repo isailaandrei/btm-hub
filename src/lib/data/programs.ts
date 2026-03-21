@@ -14,5 +14,12 @@ export const getProgramShowcase = cache(async function getProgramShowcase(
 
   const cms = await getProgramContent(slug);
 
-  return { config, cms: cms ?? null };
+  return {
+    config: {
+      ...config,
+      // CMS applicationOpen overrides the static default when explicitly set
+      applicationOpen: cms?.applicationOpen ?? config.applicationOpen,
+    },
+    cms: cms ?? null,
+  };
 });

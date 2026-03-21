@@ -31,6 +31,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  revalidateTag(body._type, "max");
+  // Bust all Sanity-tagged cache entries. sanityFetch (from defineLive) tags entries
+  // with "sanity" + opaque sync tags — not with document type names. This is the
+  // recommended fallback for when no browser has <SanityLive /> mounted.
+  // Primary revalidation happens via SanityLive's EventSource in the marketing layout.
+  revalidateTag("sanity", "max");
   return NextResponse.json({ revalidated: true, type: body._type });
 }

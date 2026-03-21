@@ -51,6 +51,22 @@ export const portableTextComponents: PortableTextComponents = {
       );
     },
   },
+  list: {
+    bullet: ({ children }) => (
+      <ul className="mb-4 ml-6 list-disc space-y-1">{children}</ul>
+    ),
+    number: ({ children }) => (
+      <ol className="mb-4 ml-6 list-decimal space-y-1">{children}</ol>
+    ),
+  },
+  listItem: {
+    bullet: ({ children }) => (
+      <li className="text-base text-muted-foreground">{children}</li>
+    ),
+    number: ({ children }) => (
+      <li className="text-base text-muted-foreground">{children}</li>
+    ),
+  },
   types: {
     image: ({ value }) => {
       if (!value?.asset) return null;
