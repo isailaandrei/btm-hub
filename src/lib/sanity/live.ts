@@ -13,6 +13,6 @@ export const { sanityFetch, SanityLive } = defineLive({
   client: client.withConfig({
     stega: { studioUrl: "/studio" },
   }),
-  serverToken: token || false,
+  serverToken: token ?? false,
   browserToken: false,
 });

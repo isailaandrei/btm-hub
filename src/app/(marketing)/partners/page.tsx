@@ -3,6 +3,7 @@ import { PortableText } from "@portabletext/react";
 import { SanityImage } from "@/components/sanity/SanityImage";
 import { portableTextComponents } from "@/lib/sanity/portable-text";
 import { getPartners, type Partner } from "@/lib/data/sanity";
+import { isSafeUrl } from "@/lib/validation-helpers";
 
 export const metadata: Metadata = {
   title: "Partners — Behind The Mask",
@@ -120,7 +121,7 @@ function PartnerCard({ partner }: { partner: Partner }) {
         </p>
       )}
       <div className="mt-auto pt-4">
-        {partner.website && (
+        {partner.website && isSafeUrl(partner.website) && (
           <a
             href={partner.website}
             target="_blank"

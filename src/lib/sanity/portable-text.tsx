@@ -1,6 +1,7 @@
 import type { PortableTextComponents } from "@portabletext/react";
 import Image from "next/image";
 import { urlFor } from "@/lib/sanity/image";
+import { isSafeUrl } from "@/lib/validation-helpers";
 
 export const portableTextComponents: PortableTextComponents = {
   block: {
@@ -37,18 +38,12 @@ export const portableTextComponents: PortableTextComponents = {
     em: ({ children }) => <em>{children}</em>,
     link: ({ children, value }) => {
       const href = value?.href;
-      const isSafe =
-        !href ||
-        href.startsWith("/") ||
-        href.startsWith("http://") ||
-        href.startsWith("https://") ||
-        href.startsWith("mailto:");
-      if (!isSafe) return <>{children}</>;
+      if (!href || !isSafeUrl(href)) return <>{children}</>;
       return (
         <a
           href={href}
-          target={href?.startsWith("/") ? undefined : "_blank"}
-          rel={href?.startsWith("/") ? undefined : "noopener noreferrer"}
+          target={href.startsWith("/") ? undefined : "_blank"}
+          rel={href.startsWith("/") ? undefined : "noopener noreferrer"}
           className="text-primary underline transition-opacity hover:opacity-75"
         >
           {children}

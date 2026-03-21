@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SanityImage } from "@/components/sanity/SanityImage";
 import { getTeamMembers } from "@/lib/data/sanity";
+import { isSafeUrl } from "@/lib/validation-helpers";
 
 export const metadata: Metadata = {
   title: "Team — Behind The Mask",
@@ -117,8 +118,7 @@ function TeamSection({
                       <a
                         key={i}
                         href={
-                          link.url?.startsWith("http://") ||
-                          link.url?.startsWith("https://")
+                          link.url && isSafeUrl(link.url)
                             ? link.url
                             : "#"
                         }
