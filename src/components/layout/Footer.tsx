@@ -3,6 +3,8 @@ import Link from "next/link";
 const EXPLORE_LINKS = [
   { label: "Travel", href: "/travel" },
   { label: "Academy", href: "/academy" },
+  { label: "Films", href: "/films" },
+  { label: "Team", href: "/team" },
   { label: "Shop", href: "/shop" },
   { label: "Community", href: "/community" },
   { label: "Partners", href: "/partners" },

@@ -7,8 +7,11 @@ import { CommunitySection } from "@/components/sections/CommunitySection";
 import { TestimonialsSection } from "@/components/sections/TestimonialsSection";
 import { PartnersSection } from "@/components/sections/PartnersSection";
 import { CTABanner } from "@/components/sections/CTABanner";
+import { getFeaturedPartners } from "@/lib/data/sanity";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const partners = await getFeaturedPartners();
+
   return (
     <>
       <HeroSection />
@@ -27,7 +30,7 @@ export default function HomePage() {
 
       <CommunitySection />
       <TestimonialsSection />
-      <PartnersSection />
+      <PartnersSection partners={partners} />
 
       <CTABanner
         heading="Come Get Some Ocean Emotion"

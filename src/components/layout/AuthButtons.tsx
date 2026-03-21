@@ -21,22 +21,11 @@ interface AuthButtonsProps {
 const CACHE_KEY = "btm-navbar-user";
 
 export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
-  // Read sessionStorage cache during render (static one-time read with try/catch for SSR)
-  const cached = (() => {
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (raw) return JSON.parse(raw) as NavbarUser;
-    } catch {}
-    return null;
-  })();
-
-  const [user, setUser] = useState<NavbarUser>(cached);
-  const [loading, setLoading] = useState(!cached);
+  const [user, setUser] = useState<NavbarUser>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const supabase = createClient();
-    let hadCache = false;
-    try { hadCache = !!sessionStorage.getItem(CACHE_KEY); } catch {}
 
     async function fetchProfile(userId: string) {
       const { data: profile } = await supabase
@@ -63,6 +52,17 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
     }
 
     async function checkAuth() {
+      // Apply sessionStorage cache immediately (before any await) to avoid skeleton flash
+      let hadCache = false;
+      try {
+        const raw = sessionStorage.getItem(CACHE_KEY);
+        if (raw) {
+          setUser(JSON.parse(raw) as NavbarUser);
+          setLoading(false);
+          hadCache = true;
+        }
+      } catch {}
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -75,12 +75,12 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
       }
 
       // If we had cached data, we already rendered it — fetch profile in background to refresh
-      if (!hadCache) {
-        await fetchProfile(session.user.id);
-      } else {
+      if (hadCache) {
         fetchProfile(session.user.id);
+      } else {
+        await fetchProfile(session.user.id);
+        setLoading(false);
       }
-      setLoading(false);
     }
 
     checkAuth();

@@ -15,3 +15,13 @@ const ISO_DATE_RE =
 export function isValidISODate(value: string): boolean {
   return ISO_DATE_RE.test(value) && !isNaN(Date.parse(value));
 }
+
+/** Check if a URL uses a safe scheme (http, https, mailto, or relative path). */
+export function isSafeUrl(url: string): boolean {
+  return (
+    url.startsWith("/") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("mailto:")
+  );
+}
