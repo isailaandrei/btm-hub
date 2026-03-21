@@ -116,7 +116,12 @@ function TeamSection({
                     ) => (
                       <a
                         key={i}
-                        href={link.url}
+                        href={
+                          link.url?.startsWith("http://") ||
+                          link.url?.startsWith("https://")
+                            ? link.url
+                            : "#"
+                        }
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-muted-foreground capitalize transition-opacity hover:opacity-75"
