@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 import { PortableText } from "@portabletext/react";
 import { SanityImage } from "@/components/sanity/SanityImage";
@@ -122,14 +121,14 @@ function PartnerCard({ partner }: { partner: Partner }) {
       )}
       <div className="mt-auto pt-4">
         {partner.website && (
-          <Link
+          <a
             href={partner.website}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-primary transition-opacity hover:opacity-75"
           >
             Visit Website &rarr;
-          </Link>
+          </a>
         )}
       </div>
     </div>

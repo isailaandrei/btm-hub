@@ -35,16 +35,26 @@ export const portableTextComponents: PortableTextComponents = {
       <strong className="font-semibold text-foreground">{children}</strong>
     ),
     em: ({ children }) => <em>{children}</em>,
-    link: ({ children, value }) => (
-      <a
-        href={value?.href}
-        target={value?.href?.startsWith("/") ? undefined : "_blank"}
-        rel={value?.href?.startsWith("/") ? undefined : "noopener noreferrer"}
-        className="text-primary underline transition-opacity hover:opacity-75"
-      >
-        {children}
-      </a>
-    ),
+    link: ({ children, value }) => {
+      const href = value?.href;
+      const isSafe =
+        !href ||
+        href.startsWith("/") ||
+        href.startsWith("http://") ||
+        href.startsWith("https://") ||
+        href.startsWith("mailto:");
+      if (!isSafe) return <>{children}</>;
+      return (
+        <a
+          href={href}
+          target={href?.startsWith("/") ? undefined : "_blank"}
+          rel={href?.startsWith("/") ? undefined : "noopener noreferrer"}
+          className="text-primary underline transition-opacity hover:opacity-75"
+        >
+          {children}
+        </a>
+      );
+    },
   },
   types: {
     image: ({ value }) => {

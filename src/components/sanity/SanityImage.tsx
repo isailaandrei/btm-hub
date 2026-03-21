@@ -25,7 +25,9 @@ export function SanityImage({
 }: SanityImageProps) {
   if (!source) return null;
 
-  const url = urlFor(source).width(width).height(height).url();
+  const url = fill
+    ? urlFor(source).width(1920).quality(80).auto("format").url()
+    : urlFor(source).width(width).height(height).auto("format").url();
 
   if (fill) {
     return (
@@ -35,7 +37,7 @@ export function SanityImage({
         fill
         className={className}
         priority={priority}
-        sizes={sizes}
+        sizes={sizes ?? "100vw"}
       />
     );
   }

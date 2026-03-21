@@ -38,6 +38,11 @@ export default async function TeamPage() {
     }))
     .filter((g) => g.members.length > 0);
 
+  const ungrouped = members.filter(
+    (m) =>
+      !m.role || !ROLE_ORDER.includes(m.role as (typeof ROLE_ORDER)[number]),
+  );
+
   return (
     <div className="min-h-screen bg-muted px-5 py-16 md:px-24">
       <div className="mx-auto max-w-6xl">
@@ -50,64 +55,82 @@ export default async function TeamPage() {
         </p>
 
         {grouped.map((group) => (
-          <section key={group.role} className="mb-16">
-            <h2 className="mb-8 text-2xl font-bold text-foreground">
-              {group.label}
-            </h2>
-            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-              {group.members.map((member) => (
-                <div
-                  key={member._id}
-                  className="overflow-hidden rounded-xl bg-background shadow-sm"
-                >
-                  <div className="relative aspect-[4/5] overflow-hidden">
-                    <SanityImage
-                      source={member.photo}
-                      alt={member.photo?.alt || member.name || ""}
-                      fill
-                      className="object-cover"
-                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-                    />
-                  </div>
-                  <div className="p-5">
-                    <h3 className="text-lg font-semibold text-foreground">
-                      {member.name}
-                    </h3>
-                    {member.title && (
-                      <p className="text-sm text-primary">{member.title}</p>
-                    )}
-                    {member.shortBio && (
-                      <p className="mt-2 text-sm text-muted-foreground line-clamp-3">
-                        {member.shortBio}
-                      </p>
-                    )}
-                    {member.socialLinks && member.socialLinks.length > 0 && (
-                      <div className="mt-3 flex gap-3">
-                        {member.socialLinks.map(
-                          (
-                            link: { platform?: string; url?: string },
-                            i: number,
-                          ) => (
-                            <a
-                              key={i}
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-muted-foreground capitalize transition-opacity hover:opacity-75"
-                            >
-                              {link.platform}
-                            </a>
-                          ),
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          <TeamSection
+            key={group.role}
+            label={group.label}
+            members={group.members}
+          />
         ))}
+
+        {ungrouped.length > 0 && (
+          <TeamSection label="Other" members={ungrouped} />
+        )}
       </div>
     </div>
+  );
+}
+
+function TeamSection({
+  label,
+  members,
+}: {
+  label: string;
+  members: Awaited<ReturnType<typeof getTeamMembers>>;
+}) {
+  return (
+    <section className="mb-16">
+      <h2 className="mb-8 text-2xl font-bold text-foreground">{label}</h2>
+      <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+        {members.map((member) => (
+          <div
+            key={member._id}
+            className="overflow-hidden rounded-xl bg-background shadow-sm"
+          >
+            <div className="relative aspect-[4/5] overflow-hidden">
+              <SanityImage
+                source={member.photo}
+                alt={member.photo?.alt || member.name || ""}
+                fill
+                className="object-cover"
+                sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+              />
+            </div>
+            <div className="p-5">
+              <h3 className="text-lg font-semibold text-foreground">
+                {member.name}
+              </h3>
+              {member.title && (
+                <p className="text-sm text-primary">{member.title}</p>
+              )}
+              {member.shortBio && (
+                <p className="mt-2 text-sm text-muted-foreground line-clamp-3">
+                  {member.shortBio}
+                </p>
+              )}
+              {member.socialLinks && member.socialLinks.length > 0 && (
+                <div className="mt-3 flex gap-3">
+                  {member.socialLinks.map(
+                    (
+                      link: { platform?: string; url?: string },
+                      i: number,
+                    ) => (
+                      <a
+                        key={i}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-muted-foreground capitalize transition-opacity hover:opacity-75"
+                      >
+                        {link.platform}
+                      </a>
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

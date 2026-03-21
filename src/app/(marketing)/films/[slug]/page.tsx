@@ -6,6 +6,22 @@ import { SanityImage } from "@/components/sanity/SanityImage";
 import { portableTextComponents } from "@/lib/sanity/portable-text";
 import { getFilmBySlug, getAllFilmSlugs } from "@/lib/data/sanity";
 
+const ALLOWED_EMBED_HOSTS = [
+  "www.youtube.com",
+  "youtube.com",
+  "player.vimeo.com",
+  "vimeo.com",
+];
+
+function isAllowedEmbedUrl(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    return protocol === "https:" && ALLOWED_EMBED_HOSTS.includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function generateStaticParams() {
   const slugs = await getAllFilmSlugs();
   return (slugs ?? []).map((slug: string) => ({ slug }));
@@ -63,13 +79,14 @@ export default async function FilmPage({
 
       <div className="mx-auto max-w-4xl px-5 py-12 md:px-0">
         {/* Video embed */}
-        {film.videoEmbed && (
+        {film.videoEmbed && isAllowedEmbedUrl(film.videoEmbed) && (
           <div className="mb-12 aspect-video overflow-hidden rounded-xl">
             <iframe
               src={film.videoEmbed}
               title={film.title ?? "Video"}
               className="h-full w-full"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              sandbox="allow-scripts allow-same-origin"
               allowFullScreen
             />
           </div>

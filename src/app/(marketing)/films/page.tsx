@@ -35,10 +35,10 @@ export default async function FilmsPage() {
         </p>
 
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-          {films.map((film) => (
+          {films.filter((film) => film.slug?.current).map((film) => (
             <Link
               key={film._id}
-              href={`/films/${film.slug?.current}`}
+              href={`/films/${film.slug!.current}`}
               className="group overflow-hidden rounded-xl bg-background shadow-sm transition-shadow hover:shadow-md"
             >
               <div className="relative aspect-video overflow-hidden">
