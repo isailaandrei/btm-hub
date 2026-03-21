@@ -218,14 +218,14 @@ ALTER FUNCTION "public"."toggle_thread_lock"("_thread_id" "uuid") OWNER TO "post
 ALTER TABLE "public"."forum_threads" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."forum_posts" ENABLE ROW LEVEL SECURITY;
 
--- SELECT: public read
-CREATE POLICY "Forum threads are publicly readable"
+-- SELECT: authenticated only
+CREATE POLICY "Authenticated users can read threads"
     ON "public"."forum_threads" FOR SELECT
-    USING (true);
+    USING ("auth"."uid"() IS NOT NULL);
 
-CREATE POLICY "Forum posts are publicly readable"
+CREATE POLICY "Authenticated users can read posts"
     ON "public"."forum_posts" FOR SELECT
-    USING (true);
+    USING ("auth"."uid"() IS NOT NULL);
 
 -- INSERT: authenticated, must be own author_id
 CREATE POLICY "Authenticated users can create threads"
@@ -308,10 +308,8 @@ CREATE POLICY "Admins can delete any post"
 -- Grants (matches existing pattern)
 -- --------------------------------------------------------------------------
 
-GRANT SELECT ON TABLE "public"."forum_threads" TO "anon";
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."forum_threads" TO "authenticated";
 GRANT ALL ON TABLE "public"."forum_threads" TO "service_role";
 
-GRANT SELECT ON TABLE "public"."forum_posts" TO "anon";
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."forum_posts" TO "authenticated";
 GRANT ALL ON TABLE "public"."forum_posts" TO "service_role";
