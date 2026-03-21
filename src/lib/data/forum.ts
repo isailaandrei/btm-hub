@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { isUUID, isValidISODate } from "@/lib/validation-helpers";
 import type {
   ForumTopicSlug,
   ForumThreadWithAuthor,
@@ -37,6 +38,11 @@ const BODY_PREVIEW_LENGTH = 200;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function validateCursor(cursor: CursorPair): CursorPair | undefined {
+  if (!isValidISODate(cursor.ts) || !isUUID(cursor.id)) return undefined;
+  return cursor;
+}
 
 function truncateBody(body: string): string {
   // TODO(BTM-8): Optimize with generated column or RPC to avoid fetching full body for list pages
@@ -100,6 +106,7 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
 ): Promise<PaginatedThreadsResult> {
   const supabase = await createClient();
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
+  const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
   // Fetch pinned threads (always shown, no pagination)
   const { data: pinnedRows, error: pinnedError } = await supabase
@@ -121,10 +128,10 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
     .order("id", { ascending: false })
     .limit(limit + 1);
 
-  if (options.cursor) {
+  if (cursor) {
     // Composite cursor: (last_reply_at, id) < (cursor_ts, cursor_id)
     query = query.or(
-      `last_reply_at.lt.${options.cursor.ts},and(last_reply_at.eq.${options.cursor.ts},id.lt.${options.cursor.id})`,
+      `last_reply_at.lt.${cursor.ts},and(last_reply_at.eq.${cursor.ts},id.lt.${cursor.id})`,
     );
   }
 
@@ -150,6 +157,7 @@ export const getRecentThreads = cache(async function getRecentThreads(
 ): Promise<PaginatedResult<ForumThreadSummary>> {
   const supabase = await createClient();
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
+  const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
   let query = supabase
     .from("forum_threads")
@@ -158,9 +166,9 @@ export const getRecentThreads = cache(async function getRecentThreads(
     .order("id", { ascending: false })
     .limit(limit + 1);
 
-  if (options.cursor) {
+  if (cursor) {
     query = query.or(
-      `last_reply_at.lt.${options.cursor.ts},and(last_reply_at.eq.${options.cursor.ts},id.lt.${options.cursor.id})`,
+      `last_reply_at.lt.${cursor.ts},and(last_reply_at.eq.${cursor.ts},id.lt.${cursor.id})`,
     );
   }
 
@@ -207,6 +215,7 @@ export const getThreadReplies = cache(async function getThreadReplies(
 ): Promise<PaginatedResult<ForumPostWithAuthor>> {
   const supabase = await createClient();
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
+  const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
   let query = supabase
     .from("forum_posts")
@@ -216,10 +225,10 @@ export const getThreadReplies = cache(async function getThreadReplies(
     .order("id", { ascending: true })
     .limit(limit + 1);
 
-  if (options.cursor) {
+  if (cursor) {
     // ASC pagination: (created_at, id) > (cursor_ts, cursor_id)
     query = query.or(
-      `created_at.gt.${options.cursor.ts},and(created_at.eq.${options.cursor.ts},id.gt.${options.cursor.id})`,
+      `created_at.gt.${cursor.ts},and(created_at.eq.${cursor.ts},id.gt.${cursor.id})`,
     );
   }
 

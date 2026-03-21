@@ -55,17 +55,13 @@ export default async function ThreadPage({
       ? { ts: sp.cursor, id: sp.cursor_id }
       : undefined;
 
-  const [user, { data: replies, nextCursor }] = await Promise.all([
+  const [user, { data: replies, nextCursor }, profile] = await Promise.all([
     getAuthUser(),
     getThreadReplies(thread.id, { cursor, limit: 50 }),
+    getProfile(),
   ]);
 
-  // Determine user role
-  let isAdmin = false;
-  if (user) {
-    const profile = await getProfile();
-    isAdmin = profile?.role === "admin";
-  }
+  const isAdmin = profile?.role === "admin";
 
   const currentPath = `/community/${topic.slug}/${slug}`;
 

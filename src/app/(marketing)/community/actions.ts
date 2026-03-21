@@ -24,6 +24,7 @@ export type ForumActionState = {
   errors: Record<string, string> | null;
   message: string;
   success: boolean;
+  resetKey: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -31,12 +32,12 @@ export type ForumActionState = {
 // ---------------------------------------------------------------------------
 
 export async function createThread(
-  _prevState: ForumActionState,
+  prevState: ForumActionState,
   formData: FormData,
 ): Promise<ForumActionState> {
   const user = await getAuthUser();
   if (!user) {
-    return { errors: null, message: "You must be logged in to create a thread.", success: false };
+    return { errors: null, message: "You must be logged in to create a thread.", success: false, resetKey: prevState.resetKey };
   }
 
   const raw = {
@@ -52,7 +53,7 @@ export async function createThread(
       const key = String(issue.path[0]);
       if (!fieldErrors[key]) fieldErrors[key] = issue.message;
     }
-    return { errors: fieldErrors, message: "", success: false };
+    return { errors: fieldErrors, message: "", success: false, resetKey: prevState.resetKey };
   }
 
   const { topic, title, body } = parsed.data;
@@ -92,7 +93,7 @@ export async function createThread(
   }
 
   if (error) {
-    return { errors: null, message: `Failed to create thread: ${error.message}`, success: false };
+    return { errors: null, message: `Failed to create thread: ${error.message}`, success: false, resetKey: prevState.resetKey };
   }
 
   revalidatePath(`/community/${topic}`);
@@ -103,12 +104,12 @@ export async function createThread(
 // TODO(BTM-8): Add rate limiting (e.g., max N replies/hour per user)
 
 export async function createReply(
-  _prevState: ForumActionState,
+  prevState: ForumActionState,
   formData: FormData,
 ): Promise<ForumActionState> {
   const user = await getAuthUser();
   if (!user) {
-    return { errors: null, message: "You must be logged in to reply.", success: false };
+    return { errors: null, message: "You must be logged in to reply.", success: false, resetKey: prevState.resetKey };
   }
 
   const raw = {
@@ -123,7 +124,7 @@ export async function createReply(
       const key = String(issue.path[0]);
       if (!fieldErrors[key]) fieldErrors[key] = issue.message;
     }
-    return { errors: fieldErrors, message: "", success: false };
+    return { errors: fieldErrors, message: "", success: false, resetKey: prevState.resetKey };
   }
 
   const { threadId, body } = parsed.data;
@@ -137,7 +138,7 @@ export async function createReply(
     .single();
 
   if (threadError || !thread) {
-    return { errors: null, message: "Thread not found.", success: false };
+    return { errors: null, message: "Thread not found.", success: false, resetKey: prevState.resetKey };
   }
 
   if (thread.locked) {
@@ -149,7 +150,7 @@ export async function createReply(
       .single();
 
     if (profile?.role !== "admin") {
-      return { errors: null, message: "This thread is locked.", success: false };
+      return { errors: null, message: "This thread is locked.", success: false, resetKey: prevState.resetKey };
     }
   }
 
@@ -162,12 +163,12 @@ export async function createReply(
     });
 
   if (error) {
-    return { errors: null, message: `Failed to post reply: ${error.message}`, success: false };
+    return { errors: null, message: `Failed to post reply: ${error.message}`, success: false, resetKey: prevState.resetKey };
   }
 
   revalidatePath(`/community/${thread.topic}/${thread.slug}`);
   revalidatePath(`/community/${thread.topic}`);
-  return { errors: null, message: "Reply posted!", success: true };
+  return { errors: null, message: "Reply posted!", success: true, resetKey: prevState.resetKey + 1 };
 }
 
 // ---------------------------------------------------------------------------

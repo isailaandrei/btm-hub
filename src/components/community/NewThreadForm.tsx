@@ -14,6 +14,7 @@ export function NewThreadForm({ topic }: NewThreadFormProps) {
     errors: {},
     message: "",
     success: false,
+    resetKey: 0,
   });
 
   return (

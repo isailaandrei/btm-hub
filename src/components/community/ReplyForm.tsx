@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState } from "react";
 import Link from "next/link";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { Button } from "@/components/ui/button";
@@ -23,15 +23,8 @@ export function ReplyForm({
     errors: {},
     message: "",
     success: false,
+    resetKey: 0,
   });
-
-  const [formKey, setFormKey] = useState(0);
-
-  useEffect(() => {
-    if (state.success) {
-      setFormKey((k) => k + 1);
-    }
-  }, [state.success]);
 
   if (!isAuthenticated) {
     return (
@@ -60,30 +53,32 @@ export function ReplyForm({
   }
 
   return (
-    <form key={formKey} action={formAction} className="flex flex-col gap-3">
-      <input type="hidden" name="threadId" value={threadId} />
-      <h3 className="text-base font-medium text-foreground">Reply</h3>
-      <MarkdownEditor
-        name="body"
-        placeholder="Write your reply... (supports Markdown)"
-        maxLength={10000}
-        rows={5}
-        required
-      />
-      {state.errors?.body && (
-        <p className="text-sm text-destructive">{state.errors.body}</p>
-      )}
-      {state.message && !state.success && (
-        <p className="text-sm text-destructive">{state.message}</p>
-      )}
+    <div className="flex flex-col gap-3">
       {state.success && (
         <p className="text-sm text-green-600">Reply posted!</p>
       )}
-      <div>
-        <Button type="submit" disabled={isPending}>
-          {isPending ? "Posting..." : "Post Reply"}
-        </Button>
-      </div>
-    </form>
+      <form key={state.resetKey} action={formAction} className="flex flex-col gap-3">
+        <input type="hidden" name="threadId" value={threadId} />
+        <h3 className="text-base font-medium text-foreground">Reply</h3>
+        <MarkdownEditor
+          name="body"
+          placeholder="Write your reply... (supports Markdown)"
+          maxLength={10000}
+          rows={5}
+          required
+        />
+        {state.errors?.body && (
+          <p className="text-sm text-destructive">{state.errors.body}</p>
+        )}
+        {state.message && !state.success && (
+          <p className="text-sm text-destructive">{state.message}</p>
+        )}
+        <div>
+          <Button type="submit" disabled={isPending}>
+            {isPending ? "Posting..." : "Post Reply"}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
