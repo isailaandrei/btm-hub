@@ -58,11 +58,11 @@ export async function createThread(
 
   const { topic, title, body } = parsed.data;
   let slug = slugify(title);
-  if (!slug) slug = slugifyUnique("thread");
+  if (slug.length < 2) slug = slugifyUnique(slug || "thread");
 
   const supabase = await createClient();
 
-  // Try inserting with the initial slug; on unique violation, retry with suffixed slug
+  // Insert the thread (without body -- body lives in the OP post)
   let { data, error } = await supabase
     .from("forum_threads")
     .insert({
@@ -70,9 +70,8 @@ export async function createThread(
       topic,
       title,
       slug,
-      body,
     })
-    .select("topic, slug")
+    .select("id, topic, slug")
     .single();
 
   if (error?.code === "23505") {
@@ -84,21 +83,36 @@ export async function createThread(
         topic,
         title,
         slug,
-        body,
       })
-      .select("topic, slug")
+      .select("id, topic, slug")
       .single();
     data = retry.data;
     error = retry.error;
   }
 
-  if (error) {
-    return { errors: null, message: `Failed to create thread: ${error.message}`, success: false, resetKey: prevState.resetKey };
+  if (error || !data) {
+    return { errors: null, message: `Failed to create thread: ${error?.message ?? "Unknown error"}`, success: false, resetKey: prevState.resetKey };
+  }
+
+  // Insert the OP post
+  const { error: opError } = await supabase
+    .from("forum_posts")
+    .insert({
+      thread_id: data.id,
+      author_id: user.id,
+      body,
+      is_op: true,
+    });
+
+  if (opError) {
+    // Clean up the thread if OP post insertion fails
+    await supabase.from("forum_threads").delete().eq("id", data.id);
+    return { errors: null, message: `Failed to create thread: ${opError.message}`, success: false, resetKey: prevState.resetKey };
   }
 
   revalidatePath(`/community/${topic}`);
   revalidatePath("/community");
-  redirect(`/community/${data!.topic}/${data!.slug}`);
+  redirect(`/community/${data.topic}/${data.slug}`);
 }
 
 // TODO(BTM-8): Add rate limiting (e.g., max N replies/hour per user)
@@ -199,10 +213,12 @@ export async function editThread(threadId: string, body: string): Promise<void> 
     await requireAdmin();
   }
 
+  // Update the OP post's body (body now lives in forum_posts, not forum_threads)
   const { error } = await supabase
-    .from("forum_threads")
+    .from("forum_posts")
     .update({ body: parsed.data.body, updated_at: new Date().toISOString() })
-    .eq("id", threadId);
+    .eq("thread_id", threadId)
+    .eq("is_op", true);
 
   if (error) throw new Error(`Failed to edit thread: ${error.message}`);
 
@@ -249,7 +265,7 @@ export async function editReply(postId: string, body: string): Promise<void> {
   if (thread) revalidatePath(`/community/${thread.topic}/${thread.slug}`);
 }
 
-export async function deleteThread(threadId: string, redirectPath: string): Promise<void> {
+export async function deleteThread(threadId: string): Promise<void> {
   validateUUID(threadId, "thread");
 
   const user = await getAuthUser();
@@ -278,7 +294,7 @@ export async function deleteThread(threadId: string, redirectPath: string): Prom
 
   revalidatePath(`/community/${thread.topic}`);
   revalidatePath("/community");
-  redirect(redirectPath);
+  redirect(`/community/${thread.topic}`);
 }
 
 export async function deleteReply(postId: string): Promise<void> {

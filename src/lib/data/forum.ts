@@ -33,7 +33,10 @@ export interface PaginatedThreadsResult extends PaginatedResult<ForumThreadSumma
 const PROFILE_JOIN = "profiles!forum_threads_author_profile_fkey(id, display_name, avatar_url)";
 const POST_PROFILE_JOIN = "profiles!forum_posts_author_profile_fkey(id, display_name, avatar_url)";
 const DEFAULT_PAGE_SIZE = 20;
-const BODY_PREVIEW_LENGTH = 200;
+
+// The listing view joins forum_threads with the OP post's body_preview.
+const LISTING_VIEW = "forum_thread_listings";
+const LISTING_PROFILE_JOIN = "profiles(id, display_name, avatar_url)";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,12 +45,6 @@ const BODY_PREVIEW_LENGTH = 200;
 function validateCursor(cursor: CursorPair): CursorPair | undefined {
   if (!isValidISODate(cursor.ts) || !isUUID(cursor.id)) return undefined;
   return cursor;
-}
-
-function truncateBody(body: string): string {
-  // TODO(BTM-8): Optimize with generated column or RPC to avoid fetching full body for list pages
-  if (body.length <= BODY_PREVIEW_LENGTH) return body;
-  return body.slice(0, BODY_PREVIEW_LENGTH).trimEnd() + "...";
 }
 
 function toThreadSummary(row: Record<string, unknown>): ForumThreadSummary {
@@ -62,7 +59,7 @@ function toThreadSummary(row: Record<string, unknown>): ForumThreadSummary {
     created_at: row.created_at as string,
     last_reply_at: row.last_reply_at as string,
     author: (row.profiles as ForumThreadSummary["author"]) ?? null,
-    body_preview: truncateBody(row.body as string),
+    body_preview: (row.body_preview as string) ?? "",
   };
 }
 
@@ -73,7 +70,6 @@ function toThreadWithAuthor(row: Record<string, unknown>): ForumThreadWithAuthor
     topic: row.topic as ForumTopicSlug,
     title: row.title as string,
     slug: row.slug as string,
-    body: row.body as string,
     reply_count: row.reply_count as number,
     pinned: row.pinned as boolean,
     locked: row.locked as boolean,
@@ -90,6 +86,8 @@ function toPostWithAuthor(row: Record<string, unknown>): ForumPostWithAuthor {
     thread_id: row.thread_id as string,
     author_id: row.author_id as string | null,
     body: row.body as string,
+    is_op: row.is_op as boolean,
+    body_preview: (row.body_preview as string) ?? "",
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     author: (row.profiles as ForumPostWithAuthor["author"]) ?? null,
@@ -108,20 +106,19 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
   const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
-  // Fetch pinned threads (always shown, no pagination)
+  // Fetch pinned threads from listing view for body_preview
   const { data: pinnedRows, error: pinnedError } = await supabase
-    .from("forum_threads")
-    .select(`*, ${PROFILE_JOIN}`)
+    .from(LISTING_VIEW)
+    .select(`*, ${LISTING_PROFILE_JOIN}`)
     .eq("topic", topic)
     .eq("pinned", true)
     .order("last_reply_at", { ascending: false });
 
   if (pinnedError) throw new Error(`Failed to fetch pinned threads: ${pinnedError.message}`);
 
-  // Fetch unpinned threads with cursor pagination
   let query = supabase
-    .from("forum_threads")
-    .select(`*, ${PROFILE_JOIN}`)
+    .from(LISTING_VIEW)
+    .select(`*, ${LISTING_PROFILE_JOIN}`)
     .eq("topic", topic)
     .eq("pinned", false)
     .order("last_reply_at", { ascending: false })
@@ -129,7 +126,6 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
     .limit(limit + 1);
 
   if (cursor) {
-    // Composite cursor: (last_reply_at, id) < (cursor_ts, cursor_id)
     query = query.or(
       `last_reply_at.lt.${cursor.ts},and(last_reply_at.eq.${cursor.ts},id.lt.${cursor.id})`,
     );
@@ -160,8 +156,8 @@ export const getRecentThreads = cache(async function getRecentThreads(
   const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
   let query = supabase
-    .from("forum_threads")
-    .select(`*, ${PROFILE_JOIN}`)
+    .from(LISTING_VIEW)
+    .select(`*, ${LISTING_PROFILE_JOIN}`)
     .order("last_reply_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(limit + 1);
@@ -226,7 +222,6 @@ export const getThreadReplies = cache(async function getThreadReplies(
     .limit(limit + 1);
 
   if (cursor) {
-    // ASC pagination: (created_at, id) > (cursor_ts, cursor_id)
     query = query.or(
       `created_at.gt.${cursor.ts},and(created_at.eq.${cursor.ts},id.gt.${cursor.id})`,
     );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RelativeTime } from "./RelativeTime";
@@ -24,22 +24,35 @@ export function ThreadHeader({
   onDelete,
 }: ThreadHeaderProps) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const authorName = thread.author?.display_name ?? "[deleted user]";
 
   function handlePin() {
     if (!onTogglePin) return;
-    startTransition(() => onTogglePin(thread.id));
+    setError(null);
+    startTransition(async () => {
+      try { await onTogglePin(thread.id); }
+      catch (e) { setError(e instanceof Error ? e.message : "Failed to toggle pin"); }
+    });
   }
 
   function handleLock() {
     if (!onToggleLock) return;
-    startTransition(() => onToggleLock(thread.id));
+    setError(null);
+    startTransition(async () => {
+      try { await onToggleLock(thread.id); }
+      catch (e) { setError(e instanceof Error ? e.message : "Failed to toggle lock"); }
+    });
   }
 
   function handleDelete() {
     if (!onDelete) return;
     if (!confirm("Delete this thread and all its replies?")) return;
-    startTransition(() => onDelete(thread.id));
+    setError(null);
+    startTransition(async () => {
+      try { await onDelete(thread.id); }
+      catch (e) { setError(e instanceof Error ? e.message : "Failed to delete thread"); }
+    });
   }
 
   return (
@@ -92,6 +105,9 @@ export function ThreadHeader({
             Delete Thread
           </Button>
         </div>
+      )}
+      {error && (
+        <p className="mt-2 text-sm text-destructive">{error}</p>
       )}
     </div>
   );

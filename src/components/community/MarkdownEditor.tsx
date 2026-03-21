@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { cn } from "@/lib/utils";
-import { MarkdownContent } from "./MarkdownContent";
+
+const MarkdownContent = lazy(() =>
+  import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
+);
 
 interface MarkdownEditorProps {
   name: string;
@@ -67,7 +70,13 @@ export function MarkdownEditor({
       ) : (
         <div className="min-h-[8rem] px-4 py-3">
           {value.trim() ? (
-            <MarkdownContent content={value} />
+            <Suspense
+              fallback={
+                <p className="text-sm text-muted-foreground">Loading preview...</p>
+              }
+            >
+              <MarkdownContent content={value} />
+            </Suspense>
           ) : (
             <p className="text-sm text-muted-foreground">Nothing to preview</p>
           )}

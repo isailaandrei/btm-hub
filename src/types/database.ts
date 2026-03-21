@@ -55,7 +55,6 @@ export interface ForumThread {
   topic: ForumTopicSlug;
   title: string;
   slug: string;
-  body: string;
   reply_count: number;
   pinned: boolean;
   locked: boolean;
@@ -75,6 +74,8 @@ export interface ForumPost {
   thread_id: string;
   author_id: string | null;
   body: string;
+  is_op: boolean;
+  body_preview: string;
   created_at: string;
   updated_at: string;
 }

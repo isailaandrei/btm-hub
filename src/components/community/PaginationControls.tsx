@@ -19,7 +19,7 @@ export function PaginationControls({ nextCursor, basePath }: PaginationControlsP
     <div className="mt-8 flex justify-center">
       <Button variant="outline" asChild>
         <Link href={`${basePath}?${params.toString()}`}>
-          Load More
+          Next Page
         </Link>
       </Button>
     </div>

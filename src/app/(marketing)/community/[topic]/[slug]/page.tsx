@@ -25,13 +25,9 @@ export async function generateMetadata({
   const thread = await getThreadBySlug(topicSlug as ForumTopicSlug, slug);
   if (!thread) return {};
 
-  const bodyPreview = thread.body.length > 160
-    ? thread.body.slice(0, 160).trimEnd() + "..."
-    : thread.body;
-
   return {
     title: `${thread.title} | ${topic.name} | BTM Hub`,
-    description: bodyPreview,
+    description: thread.title,
   };
 }
 
@@ -55,13 +51,19 @@ export default async function ThreadPage({
       ? { ts: sp.cursor, id: sp.cursor_id }
       : undefined;
 
-  const [user, { data: replies, nextCursor }, profile] = await Promise.all([
+  const [user, { data: posts, nextCursor }, profile] = await Promise.all([
     getAuthUser(),
     getThreadReplies(thread.id, { cursor, limit: 50 }),
     getProfile(),
   ]);
 
   const isAdmin = profile?.role === "admin";
+
+  // Split OP post from replies
+  const opPost = posts.find((p) => p.is_op);
+  const replies = posts.filter((p) => !p.is_op);
+
+  if (!opPost) notFound();
 
   const currentPath = `/community/${topic.slug}/${slug}`;
 
@@ -77,6 +79,7 @@ export default async function ThreadPage({
 
         <ThreadActions
           thread={thread}
+          opPost={opPost}
           replies={replies}
           topicName={topic.name}
           currentUserId={user?.id ?? null}
@@ -93,6 +96,7 @@ export default async function ThreadPage({
             threadId={thread.id}
             isLocked={thread.locked}
             isAuthenticated={!!user}
+            isAdmin={isAdmin}
             redirectPath={currentPath}
           />
         </div>

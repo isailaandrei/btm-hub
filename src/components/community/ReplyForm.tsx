@@ -10,6 +10,7 @@ interface ReplyFormProps {
   threadId: string;
   isLocked: boolean;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   redirectPath: string;
 }
 
@@ -17,6 +18,7 @@ export function ReplyForm({
   threadId,
   isLocked,
   isAuthenticated,
+  isAdmin,
   redirectPath,
 }: ReplyFormProps) {
   const [state, formAction, isPending] = useActionState(createReply, {
@@ -42,7 +44,7 @@ export function ReplyForm({
     );
   }
 
-  if (isLocked) {
+  if (isLocked && !isAdmin) {
     return (
       <div className="rounded-lg border border-dashed border-border px-6 py-8 text-center">
         <p className="text-sm text-muted-foreground">

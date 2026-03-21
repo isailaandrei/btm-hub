@@ -5,11 +5,10 @@ import { MarkdownContent } from "./MarkdownContent";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { RelativeTime } from "./RelativeTime";
 import { Button } from "@/components/ui/button";
-import type { ForumPostWithAuthor, ForumThreadWithAuthor } from "@/types/database";
+import type { ForumPostWithAuthor } from "@/types/database";
 
 interface PostCardProps {
-  post: ForumPostWithAuthor | ForumThreadWithAuthor;
-  isOp?: boolean;
+  post: ForumPostWithAuthor;
   currentUserId?: string | null;
   isAdmin?: boolean;
   onEdit?: (id: string, body: string) => Promise<void>;
@@ -18,13 +17,13 @@ interface PostCardProps {
 
 export function PostCard({
   post,
-  isOp = false,
   currentUserId,
   isAdmin = false,
   onEdit,
   onDelete,
 }: PostCardProps) {
   const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const authorName = post.author?.display_name ?? "[deleted user]";
   const isOwner = currentUserId != null && post.author_id === currentUserId;
@@ -34,16 +33,28 @@ export function PostCard({
   function handleEdit(formData: FormData) {
     const body = formData.get("body") as string;
     if (!body?.trim() || !onEdit) return;
+    setError(null);
     startTransition(async () => {
-      await onEdit(post.id, body);
-      setEditing(false);
+      try {
+        await onEdit(post.id, body);
+        setEditing(false);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to save edit");
+      }
     });
   }
 
   function handleDelete() {
     if (!onDelete) return;
     if (!confirm("Are you sure you want to delete this?")) return;
-    startTransition(() => onDelete(post.id));
+    setError(null);
+    startTransition(async () => {
+      try {
+        await onDelete(post.id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to delete");
+      }
+    });
   }
 
   return (
@@ -58,7 +69,7 @@ export function PostCard({
           {isEdited && (
             <span className="text-muted-foreground italic">(edited)</span>
           )}
-          {isOp && (
+          {post.is_op && (
             <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
               OP
             </span>
@@ -117,6 +128,9 @@ export function PostCard({
         <div className="text-sm">
           <MarkdownContent content={post.body} />
         </div>
+      )}
+      {error && (
+        <p className="text-sm text-destructive">{error}</p>
       )}
     </div>
   );

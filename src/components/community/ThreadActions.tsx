@@ -14,6 +14,7 @@ import type { ForumThreadWithAuthor, ForumPostWithAuthor } from "@/types/databas
 
 interface ThreadActionsProps {
   thread: ForumThreadWithAuthor;
+  opPost: ForumPostWithAuthor;
   replies: ForumPostWithAuthor[];
   topicName: string;
   currentUserId: string | null;
@@ -22,13 +23,12 @@ interface ThreadActionsProps {
 
 export function ThreadActions({
   thread,
+  opPost,
   replies,
   topicName,
   currentUserId,
   isAdmin,
 }: ThreadActionsProps) {
-  const redirectPath = `/community/${thread.topic}`;
-
   return (
     <>
       <ThreadHeader
@@ -39,7 +39,7 @@ export function ThreadActions({
         onToggleLock={isAdmin ? toggleThreadLock : undefined}
         onDelete={
           isAdmin || (currentUserId && thread.author_id === currentUserId)
-            ? async (id: string) => deleteThread(id, redirectPath)
+            ? deleteThread
             : undefined
         }
       />
@@ -47,18 +47,17 @@ export function ThreadActions({
       {/* OP post */}
       <div className="border-b border-border">
         <PostCard
-          post={thread}
-          isOp
+          post={opPost}
           currentUserId={currentUserId}
           isAdmin={isAdmin}
           onEdit={
-            isAdmin || (currentUserId && thread.author_id === currentUserId)
-              ? editThread
+            isAdmin || (currentUserId && opPost.author_id === currentUserId)
+              ? (id: string, body: string) => editThread(thread.id, body)
               : undefined
           }
           onDelete={
             isAdmin || (currentUserId && thread.author_id === currentUserId)
-              ? async (id: string) => deleteThread(id, redirectPath)
+              ? deleteThread
               : undefined
           }
         />
