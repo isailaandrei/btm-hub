@@ -37,6 +37,65 @@ export interface AdminNote {
   created_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Forum
+// ---------------------------------------------------------------------------
+
+export type ForumTopicSlug =
+  | "trip-reports"
+  | "underwater-filmmaking-photography"
+  | "gear-talk"
+  | "marine-life"
+  | "freediving"
+  | "beginner-questions";
+
+export interface ForumThread {
+  id: string;
+  author_id: string | null;
+  topic: ForumTopicSlug;
+  title: string;
+  slug: string;
+  reply_count: number;
+  pinned: boolean;
+  locked: boolean;
+  created_at: string;
+  updated_at: string;
+  last_reply_at: string;
+}
+
+export type ForumAuthor = Pick<Profile, "id" | "display_name" | "avatar_url"> | null;
+
+export interface ForumThreadWithAuthor extends ForumThread {
+  author: ForumAuthor;
+}
+
+export interface ForumPost {
+  id: string;
+  thread_id: string;
+  author_id: string | null;
+  body: string;
+  is_op: boolean;
+  body_preview: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ForumPostWithAuthor extends ForumPost {
+  author: ForumAuthor;
+}
+
+export type ForumThreadSummary = Pick<
+  ForumThread,
+  "id" | "topic" | "title" | "slug" | "reply_count" | "pinned" | "locked" | "created_at" | "last_reply_at"
+> & {
+  author: ForumAuthor;
+  body_preview: string;
+};
+
+// ---------------------------------------------------------------------------
+// Application Shares
+// ---------------------------------------------------------------------------
+
 export interface ApplicationShare {
   id: string;
   application_id: string;

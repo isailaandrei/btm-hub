@@ -1,11 +1,8 @@
+import Link from "next/link";
 import { Tag } from "@/components/ui/Tag";
+import { FORUM_TOPICS } from "@/lib/community/topics";
 
-const TOPICS = [
-  { label: "Underwater Filming", variant: "primary" as const },
-  { label: "Gear Talk", variant: "ghost" as const },
-  { label: "Marine Life", variant: "ghost" as const },
-  { label: "Beginner Questions", variant: "ghost" as const },
-];
+const topics = Object.values(FORUM_TOPICS);
 
 export function CommunitySection() {
   return (
@@ -21,10 +18,12 @@ export function CommunitySection() {
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
-          {TOPICS.map((topic) => (
-            <Tag key={topic.label} variant={topic.variant}>
-              {topic.label}
-            </Tag>
+          {topics.map((topic, i) => (
+            <Link key={topic.slug} href={`/community/${topic.slug}`}>
+              <Tag variant={i === 0 ? "primary" : "ghost"}>
+                {topic.name}
+              </Tag>
+            </Link>
           ))}
         </div>
       </div>
