@@ -9,7 +9,8 @@ import { validateUUID } from "@/lib/validation-helpers";
 import {
   createThreadSchema,
   createReplySchema,
-  editPostSchema,
+  editThreadSchema,
+  editReplySchema,
 } from "@/lib/validations/forum";
 import { slugify, slugifyUnique } from "@/lib/community/slugify";
 
@@ -74,7 +75,7 @@ export async function createThread(
     .single();
 
   if (error?.code === "23505") {
-    slug = slugifyUnique(title);
+    slug = slugifyUnique(slugify(title) || "thread");
     const retry = await supabase
       .from("forum_threads")
       .insert({
@@ -176,7 +177,7 @@ export async function createReply(
 export async function editThread(threadId: string, body: string): Promise<void> {
   validateUUID(threadId, "thread");
 
-  const parsed = editPostSchema.safeParse({ body });
+  const parsed = editThreadSchema.safeParse({ body });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
 
   const user = await getAuthUser();
@@ -210,7 +211,7 @@ export async function editThread(threadId: string, body: string): Promise<void> 
 export async function editReply(postId: string, body: string): Promise<void> {
   validateUUID(postId, "reply");
 
-  const parsed = editPostSchema.safeParse({ body });
+  const parsed = editReplySchema.safeParse({ body });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
 
   const user = await getAuthUser();
@@ -323,6 +324,13 @@ export async function toggleThreadPin(threadId: string): Promise<void> {
   await requireAdmin();
 
   const supabase = await createClient();
+
+  const { data: thread } = await supabase
+    .from("forum_threads")
+    .select("topic, slug")
+    .eq("id", threadId)
+    .single();
+
   const { error } = await supabase.rpc("toggle_thread_pin", {
     _thread_id: threadId,
   });
@@ -330,6 +338,10 @@ export async function toggleThreadPin(threadId: string): Promise<void> {
   if (error) throw new Error(`Failed to toggle pin: ${error.message}`);
 
   revalidatePath("/community");
+  if (thread) {
+    revalidatePath(`/community/${thread.topic}`);
+    revalidatePath(`/community/${thread.topic}/${thread.slug}`);
+  }
 }
 
 export async function toggleThreadLock(threadId: string): Promise<void> {
@@ -337,6 +349,13 @@ export async function toggleThreadLock(threadId: string): Promise<void> {
   await requireAdmin();
 
   const supabase = await createClient();
+
+  const { data: thread } = await supabase
+    .from("forum_threads")
+    .select("topic, slug")
+    .eq("id", threadId)
+    .single();
+
   const { error } = await supabase.rpc("toggle_thread_lock", {
     _thread_id: threadId,
   });
@@ -344,4 +363,8 @@ export async function toggleThreadLock(threadId: string): Promise<void> {
   if (error) throw new Error(`Failed to toggle lock: ${error.message}`);
 
   revalidatePath("/community");
+  if (thread) {
+    revalidatePath(`/community/${thread.topic}`);
+    revalidatePath(`/community/${thread.topic}/${thread.slug}`);
+  }
 }

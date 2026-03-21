@@ -308,10 +308,10 @@ CREATE POLICY "Admins can delete any post"
 -- Grants (matches existing pattern)
 -- --------------------------------------------------------------------------
 
-GRANT ALL ON TABLE "public"."forum_threads" TO "anon";
-GRANT ALL ON TABLE "public"."forum_threads" TO "authenticated";
+GRANT SELECT ON TABLE "public"."forum_threads" TO "anon";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."forum_threads" TO "authenticated";
 GRANT ALL ON TABLE "public"."forum_threads" TO "service_role";
 
-GRANT ALL ON TABLE "public"."forum_posts" TO "anon";
-GRANT ALL ON TABLE "public"."forum_posts" TO "authenticated";
+GRANT SELECT ON TABLE "public"."forum_posts" TO "anon";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."forum_posts" TO "authenticated";
 GRANT ALL ON TABLE "public"."forum_posts" TO "service_role";

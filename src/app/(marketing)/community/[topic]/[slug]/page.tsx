@@ -5,6 +5,7 @@ import { getAuthUser } from "@/lib/data/auth";
 import { getProfile } from "@/lib/data/profiles";
 import { getThreadBySlug, getThreadReplies } from "@/lib/data/forum";
 import type { ForumTopicSlug } from "@/types/database";
+import { isUUID, isValidISODate } from "@/lib/validation-helpers";
 import { ForumBreadcrumb } from "@/components/community/ForumBreadcrumb";
 import { ThreadActions } from "@/components/community/ThreadActions";
 import { ReplyForm } from "@/components/community/ReplyForm";
@@ -50,7 +51,7 @@ export default async function ThreadPage({
 
   const sp = await searchParams;
   const cursor =
-    sp.cursor && sp.cursor_id
+    sp.cursor && sp.cursor_id && isUUID(sp.cursor_id) && isValidISODate(sp.cursor)
       ? { ts: sp.cursor, id: sp.cursor_id }
       : undefined;
 

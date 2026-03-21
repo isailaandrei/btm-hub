@@ -6,6 +6,7 @@ import { TopicGrid } from "@/components/community/TopicGrid";
 import { ThreadList } from "@/components/community/ThreadList";
 import { PaginationControls } from "@/components/community/PaginationControls";
 import { Button } from "@/components/ui/button";
+import { isUUID, isValidISODate } from "@/lib/validation-helpers";
 
 export const metadata: Metadata = {
   title: "Community Forum | BTM Hub",
@@ -21,7 +22,7 @@ export default async function CommunityPage({
   const params = await searchParams;
 
   const cursor =
-    params.cursor && params.cursor_id
+    params.cursor && params.cursor_id && isUUID(params.cursor_id) && isValidISODate(params.cursor)
       ? { ts: params.cursor, id: params.cursor_id }
       : undefined;
 

@@ -9,6 +9,7 @@ import { ForumBreadcrumb } from "@/components/community/ForumBreadcrumb";
 import { ThreadList } from "@/components/community/ThreadList";
 import { PaginationControls } from "@/components/community/PaginationControls";
 import { Button } from "@/components/ui/button";
+import { isUUID, isValidISODate } from "@/lib/validation-helpers";
 
 export async function generateMetadata({
   params,
@@ -38,7 +39,7 @@ export default async function TopicPage({
 
   const sp = await searchParams;
   const cursor =
-    sp.cursor && sp.cursor_id
+    sp.cursor && sp.cursor_id && isUUID(sp.cursor_id) && isValidISODate(sp.cursor)
       ? { ts: sp.cursor, id: sp.cursor_id }
       : undefined;
 

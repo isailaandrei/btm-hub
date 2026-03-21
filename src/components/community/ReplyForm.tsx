@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,14 @@ export function ReplyForm({
     message: "",
     success: false,
   });
+
+  const [formKey, setFormKey] = useState(0);
+
+  useEffect(() => {
+    if (state.success) {
+      setFormKey((k) => k + 1);
+    }
+  }, [state.success]);
 
   if (!isAuthenticated) {
     return (
@@ -52,7 +60,7 @@ export function ReplyForm({
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-3">
+    <form key={formKey} action={formAction} className="flex flex-col gap-3">
       <input type="hidden" name="threadId" value={threadId} />
       <h3 className="text-base font-medium text-foreground">Reply</h3>
       <MarkdownEditor
@@ -67,6 +75,9 @@ export function ReplyForm({
       )}
       {state.message && !state.success && (
         <p className="text-sm text-destructive">{state.message}</p>
+      )}
+      {state.success && (
+        <p className="text-sm text-green-600">Reply posted!</p>
       )}
       <div>
         <Button type="submit" disabled={isPending}>
