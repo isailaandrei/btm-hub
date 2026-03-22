@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { RelativeTime } from "./RelativeTime";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ForumPostWithAuthor } from "@/types/database";
 
@@ -58,22 +59,21 @@ export function PostCard({
   }
 
   return (
-    <div className="flex flex-col gap-3 py-5">
+    <div className="flex flex-col gap-3 px-5 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+            {(post.author?.display_name?.[0] ?? "?").toUpperCase()}
+          </div>
           <span className="font-medium text-foreground">{authorName}</span>
           <span className="text-muted-foreground">&middot;</span>
           <span className="text-muted-foreground">
             <RelativeTime date={post.created_at} />
           </span>
           {isEdited && (
-            <span className="text-muted-foreground italic">(edited)</span>
+            <span className="text-muted-foreground italic text-xs">(edited)</span>
           )}
-          {post.is_op && (
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
-              OP
-            </span>
-          )}
+          {post.is_op && <Badge variant="secondary">OP</Badge>}
         </div>
         {canModify && !editing && (
           <div className="flex items-center gap-1">
@@ -125,12 +125,12 @@ export function PostCard({
           </div>
         </form>
       ) : (
-        <div className="text-sm">
+        <div className="pl-9 text-sm">
           <MarkdownContent content={post.body} />
         </div>
       )}
       {error && (
-        <p className="text-sm text-destructive">{error}</p>
+        <p className="pl-9 text-sm text-destructive">{error}</p>
       )}
     </div>
   );

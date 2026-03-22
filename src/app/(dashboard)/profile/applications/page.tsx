@@ -23,7 +23,6 @@ export default async function MyApplicationsPage() {
       {applications.length === 0 ? (
         <Card>
           <CardContent className="p-10 text-center">
-            <div className="mb-4 text-4xl">🌊</div>
             <h2 className="mb-2 text-lg font-medium text-foreground">
               No applications yet
             </h2>
@@ -60,9 +59,6 @@ export default async function MyApplicationsPage() {
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     {/* Left: program info */}
                     <div className="flex items-start gap-4">
-                      <span className="text-3xl leading-none">
-                        {program?.icon ?? "📄"}
-                      </span>
                       <div>
                         <h3 className="text-base font-medium text-foreground">
                           {program?.name ?? app.program}

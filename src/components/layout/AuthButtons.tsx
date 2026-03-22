@@ -27,6 +27,18 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
   useEffect(() => {
     const supabase = createClient();
 
+    // Restore cached user immediately to avoid flash of loading state
+    let hadCache = false;
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as NavbarUser;
+        setUser(cached);
+        setLoading(false);
+        hadCache = true;
+      }
+    } catch {}
+
     async function fetchProfile(userId: string) {
       const { data: profile } = await supabase
         .from("profiles")
