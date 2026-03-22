@@ -125,7 +125,7 @@ export function ApplicationsPanel() {
           No applications match your filters.
         </div>
       ) : (
-        <div className="rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow className="bg-card text-muted-foreground">

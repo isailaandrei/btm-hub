@@ -4,7 +4,7 @@ export interface ProgramDefinition {
   slug: ProgramSlug;
   name: string;
   shortDescription: string;
-  icon: string;
+  icon: string | null;
   applicationOpen: boolean;
 }
 
@@ -13,28 +13,28 @@ export const PROGRAMS: Record<ProgramSlug, ProgramDefinition> = {
     slug: "photography",
     name: "Underwater Photography",
     shortDescription: "Master the art of capturing life beneath the surface through mentorship-based training.",
-    icon: "",
+    icon: null,
     applicationOpen: true,
   },
   filmmaking: {
     slug: "filmmaking",
     name: "Underwater Filmmaking",
     shortDescription: "Learn to tell compelling underwater stories through film, from shooting to post-production.",
-    icon: "",
+    icon: null,
     applicationOpen: true,
   },
   freediving: {
     slug: "freediving",
     name: "Freediving & Modelling",
     shortDescription: "Develop your breath-hold diving and underwater performance skills through structured training and creative coaching.",
-    icon: "",
+    icon: null,
     applicationOpen: true,
   },
   internship: {
     slug: "internship",
     name: "BTM Internship",
     shortDescription: "Join the Behind the Mask team for an extended hands-on learning experience across all disciplines.",
-    icon: "",
+    icon: null,
     applicationOpen: true,
   },
 };

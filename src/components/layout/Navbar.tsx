@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { AuthButtons } from "./AuthButtons";
 
 export interface NavbarProps {
@@ -29,6 +30,12 @@ function LogoText({ className }: { className?: string }) {
 export function Navbar({ variant = "dark" }: NavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const pathname = usePathname();
+
+  // Close mobile drawer on navigation
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   const isLight = variant === "light";
 

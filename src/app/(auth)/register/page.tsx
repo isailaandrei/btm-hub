@@ -19,7 +19,7 @@ export default function RegisterPage() {
       </p>
 
       {state.message && (
-        <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {state.message}
         </div>
       )}
@@ -38,10 +38,11 @@ export default function RegisterPage() {
             type="text"
             autoComplete="name"
             required
-            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.displayName ? "border-red-400" : "border-border"}`}
+            defaultValue={state.values?.displayName}
+            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.displayName ? "border-destructive" : "border-border"}`}
           />
           {state.errors?.displayName && (
-            <p className="text-sm text-red-400">{state.errors.displayName}</p>
+            <p className="text-sm text-destructive">{state.errors.displayName}</p>
           )}
         </div>
 
@@ -58,10 +59,11 @@ export default function RegisterPage() {
             type="email"
             autoComplete="email"
             required
-            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.email ? "border-red-400" : "border-border"}`}
+            defaultValue={state.values?.email}
+            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.email ? "border-destructive" : "border-border"}`}
           />
           {state.errors?.email && (
-            <p className="text-sm text-red-400">{state.errors.email}</p>
+            <p className="text-sm text-destructive">{state.errors.email}</p>
           )}
         </div>
 
@@ -78,10 +80,10 @@ export default function RegisterPage() {
             type="password"
             autoComplete="new-password"
             required
-            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.password ? "border-red-400" : "border-border"}`}
+            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.password ? "border-destructive" : "border-border"}`}
           />
           {state.errors?.password && (
-            <p className="text-sm text-red-400">{state.errors.password}</p>
+            <p className="text-sm text-destructive">{state.errors.password}</p>
           )}
         </div>
 
@@ -98,10 +100,10 @@ export default function RegisterPage() {
             type="password"
             autoComplete="new-password"
             required
-            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.confirmPassword ? "border-red-400" : "border-border"}`}
+            className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.confirmPassword ? "border-destructive" : "border-border"}`}
           />
           {state.errors?.confirmPassword && (
-            <p className="text-sm text-red-400">{state.errors.confirmPassword}</p>
+            <p className="text-sm text-destructive">{state.errors.confirmPassword}</p>
           )}
         </div>
 
