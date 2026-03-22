@@ -89,7 +89,8 @@ export async function register(
         values: safeValues,
       };
     }
-    return { errors: null, message: "Something went wrong. Please try again.", values: safeValues };
+    console.error("Registration error:", error.code, error.message);
+    return { errors: null, message: `Something went wrong: ${error.message}`, values: safeValues };
   }
 
   redirect("/login?message=email-confirmation");

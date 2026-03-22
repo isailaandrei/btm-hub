@@ -14,11 +14,8 @@ const NAV_LINKS = [
   { label: "Academy", href: "/academy" },
   { label: "Films", href: "/films" },
   { label: "Team", href: "/team" },
-  { label: "Shop", href: "/shop" },
   { label: "Community", href: "/community" },
   { label: "Partners", href: "/partners" },
-  { label: "Foundation", href: "/foundation" },
-  { label: "Contact", href: "/contact" },
 ] as const;
 
 function LogoText({ className }: { className?: string }) {
