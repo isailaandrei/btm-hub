@@ -128,7 +128,8 @@ CREATE INDEX "idx_forum_posts_author" ON "public"."forum_posts" ("author_id");
 -- View: forum_thread_listings (joins thread with OP body_preview)
 -- --------------------------------------------------------------------------
 
-CREATE VIEW "public"."forum_thread_listings" AS
+CREATE VIEW "public"."forum_thread_listings"
+WITH (security_invoker = true) AS
 SELECT ft.*, fp."body_preview"
 FROM "public"."forum_threads" ft
 LEFT JOIN "public"."forum_posts" fp ON fp."thread_id" = ft."id" AND fp."is_op" = true;
