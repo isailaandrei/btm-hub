@@ -20,9 +20,8 @@ export default function AcademyPage() {
             <Link
               key={program.slug}
               href={`/academy/${program.slug}`}
-              className="group flex flex-col rounded-lg border border-border bg-card p-6 transition-colors hover:border-primary"
+              className="group flex flex-col rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary"
             >
-              <span className="mb-4 text-4xl">{program.icon}</span>
               <h2 className="mb-2 text-[length:var(--font-size-h3)] font-medium text-foreground">
                 {program.name}
               </h2>

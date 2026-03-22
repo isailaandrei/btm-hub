@@ -1,3 +1,4 @@
+import { Card, CardContent } from "@/components/ui/card";
 import type { ForumThreadSummary } from "@/types/database";
 import { ThreadCard } from "./ThreadCard";
 
@@ -12,17 +13,21 @@ export function ThreadList({
 }: ThreadListProps) {
   if (threads.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
-        <p className="text-muted-foreground">{emptyMessage}</p>
-      </div>
+      <Card>
+        <CardContent className="py-12 text-center">
+          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="divide-y-0">
-      {threads.map((thread) => (
-        <ThreadCard key={thread.id} thread={thread} />
-      ))}
-    </div>
+    <Card className="overflow-hidden">
+      <div className="divide-y divide-border">
+        {threads.map((thread) => (
+          <ThreadCard key={thread.id} thread={thread} />
+        ))}
+      </div>
+    </Card>
   );
 }

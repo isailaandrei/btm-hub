@@ -1,17 +1,20 @@
 import Link from "next/link";
+import { Card, CardContent } from "@/components/ui/card";
 import type { ForumTopicDefinition } from "@/lib/community/topics";
 
 export function TopicCard({ topic }: { topic: ForumTopicDefinition }) {
   return (
-    <Link
-      href={`/community/${topic.slug}`}
-      className="group flex flex-col rounded-lg border border-border bg-card p-6 transition-colors hover:border-primary"
-    >
-      <span className="mb-3 text-3xl">{topic.icon}</span>
-      <h3 className="mb-1 text-base font-medium text-foreground group-hover:text-primary">
-        {topic.name}
-      </h3>
-      <p className="text-sm text-muted-foreground">{topic.description}</p>
+    <Link href={`/community/${topic.slug}`}>
+      <Card className="h-full transition-colors hover:border-primary">
+        <CardContent>
+          <h3 className="text-sm font-medium text-foreground">
+            {topic.name}
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+            {topic.description}
+          </p>
+        </CardContent>
+      </Card>
     </Link>
   );
 }

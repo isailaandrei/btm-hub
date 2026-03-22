@@ -13,7 +13,6 @@ export default async function ProgramPage({
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted px-5 py-20">
-      <span className="mb-4 text-5xl">{program.icon}</span>
       <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-foreground">
         {program.name}
       </h1>
