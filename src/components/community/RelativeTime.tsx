@@ -33,9 +33,10 @@ function formatRelative(date: Date): string {
 }
 
 export function RelativeTime({ date }: { date: string }) {
-  const [text, setText] = useState(() => formatRelative(new Date(date)));
+  const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
+    setText(formatRelative(new Date(date)));
     const interval = setInterval(() => {
       setText(formatRelative(new Date(date)));
     }, MINUTE);
@@ -43,8 +44,8 @@ export function RelativeTime({ date }: { date: string }) {
   }, [date]);
 
   return (
-    <time dateTime={date} title={new Date(date).toLocaleString()}>
-      {text}
+    <time dateTime={date} title={text ? new Date(date).toLocaleString() : undefined}>
+      {text ?? ""}
     </time>
   );
 }

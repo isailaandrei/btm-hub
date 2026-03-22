@@ -40,6 +40,9 @@ export default function RegisterPage() {
             required
             className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.displayName ? "border-red-400" : "border-border"}`}
           />
+          {state.errors?.displayName && (
+            <p className="text-sm text-red-400">{state.errors.displayName}</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -57,6 +60,9 @@ export default function RegisterPage() {
             required
             className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.email ? "border-red-400" : "border-border"}`}
           />
+          {state.errors?.email && (
+            <p className="text-sm text-red-400">{state.errors.email}</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -74,6 +80,9 @@ export default function RegisterPage() {
             required
             className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.password ? "border-red-400" : "border-border"}`}
           />
+          {state.errors?.password && (
+            <p className="text-sm text-red-400">{state.errors.password}</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -91,6 +100,9 @@ export default function RegisterPage() {
             required
             className={`rounded-lg border bg-card px-4 py-3 text-foreground outline-none transition-colors focus:border-primary ${state.errors?.confirmPassword ? "border-red-400" : "border-border"}`}
           />
+          {state.errors?.confirmPassword && (
+            <p className="text-sm text-red-400">{state.errors.confirmPassword}</p>
+          )}
         </div>
 
         <button

@@ -23,12 +23,12 @@ ALTER TABLE "public"."forum_topics" OWNER TO "postgres";
 
 -- Seed forum topics
 INSERT INTO "public"."forum_topics" ("slug", "name", "description", "icon", "sort_order") VALUES
-    ('trip-reports', 'Trip Reports', 'Share your dive adventures and trip experiences from around the world.', '🌍', 0),
-    ('underwater-filmmaking-photography', 'Underwater Filmmaking & Photography', 'Techniques, critiques, and inspiration for shooting beneath the surface.', '📸', 1),
-    ('gear-talk', 'Gear Talk', 'Discuss cameras, housings, lights, fins, and everything in between.', '🔧', 2),
-    ('marine-life', 'Marine Life', 'Identify species, share sightings, and discuss ocean conservation.', '🐠', 3),
-    ('freediving', 'Freediving', 'Training tips, breath-hold techniques, and freediving stories.', '🤿', 4),
-    ('beginner-questions', 'Beginner Questions', 'New to diving or underwater content creation? Ask anything here.', '💬', 5);
+    ('trip-reports', 'Trip Reports', 'Share your dive adventures and trip experiences from around the world.', '', 0),
+    ('underwater-filmmaking-photography', 'Underwater Filmmaking & Photography', 'Techniques, critiques, and inspiration for shooting beneath the surface.', '', 1),
+    ('gear-talk', 'Gear Talk', 'Discuss cameras, housings, lights, fins, and everything in between.', '', 2),
+    ('marine-life', 'Marine Life', 'Identify species, share sightings, and discuss ocean conservation.', '', 3),
+    ('freediving', 'Freediving', 'Training tips, breath-hold techniques, and freediving stories.', '', 4),
+    ('beginner-questions', 'Beginner Questions', 'New to diving or underwater content creation? Ask anything here.', '', 5);
 
 -- Change 2: Removed "body" column from forum_threads (body is now in the OP forum_post)
 CREATE TABLE IF NOT EXISTS "public"."forum_threads" (
