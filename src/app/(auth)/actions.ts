@@ -7,6 +7,7 @@ import { loginSchema, registerSchema } from "@/lib/validations/auth";
 export type AuthState = {
   errors: Record<string, string[]> | null;
   message: string | null;
+  values?: Record<string, string>;
 };
 
 export async function login(
@@ -20,7 +21,7 @@ export async function login(
 
   const parsed = loginSchema.safeParse(raw);
   if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors, message: null };
+    return { errors: parsed.error.flatten().fieldErrors, message: null, values: raw };
   }
 
   const supabase = await createClient();
@@ -32,11 +33,13 @@ export async function login(
         errors: null,
         message:
           "Please confirm your email before logging in. Check your inbox for the confirmation link.",
+        values: { email: raw.email },
       };
     }
     return {
       errors: null,
       message: "Invalid email or password. Please try again.",
+      values: { email: raw.email },
     };
   }
 
@@ -60,9 +63,11 @@ export async function register(
     displayName: formData.get("displayName") as string,
   };
 
+  const safeValues = { displayName: raw.displayName, email: raw.email };
+
   const parsed = registerSchema.safeParse(raw);
   if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors, message: null };
+    return { errors: parsed.error.flatten().fieldErrors, message: null, values: safeValues };
   }
 
   const supabase = await createClient();
@@ -81,9 +86,10 @@ export async function register(
       return {
         errors: null,
         message: "An account with this email already exists.",
+        values: safeValues,
       };
     }
-    return { errors: null, message: "Something went wrong. Please try again." };
+    return { errors: null, message: "Something went wrong. Please try again.", values: safeValues };
   }
 
   redirect("/login?message=email-confirmation");

@@ -8,7 +8,7 @@ interface BreadcrumbItem {
 export function ForumBreadcrumb({ items }: { items: BreadcrumbItem[] }) {
   return (
     <nav aria-label="Breadcrumb" className="mb-6 text-sm text-muted-foreground">
-      <ol className="flex items-center gap-1.5">
+      <ol className="flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap">
         <li>
           <Link href="/community" className="hover:text-foreground">
             Community
@@ -22,7 +22,7 @@ export function ForumBreadcrumb({ items }: { items: BreadcrumbItem[] }) {
                 {item.label}
               </Link>
             ) : (
-              <span className="text-foreground">{item.label}</span>
+              <span className="truncate text-foreground">{item.label}</span>
             )}
           </li>
         ))}
