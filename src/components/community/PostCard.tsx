@@ -63,7 +63,7 @@ export function PostCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-            {(post.author?.display_name?.[0] ?? "?").toUpperCase()}
+            {(post.author?.display_name || "?").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
           </div>
           <span className="font-medium text-foreground">{authorName}</span>
           <span className="text-muted-foreground">&middot;</span>
@@ -80,7 +80,7 @@ export function PostCard({
             {onEdit && (
               <Button
                 variant="ghost"
-                size="xs"
+                size="sm"
                 onClick={() => setEditing(true)}
               >
                 Edit
@@ -89,7 +89,7 @@ export function PostCard({
             {onDelete && (
               <Button
                 variant="ghost"
-                size="xs"
+                size="sm"
                 onClick={handleDelete}
                 disabled={isPending}
                 className="text-destructive hover:text-destructive"

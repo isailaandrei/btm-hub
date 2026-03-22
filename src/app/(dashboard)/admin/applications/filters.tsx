@@ -58,7 +58,7 @@ export function ApplicationFilters({
         value={program ?? "all"}
         onValueChange={(v) => onProgramChange(v === "all" ? undefined : (v as ProgramSlug))}
       >
-        <SelectTrigger className="w-[180px]">
+        <SelectTrigger className="w-full sm:w-[180px]">
           <SelectValue placeholder="All Programs" />
         </SelectTrigger>
         <SelectContent>
@@ -75,7 +75,7 @@ export function ApplicationFilters({
         value={status ?? "all"}
         onValueChange={(v) => onStatusChange(v === "all" ? undefined : (v as ApplicationStatus))}
       >
-        <SelectTrigger className="w-[160px]">
+        <SelectTrigger className="w-full sm:w-[160px]">
           <SelectValue placeholder="All Statuses" />
         </SelectTrigger>
         <SelectContent>

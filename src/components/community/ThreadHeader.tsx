@@ -67,7 +67,7 @@ export function ThreadHeader({
         {thread.title}
       </h1>
 
-      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
         <span>{authorName}</span>
         <span>&middot;</span>
         <RelativeTime date={thread.created_at} />
@@ -81,7 +81,7 @@ export function ThreadHeader({
         <div className="mt-3 flex gap-2 flex-wrap">
           <Button
             variant="outline"
-            size="xs"
+            size="sm"
             onClick={handlePin}
             disabled={isPending}
           >
@@ -89,7 +89,7 @@ export function ThreadHeader({
           </Button>
           <Button
             variant="outline"
-            size="xs"
+            size="sm"
             onClick={handleLock}
             disabled={isPending}
           >
@@ -97,7 +97,7 @@ export function ThreadHeader({
           </Button>
           <Button
             variant="ghost"
-            size="xs"
+            size="sm"
             onClick={handleDelete}
             disabled={isPending}
             className="text-destructive hover:text-destructive"
