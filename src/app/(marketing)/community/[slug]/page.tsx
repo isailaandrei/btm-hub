@@ -1,48 +1,38 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getForumTopic } from "@/lib/community/topics";
 import { getAuthUser } from "@/lib/data/auth";
 import { getProfile } from "@/lib/data/profiles";
-import { getThreadBySlug, getThreadReplies } from "@/lib/data/forum";
-import type { ForumTopicSlug } from "@/types/database";
+import { getThreadBySlug, getThreadReplies, getUserLikedPostIds } from "@/lib/data/forum";
 import { isUUID, isValidISODate } from "@/lib/validation-helpers";
 import { ForumBreadcrumb } from "@/components/community/ForumBreadcrumb";
 import { ThreadActions } from "@/components/community/ThreadActions";
 import { ReplyForm } from "@/components/community/ReplyForm";
 import { PaginationControls } from "@/components/community/PaginationControls";
 
-// TODO(BTM-8): Add Supabase Realtime subscriptions for live reply updates
-
 export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ topic: string; slug: string }>;
+  params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
-  const { topic: topicSlug, slug } = await params;
-  const topic = getForumTopic(topicSlug);
-  if (!topic) return {};
-
-  const thread = await getThreadBySlug(topicSlug as ForumTopicSlug, slug);
+  const { slug } = await params;
+  const thread = await getThreadBySlug(slug);
   if (!thread) return {};
 
   return {
-    title: `${thread.title} | ${topic.name} | BTM Hub`,
+    title: `${thread.title} | Community | BTM Hub`,
     description: thread.title,
   };
 }
 
-export default async function ThreadPage({
+export default async function PostDetailPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ topic: string; slug: string }>;
+  params: Promise<{ slug: string }>;
   searchParams: Promise<{ cursor?: string; cursor_id?: string }>;
 }) {
-  const { topic: topicSlug, slug } = await params;
-  const topic = getForumTopic(topicSlug);
-  if (!topic) notFound();
-
-  const thread = await getThreadBySlug(topicSlug as ForumTopicSlug, slug);
+  const { slug } = await params;
+  const thread = await getThreadBySlug(slug);
   if (!thread) notFound();
 
   const sp = await searchParams;
@@ -59,31 +49,33 @@ export default async function ThreadPage({
 
   const isAdmin = profile?.role === "admin";
 
-  // Split OP post from replies
   const opPost = posts.find((p) => p.is_op);
   const replies = posts.filter((p) => !p.is_op);
 
   if (!opPost) notFound();
 
-  const currentPath = `/community/${topic.slug}/${slug}`;
+  // Get liked status for all visible posts
+  const allPostIds = posts.map((p) => p.id);
+  const likedPostIds = user
+    ? await getUserLikedPostIds(user.id, allPostIds)
+    : new Set<string>();
+
+  const currentPath = `/community/${slug}`;
 
   return (
     <div className="min-h-screen bg-muted px-5 py-20">
       <div className="mx-auto max-w-4xl">
         <ForumBreadcrumb
-          items={[
-            { label: topic.name, href: `/community/${topic.slug}` },
-            { label: thread.title },
-          ]}
+          items={[{ label: thread.title }]}
         />
 
         <ThreadActions
           thread={thread}
           opPost={opPost}
           replies={replies}
-          topicName={topic.name}
           currentUserId={user?.id ?? null}
           isAdmin={isAdmin}
+          likedPostIds={likedPostIds}
         />
 
         <PaginationControls

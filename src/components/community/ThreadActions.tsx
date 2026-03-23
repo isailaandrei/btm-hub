@@ -11,30 +11,29 @@ import {
 import { Card } from "@/components/ui/card";
 import { ThreadHeader } from "./ThreadHeader";
 import { PostCard } from "./PostCard";
-import type { ForumThreadWithAuthor, ForumPostWithAuthor } from "@/types/database";
+import type { ForumThreadWithAuthor, ForumPostWithAuthor, BodyFormat } from "@/types/database";
 
 interface ThreadActionsProps {
   thread: ForumThreadWithAuthor;
   opPost: ForumPostWithAuthor;
   replies: ForumPostWithAuthor[];
-  topicName: string;
   currentUserId: string | null;
   isAdmin: boolean;
+  likedPostIds?: Set<string>;
 }
 
 export function ThreadActions({
   thread,
   opPost,
   replies,
-  topicName,
   currentUserId,
   isAdmin,
+  likedPostIds = new Set(),
 }: ThreadActionsProps) {
   return (
     <>
       <ThreadHeader
         thread={thread}
-        topicName={topicName}
         isAdmin={isAdmin}
         onTogglePin={isAdmin ? toggleThreadPin : undefined}
         onToggleLock={isAdmin ? toggleThreadLock : undefined}
@@ -51,9 +50,10 @@ export function ThreadActions({
           post={opPost}
           currentUserId={currentUserId}
           isAdmin={isAdmin}
+          liked={likedPostIds.has(opPost.id)}
           onEdit={
             isAdmin || (currentUserId && opPost.author_id === currentUserId)
-              ? (id: string, body: string) => editThread(thread.id, body)
+              ? (_id: string, body: string, bodyFormat: BodyFormat) => editThread(thread.id, body, bodyFormat)
               : undefined
           }
           onDelete={
@@ -72,6 +72,7 @@ export function ThreadActions({
                 post={reply}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
+                liked={likedPostIds.has(reply.id)}
                 onEdit={
                   isAdmin || (currentUserId && reply.author_id === currentUserId)
                     ? editReply

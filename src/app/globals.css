@@ -142,3 +142,59 @@ button,
     @apply font-sans;
   }
 }
+
+/* Community rich text content (HTML from TipTap) */
+.prose-community h1 {
+  @apply mb-4 mt-6 text-xl font-bold text-foreground;
+}
+.prose-community h2 {
+  @apply mb-3 mt-5 text-lg font-bold text-foreground;
+}
+.prose-community h3 {
+  @apply mb-2 mt-4 text-base font-semibold text-foreground;
+}
+.prose-community p {
+  @apply mb-3 leading-relaxed text-foreground;
+}
+.prose-community a {
+  @apply text-primary underline underline-offset-4 hover:text-primary/80;
+}
+.prose-community ul {
+  @apply mb-3 ml-6 list-disc space-y-1 text-foreground;
+}
+.prose-community ol {
+  @apply mb-3 ml-6 list-decimal space-y-1 text-foreground;
+}
+.prose-community li {
+  @apply leading-relaxed;
+}
+.prose-community blockquote {
+  @apply mb-3 border-l-4 border-border pl-4 text-muted-foreground italic;
+}
+.prose-community code {
+  @apply rounded bg-muted px-1.5 py-0.5 text-sm text-foreground;
+}
+.prose-community pre {
+  @apply mb-3;
+}
+.prose-community pre code {
+  @apply block overflow-x-auto rounded-lg bg-muted p-4 text-sm text-foreground;
+}
+.prose-community hr {
+  @apply my-6 border-border;
+}
+.prose-community img {
+  @apply my-4 max-w-full rounded-lg;
+}
+.prose-community span[data-type="mention"] {
+  @apply text-primary font-medium;
+}
+
+/* TipTap editor content area */
+.tiptap {
+  @apply outline-none;
+}
+.tiptap p.is-editor-empty:first-child::before {
+  @apply text-muted-foreground pointer-events-none float-left h-0;
+  content: attr(data-placeholder);
+}

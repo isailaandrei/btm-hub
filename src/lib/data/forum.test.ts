@@ -33,7 +33,7 @@ describe("getThreadBySlug", () => {
     mockSupabase.mockQueryResult(fakeThread);
 
     const { getThreadBySlug } = await import("./forum");
-    const result = await getThreadBySlug("gear-talk", "best-camera");
+    const result = await getThreadBySlug("best-camera");
 
     expect(result).toEqual({
       id: "t1",
@@ -55,7 +55,7 @@ describe("getThreadBySlug", () => {
     mockSupabase.mockQueryResult(null, { code: "PGRST116", message: "not found" });
 
     const { getThreadBySlug } = await import("./forum");
-    const result = await getThreadBySlug("gear-talk", "nonexistent");
+    const result = await getThreadBySlug("nonexistent");
 
     expect(result).toBeNull();
   });
@@ -64,7 +64,7 @@ describe("getThreadBySlug", () => {
     mockSupabase.mockQueryResult(null, { code: "42P01", message: "relation does not exist" });
 
     const { getThreadBySlug } = await import("./forum");
-    await expect(getThreadBySlug("gear-talk", "test")).rejects.toThrow(
+    await expect(getThreadBySlug("test")).rejects.toThrow(
       "Failed to fetch thread: relation does not exist",
     );
   });
@@ -84,7 +84,7 @@ describe("isSlugTaken", () => {
     mockSupabase.mockQueryResult({ id: "t1" });
 
     const { isSlugTaken } = await import("./forum");
-    const result = await isSlugTaken("gear-talk", "existing-slug");
+    const result = await isSlugTaken("existing-slug");
 
     expect(result).toBe(true);
   });
@@ -93,8 +93,39 @@ describe("isSlugTaken", () => {
     mockSupabase.mockQueryResult(null);
 
     const { isSlugTaken } = await import("./forum");
-    const result = await isSlugTaken("gear-talk", "new-slug");
+    const result = await isSlugTaken("new-slug");
 
     expect(result).toBe(false);
+  });
+});
+
+describe("searchProfiles", () => {
+  let mockSupabase: ReturnType<typeof createMockSupabaseClient>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    mockSupabase = createMockSupabaseClient();
+    const { createClient } = await import("@/lib/supabase/server");
+    vi.mocked(createClient).mockResolvedValue(mockSupabase.client as never);
+  });
+
+  it("returns matching profiles", async () => {
+    mockSupabase.mockQueryResult([
+      { id: "u1", display_name: "Alice", avatar_url: null },
+    ]);
+
+    const { searchProfiles } = await import("./forum");
+    const result = await searchProfiles("Ali");
+
+    expect(result).toEqual([
+      { id: "u1", display_name: "Alice", avatar_url: null },
+    ]);
+  });
+
+  it("returns empty array for empty query", async () => {
+    const { searchProfiles } = await import("./forum");
+    const result = await searchProfiles("   ");
+
+    expect(result).toEqual([]);
   });
 });

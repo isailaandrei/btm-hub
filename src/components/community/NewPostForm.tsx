@@ -1,16 +1,13 @@
 "use client";
 
 import { useActionState } from "react";
-import { MarkdownEditor } from "./MarkdownEditor";
+import { RichTextEditor } from "./RichTextEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createThread } from "@/app/(marketing)/community/actions";
+import { FORUM_TOPICS } from "@/lib/community/topics";
 
-interface NewThreadFormProps {
-  topic: string;
-}
-
-export function NewThreadForm({ topic }: NewThreadFormProps) {
+export function NewPostForm() {
   const [state, formAction, isPending] = useActionState(createThread, {
     errors: {},
     message: "",
@@ -18,12 +15,12 @@ export function NewThreadForm({ topic }: NewThreadFormProps) {
     resetKey: 0,
   });
 
+  const topics = Object.values(FORUM_TOPICS);
+
   return (
     <Card>
       <CardContent>
         <form action={formAction} className="flex flex-col gap-4">
-          <input type="hidden" name="topic" value={topic} />
-
           <div className="flex flex-col gap-1.5">
             <label htmlFor="title" className="text-sm font-medium text-foreground">
               Title
@@ -35,7 +32,7 @@ export function NewThreadForm({ topic }: NewThreadFormProps) {
               required
               minLength={3}
               maxLength={200}
-              placeholder="What's your thread about?"
+              placeholder="What's on your mind?"
               className="rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
             {state.errors?.title && (
@@ -44,12 +41,32 @@ export function NewThreadForm({ topic }: NewThreadFormProps) {
           </div>
 
           <div className="flex flex-col gap-1.5">
+            <label htmlFor="topic" className="text-sm font-medium text-foreground">
+              Topic <span className="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <select
+              id="topic"
+              name="topic"
+              defaultValue=""
+              className="rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">No topic</option>
+              {topics.map((topic) => (
+                <option key={topic.slug} value={topic.slug}>
+                  {topic.name}
+                </option>
+              ))}
+            </select>
+            {state.errors?.topic && (
+              <p className="text-sm text-destructive">{state.errors.topic}</p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground">Body</label>
-            <MarkdownEditor
+            <RichTextEditor
               name="body"
-              placeholder="Write your post... (supports Markdown)"
-              maxLength={20000}
-              rows={12}
+              placeholder="Write your post..."
               required
             />
             {state.errors?.body && (
@@ -63,7 +80,7 @@ export function NewThreadForm({ topic }: NewThreadFormProps) {
 
           <div>
             <Button type="submit" disabled={isPending}>
-              {isPending ? "Creating..." : "Create Thread"}
+              {isPending ? "Posting..." : "Post"}
             </Button>
           </div>
         </form>

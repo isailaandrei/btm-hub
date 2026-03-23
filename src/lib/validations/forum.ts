@@ -1,8 +1,10 @@
 import { z } from "zod/v4";
 import { FORUM_TOPIC_SLUGS } from "@/lib/community/topics";
 
+const bodyFormatSchema = z.enum(["markdown", "html"]).default("markdown");
+
 export const createThreadSchema = z.object({
-  topic: z.enum(FORUM_TOPIC_SLUGS),
+  topic: z.enum(FORUM_TOPIC_SLUGS).optional(),
   title: z
     .string()
     .min(3, "Title must be at least 3 characters")
@@ -11,6 +13,7 @@ export const createThreadSchema = z.object({
     .string()
     .min(1, "Body is required")
     .max(20000, "Body must be under 20,000 characters"),
+  bodyFormat: bodyFormatSchema,
 });
 
 export const createReplySchema = z.object({
@@ -19,6 +22,7 @@ export const createReplySchema = z.object({
     .string()
     .min(1, "Reply is required")
     .max(10000, "Reply must be under 10,000 characters"),
+  bodyFormat: bodyFormatSchema,
 });
 
 export const editThreadSchema = z.object({
@@ -26,6 +30,7 @@ export const editThreadSchema = z.object({
     .string()
     .min(1, "Body is required")
     .max(20000, "Body must be under 20,000 characters"),
+  bodyFormat: bodyFormatSchema,
 });
 
 export const editReplySchema = z.object({
@@ -33,6 +38,7 @@ export const editReplySchema = z.object({
     .string()
     .min(1, "Body is required")
     .max(10000, "Reply must be under 10,000 characters"),
+  bodyFormat: bodyFormatSchema,
 });
 
 export type CreateThreadInput = z.infer<typeof createThreadSchema>;

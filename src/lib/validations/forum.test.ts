@@ -11,6 +11,14 @@ describe("createThreadSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts valid input without topic", () => {
+    const result = createThreadSchema.safeParse({
+      title: "No topic post",
+      body: "Body text here.",
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects invalid topic", () => {
     const result = createThreadSchema.safeParse({
       topic: "invalid-topic",
@@ -18,6 +26,30 @@ describe("createThreadSchema", () => {
       body: "Body",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts bodyFormat html", () => {
+    const result = createThreadSchema.safeParse({
+      title: "TipTap post",
+      body: "<p>Hello</p>",
+      bodyFormat: "html",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.bodyFormat).toBe("html");
+    }
+  });
+
+  it("defaults bodyFormat to markdown", () => {
+    const result = createThreadSchema.safeParse({
+      topic: "gear-talk",
+      title: "Markdown post",
+      body: "# Hello",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.bodyFormat).toBe("markdown");
+    }
   });
 
   it("rejects title shorter than 3 chars", () => {

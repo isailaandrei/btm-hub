@@ -52,7 +52,7 @@ export type ForumTopicSlug =
 export interface ForumThread {
   id: string;
   author_id: string | null;
-  topic: ForumTopicSlug;
+  topic: ForumTopicSlug | null;
   title: string;
   slug: string;
   reply_count: number;
@@ -69,13 +69,17 @@ export interface ForumThreadWithAuthor extends ForumThread {
   author: ForumAuthor;
 }
 
+export type BodyFormat = "markdown" | "html";
+
 export interface ForumPost {
   id: string;
   thread_id: string;
   author_id: string | null;
   body: string;
+  body_format: BodyFormat;
   is_op: boolean;
   body_preview: string;
+  like_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -91,6 +95,17 @@ export type ForumThreadSummary = Pick<
   author: ForumAuthor;
   body_preview: string;
 };
+
+export interface ForumLike {
+  id: string;
+  post_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface ForumLikeWithUser extends ForumLike {
+  user: ForumAuthor;
+}
 
 // ---------------------------------------------------------------------------
 // Application Shares

@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RelativeTime } from "./RelativeTime";
+import { getForumTopic } from "@/lib/community/topics";
 import type { ForumThreadWithAuthor } from "@/types/database";
 
 interface ThreadHeaderProps {
   thread: ForumThreadWithAuthor;
-  topicName: string;
   isAdmin?: boolean;
   onTogglePin?: (threadId: string) => Promise<void>;
   onToggleLock?: (threadId: string) => Promise<void>;
@@ -17,7 +18,6 @@ interface ThreadHeaderProps {
 
 export function ThreadHeader({
   thread,
-  topicName,
   isAdmin = false,
   onTogglePin,
   onToggleLock,
@@ -26,6 +26,7 @@ export function ThreadHeader({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const authorName = thread.author?.display_name ?? "[deleted user]";
+  const topic = thread.topic ? getForumTopic(thread.topic) : null;
 
   function handlePin() {
     if (!onTogglePin) return;
@@ -58,7 +59,13 @@ export function ThreadHeader({
   return (
     <div className="mb-6">
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <Badge variant="secondary">{topicName}</Badge>
+        {topic && (
+          <Link href={`/community?topic=${thread.topic}`}>
+            <Badge variant="secondary" className="hover:bg-secondary/80">
+              {topic.name}
+            </Badge>
+          </Link>
+        )}
         {thread.pinned && <Badge variant="default">Pinned</Badge>}
         {thread.locked && <Badge variant="outline">Locked</Badge>}
       </div>

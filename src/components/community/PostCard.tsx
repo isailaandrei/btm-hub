@@ -1,18 +1,24 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { MarkdownContent } from "./MarkdownContent";
+import { useState, useTransition, lazy, Suspense } from "react";
+import { PostBody } from "./PostBody";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { RelativeTime } from "./RelativeTime";
+import { LikeButton } from "./LikeButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ForumPostWithAuthor } from "@/types/database";
+import type { ForumPostWithAuthor, BodyFormat } from "@/types/database";
+
+const RichTextEditor = lazy(() =>
+  import("./RichTextEditor").then((m) => ({ default: m.RichTextEditor })),
+);
 
 interface PostCardProps {
   post: ForumPostWithAuthor;
   currentUserId?: string | null;
   isAdmin?: boolean;
-  onEdit?: (id: string, body: string) => Promise<void>;
+  liked?: boolean;
+  onEdit?: (id: string, body: string, bodyFormat: BodyFormat) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
 }
 
@@ -20,6 +26,7 @@ export function PostCard({
   post,
   currentUserId,
   isAdmin = false,
+  liked = false,
   onEdit,
   onDelete,
 }: PostCardProps) {
@@ -33,11 +40,12 @@ export function PostCard({
 
   function handleEdit(formData: FormData) {
     const body = formData.get("body") as string;
+    const bodyFormat = (formData.get("bodyFormat") as BodyFormat) || post.body_format;
     if (!body?.trim() || !onEdit) return;
     setError(null);
     startTransition(async () => {
       try {
-        await onEdit(post.id, body);
+        await onEdit(post.id, body, bodyFormat);
         setEditing(false);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to save edit");
@@ -103,12 +111,21 @@ export function PostCard({
 
       {editing ? (
         <form action={handleEdit}>
-          <MarkdownEditor
-            name="body"
-            defaultValue={post.body}
-            rows={6}
-            required
-          />
+          {post.body_format === "html" ? (
+            <Suspense fallback={<p className="text-sm text-muted-foreground">Loading editor...</p>}>
+              <RichTextEditor
+                name="body"
+                defaultValue={post.body}
+              />
+            </Suspense>
+          ) : (
+            <MarkdownEditor
+              name="body"
+              defaultValue={post.body}
+              rows={6}
+              required
+            />
+          )}
           <div className="mt-2 flex gap-2">
             <Button type="submit" size="sm" disabled={isPending}>
               {isPending ? "Saving..." : "Save"}
@@ -126,9 +143,18 @@ export function PostCard({
         </form>
       ) : (
         <div className="pl-9 text-sm">
-          <MarkdownContent content={post.body} />
+          <PostBody body={post.body} bodyFormat={post.body_format} />
         </div>
       )}
+
+      <div className="pl-9">
+        <LikeButton
+          postId={post.id}
+          likeCount={post.like_count}
+          liked={liked}
+        />
+      </div>
+
       {error && (
         <p className="pl-9 text-sm text-destructive">{error}</p>
       )}

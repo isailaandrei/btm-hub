@@ -13,8 +13,8 @@ import {
   editReplySchema,
 } from "@/lib/validations/forum";
 import { slugify, slugifyUnique } from "@/lib/community/slugify";
-
-// TODO(BTM-8): Add rate limiting (e.g., max N threads/hour per user)
+import { sanitizeBody } from "@/lib/community/sanitize";
+import type { BodyFormat } from "@/types/database";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +26,17 @@ export type ForumActionState = {
   success: boolean;
   resetKey: number;
 };
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Reserved slugs that conflict with route segments. */
+const RESERVED_SLUGS = new Set(["new"]);
+
+function conditionalSanitize(body: string, bodyFormat: BodyFormat): string {
+  return bodyFormat === "html" ? sanitizeBody(body) : body;
+}
 
 // ---------------------------------------------------------------------------
 // Form actions (useActionState pattern)
@@ -41,9 +52,10 @@ export async function createThread(
   }
 
   const raw = {
-    topic: formData.get("topic") as string,
+    topic: formData.get("topic") as string || undefined,
     title: formData.get("title") as string,
     body: formData.get("body") as string,
+    bodyFormat: formData.get("bodyFormat") as string || undefined,
   };
 
   const parsed = createThreadSchema.safeParse(raw);
@@ -56,22 +68,23 @@ export async function createThread(
     return { errors: fieldErrors, message: "", success: false, resetKey: prevState.resetKey };
   }
 
-  const { topic, title, body } = parsed.data;
+  const { topic, title, body, bodyFormat } = parsed.data;
+  const sanitizedBody = conditionalSanitize(body, bodyFormat);
+
   let slug = slugify(title);
-  if (slug.length < 2) slug = slugifyUnique(slug || "thread");
+  if (slug.length < 2 || RESERVED_SLUGS.has(slug)) slug = slugifyUnique(slug || "thread");
 
   const supabase = await createClient();
 
-  // Insert the thread (without body -- body lives in the OP post)
   let { data, error } = await supabase
     .from("forum_threads")
     .insert({
       author_id: user.id,
-      topic,
+      topic: topic ?? null,
       title,
       slug,
     })
-    .select("id, topic, slug")
+    .select("id, slug")
     .single();
 
   if (error?.code === "23505") {
@@ -80,11 +93,11 @@ export async function createThread(
       .from("forum_threads")
       .insert({
         author_id: user.id,
-        topic,
+        topic: topic ?? null,
         title,
         slug,
       })
-      .select("id, topic, slug")
+      .select("id, slug")
       .single();
     data = retry.data;
     error = retry.error;
@@ -94,28 +107,24 @@ export async function createThread(
     return { errors: null, message: `Failed to create thread: ${error?.message ?? "Unknown error"}`, success: false, resetKey: prevState.resetKey };
   }
 
-  // Insert the OP post
   const { error: opError } = await supabase
     .from("forum_posts")
     .insert({
       thread_id: data.id,
       author_id: user.id,
-      body,
+      body: sanitizedBody,
+      body_format: bodyFormat,
       is_op: true,
     });
 
   if (opError) {
-    // Clean up the thread if OP post insertion fails
     await supabase.from("forum_threads").delete().eq("id", data.id);
     return { errors: null, message: `Failed to create thread: ${opError.message}`, success: false, resetKey: prevState.resetKey };
   }
 
-  revalidatePath(`/community/${topic}`);
   revalidatePath("/community");
-  redirect(`/community/${data.topic}/${data.slug}`);
+  redirect(`/community/${data.slug}`);
 }
-
-// TODO(BTM-8): Add rate limiting (e.g., max N replies/hour per user)
 
 export async function createReply(
   prevState: ForumActionState,
@@ -129,6 +138,7 @@ export async function createReply(
   const raw = {
     threadId: formData.get("threadId") as string,
     body: formData.get("body") as string,
+    bodyFormat: formData.get("bodyFormat") as string || undefined,
   };
 
   const parsed = createReplySchema.safeParse(raw);
@@ -141,13 +151,13 @@ export async function createReply(
     return { errors: fieldErrors, message: "", success: false, resetKey: prevState.resetKey };
   }
 
-  const { threadId, body } = parsed.data;
+  const { threadId, body, bodyFormat } = parsed.data;
+  const sanitizedBody = conditionalSanitize(body, bodyFormat);
   const supabase = await createClient();
 
-  // Check thread exists and is not locked (unless admin)
   const { data: thread, error: threadError } = await supabase
     .from("forum_threads")
-    .select("topic, slug, locked")
+    .select("slug, locked")
     .eq("id", threadId)
     .single();
 
@@ -156,7 +166,6 @@ export async function createReply(
   }
 
   if (thread.locked) {
-    // Check if user is admin
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
@@ -173,15 +182,16 @@ export async function createReply(
     .insert({
       thread_id: threadId,
       author_id: user.id,
-      body,
+      body: sanitizedBody,
+      body_format: bodyFormat,
     });
 
   if (error) {
     return { errors: null, message: `Failed to post reply: ${error.message}`, success: false, resetKey: prevState.resetKey };
   }
 
-  revalidatePath(`/community/${thread.topic}/${thread.slug}`);
-  revalidatePath(`/community/${thread.topic}`);
+  revalidatePath(`/community/${thread.slug}`);
+  revalidatePath("/community");
   return { errors: null, message: "Reply posted!", success: true, resetKey: prevState.resetKey + 1 };
 }
 
@@ -189,21 +199,21 @@ export async function createReply(
 // Imperative actions (called directly, throw on error)
 // ---------------------------------------------------------------------------
 
-export async function editThread(threadId: string, body: string): Promise<void> {
+export async function editThread(threadId: string, body: string, bodyFormat: BodyFormat = "markdown"): Promise<void> {
   validateUUID(threadId, "thread");
 
-  const parsed = editThreadSchema.safeParse({ body });
+  const parsed = editThreadSchema.safeParse({ body, bodyFormat });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
 
   const user = await getAuthUser();
   if (!user) throw new Error("Not authenticated");
 
+  const sanitizedBody = conditionalSanitize(parsed.data.body, parsed.data.bodyFormat);
   const supabase = await createClient();
 
-  // Check ownership or admin
   const { data: thread, error: fetchError } = await supabase
     .from("forum_threads")
-    .select("author_id, topic, slug")
+    .select("author_id, slug")
     .eq("id", threadId)
     .single();
 
@@ -213,27 +223,27 @@ export async function editThread(threadId: string, body: string): Promise<void> 
     await requireAdmin();
   }
 
-  // Update the OP post's body (body now lives in forum_posts, not forum_threads)
   const { error } = await supabase
     .from("forum_posts")
-    .update({ body: parsed.data.body, updated_at: new Date().toISOString() })
+    .update({ body: sanitizedBody, updated_at: new Date().toISOString() })
     .eq("thread_id", threadId)
     .eq("is_op", true);
 
   if (error) throw new Error(`Failed to edit thread: ${error.message}`);
 
-  revalidatePath(`/community/${thread.topic}/${thread.slug}`);
+  revalidatePath(`/community/${thread.slug}`);
 }
 
-export async function editReply(postId: string, body: string): Promise<void> {
+export async function editReply(postId: string, body: string, bodyFormat: BodyFormat = "markdown"): Promise<void> {
   validateUUID(postId, "reply");
 
-  const parsed = editReplySchema.safeParse({ body });
+  const parsed = editReplySchema.safeParse({ body, bodyFormat });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
 
   const user = await getAuthUser();
   if (!user) throw new Error("Not authenticated");
 
+  const sanitizedBody = conditionalSanitize(parsed.data.body, parsed.data.bodyFormat);
   const supabase = await createClient();
 
   const { data: post, error: fetchError } = await supabase
@@ -250,19 +260,18 @@ export async function editReply(postId: string, body: string): Promise<void> {
 
   const { error } = await supabase
     .from("forum_posts")
-    .update({ body: parsed.data.body, updated_at: new Date().toISOString() })
+    .update({ body: sanitizedBody, updated_at: new Date().toISOString() })
     .eq("id", postId);
 
   if (error) throw new Error(`Failed to edit reply: ${error.message}`);
 
-  // Revalidate thread page
   const { data: thread } = await supabase
     .from("forum_threads")
-    .select("topic, slug")
+    .select("slug")
     .eq("id", post.thread_id)
     .single();
 
-  if (thread) revalidatePath(`/community/${thread.topic}/${thread.slug}`);
+  if (thread) revalidatePath(`/community/${thread.slug}`);
 }
 
 export async function deleteThread(threadId: string): Promise<void> {
@@ -275,7 +284,7 @@ export async function deleteThread(threadId: string): Promise<void> {
 
   const { data: thread, error: fetchError } = await supabase
     .from("forum_threads")
-    .select("author_id, topic")
+    .select("author_id")
     .eq("id", threadId)
     .single();
 
@@ -292,9 +301,8 @@ export async function deleteThread(threadId: string): Promise<void> {
 
   if (error) throw new Error(`Failed to delete thread: ${error.message}`);
 
-  revalidatePath(`/community/${thread.topic}`);
   revalidatePath("/community");
-  redirect(`/community/${thread.topic}`);
+  redirect("/community");
 }
 
 export async function deleteReply(postId: string): Promise<void> {
@@ -326,15 +334,69 @@ export async function deleteReply(postId: string): Promise<void> {
 
   const { data: thread } = await supabase
     .from("forum_threads")
-    .select("topic, slug")
+    .select("slug")
     .eq("id", post.thread_id)
     .single();
 
   if (thread) {
-    revalidatePath(`/community/${thread.topic}/${thread.slug}`);
-    revalidatePath(`/community/${thread.topic}`);
+    revalidatePath(`/community/${thread.slug}`);
+    revalidatePath("/community");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Likes
+// ---------------------------------------------------------------------------
+
+export async function toggleLike(postId: string): Promise<void> {
+  validateUUID(postId, "post");
+
+  const user = await getAuthUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const supabase = await createClient();
+
+  // Try to insert — if already liked, delete (toggle)
+  const { error: insertError } = await supabase
+    .from("forum_likes")
+    .insert({ post_id: postId, user_id: user.id });
+
+  if (insertError) {
+    if (insertError.code === "23505") {
+      // Already liked — remove it
+      const { error: deleteError } = await supabase
+        .from("forum_likes")
+        .delete()
+        .eq("post_id", postId)
+        .eq("user_id", user.id);
+
+      if (deleteError) throw new Error(`Failed to unlike: ${deleteError.message}`);
+    } else {
+      throw new Error(`Failed to like: ${insertError.message}`);
+    }
+  }
+
+  // Revalidate the thread page
+  const { data: post } = await supabase
+    .from("forum_posts")
+    .select("thread_id")
+    .eq("id", postId)
+    .single();
+
+  if (post) {
+    const { data: thread } = await supabase
+      .from("forum_threads")
+      .select("slug")
+      .eq("id", post.thread_id)
+      .single();
+
+    if (thread) revalidatePath(`/community/${thread.slug}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Admin actions
+// ---------------------------------------------------------------------------
 
 export async function toggleThreadPin(threadId: string): Promise<void> {
   validateUUID(threadId, "thread");
@@ -344,7 +406,7 @@ export async function toggleThreadPin(threadId: string): Promise<void> {
 
   const { data: thread } = await supabase
     .from("forum_threads")
-    .select("topic, slug")
+    .select("slug")
     .eq("id", threadId)
     .single();
 
@@ -355,10 +417,7 @@ export async function toggleThreadPin(threadId: string): Promise<void> {
   if (error) throw new Error(`Failed to toggle pin: ${error.message}`);
 
   revalidatePath("/community");
-  if (thread) {
-    revalidatePath(`/community/${thread.topic}`);
-    revalidatePath(`/community/${thread.topic}/${thread.slug}`);
-  }
+  if (thread) revalidatePath(`/community/${thread.slug}`);
 }
 
 export async function toggleThreadLock(threadId: string): Promise<void> {
@@ -369,7 +428,7 @@ export async function toggleThreadLock(threadId: string): Promise<void> {
 
   const { data: thread } = await supabase
     .from("forum_threads")
-    .select("topic, slug")
+    .select("slug")
     .eq("id", threadId)
     .single();
 
@@ -380,8 +439,5 @@ export async function toggleThreadLock(threadId: string): Promise<void> {
   if (error) throw new Error(`Failed to toggle lock: ${error.message}`);
 
   revalidatePath("/community");
-  if (thread) {
-    revalidatePath(`/community/${thread.topic}`);
-    revalidatePath(`/community/${thread.topic}/${thread.slug}`);
-  }
+  if (thread) revalidatePath(`/community/${thread.slug}`);
 }
