@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { MarkdownEditor } from "./MarkdownEditor";
+import { RichTextEditor } from "./RichTextEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createReply } from "@/app/(marketing)/community/actions";
@@ -40,7 +40,7 @@ export function ReplyForm({
             >
               Log in
             </Link>{" "}
-            to reply to this thread.
+            to reply to this post.
           </p>
         </CardContent>
       </Card>
@@ -69,11 +69,10 @@ export function ReplyForm({
           <form key={state.resetKey} action={formAction} className="flex flex-col gap-3">
             <input type="hidden" name="threadId" value={threadId} />
             <h3 className="text-sm font-medium text-foreground">Reply</h3>
-            <MarkdownEditor
+            <RichTextEditor
               name="body"
-              placeholder="Write your reply... (supports Markdown)"
+              placeholder="Write your reply..."
               maxLength={10000}
-              rows={5}
               required
             />
             {state.errors?.body && (

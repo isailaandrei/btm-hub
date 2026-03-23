@@ -19,7 +19,7 @@ export function CommunitySection() {
         </div>
         <div className="flex flex-wrap justify-center gap-3">
           {topics.map((topic, i) => (
-            <Link key={topic.slug} href={`/community/${topic.slug}`}>
+            <Link key={topic.slug} href={`/community?topic=${topic.slug}`}>
               <Tag variant={i === 0 ? "primary" : "ghost"}>
                 {topic.name}
               </Tag>

@@ -16,6 +16,11 @@ export function isValidISODate(value: string): boolean {
   return ISO_DATE_RE.test(value) && !isNaN(Date.parse(value));
 }
 
+/** Escape PostgREST ILIKE special characters for safe search queries. */
+export function escapeSearchTerm(term: string): string {
+  return term.replace(/[%_\\]/g, "\\$&").replace(/[.,()]/g, "");
+}
+
 /** Check if a URL uses a safe scheme (http, https, mailto, or relative path). */
 export function isSafeUrl(url: string): boolean {
   return (

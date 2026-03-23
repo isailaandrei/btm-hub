@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/data/auth";
 import { requireAdmin } from "@/lib/auth/require-admin";
+import { escapeSearchTerm } from "@/lib/validation-helpers";
 import type {
   Application,
   ApplicationStatus,
@@ -16,11 +17,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 export { getApplicantName } from "./applicant-name";
-
-/** Escape PostgREST ILIKE special characters for safe search queries. */
-export function escapeSearchTerm(term: string): string {
-  return term.replace(/[%_\\]/g, "\\$&").replace(/[.,()]/g, "");
-}
+export { escapeSearchTerm } from "@/lib/validation-helpers";
 
 // ---------------------------------------------------------------------------
 // Filters / pagination
