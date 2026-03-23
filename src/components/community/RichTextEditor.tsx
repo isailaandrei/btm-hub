@@ -5,7 +5,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
-import { useRef, useCallback } from "react";
+import { useRef } from "react";
 import { cn } from "@/lib/utils";
 import {
   Bold,
@@ -25,8 +25,6 @@ interface RichTextEditorProps {
   name: string;
   defaultValue?: string;
   placeholder?: string;
-  maxLength?: number;
-  rows?: number;
   required?: boolean;
 }
 
@@ -34,17 +32,9 @@ export function RichTextEditor({
   name,
   defaultValue = "",
   placeholder,
-  maxLength,
   required,
 }: RichTextEditorProps) {
   const hiddenRef = useRef<HTMLInputElement>(null);
-
-  const updateHidden = useCallback(() => {
-    if (hiddenRef.current && editor) {
-      hiddenRef.current.value = editor.isEmpty ? "" : editor.getHTML();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- editor ref is stable
-  }, []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -80,7 +70,11 @@ export function RichTextEditor({
           "prose-community min-h-[8rem] w-full px-4 py-3 text-sm text-foreground focus:outline-none",
       },
     },
-    onUpdate: updateHidden,
+    onUpdate({ editor: e }) {
+      if (hiddenRef.current) {
+        hiddenRef.current.value = e.isEmpty ? "" : e.getHTML();
+      }
+    },
   });
 
   function addLink() {
@@ -107,7 +101,6 @@ export function RichTextEditor({
         name={name}
         defaultValue={defaultValue}
         required={required}
-        maxLength={maxLength}
       />
       <input type="hidden" name="bodyFormat" value="html" />
       {placeholder && editor?.isEmpty && (

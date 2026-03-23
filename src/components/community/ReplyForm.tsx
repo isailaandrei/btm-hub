@@ -72,7 +72,6 @@ export function ReplyForm({
             <RichTextEditor
               name="body"
               placeholder="Write your reply..."
-              maxLength={10000}
               required
             />
             {state.errors?.body && (

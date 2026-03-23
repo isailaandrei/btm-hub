@@ -14,7 +14,7 @@ const ALLOWED_ATTRIBUTES: Record<string, sanitizeHtml.AllowedAttribute[]> = {
   a: ["href", "target", "rel"],
   img: ["src", "alt"],
   span: [
-    "class",
+    { name: "class", values: ["mention"] },
     { name: "data-type", values: ["mention"] },
     "data-id",
     "data-label",

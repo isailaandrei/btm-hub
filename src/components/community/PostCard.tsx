@@ -7,7 +7,7 @@ import { RelativeTime } from "./RelativeTime";
 import { LikeButton } from "./LikeButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ForumPostWithAuthor } from "@/types/database";
+import type { ForumPostWithAuthor, BodyFormat } from "@/types/database";
 
 const RichTextEditor = lazy(() =>
   import("./RichTextEditor").then((m) => ({ default: m.RichTextEditor })),
@@ -18,7 +18,7 @@ interface PostCardProps {
   currentUserId?: string | null;
   isAdmin?: boolean;
   liked?: boolean;
-  onEdit?: (id: string, body: string) => Promise<void>;
+  onEdit?: (id: string, body: string, bodyFormat: BodyFormat) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
 }
 
@@ -40,11 +40,12 @@ export function PostCard({
 
   function handleEdit(formData: FormData) {
     const body = formData.get("body") as string;
+    const bodyFormat = (formData.get("bodyFormat") as BodyFormat) || post.body_format;
     if (!body?.trim() || !onEdit) return;
     setError(null);
     startTransition(async () => {
       try {
-        await onEdit(post.id, body);
+        await onEdit(post.id, body, bodyFormat);
         setEditing(false);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to save edit");

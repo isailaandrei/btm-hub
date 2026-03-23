@@ -3,22 +3,34 @@ import { ReactRenderer } from "@tiptap/react";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { MentionList, type MentionItem, type MentionListRef } from "./MentionList";
 
+const MIN_QUERY_LENGTH = 2;
+const DEBOUNCE_MS = 200;
+
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedFetch(query: string): Promise<MentionItem[]> {
+  return new Promise((resolve) => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/community/mention-search?q=${encodeURIComponent(query)}`,
+        );
+        resolve(res.ok ? ((await res.json()) as MentionItem[]) : []);
+      } catch {
+        resolve([]);
+      }
+    }, DEBOUNCE_MS);
+  });
+}
+
 export const mentionSuggestion: Omit<SuggestionOptions<MentionItem>, "editor"> = {
   char: "@",
   allowSpaces: false,
 
   items: async ({ query }) => {
-    if (!query) return [];
-
-    try {
-      const res = await fetch(
-        `/api/community/mention-search?q=${encodeURIComponent(query)}`,
-      );
-      if (!res.ok) return [];
-      return (await res.json()) as MentionItem[];
-    } catch {
-      return [];
-    }
+    if (query.length < MIN_QUERY_LENGTH) return [];
+    return debouncedFetch(query);
   },
 
   render: () => {
@@ -64,6 +76,7 @@ export const mentionSuggestion: Omit<SuggestionOptions<MentionItem>, "editor"> =
       },
 
       onExit() {
+        if (debounceTimer) clearTimeout(debounceTimer);
         popup?.[0]?.destroy();
         component?.destroy();
       },

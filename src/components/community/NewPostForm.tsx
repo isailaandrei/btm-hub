@@ -67,7 +67,6 @@ export function NewPostForm() {
             <RichTextEditor
               name="body"
               placeholder="Write your post..."
-              maxLength={20000}
               required
             />
             {state.errors?.body && (

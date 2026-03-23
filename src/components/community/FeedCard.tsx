@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { RelativeTime } from "./RelativeTime";
 import { getForumTopic } from "@/lib/community/topics";
-import { Heart, MessageCircle } from "lucide-react";
+import { Clock, MessageCircle } from "lucide-react";
 import type { ForumThreadSummary } from "@/types/database";
 
 export function FeedCard({ thread }: { thread: ForumThreadSummary }) {
@@ -67,7 +67,7 @@ export function FeedCard({ thread }: { thread: ForumThreadSummary }) {
             {thread.reply_count} {thread.reply_count === 1 ? "reply" : "replies"}
           </span>
           <span className="flex items-center gap-1">
-            <Heart className="h-3.5 w-3.5" />
+            <Clock className="h-3.5 w-3.5" />
             <RelativeTime date={thread.last_reply_at} />
           </span>
         </div>

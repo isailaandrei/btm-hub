@@ -11,7 +11,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { ThreadHeader } from "./ThreadHeader";
 import { PostCard } from "./PostCard";
-import type { ForumThreadWithAuthor, ForumPostWithAuthor } from "@/types/database";
+import type { ForumThreadWithAuthor, ForumPostWithAuthor, BodyFormat } from "@/types/database";
 
 interface ThreadActionsProps {
   thread: ForumThreadWithAuthor;
@@ -53,7 +53,7 @@ export function ThreadActions({
           liked={likedPostIds.has(opPost.id)}
           onEdit={
             isAdmin || (currentUserId && opPost.author_id === currentUserId)
-              ? (_id: string, body: string) => editThread(thread.id, body, opPost.body_format)
+              ? (_id: string, body: string, bodyFormat: BodyFormat) => editThread(thread.id, body, bodyFormat)
               : undefined
           }
           onDelete={

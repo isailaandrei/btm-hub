@@ -39,6 +39,19 @@ describe("sanitizeBody", () => {
     expect(result).not.toContain('data-type="evil"');
   });
 
+  it("strips arbitrary class names from spans", () => {
+    const html = '<span class="fixed inset-0 bg-black">overlay attack</span>';
+    const result = sanitizeBody(html);
+    expect(result).not.toContain("fixed");
+    expect(result).not.toContain("inset-0");
+  });
+
+  it("preserves class=mention on spans", () => {
+    const html = '<span class="mention" data-type="mention" data-id="u1" data-label="Alice">@Alice</span>';
+    const result = sanitizeBody(html);
+    expect(result).toContain('class="mention"');
+  });
+
   it("strips iframe tags", () => {
     const html = '<iframe src="https://evil.com"></iframe><p>Safe</p>';
     expect(sanitizeBody(html)).toBe("<p>Safe</p>");
