@@ -60,6 +60,8 @@ export function UserAvatar({ name, avatarUrl, size = "md", className }: UserAvat
         className,
       )}
       style={{ backgroundColor: `hsl(${hue}, 55%, 45%)` }}
+      aria-label={name ?? "User avatar"}
+      role="img"
     >
       {getInitials(name)}
     </div>

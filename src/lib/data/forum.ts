@@ -21,9 +21,15 @@ export interface CursorPair {
   id: string;
 }
 
+export interface OffsetCursor {
+  offset: number;
+}
+
+export type Cursor = CursorPair | OffsetCursor;
+
 export interface PaginatedResult<T> {
   data: T[];
-  nextCursor: CursorPair | null;
+  nextCursor: Cursor | null;
 }
 
 export interface PaginatedThreadsResult extends PaginatedResult<ForumThreadSummary> {
@@ -225,11 +231,11 @@ export const getThreadBySlug = cache(async function getThreadBySlug(
 
 export const getThreadReplies = cache(async function getThreadReplies(
   threadId: string,
-  options: { cursor?: CursorPair; limit?: number } = {},
+  options: { offset?: number; limit?: number } = {},
 ): Promise<PaginatedResult<ForumPostWithAuthor>> {
   const supabase = await createClient();
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
-  const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
+  const offset = options.offset ?? 0;
 
   // Order: OP first, then replies by most-liked (YouTube-style)
   let query = supabase
@@ -239,25 +245,12 @@ export const getThreadReplies = cache(async function getThreadReplies(
     .order("is_op", { ascending: false })
     .order("like_count", { ascending: false })
     .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(limit + 1);
+    .order("id", { ascending: true });
 
-  if (cursor) {
-    // Cursor-based pagination for like_count ordering is complex.
-    // Use offset-style fallback: skip by page number encoded in cursor.ts.
-    // For simplicity, we use a numeric offset stored in cursor.ts.
-    const offset = parseInt(cursor.ts, 10);
-    if (!isNaN(offset) && offset > 0) {
-      query = supabase
-        .from("forum_posts")
-        .select(`*, ${POST_PROFILE_JOIN}`)
-        .eq("thread_id", threadId)
-        .order("is_op", { ascending: false })
-        .order("like_count", { ascending: false })
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(offset, offset + limit);
-    }
+  if (offset > 0) {
+    query = query.range(offset, offset + limit);
+  } else {
+    query = query.limit(limit + 1);
   }
 
   const { data: rows, error } = await query;
@@ -267,14 +260,9 @@ export const getThreadReplies = cache(async function getThreadReplies(
   const hasMore = (rows?.length ?? 0) > limit;
   const data = (rows ?? []).slice(0, limit);
 
-  // For pagination with like_count ordering, use offset-based cursor
-  const currentOffset = cursor ? parseInt(cursor.ts, 10) || 0 : 0;
-
   return {
     data: data.map(toPostWithAuthor),
-    nextCursor: hasMore
-      ? { ts: String(currentOffset + limit), id: "0" }
-      : null,
+    nextCursor: hasMore ? { offset: offset + limit } : null,
   };
 });
 

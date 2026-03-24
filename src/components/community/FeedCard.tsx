@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -182,12 +182,13 @@ function ReplyPreview({ reply }: { reply: ForumPostWithAuthor }) {
 
 function InlineReplyInput({ threadId }: { threadId: string }) {
   const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const inputRef = useRef<HTMLInputElement>(null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!body.trim() || isPending) return;
+    setError(null);
 
     const formData = new FormData();
     formData.set("threadId", threadId);
@@ -201,33 +202,39 @@ function InlineReplyInput({ threadId }: { threadId: string }) {
       );
       if (result.success) {
         setBody("");
+      } else {
+        setError(result.message || "Failed to post comment");
       }
     });
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex items-center gap-2 border-t border-border px-4 py-2.5"
-    >
-      <input
-        ref={inputRef}
-        type="text"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        placeholder="Write a comment..."
-        disabled={isPending}
-        className="min-w-0 flex-1 rounded-full border border-border bg-muted px-3.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-      />
-      <Button
-        type="submit"
-        size="icon"
-        variant="ghost"
-        className="h-8 w-8 shrink-0 text-primary"
-        disabled={isPending || !body.trim()}
+    <div className="border-t border-border">
+      <form
+        onSubmit={handleSubmit}
+        className="flex items-center gap-2 px-4 py-2.5"
       >
-        <Send className="h-4 w-4" />
-      </Button>
-    </form>
+        <input
+          type="text"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Write a comment..."
+          disabled={isPending}
+          className="min-w-0 flex-1 rounded-full border border-border bg-muted px-3.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+        <Button
+          type="submit"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 shrink-0 text-primary"
+          disabled={isPending || !body.trim()}
+        >
+          <Send className="h-4 w-4" />
+        </Button>
+      </form>
+      {error && (
+        <p className="px-4 pb-2 text-xs text-destructive">{error}</p>
+      )}
+    </div>
   );
 }

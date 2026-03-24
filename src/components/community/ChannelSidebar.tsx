@@ -29,10 +29,12 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
   const activeTopic = searchParams.get("topic");
   const isOnFeed = pathname === "/community";
   const [showAddForm, setShowAddForm] = useState(false);
+  const [prevResetKey, setPrevResetKey] = useState(0);
   const [state, formAction, isPending] = useActionState(createTopic, initialState);
 
-  // Close form on success
-  if (state.success && showAddForm) {
+  // Close form on success (previous-value-in-state pattern — no useEffect)
+  if (state.success && state.resetKey !== prevResetKey) {
+    setPrevResetKey(state.resetKey);
     setShowAddForm(false);
   }
 

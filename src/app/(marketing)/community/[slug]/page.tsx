@@ -28,22 +28,18 @@ export default async function PostDetailPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ cursor?: string; cursor_id?: string }>;
+  searchParams: Promise<{ offset?: string }>;
 }) {
   const { slug } = await params;
   const thread = await getThreadBySlug(slug);
   if (!thread) notFound();
 
   const sp = await searchParams;
-  // Replies use offset-based pagination (cursor.ts is a numeric offset)
-  const cursor =
-    sp.cursor && /^\d+$/.test(sp.cursor)
-      ? { ts: sp.cursor, id: sp.cursor_id ?? "0" }
-      : undefined;
+  const offset = sp.offset && /^\d+$/.test(sp.offset) ? parseInt(sp.offset, 10) : 0;
 
   const [user, { data: posts, nextCursor }, profile, topics] = await Promise.all([
     getAuthUser(),
-    getThreadReplies(thread.id, { cursor, limit: 50 }),
+    getThreadReplies(thread.id, { offset, limit: 50 }),
     getProfile(),
     getForumTopics(),
   ]);
