@@ -375,3 +375,20 @@ INSERT INTO public.forum_likes (post_id, user_id) VALUES
   ('20000000-0000-0000-0000-000000000041', 'e5f6a7b8-c9d0-1234-efab-456789012345'),
   ('20000000-0000-0000-0000-000000000041', 'c3d4e5f6-a7b8-9012-cdef-234567890123'),
   ('20000000-0000-0000-0000-000000000041', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+
+-- =========================================================================
+-- Fix reply_count (trigger blocks non-admin updates, no auth context in seed)
+-- =========================================================================
+ALTER TABLE public.forum_threads DISABLE TRIGGER forum_threads_restrict_update;
+
+UPDATE public.forum_threads ft
+SET reply_count = sub.cnt
+FROM (
+    SELECT thread_id, COUNT(*) AS cnt
+    FROM public.forum_posts
+    WHERE is_op = false
+    GROUP BY thread_id
+) sub
+WHERE sub.thread_id = ft.id;
+
+ALTER TABLE public.forum_threads ENABLE TRIGGER forum_threads_restrict_update;

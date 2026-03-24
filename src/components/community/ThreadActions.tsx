@@ -15,6 +15,7 @@ import type { ForumThreadWithAuthor, ForumPostWithAuthor, BodyFormat } from "@/t
 
 interface ThreadActionsProps {
   thread: ForumThreadWithAuthor;
+  topicName?: string | null;
   opPost: ForumPostWithAuthor;
   replies: ForumPostWithAuthor[];
   currentUserId: string | null;
@@ -24,6 +25,7 @@ interface ThreadActionsProps {
 
 export function ThreadActions({
   thread,
+  topicName,
   opPost,
   replies,
   currentUserId,
@@ -34,6 +36,7 @@ export function ThreadActions({
     <>
       <ThreadHeader
         thread={thread}
+        topicName={topicName}
         isAdmin={isAdmin}
         onTogglePin={isAdmin ? toggleThreadPin : undefined}
         onToggleLock={isAdmin ? toggleThreadLock : undefined}

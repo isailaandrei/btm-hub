@@ -1,10 +1,9 @@
 import { z } from "zod/v4";
-import { FORUM_TOPIC_SLUGS } from "@/lib/community/topics";
 
 const bodyFormatSchema = z.enum(["markdown", "html"]).default("markdown");
 
 export const createThreadSchema = z.object({
-  topic: z.enum(FORUM_TOPIC_SLUGS).optional(),
+  topic: z.string().min(1).optional(),
   title: z
     .string()
     .min(3, "Title must be at least 3 characters")
@@ -17,7 +16,10 @@ export const createThreadSchema = z.object({
 });
 
 export const createReplySchema = z.object({
-  threadId: z.uuid("Invalid thread ID"),
+  threadId: z.string().regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    "Invalid thread ID",
+  ),
   body: z
     .string()
     .min(1, "Reply is required")

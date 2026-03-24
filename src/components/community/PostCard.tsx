@@ -5,6 +5,7 @@ import { PostBody } from "./PostBody";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { RelativeTime } from "./RelativeTime";
 import { LikeButton } from "./LikeButton";
+import { UserAvatar } from "./UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ForumPostWithAuthor, BodyFormat } from "@/types/database";
@@ -70,9 +71,11 @@ export function PostCard({
     <div className="flex flex-col gap-3 px-5 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-            {(post.author?.display_name || "?").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
-          </div>
+          <UserAvatar
+            name={post.author?.display_name ?? null}
+            avatarUrl={post.author?.avatar_url}
+            size="sm"
+          />
           <span className="font-medium text-foreground">{authorName}</span>
           <span className="text-muted-foreground">&middot;</span>
           <span className="text-muted-foreground">

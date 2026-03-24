@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isUUID, isValidISODate, escapeSearchTerm } from "@/lib/validation-helpers";
 import type {
   ForumTopicSlug,
+  ForumTopic,
   ForumThreadWithAuthor,
   ForumPostWithAuthor,
   ForumThreadSummary,
@@ -20,9 +21,15 @@ export interface CursorPair {
   id: string;
 }
 
+export interface OffsetCursor {
+  offset: number;
+}
+
+export type Cursor = CursorPair | OffsetCursor;
+
 export interface PaginatedResult<T> {
   data: T[];
-  nextCursor: CursorPair | null;
+  nextCursor: Cursor | null;
 }
 
 export interface PaginatedThreadsResult extends PaginatedResult<ForumThreadSummary> {
@@ -52,7 +59,7 @@ function validateCursor(cursor: CursorPair): CursorPair | undefined {
 function toThreadSummary(row: Record<string, unknown>): ForumThreadSummary {
   return {
     id: row.id as string,
-    topic: (row.topic as ForumTopicSlug) ?? null,
+    topic: (row.topic as string) ?? null,
     title: row.title as string,
     slug: row.slug as string,
     reply_count: row.reply_count as number,
@@ -62,6 +69,11 @@ function toThreadSummary(row: Record<string, unknown>): ForumThreadSummary {
     last_reply_at: row.last_reply_at as string,
     author: (row.profiles as ForumThreadSummary["author"]) ?? null,
     body_preview: (row.body_preview as string) ?? "",
+    op_post_id: (row.op_post_id as string) ?? null,
+    op_body: (row.op_body as string) ?? "",
+    op_body_format: (row.op_body_format as BodyFormat) ?? "markdown",
+    op_like_count: (row.op_like_count as number) ?? 0,
+    topic_name: (row.topic_name as string) ?? null,
   };
 }
 
@@ -102,31 +114,35 @@ function toPostWithAuthor(row: Record<string, unknown>): ForumPostWithAuthor {
 // Fetchers
 // ---------------------------------------------------------------------------
 
-export const getThreadsByTopic = cache(async function getThreadsByTopic(
-  topic: ForumTopicSlug,
-  options: { cursor?: CursorPair; limit?: number } = {},
+export const getThreads = cache(async function getThreads(
+  options: { topic?: string; cursor?: CursorPair; limit?: number } = {},
 ): Promise<PaginatedThreadsResult> {
   const supabase = await createClient();
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
   const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
-  const { data: pinnedRows, error: pinnedError } = await supabase
+  // Pinned threads
+  let pinnedQuery = supabase
     .from(LISTING_VIEW)
     .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("topic", topic)
     .eq("pinned", true)
     .order("last_reply_at", { ascending: false });
 
+  if (options.topic) pinnedQuery = pinnedQuery.eq("topic", options.topic);
+
+  const { data: pinnedRows, error: pinnedError } = await pinnedQuery;
   if (pinnedError) throw new Error(`Failed to fetch pinned threads: ${pinnedError.message}`);
 
+  // Non-pinned threads (paginated)
   let query = supabase
     .from(LISTING_VIEW)
     .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("topic", topic)
     .eq("pinned", false)
     .order("last_reply_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(limit + 1);
+
+  if (options.topic) query = query.eq("topic", options.topic);
 
   if (cursor) {
     query = query.or(
@@ -135,7 +151,6 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
   }
 
   const { data: rows, error } = await query;
-
   if (error) throw new Error(`Failed to fetch threads: ${error.message}`);
 
   const hasMore = (rows?.length ?? 0) > limit;
@@ -151,51 +166,19 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
   };
 });
 
+/** @deprecated Use getThreads({ topic }) instead */
+export const getThreadsByTopic = cache(async function getThreadsByTopic(
+  topic: ForumTopicSlug,
+  options: { cursor?: CursorPair; limit?: number } = {},
+) {
+  return getThreads({ topic, ...options });
+});
+
+/** @deprecated Use getThreads() instead */
 export const getRecentThreads = cache(async function getRecentThreads(
   options: { cursor?: CursorPair; limit?: number } = {},
-): Promise<PaginatedThreadsResult> {
-  const supabase = await createClient();
-  const limit = options.limit ?? DEFAULT_PAGE_SIZE;
-  const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
-
-  // Fetch pinned threads (global)
-  const { data: pinnedRows, error: pinnedError } = await supabase
-    .from(LISTING_VIEW)
-    .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("pinned", true)
-    .order("last_reply_at", { ascending: false });
-
-  if (pinnedError) throw new Error(`Failed to fetch pinned threads: ${pinnedError.message}`);
-
-  let query = supabase
-    .from(LISTING_VIEW)
-    .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("pinned", false)
-    .order("last_reply_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(limit + 1);
-
-  if (cursor) {
-    query = query.or(
-      `last_reply_at.lt.${cursor.ts},and(last_reply_at.eq.${cursor.ts},id.lt.${cursor.id})`,
-    );
-  }
-
-  const { data: rows, error } = await query;
-
-  if (error) throw new Error(`Failed to fetch recent threads: ${error.message}`);
-
-  const hasMore = (rows?.length ?? 0) > limit;
-  const data = (rows ?? []).slice(0, limit);
-  const lastRow = data[data.length - 1];
-
-  return {
-    pinned: (pinnedRows ?? []).map(toThreadSummary),
-    data: data.map(toThreadSummary),
-    nextCursor: hasMore && lastRow
-      ? { ts: lastRow.last_reply_at as string, id: lastRow.id as string }
-      : null,
-  };
+) {
+  return getThreads(options);
 });
 
 export const getThreadBySlug = cache(async function getThreadBySlug(
@@ -219,24 +202,26 @@ export const getThreadBySlug = cache(async function getThreadBySlug(
 
 export const getThreadReplies = cache(async function getThreadReplies(
   threadId: string,
-  options: { cursor?: CursorPair; limit?: number } = {},
+  options: { offset?: number; limit?: number } = {},
 ): Promise<PaginatedResult<ForumPostWithAuthor>> {
   const supabase = await createClient();
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
-  const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
+  const offset = options.offset ?? 0;
 
+  // Order: OP first, then replies by most-liked (YouTube-style)
   let query = supabase
     .from("forum_posts")
     .select(`*, ${POST_PROFILE_JOIN}`)
     .eq("thread_id", threadId)
+    .order("is_op", { ascending: false })
+    .order("like_count", { ascending: false })
     .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(limit + 1);
+    .order("id", { ascending: true });
 
-  if (cursor) {
-    query = query.or(
-      `created_at.gt.${cursor.ts},and(created_at.eq.${cursor.ts},id.gt.${cursor.id})`,
-    );
+  if (offset > 0) {
+    query = query.range(offset, offset + limit);
+  } else {
+    query = query.limit(limit + 1);
   }
 
   const { data: rows, error } = await query;
@@ -245,13 +230,10 @@ export const getThreadReplies = cache(async function getThreadReplies(
 
   const hasMore = (rows?.length ?? 0) > limit;
   const data = (rows ?? []).slice(0, limit);
-  const lastRow = data[data.length - 1];
 
   return {
     data: data.map(toPostWithAuthor),
-    nextCursor: hasMore && lastRow
-      ? { ts: lastRow.created_at as string, id: lastRow.id as string }
-      : null,
+    nextCursor: hasMore ? { offset: offset + limit } : null,
   };
 });
 
@@ -313,6 +295,69 @@ export async function getLikesForPost(
     created_at: row.created_at as string,
     user: (row.profiles as ForumAuthor) ?? null,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Topics (from DB)
+// ---------------------------------------------------------------------------
+
+export const getForumTopics = cache(async function getForumTopics(): Promise<ForumTopic[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("forum_topics")
+    .select("slug, name, description, icon, sort_order")
+    .order("sort_order", { ascending: true });
+
+  if (error) throw new Error(`Failed to fetch forum topics: ${error.message}`);
+
+  return (data ?? []) as ForumTopic[];
+});
+
+// ---------------------------------------------------------------------------
+// Top replies per thread (for feed previews)
+// ---------------------------------------------------------------------------
+
+export async function getTopRepliesForThreads(
+  threadIds: string[],
+  limitPerThread = 2,
+): Promise<Map<string, ForumPostWithAuthor[]>> {
+  if (threadIds.length === 0) return new Map();
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.rpc("get_top_replies_by_threads", {
+    _thread_ids: threadIds,
+    _limit_per_thread: limitPerThread,
+  });
+
+  if (error) throw new Error(`Failed to fetch top replies: ${error.message}`);
+
+  const map = new Map<string, ForumPostWithAuthor[]>();
+
+  for (const row of data ?? []) {
+    const post: ForumPostWithAuthor = {
+      id: row.id,
+      thread_id: row.thread_id,
+      author_id: row.author_id,
+      body: row.body,
+      body_format: (row.body_format as BodyFormat) ?? "markdown",
+      is_op: false,
+      body_preview: row.body_preview ?? "",
+      like_count: row.like_count ?? 0,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      author: row.author_display_name
+        ? { id: row.author_id, display_name: row.author_display_name, avatar_url: row.author_avatar_url }
+        : null,
+    };
+
+    const existing = map.get(row.thread_id) ?? [];
+    existing.push(post);
+    map.set(row.thread_id, existing);
+  }
+
+  return map;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getAuthUser } from "@/lib/data/auth";
-import { getRecentThreads, getThreadsByTopic } from "@/lib/data/forum";
-import { FORUM_TOPICS, getForumTopic } from "@/lib/community/topics";
+import { getThreads, getForumTopics, getTopRepliesForThreads, getUserLikedPostIds } from "@/lib/data/forum";
 import { FeedCard } from "@/components/community/FeedCard";
 import { PaginationControls } from "@/components/community/PaginationControls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { PenSquare } from "lucide-react";
 import { isUUID, isValidISODate } from "@/lib/validation-helpers";
-import type { ForumTopicSlug } from "@/types/database";
 
 export const metadata: Metadata = {
   title: "Community | BTM Hub",
@@ -29,91 +28,122 @@ export default async function CommunityPage({
       ? { ts: params.cursor, id: params.cursor_id }
       : undefined;
 
-  const activeTopic = params.topic && getForumTopic(params.topic)
-    ? (params.topic as ForumTopicSlug)
+  const [user, topics] = await Promise.all([
+    getAuthUser(),
+    getForumTopics(),
+  ]);
+
+  const topicSlugs = new Set(topics.map((t) => t.slug));
+  const activeTopic = params.topic && topicSlugs.has(params.topic)
+    ? params.topic
     : undefined;
 
-  const [user, result] = await Promise.all([
-    getAuthUser(),
-    activeTopic
-      ? getThreadsByTopic(activeTopic, { cursor, limit: 10 })
-      : getRecentThreads({ cursor, limit: 10 }),
-  ]);
+  const result = await getThreads({ topic: activeTopic, cursor, limit: 10 });
 
   const { pinned, data: threads, nextCursor } = result;
   const basePath = activeTopic ? `/community?topic=${activeTopic}` : "/community";
+  const topicInfo = activeTopic ? topics.find((t) => t.slug === activeTopic) : null;
+
+  // Fetch top 2 replies per thread for inline comment previews
+  const allThreads = [...pinned, ...threads];
+  const allThreadIds = allThreads.map((t) => t.id);
+  const topRepliesMap = await getTopRepliesForThreads(allThreadIds, 2);
+
+  // Fetch liked OP post IDs for authenticated user
+  const opPostIds = allThreads.map((t) => t.op_post_id).filter(Boolean) as string[];
+  const likedPostIds = user
+    ? await getUserLikedPostIds(user.id, opPostIds)
+    : new Set<string>();
 
   return (
-    <div className="min-h-screen bg-muted px-5 py-20">
-      <div className="mx-auto max-w-2xl">
-        <div className="mb-8 text-center">
-          <h1 className="mb-3 text-[length:var(--font-size-h1)] font-medium text-foreground">
-            Community
+    <div className="mx-auto max-w-2xl">
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">
+            {topicInfo ? topicInfo.name : "Community"}
           </h1>
-          <p className="mx-auto mb-5 max-w-lg text-muted-foreground">
-            Connect with divers, freedivers, and ocean lovers worldwide. Share
-            stories, ask questions, and learn from each other.
+          <p className="mt-1 text-sm text-muted-foreground">
+            {topicInfo
+              ? topicInfo.description
+              : "Connect with divers, freedivers, and ocean lovers worldwide."}
           </p>
-          {user && (
-            <Button asChild>
-              <Link href="/community/new">New Post</Link>
-            </Button>
-          )}
         </div>
+        {/* Mobile-only new post button (desktop has it in sidebar) */}
+        {user && (
+          <Button asChild size="sm" className="gap-1.5 md:hidden">
+            <Link href="/community/new">
+              <PenSquare className="h-4 w-4" />
+              Post
+            </Link>
+          </Button>
+        )}
+      </div>
 
-        {/* Topic filter chips */}
-        <div className="mb-6 flex flex-wrap gap-2">
-          <Link href="/community">
+      {/* Mobile topic chips (hidden on desktop where sidebar handles this) */}
+      <div className="mb-4 flex flex-wrap gap-1.5 md:hidden">
+        <Link href="/community">
+          <Badge
+            variant={!activeTopic ? "default" : "secondary"}
+            className="cursor-pointer"
+          >
+            All
+          </Badge>
+        </Link>
+        {topics.map((topic) => (
+          <Link key={topic.slug} href={`/community?topic=${topic.slug}`}>
             <Badge
-              variant={!activeTopic ? "default" : "secondary"}
+              variant={activeTopic === topic.slug ? "default" : "secondary"}
               className="cursor-pointer"
             >
-              All
+              {topic.name}
             </Badge>
           </Link>
-          {Object.values(FORUM_TOPICS).map((topic) => (
-            <Link key={topic.slug} href={`/community?topic=${topic.slug}`}>
-              <Badge
-                variant={activeTopic === topic.slug ? "default" : "secondary"}
-                className="cursor-pointer"
-              >
-                {topic.name}
-              </Badge>
-            </Link>
+        ))}
+      </div>
+
+      {/* Pinned posts */}
+      {!cursor && pinned.length > 0 && (
+        <div className="mb-4 flex flex-col gap-3">
+          {pinned.map((thread) => (
+            <FeedCard
+              key={thread.id}
+              thread={thread}
+              topReplies={topRepliesMap.get(thread.id)}
+              liked={thread.op_post_id ? likedPostIds.has(thread.op_post_id) : false}
+              isAuthenticated={!!user}
+            />
           ))}
         </div>
+      )}
 
-        {/* Pinned posts */}
-        {!cursor && pinned.length > 0 && (
-          <div className="mb-4 flex flex-col gap-3">
-            {pinned.map((thread) => (
-              <FeedCard key={thread.id} thread={thread} />
-            ))}
-          </div>
-        )}
+      {/* Feed */}
+      {threads.length === 0 && pinned.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-sm text-muted-foreground">
+              No posts yet. Be the first to share something!
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {threads.map((thread) => (
+            <FeedCard
+              key={thread.id}
+              thread={thread}
+              topReplies={topRepliesMap.get(thread.id)}
+              liked={thread.op_post_id ? likedPostIds.has(thread.op_post_id) : false}
+              isAuthenticated={!!user}
+            />
+          ))}
+        </div>
+      )}
 
-        {/* Feed */}
-        {threads.length === 0 && pinned.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <p className="text-sm text-muted-foreground">
-                No posts yet. Be the first to share something!
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {threads.map((thread) => (
-              <FeedCard key={thread.id} thread={thread} />
-            ))}
-          </div>
-        )}
-
-        <PaginationControls
-          nextCursor={nextCursor}
-          basePath={basePath}
-        />
-      </div>
+      <PaginationControls
+        nextCursor={nextCursor}
+        basePath={basePath}
+      />
     </div>
   );
 }
