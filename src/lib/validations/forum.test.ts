@@ -19,9 +19,18 @@ describe("createThreadSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects invalid topic", () => {
+  it("accepts any non-empty topic string (DB FK enforces valid topics)", () => {
     const result = createThreadSchema.safeParse({
-      topic: "invalid-topic",
+      topic: "custom-topic",
+      title: "Test",
+      body: "Body",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty topic string", () => {
+    const result = createThreadSchema.safeParse({
+      topic: "",
       title: "Test",
       body: "Body",
     });

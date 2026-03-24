@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/data/auth";
 import { getProfile } from "@/lib/data/profiles";
-import { getThreadBySlug, getThreadReplies, getUserLikedPostIds } from "@/lib/data/forum";
-import { isUUID, isValidISODate } from "@/lib/validation-helpers";
+import { getThreadBySlug, getThreadReplies, getUserLikedPostIds, getForumTopics } from "@/lib/data/forum";
 import { ForumBreadcrumb } from "@/components/community/ForumBreadcrumb";
 import { ThreadActions } from "@/components/community/ThreadActions";
 import { ReplyForm } from "@/components/community/ReplyForm";
@@ -36,16 +35,22 @@ export default async function PostDetailPage({
   if (!thread) notFound();
 
   const sp = await searchParams;
+  // Replies use offset-based pagination (cursor.ts is a numeric offset)
   const cursor =
-    sp.cursor && sp.cursor_id && isUUID(sp.cursor_id) && isValidISODate(sp.cursor)
-      ? { ts: sp.cursor, id: sp.cursor_id }
+    sp.cursor && /^\d+$/.test(sp.cursor)
+      ? { ts: sp.cursor, id: sp.cursor_id ?? "0" }
       : undefined;
 
-  const [user, { data: posts, nextCursor }, profile] = await Promise.all([
+  const [user, { data: posts, nextCursor }, profile, topics] = await Promise.all([
     getAuthUser(),
     getThreadReplies(thread.id, { cursor, limit: 50 }),
     getProfile(),
+    getForumTopics(),
   ]);
+
+  const topicName = thread.topic
+    ? topics.find((t) => t.slug === thread.topic)?.name ?? null
+    : null;
 
   const isAdmin = profile?.role === "admin";
 
@@ -63,35 +68,34 @@ export default async function PostDetailPage({
   const currentPath = `/community/${slug}`;
 
   return (
-    <div className="min-h-screen bg-muted px-5 py-20">
-      <div className="mx-auto max-w-4xl">
-        <ForumBreadcrumb
-          items={[{ label: thread.title }]}
-        />
+    <div className="mx-auto max-w-3xl">
+      <ForumBreadcrumb
+        items={[{ label: thread.title }]}
+      />
 
-        <ThreadActions
-          thread={thread}
-          opPost={opPost}
-          replies={replies}
-          currentUserId={user?.id ?? null}
+      <ThreadActions
+        thread={thread}
+        topicName={topicName}
+        opPost={opPost}
+        replies={replies}
+        currentUserId={user?.id ?? null}
+        isAdmin={isAdmin}
+        likedPostIds={likedPostIds}
+      />
+
+      <PaginationControls
+        nextCursor={nextCursor}
+        basePath={currentPath}
+      />
+
+      <div className="mt-8">
+        <ReplyForm
+          threadId={thread.id}
+          isLocked={thread.locked}
+          isAuthenticated={!!user}
           isAdmin={isAdmin}
-          likedPostIds={likedPostIds}
+          redirectPath={currentPath}
         />
-
-        <PaginationControls
-          nextCursor={nextCursor}
-          basePath={currentPath}
-        />
-
-        <div className="mt-8">
-          <ReplyForm
-            threadId={thread.id}
-            isLocked={thread.locked}
-            isAuthenticated={!!user}
-            isAdmin={isAdmin}
-            redirectPath={currentPath}
-          />
-        </div>
       </div>
     </div>
   );

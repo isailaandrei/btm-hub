@@ -41,18 +41,21 @@ export interface AdminNote {
 // Forum
 // ---------------------------------------------------------------------------
 
-export type ForumTopicSlug =
-  | "trip-reports"
-  | "underwater-filmmaking-photography"
-  | "gear-talk"
-  | "marine-life"
-  | "freediving"
-  | "beginner-questions";
+/** Known seed topics — kept for backwards compat. New topics are dynamic (DB). */
+export type ForumTopicSlug = string;
+
+export interface ForumTopic {
+  slug: string;
+  name: string;
+  description: string;
+  icon: string;
+  sort_order: number;
+}
 
 export interface ForumThread {
   id: string;
   author_id: string | null;
-  topic: ForumTopicSlug | null;
+  topic: string | null;
   title: string;
   slug: string;
   reply_count: number;
@@ -94,6 +97,11 @@ export type ForumThreadSummary = Pick<
 > & {
   author: ForumAuthor;
   body_preview: string;
+  op_post_id: string | null;
+  op_body: string;
+  op_body_format: BodyFormat;
+  op_like_count: number;
+  topic_name: string | null;
 };
 
 export interface ForumLike {

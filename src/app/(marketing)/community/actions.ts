@@ -15,6 +15,7 @@ import {
 import { slugify, slugifyUnique } from "@/lib/community/slugify";
 import { sanitizeBody } from "@/lib/community/sanitize";
 import type { BodyFormat } from "@/types/database";
+import { z } from "zod/v4";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -440,4 +441,70 @@ export async function toggleThreadLock(threadId: string): Promise<void> {
 
   revalidatePath("/community");
   if (thread) revalidatePath(`/community/${thread.slug}`);
+}
+
+// ---------------------------------------------------------------------------
+// Topic management (admin-only)
+// ---------------------------------------------------------------------------
+
+const createTopicSchema = z.object({
+  name: z
+    .string()
+    .min(2, "Channel name must be at least 2 characters")
+    .max(50, "Channel name must be under 50 characters"),
+});
+
+export async function createTopic(
+  prevState: ForumActionState,
+  formData: FormData,
+): Promise<ForumActionState> {
+  await requireAdmin();
+
+  const raw = { name: formData.get("name") as string };
+  const parsed = createTopicSchema.safeParse(raw);
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const key = String(issue.path[0]);
+      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+    }
+    return { errors: fieldErrors, message: "", success: false, resetKey: prevState.resetKey };
+  }
+
+  const slug = slugify(parsed.data.name);
+  if (slug.length < 2) {
+    return { errors: { name: "Invalid channel name" }, message: "", success: false, resetKey: prevState.resetKey };
+  }
+
+  const supabase = await createClient();
+
+  // Get max sort_order to append at end
+  const { data: maxRow } = await supabase
+    .from("forum_topics")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .single();
+
+  const nextOrder = (maxRow?.sort_order ?? 0) + 1;
+
+  const { error } = await supabase
+    .from("forum_topics")
+    .insert({
+      slug,
+      name: parsed.data.name,
+      description: "",
+      icon: "",
+      sort_order: nextOrder,
+    });
+
+  if (error) {
+    if (error.code === "23505") {
+      return { errors: { name: "A channel with this name already exists" }, message: "", success: false, resetKey: prevState.resetKey };
+    }
+    return { errors: null, message: `Failed to create channel: ${error.message}`, success: false, resetKey: prevState.resetKey };
+  }
+
+  revalidatePath("/community");
+  return { errors: null, message: "Channel created!", success: true, resetKey: prevState.resetKey + 1 };
 }

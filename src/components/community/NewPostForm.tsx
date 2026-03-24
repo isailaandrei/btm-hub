@@ -5,17 +5,15 @@ import { RichTextEditor } from "./RichTextEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createThread } from "@/app/(marketing)/community/actions";
-import { FORUM_TOPICS } from "@/lib/community/topics";
+import type { ForumTopic } from "@/types/database";
 
-export function NewPostForm() {
+export function NewPostForm({ topics }: { topics: ForumTopic[] }) {
   const [state, formAction, isPending] = useActionState(createThread, {
     errors: {},
     message: "",
     success: false,
     resetKey: 0,
   });
-
-  const topics = Object.values(FORUM_TOPICS);
 
   return (
     <Card>
