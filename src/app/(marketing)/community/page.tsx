@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getAuthUser } from "@/lib/data/auth";
-import { getRecentThreads, getThreadsByTopic, getForumTopics, getTopRepliesForThreads, getUserLikedPostIds } from "@/lib/data/forum";
+import { getThreads, getForumTopics, getTopRepliesForThreads, getUserLikedPostIds } from "@/lib/data/forum";
 import { FeedCard } from "@/components/community/FeedCard";
 import { PaginationControls } from "@/components/community/PaginationControls";
 import { Badge } from "@/components/ui/badge";
@@ -38,9 +38,7 @@ export default async function CommunityPage({
     ? params.topic
     : undefined;
 
-  const result = activeTopic
-    ? await getThreadsByTopic(activeTopic, { cursor, limit: 10 })
-    : await getRecentThreads({ cursor, limit: 10 });
+  const result = await getThreads({ topic: activeTopic, cursor, limit: 10 });
 
   const { pinned, data: threads, nextCursor } = result;
   const basePath = activeTopic ? `/community?topic=${activeTopic}` : "/community";

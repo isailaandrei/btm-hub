@@ -114,31 +114,35 @@ function toPostWithAuthor(row: Record<string, unknown>): ForumPostWithAuthor {
 // Fetchers
 // ---------------------------------------------------------------------------
 
-export const getThreadsByTopic = cache(async function getThreadsByTopic(
-  topic: ForumTopicSlug,
-  options: { cursor?: CursorPair; limit?: number } = {},
+export const getThreads = cache(async function getThreads(
+  options: { topic?: string; cursor?: CursorPair; limit?: number } = {},
 ): Promise<PaginatedThreadsResult> {
   const supabase = await createClient();
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
   const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
-  const { data: pinnedRows, error: pinnedError } = await supabase
+  // Pinned threads
+  let pinnedQuery = supabase
     .from(LISTING_VIEW)
     .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("topic", topic)
     .eq("pinned", true)
     .order("last_reply_at", { ascending: false });
 
+  if (options.topic) pinnedQuery = pinnedQuery.eq("topic", options.topic);
+
+  const { data: pinnedRows, error: pinnedError } = await pinnedQuery;
   if (pinnedError) throw new Error(`Failed to fetch pinned threads: ${pinnedError.message}`);
 
+  // Non-pinned threads (paginated)
   let query = supabase
     .from(LISTING_VIEW)
     .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("topic", topic)
     .eq("pinned", false)
     .order("last_reply_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(limit + 1);
+
+  if (options.topic) query = query.eq("topic", options.topic);
 
   if (cursor) {
     query = query.or(
@@ -147,7 +151,6 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
   }
 
   const { data: rows, error } = await query;
-
   if (error) throw new Error(`Failed to fetch threads: ${error.message}`);
 
   const hasMore = (rows?.length ?? 0) > limit;
@@ -163,51 +166,19 @@ export const getThreadsByTopic = cache(async function getThreadsByTopic(
   };
 });
 
+/** @deprecated Use getThreads({ topic }) instead */
+export const getThreadsByTopic = cache(async function getThreadsByTopic(
+  topic: ForumTopicSlug,
+  options: { cursor?: CursorPair; limit?: number } = {},
+) {
+  return getThreads({ topic, ...options });
+});
+
+/** @deprecated Use getThreads() instead */
 export const getRecentThreads = cache(async function getRecentThreads(
   options: { cursor?: CursorPair; limit?: number } = {},
-): Promise<PaginatedThreadsResult> {
-  const supabase = await createClient();
-  const limit = options.limit ?? DEFAULT_PAGE_SIZE;
-  const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
-
-  // Fetch pinned threads (global)
-  const { data: pinnedRows, error: pinnedError } = await supabase
-    .from(LISTING_VIEW)
-    .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("pinned", true)
-    .order("last_reply_at", { ascending: false });
-
-  if (pinnedError) throw new Error(`Failed to fetch pinned threads: ${pinnedError.message}`);
-
-  let query = supabase
-    .from(LISTING_VIEW)
-    .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .eq("pinned", false)
-    .order("last_reply_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(limit + 1);
-
-  if (cursor) {
-    query = query.or(
-      `last_reply_at.lt.${cursor.ts},and(last_reply_at.eq.${cursor.ts},id.lt.${cursor.id})`,
-    );
-  }
-
-  const { data: rows, error } = await query;
-
-  if (error) throw new Error(`Failed to fetch recent threads: ${error.message}`);
-
-  const hasMore = (rows?.length ?? 0) > limit;
-  const data = (rows ?? []).slice(0, limit);
-  const lastRow = data[data.length - 1];
-
-  return {
-    pinned: (pinnedRows ?? []).map(toThreadSummary),
-    data: data.map(toThreadSummary),
-    nextCursor: hasMore && lastRow
-      ? { ts: lastRow.last_reply_at as string, id: lastRow.id as string }
-      : null,
-  };
+) {
+  return getThreads(options);
 });
 
 export const getThreadBySlug = cache(async function getThreadBySlug(
