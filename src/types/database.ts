@@ -175,3 +175,7 @@ export interface DmReadReceipt {
   user_id: string;
   last_read_at: string;
 }
+
+export interface OptimisticDmMessage extends DmMessageWithSender {
+  _optimistic?: "sending" | "failed";
+}

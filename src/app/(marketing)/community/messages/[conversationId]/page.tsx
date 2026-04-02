@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/data/auth";
 import { getConversation, getMessages } from "@/lib/data/messages";
 import { MessageThread } from "@/components/community/MessageThread";
-import { MessageComposer } from "@/components/community/MessageComposer";
 
 export default async function ConversationPage({
   params,
@@ -43,8 +42,6 @@ export default async function ConversationPage({
         initialMessages={messages}
       />
 
-      {/* Composer */}
-      <MessageComposer conversationId={conversationId} />
     </div>
   );
 }

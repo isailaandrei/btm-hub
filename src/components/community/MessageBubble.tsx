@@ -4,14 +4,16 @@ import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { editMessage, deleteMessage } from "@/app/(marketing)/community/messages/actions";
-import type { DmMessageWithSender } from "@/types/database";
+import type { OptimisticDmMessage } from "@/types/database";
 
 interface MessageBubbleProps {
-  message: DmMessageWithSender;
+  message: OptimisticDmMessage;
   isOwn: boolean;
+  showSeen?: boolean;
 }
 
 export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
+  const isOptimistic = !!message._optimistic;
   const [showActions, setShowActions] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body);
@@ -66,7 +68,7 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
 
   return (
     <div
-      className={cn("group flex gap-2 px-4 py-1", isOwn && "flex-row-reverse")}
+      className={cn("group flex gap-2 px-4 py-1", isOwn && "flex-row-reverse", isOptimistic && "opacity-60")}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >

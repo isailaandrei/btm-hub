@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { MessageBubble } from "./MessageBubble";
+import { MessageComposer } from "./MessageComposer";
 import { markAsRead } from "@/app/(marketing)/community/messages/actions";
-import type { DmMessageWithSender, Profile } from "@/types/database";
+import type { DmMessageWithSender, OptimisticDmMessage, Profile } from "@/types/database";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 interface MessageThreadProps {
@@ -18,7 +19,7 @@ export function MessageThread({
   currentUserId,
   initialMessages,
 }: MessageThreadProps) {
-  const [messages, setMessages] = useState<DmMessageWithSender[]>(initialMessages);
+  const [messages, setMessages] = useState<OptimisticDmMessage[]>(initialMessages);
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -26,6 +27,23 @@ export function MessageThread({
   function getSupabase() {
     if (!supabaseRef.current) supabaseRef.current = createClient();
     return supabaseRef.current;
+  }
+
+  function addOptimisticMessage(body: string) {
+    const optimistic: OptimisticDmMessage = {
+      id: `optimistic-${Date.now()}`,
+      conversation_id: conversationId,
+      sender_id: currentUserId,
+      body,
+      body_format: "html",
+      edited_at: null,
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      sender: null,
+      _optimistic: "sending",
+    };
+    setMessages((prev) => [...prev, optimistic]);
   }
 
   // Scroll to bottom on new messages
@@ -75,9 +93,12 @@ export function MessageThread({
           }
 
           setMessages((prev) => {
-            // Prevent duplicates (action might have already added it via revalidation)
             if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
+            // Remove optimistic messages from same sender (they've been confirmed)
+            const withoutOptimistic = newMsg.sender_id === currentUserId
+              ? prev.filter((m) => !m._optimistic)
+              : prev;
+            return [...withoutOptimistic, newMsg];
           });
         },
       )
@@ -110,24 +131,27 @@ export function MessageThread({
   }, [conversationId, currentUserId]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
-      {messages.length === 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <p className="text-sm text-muted-foreground">
-            No messages yet. Start the conversation!
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              isOwn={msg.sender_id === currentUserId}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    <>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
+        {messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-muted-foreground">
+              No messages yet. Start the conversation!
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {messages.map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isOwn={msg.sender_id === currentUserId}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <MessageComposer conversationId={conversationId} onSend={addOptimisticMessage} />
+    </>
   );
 }

@@ -6,28 +6,23 @@ import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useRef, useState, useActionState } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Bold, Italic, Link as LinkIcon, Send, ImageIcon, Loader2 } from "lucide-react";
-import { sendMessage, type DmActionState } from "@/app/(marketing)/community/messages/actions";
+import { sendMessage } from "@/app/(marketing)/community/messages/actions";
 import { mentionSuggestion } from "./mention-suggestion";
 import { uploadCommunityImage } from "@/app/(marketing)/community/actions";
 
 interface MessageComposerProps {
   conversationId: string;
+  onSend?: (body: string) => void;
 }
 
-const initialState: DmActionState = {
-  errors: null,
-  message: "",
-  success: false,
-  resetKey: 0,
-};
-
-export function MessageComposer({ conversationId }: MessageComposerProps) {
+export function MessageComposer({ conversationId, onSend }: MessageComposerProps) {
   const hiddenRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [state, formAction, isPending] = useActionState(sendMessage, initialState);
+  const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Track editor formatting state so toolbar buttons re-render on selection changes
@@ -87,11 +82,33 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
     },
   });
 
-  // Clear editor on successful send (previous-value-in-state pattern — no useEffect)
-  const [prevResetKey, setPrevResetKey] = useState(0);
-  if (state.success && state.resetKey !== prevResetKey) {
-    setPrevResetKey(state.resetKey);
-    editor?.commands.clearContent();
+  async function handleSubmit() {
+    if (!editor || editor.isEmpty) return;
+    const html = editor.getHTML();
+    const textContent = html.replace(/<[^>]*>/g, "").trim();
+    if (!textContent) return;
+
+    // Optimistic: notify parent immediately
+    onSend?.(html);
+    editor.commands.clearContent();
+    if (hiddenRef.current) hiddenRef.current.value = "";
+    setError(null);
+    setIsPending(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("conversationId", conversationId);
+      formData.append("body", html);
+      formData.append("bodyFormat", "html");
+      const result = await sendMessage({ errors: null, message: "", success: false, resetKey: 0 }, formData);
+      if (!result.success) {
+        setError(result.message || result.errors?.body || "Failed to send");
+      }
+    } catch {
+      setError("Failed to send message");
+    } finally {
+      setIsPending(false);
+    }
   }
 
   function addLink() {
@@ -134,11 +151,7 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
     );
 
   return (
-    <form action={formAction} className="border-t border-border bg-card px-4 py-3">
-      <input type="hidden" name="conversationId" value={conversationId} />
-      <input key={state.resetKey} ref={hiddenRef} type="hidden" name="body" />
-      <input type="hidden" name="bodyFormat" value="html" />
-
+    <div className="border-t border-border bg-card px-4 py-3">
       <div className="rounded-lg border border-border bg-background">
         {editor && (
           <div className="flex items-center gap-0.5 border-b border-border px-2 py-1">
@@ -182,7 +195,8 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
 
             <div className="ml-auto">
               <button
-                type="submit"
+                type="button"
+                onClick={handleSubmit}
                 disabled={isPending}
                 className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
                 title="Send message"
@@ -205,12 +219,9 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
         />
       </div>
 
-      {state.message && !state.success && (
-        <p className="mt-1 text-xs text-destructive">{state.message}</p>
+      {error && (
+        <p className="mt-1 text-xs text-destructive">{error}</p>
       )}
-      {state.errors?.body && (
-        <p className="mt-1 text-xs text-destructive">{state.errors.body}</p>
-      )}
-    </form>
+    </div>
   );
 }
