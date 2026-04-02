@@ -136,3 +136,42 @@ export interface SharedApplicationView {
   submitted_at: string;
   expires_at: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Direct Messages
+// ---------------------------------------------------------------------------
+
+export interface DmConversation {
+  id: string;
+  user1_id: string;
+  user2_id: string;
+  last_message_at: string;
+  created_at: string;
+}
+
+export interface DmConversationWithParticipant extends DmConversation {
+  participant: Pick<Profile, "id" | "display_name" | "avatar_url"> | null;
+  unread_count: number;
+}
+
+export interface DmMessage {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string;
+  body_format: "text" | "html";
+  edited_at: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DmMessageWithSender extends DmMessage {
+  sender: Pick<Profile, "id" | "display_name" | "avatar_url"> | null;
+}
+
+export interface DmReadReceipt {
+  conversation_id: string;
+  user_id: string;
+  last_read_at: string;
+}
