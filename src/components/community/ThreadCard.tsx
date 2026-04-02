@@ -16,7 +16,7 @@ export function ThreadCard({ thread }: ThreadCardProps) {
   return (
     <Link href={`/community/${thread.slug}`} className="group block">
       <Card className="transition-colors group-hover:border-primary/30">
-        <CardContent className="flex gap-3 p-3">
+        <CardContent className="flex gap-3 px-3 py-2">
           <UserAvatar
             name={thread.author?.display_name ?? null}
             avatarUrl={thread.author?.avatar_url}
@@ -44,7 +44,7 @@ export function ThreadCard({ thread }: ThreadCardProps) {
             </p>
 
             {/* Meta row */}
-            <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
               <span>{authorName}</span>
               <span className="flex items-center gap-0.5">
                 <MessageCircle className="h-3 w-3" />
