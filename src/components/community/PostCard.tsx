@@ -73,12 +73,21 @@ export function PostCard({
     <div className="flex flex-col gap-3 px-5 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
-          <UserAvatar
-            name={post.author?.display_name ?? null}
-            avatarUrl={post.author?.avatar_url}
-            size="sm"
-          />
-          <span className="font-medium text-foreground">{authorName}</span>
+          {post.author_id ? (
+            <Link href={`/community/members/${post.author_id}`} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              <UserAvatar
+                name={post.author?.display_name ?? null}
+                avatarUrl={post.author?.avatar_url}
+                size="sm"
+              />
+              <span className="font-medium text-foreground">{authorName}</span>
+            </Link>
+          ) : (
+            <>
+              <UserAvatar name={null} size="sm" />
+              <span className="font-medium text-foreground">{authorName}</span>
+            </>
+          )}
           <span className="text-muted-foreground">&middot;</span>
           <span className="text-muted-foreground">
             <RelativeTime date={post.created_at} />

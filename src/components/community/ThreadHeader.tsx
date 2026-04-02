@@ -78,7 +78,13 @@ export function ThreadHeader({
       </h1>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-        <span>{authorName}</span>
+        {thread.author_id ? (
+          <Link href={`/community/members/${thread.author_id}`} className="hover:text-foreground transition-colors">
+            {authorName}
+          </Link>
+        ) : (
+          <span>{authorName}</span>
+        )}
         {currentUserId && thread.author_id && thread.author_id !== currentUserId && (
           <Link
             href={`/community/messages?start=${thread.author_id}`}
