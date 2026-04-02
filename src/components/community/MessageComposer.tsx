@@ -4,7 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useRef, useActionState } from "react";
+import { useRef, useState, useActionState } from "react";
 import { cn } from "@/lib/utils";
 import { Bold, Italic, Link as LinkIcon, Send } from "lucide-react";
 import { sendMessage, type DmActionState } from "@/app/(marketing)/community/messages/actions";
@@ -57,12 +57,11 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
     },
   });
 
-  // Clear editor on successful send (previous-value-in-state pattern)
-  const prevResetKeyRef = useRef(0);
-  if (state.success && state.resetKey !== prevResetKeyRef.current) {
-    prevResetKeyRef.current = state.resetKey;
+  // Clear editor on successful send (previous-value-in-state pattern — no useEffect)
+  const [prevResetKey, setPrevResetKey] = useState(0);
+  if (state.success && state.resetKey !== prevResetKey) {
+    setPrevResetKey(state.resetKey);
     editor?.commands.clearContent();
-    if (hiddenRef.current) hiddenRef.current.value = "";
   }
 
   function addLink() {
@@ -83,7 +82,7 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
   return (
     <form action={formAction} className="border-t border-border bg-card px-4 py-3">
       <input type="hidden" name="conversationId" value={conversationId} />
-      <input ref={hiddenRef} type="hidden" name="body" />
+      <input key={state.resetKey} ref={hiddenRef} type="hidden" name="body" />
       <input type="hidden" name="bodyFormat" value="html" />
 
       <div className="rounded-lg border border-border bg-background">
