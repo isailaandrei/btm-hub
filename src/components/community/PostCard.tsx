@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition, lazy, Suspense } from "react";
+import Link from "next/link";
+import { MessageSquare } from "lucide-react";
 import { PostBody } from "./PostBody";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { RelativeTime } from "./RelativeTime";
@@ -85,6 +87,15 @@ export function PostCard({
             <span className="text-muted-foreground italic text-xs">(edited)</span>
           )}
           {post.is_op && <Badge variant="secondary">OP</Badge>}
+          {currentUserId && post.author_id && post.author_id !== currentUserId && (
+            <Link
+              href={`/community/messages?start=${post.author_id}`}
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:text-primary"
+              title={`Message ${authorName}`}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </Link>
+          )}
         </div>
         {canModify && !editing && (
           <div className="flex items-center gap-1">
