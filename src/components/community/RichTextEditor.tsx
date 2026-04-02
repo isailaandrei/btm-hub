@@ -5,6 +5,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
+import Placeholder from "@tiptap/extension-placeholder";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -65,6 +66,9 @@ export function RichTextEditor({
         },
         suggestion: mentionSuggestion,
       }),
+      ...(placeholder
+        ? [Placeholder.configure({ placeholder })]
+        : []),
     ],
     content: defaultValue,
     editorProps: {
@@ -133,14 +137,7 @@ export function RichTextEditor({
           isUploading={isUploading}
         />
       )}
-      <div className="relative">
-        <EditorContent editor={editor} />
-        {placeholder && editor?.isEmpty && (
-          <div className="pointer-events-none absolute top-0 left-0 px-4 py-3 text-sm text-muted-foreground">
-            {placeholder}
-          </div>
-        )}
-      </div>
+      <EditorContent editor={editor} />
       {uploadError && (
         <p className="px-4 py-1.5 text-xs text-destructive">{uploadError}</p>
       )}
