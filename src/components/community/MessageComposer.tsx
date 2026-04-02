@@ -3,11 +3,15 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
+import Mention from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useRef, useState, useActionState } from "react";
 import { cn } from "@/lib/utils";
-import { Bold, Italic, Link as LinkIcon, Send } from "lucide-react";
+import { Bold, Italic, Link as LinkIcon, Send, ImageIcon, Loader2 } from "lucide-react";
 import { sendMessage, type DmActionState } from "@/app/(marketing)/community/messages/actions";
+import { mentionSuggestion } from "./mention-suggestion";
+import { uploadCommunityImage } from "@/app/(marketing)/community/actions";
 
 interface MessageComposerProps {
   conversationId: string;
@@ -22,7 +26,10 @@ const initialState: DmActionState = {
 
 export function MessageComposer({ conversationId }: MessageComposerProps) {
   const hiddenRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [state, formAction, isPending] = useActionState(sendMessage, initialState);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   // Track editor formatting state so toolbar buttons re-render on selection changes
   const [editorState, setEditorState] = useState({ bold: false, italic: false, link: false });
 
@@ -45,6 +52,20 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
       }),
       Placeholder.configure({
         placeholder: "Type a message...",
+      }),
+      Image.configure({
+        inline: false,
+        allowBase64: false,
+      }),
+      Mention.configure({
+        HTMLAttributes: {
+          class: "text-primary font-medium",
+          "data-type": "mention",
+        },
+        renderLabel({ node }) {
+          return `@${node.attrs.label ?? node.attrs.id}`;
+        },
+        suggestion: mentionSuggestion,
       }),
     ],
     editorProps: {
@@ -78,6 +99,30 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
     const url = prompt("Enter URL:");
     if (!url) return;
     editor.chain().focus().setLink({ href: url }).run();
+  }
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !editor) return;
+    e.target.value = "";
+    setUploadError(null);
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const result = await uploadCommunityImage(formData);
+      if (result.error) {
+        setUploadError(result.error);
+        return;
+      }
+      if (result.url) {
+        editor.chain().focus().setImage({ src: result.url }).createParagraphNear().run();
+      }
+    } catch {
+      setUploadError("Upload failed. Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   const btn = (active: boolean) =>
@@ -121,6 +166,19 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
             >
               <LinkIcon className="h-3.5 w-3.5" />
             </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className={btn(false)}
+              title="Add image"
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ImageIcon className="h-3.5 w-3.5" />
+              )}
+            </button>
 
             <div className="ml-auto">
               <button
@@ -135,6 +193,16 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
           </div>
         )}
         <EditorContent editor={editor} />
+        {uploadError && (
+          <p className="px-3 py-1 text-xs text-destructive">{uploadError}</p>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          onChange={handleImageUpload}
+          className="hidden"
+        />
       </div>
 
       {state.message && !state.success && (
