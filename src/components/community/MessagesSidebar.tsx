@@ -96,8 +96,56 @@ export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
   useEffect(() => {
     const supabase = getSupabase();
 
+    // Refetch unread counts from the RPC to stay accurate (avoids
+    // optimistic +1 which incorrectly increments for the sender's own messages)
+    async function refetchUnreadCounts() {
+      const { data } = await supabase.rpc("dm_unread_counts", { _user_id: currentUserId });
+      const rows = data as { conversation_id: string; unread_count: number }[] | null;
+      const unreadMap = new Map(
+        (rows ?? []).map((r) => [r.conversation_id, r.unread_count]),
+      );
+      setConversations((prev) =>
+        prev.map((c) => ({ ...c, unread_count: unreadMap.get(c.id) ?? 0 })),
+      );
+    }
+
+    async function handleConversationInsert(payload: { new: Record<string, unknown> }) {
+      const newConv = payload.new as { id: string; user1_id: string; user2_id: string; last_message_at: string; created_at: string };
+      // Only add if we don't already have it
+      setConversations((prev) => {
+        if (prev.some((c) => c.id === newConv.id)) return prev;
+        return prev; // Will be populated after profile fetch below
+      });
+
+      const otherId = newConv.user1_id === currentUserId ? newConv.user2_id : newConv.user1_id;
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id, display_name, avatar_url")
+        .eq("id", otherId)
+        .single();
+
+      setConversations((prev) => {
+        if (prev.some((c) => c.id === newConv.id)) return prev;
+        const newEntry: SidebarConversation = {
+          ...newConv,
+          participant: profile ?? null,
+          unread_count: 1,
+        };
+        return [newEntry, ...prev];
+      });
+    }
+
     const channel = supabase
       .channel(`dm:sidebar:${currentUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "dm_conversations",
+        },
+        (payload) => handleConversationInsert(payload as { new: Record<string, unknown> }),
+      )
       .on(
         "postgres_changes",
         {
@@ -110,14 +158,15 @@ export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
           setConversations((prev) => {
             const next = prev.map((c) =>
               c.id === updated.id
-                ? { ...c, last_message_at: updated.last_message_at, unread_count: c.unread_count + 1 }
+                ? { ...c, last_message_at: updated.last_message_at }
                 : c,
             );
-            // Re-sort by last_message_at descending
             return next.sort((a, b) =>
               new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime(),
             );
           });
+          // Refetch actual counts (avoids +1 for own messages)
+          refetchUnreadCounts();
         },
       )
       .on(
@@ -128,19 +177,7 @@ export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
           table: "dm_read_receipts",
           filter: `user_id=eq.${currentUserId}`,
         },
-        (payload) => {
-          // Clear unread count when user reads a conversation
-          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
-            const receipt = payload.new as { conversation_id: string };
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.id === receipt.conversation_id
-                  ? { ...c, unread_count: 0 }
-                  : c,
-              ),
-            );
-          }
-        },
+        () => refetchUnreadCounts(),
       )
       .subscribe();
 

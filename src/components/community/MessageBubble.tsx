@@ -45,6 +45,7 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
   }
 
   async function handleDelete() {
+    if (!confirm("Delete this message?")) return;
     setIsSubmitting(true);
     try {
       await deleteMessage(message.id);
