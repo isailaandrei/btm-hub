@@ -6,6 +6,7 @@ import Image from "next/image";
 import { logout } from "@/app/(auth)/actions";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { UnreadBadge } from "./UnreadBadge";
 
 type NavbarUser = {
   id: string;
@@ -142,6 +143,7 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
 
   return (
     <div className="flex items-center gap-3">
+      <UnreadBadge initialCount={0} userId={user.id} variant={variant} />
       {user.role === "admin" && (
         <Link
           href="/admin"
