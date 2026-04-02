@@ -70,7 +70,7 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
               )}
             >
               <Hash className="h-4 w-4 shrink-0" />
-              All Posts
+              Home
             </Link>
 
             {topics.map((topic) => (
