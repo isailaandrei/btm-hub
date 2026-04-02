@@ -1,11 +1,30 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, lazy, Suspense, useState } from "react";
 import Link from "next/link";
-import { RichTextEditor } from "./RichTextEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createReply } from "@/app/(marketing)/community/actions";
+
+const RichTextEditor = lazy(() =>
+  import("./RichTextEditor").then((m) => ({ default: m.RichTextEditor })),
+);
+
+function LazyEditorWrapper({ onReady }: { onReady: () => void }) {
+  // useEffect equivalent: signal ready after the lazy component mounts
+  const refCallback = (node: HTMLDivElement | null) => {
+    if (node) onReady();
+  };
+
+  return (
+    <div ref={refCallback}>
+      <RichTextEditor
+        name="body"
+        placeholder="Write your reply..."
+      />
+    </div>
+  );
+}
 
 interface ReplyFormProps {
   threadId: string;
@@ -28,6 +47,7 @@ export function ReplyForm({
     success: false,
     resetKey: 0,
   });
+  const [editorReady, setEditorReady] = useState(false);
 
   if (!isAuthenticated) {
     return (
@@ -69,11 +89,13 @@ export function ReplyForm({
           <form key={state.resetKey} action={formAction} className="flex flex-col gap-3">
             <input type="hidden" name="threadId" value={threadId} />
             <h3 className="text-sm font-medium text-foreground">Reply</h3>
-            <RichTextEditor
-              name="body"
-              placeholder="Write your reply..."
-              required
-            />
+            <Suspense
+              fallback={
+                <div className="h-32 animate-pulse rounded-lg border border-border bg-muted" />
+              }
+            >
+              <LazyEditorWrapper onReady={() => setEditorReady(true)} />
+            </Suspense>
             {state.errors?.body && (
               <p className="text-sm text-destructive">{state.errors.body}</p>
             )}
@@ -81,7 +103,7 @@ export function ReplyForm({
               <p className="text-sm text-destructive">{state.message}</p>
             )}
             <div>
-              <Button type="submit" disabled={isPending}>
+              <Button type="submit" disabled={isPending || !editorReady}>
                 {isPending ? "Posting..." : "Post Reply"}
               </Button>
             </div>

@@ -18,6 +18,60 @@ import type { BodyFormat } from "@/types/database";
 import { z } from "zod/v4";
 
 // ---------------------------------------------------------------------------
+// Image upload
+// ---------------------------------------------------------------------------
+
+const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+export async function uploadCommunityImage(
+  formData: FormData,
+): Promise<{ url: string | null; error: string | null }> {
+  const user = await getAuthUser();
+  if (!user) {
+    return { url: null, error: "You must be logged in to upload images." };
+  }
+
+  const file = formData.get("image") as File;
+  if (!file || file.size === 0) {
+    return { url: null, error: "No file selected." };
+  }
+
+  if (file.size > MAX_IMAGE_SIZE) {
+    return { url: null, error: "Image must be under 5 MB." };
+  }
+
+  if (!(file.type in ALLOWED_IMAGE_TYPES)) {
+    return { url: null, error: "Image must be JPEG, PNG, WebP, or GIF." };
+  }
+
+  const ext = ALLOWED_IMAGE_TYPES[file.type];
+  const filePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
+
+  const supabase = await createClient();
+
+  const { error: uploadError } = await supabase.storage
+    .from("community-images")
+    .upload(filePath, file);
+
+  if (uploadError) {
+    return { url: null, error: "Upload failed. Please try again." };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("community-images").getPublicUrl(filePath);
+
+  return { url: publicUrl, error: null };
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 

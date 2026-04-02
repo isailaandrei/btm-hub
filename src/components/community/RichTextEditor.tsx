@@ -5,7 +5,8 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
-import { useRef } from "react";
+import Placeholder from "@tiptap/extension-placeholder";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Bold,
@@ -18,23 +19,26 @@ import {
   Link as LinkIcon,
   ImageIcon,
   Minus,
+  Loader2,
 } from "lucide-react";
 import { mentionSuggestion } from "./mention-suggestion";
+import { uploadCommunityImage } from "@/app/(marketing)/community/actions";
 
 interface RichTextEditorProps {
   name: string;
   defaultValue?: string;
   placeholder?: string;
-  required?: boolean;
 }
 
 export function RichTextEditor({
   name,
   defaultValue = "",
   placeholder,
-  required,
 }: RichTextEditorProps) {
   const hiddenRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -62,6 +66,9 @@ export function RichTextEditor({
         },
         suggestion: mentionSuggestion,
       }),
+      ...(placeholder
+        ? [Placeholder.configure({ placeholder })]
+        : []),
     ],
     content: defaultValue,
     editorProps: {
@@ -84,30 +91,70 @@ export function RichTextEditor({
     editor.chain().focus().setLink({ href: url }).run();
   }
 
-  function addImage() {
-    if (!editor) return;
-    const url = prompt("Enter image URL:");
-    if (!url) return;
-    editor.chain().focus().setImage({ src: url }).run();
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !editor) return;
+
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
+
+    setUploadError(null);
+    setIsUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+
+      const result = await uploadCommunityImage(formData);
+
+      if (result.error) {
+        setUploadError(result.error);
+        return;
+      }
+
+      if (result.url) {
+        editor
+          .chain()
+          .focus()
+          .setImage({ src: result.url })
+          .createParagraphNear()
+          .run();
+      }
+    } catch {
+      setUploadError("Upload failed. Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   return (
     <div className="rounded-lg border border-border bg-card">
-      {editor && <Toolbar editor={editor} onAddLink={addLink} onAddImage={addImage} />}
+      {editor && (
+        <Toolbar
+          editor={editor}
+          onAddLink={addLink}
+          onAddImage={() => fileInputRef.current?.click()}
+          isUploading={isUploading}
+        />
+      )}
       <EditorContent editor={editor} />
+      {uploadError && (
+        <p className="px-4 py-1.5 text-xs text-destructive">{uploadError}</p>
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
       <input
         ref={hiddenRef}
         type="hidden"
         name={name}
         defaultValue={defaultValue}
-        required={required}
       />
       <input type="hidden" name="bodyFormat" value="html" />
-      {placeholder && editor?.isEmpty && (
-        <div className="pointer-events-none absolute px-4 py-3 text-sm text-muted-foreground">
-          {placeholder}
-        </div>
-      )}
     </div>
   );
 }
@@ -116,10 +163,12 @@ function Toolbar({
   editor,
   onAddLink,
   onAddImage,
+  isUploading = false,
 }: {
   editor: ReturnType<typeof useEditor> & {};
   onAddLink: () => void;
   onAddImage: () => void;
+  isUploading?: boolean;
 }) {
   const btn = (active: boolean) =>
     cn(
@@ -211,8 +260,13 @@ function Toolbar({
         onClick={onAddImage}
         className={btn(false)}
         title="Add image"
+        disabled={isUploading}
       >
-        <ImageIcon className="h-4 w-4" />
+        {isUploading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <ImageIcon className="h-4 w-4" />
+        )}
       </button>
     </div>
   );

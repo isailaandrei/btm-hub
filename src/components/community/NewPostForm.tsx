@@ -65,7 +65,6 @@ export function NewPostForm({ topics }: { topics: ForumTopic[] }) {
             <RichTextEditor
               name="body"
               placeholder="Write your post..."
-              required
             />
             {state.errors?.body && (
               <p className="text-sm text-destructive">{state.errors.body}</p>

@@ -121,7 +121,7 @@ export const getThreads = cache(async function getThreads(
   const limit = options.limit ?? DEFAULT_PAGE_SIZE;
   const cursor = options.cursor ? validateCursor(options.cursor) : undefined;
 
-  // Pinned threads
+  // Build both queries, then fire in parallel
   let pinnedQuery = supabase
     .from(LISTING_VIEW)
     .select(`*, ${LISTING_PROFILE_JOIN}`)
@@ -130,10 +130,6 @@ export const getThreads = cache(async function getThreads(
 
   if (options.topic) pinnedQuery = pinnedQuery.eq("topic", options.topic);
 
-  const { data: pinnedRows, error: pinnedError } = await pinnedQuery;
-  if (pinnedError) throw new Error(`Failed to fetch pinned threads: ${pinnedError.message}`);
-
-  // Non-pinned threads (paginated)
   let query = supabase
     .from(LISTING_VIEW)
     .select(`*, ${LISTING_PROFILE_JOIN}`)
@@ -150,7 +146,12 @@ export const getThreads = cache(async function getThreads(
     );
   }
 
-  const { data: rows, error } = await query;
+  const [
+    { data: pinnedRows, error: pinnedError },
+    { data: rows, error },
+  ] = await Promise.all([pinnedQuery, query]);
+
+  if (pinnedError) throw new Error(`Failed to fetch pinned threads: ${pinnedError.message}`);
   if (error) throw new Error(`Failed to fetch threads: ${error.message}`);
 
   const hasMore = (rows?.length ?? 0) > limit;
@@ -166,20 +167,74 @@ export const getThreads = cache(async function getThreads(
   };
 });
 
-/** @deprecated Use getThreads({ topic }) instead */
-export const getThreadsByTopic = cache(async function getThreadsByTopic(
-  topic: ForumTopicSlug,
-  options: { cursor?: CursorPair; limit?: number } = {},
-) {
-  return getThreads({ topic, ...options });
+// ---------------------------------------------------------------------------
+// Grouped feed (latest N threads per topic)
+// ---------------------------------------------------------------------------
+
+export interface TopicWithThreads {
+  topic: ForumTopic;
+  threads: ForumThreadSummary[];
+}
+
+export const getThreadsGroupedByTopic = cache(async function getThreadsGroupedByTopic(
+  threadsPerTopic = 3,
+): Promise<TopicWithThreads[]> {
+  const supabase = await createClient();
+  const topics = await getForumTopics();
+
+  // Fetch latest N threads per topic in parallel
+  const results = await Promise.all(
+    topics.map(async (topic) => {
+      const { data, error } = await supabase
+        .from(LISTING_VIEW)
+        .select(`*, ${LISTING_PROFILE_JOIN}`)
+        .eq("topic", topic.slug)
+        .order("pinned", { ascending: false })
+        .order("last_reply_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(threadsPerTopic);
+
+      if (error) throw new Error(`Failed to fetch threads for topic ${topic.slug}: ${error.message}`);
+
+      return {
+        topic,
+        threads: (data ?? []).map(toThreadSummary),
+      };
+    }),
+  );
+
+  // Exclude topics with no threads
+  return results.filter((group) => group.threads.length > 0);
 });
 
-/** @deprecated Use getThreads() instead */
-export const getRecentThreads = cache(async function getRecentThreads(
-  options: { cursor?: CursorPair; limit?: number } = {},
-) {
-  return getThreads(options);
+// ---------------------------------------------------------------------------
+// Full-text search
+// ---------------------------------------------------------------------------
+
+export const searchThreads = cache(async function searchThreads(
+  query: string,
+  limit = 20,
+): Promise<ForumThreadSummary[]> {
+  const sanitized = query.replace(/[,().]/g, " ").trim();
+  if (!sanitized) return [];
+
+  const supabase = await createClient();
+
+  // Search the listings view — title_search comes from ft.* (forum_threads),
+  // op_search_vector comes from the OP post join.
+  // Sanitize commas/parens/dots to prevent PostgREST filter injection in .or()
+  const { data, error } = await supabase
+    .from(LISTING_VIEW)
+    .select(`*, ${LISTING_PROFILE_JOIN}`)
+    .or(`title_search.wfts.${sanitized},op_search_vector.wfts.${sanitized}`)
+    .order("last_reply_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`Failed to search threads: ${error.message}`);
+
+  return (data ?? []).map(toThreadSummary);
 });
+
 
 export const getThreadBySlug = cache(async function getThreadBySlug(
   slug: string,
