@@ -23,6 +23,8 @@ const initialState: DmActionState = {
 export function MessageComposer({ conversationId }: MessageComposerProps) {
   const hiddenRef = useRef<HTMLInputElement>(null);
   const [state, formAction, isPending] = useActionState(sendMessage, initialState);
+  // Track editor formatting state so toolbar buttons re-render on selection changes
+  const [editorState, setEditorState] = useState({ bold: false, italic: false, link: false });
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -54,6 +56,13 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
       if (hiddenRef.current) {
         hiddenRef.current.value = e.isEmpty ? "" : e.getHTML();
       }
+    },
+    onTransaction({ editor: e }) {
+      setEditorState({
+        bold: e.isActive("bold"),
+        italic: e.isActive("italic"),
+        link: e.isActive("link"),
+      });
     },
   });
 
@@ -91,7 +100,7 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleBold().run()}
-              className={btn(editor.isActive("bold"))}
+              className={btn(editorState.bold)}
               title="Bold"
             >
               <Bold className="h-3.5 w-3.5" />
@@ -99,7 +108,7 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleItalic().run()}
-              className={btn(editor.isActive("italic"))}
+              className={btn(editorState.italic)}
               title="Italic"
             >
               <Italic className="h-3.5 w-3.5" />
@@ -107,7 +116,7 @@ export function MessageComposer({ conversationId }: MessageComposerProps) {
             <button
               type="button"
               onClick={addLink}
-              className={btn(editor.isActive("link"))}
+              className={btn(editorState.link)}
               title="Add link"
             >
               <LinkIcon className="h-3.5 w-3.5" />

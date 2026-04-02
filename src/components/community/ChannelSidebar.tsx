@@ -125,6 +125,15 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin, currentUserId
               )}
             </form>
           )}
+          {/* New post button */}
+          {isAuthenticated && (
+            <Button asChild className="mt-2 gap-2">
+              <Link href="/community/new">
+                <PenSquare className="h-4 w-4" />
+                New Post
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Messages section — fetches its own data to avoid blocking community pages */}
@@ -133,16 +142,6 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin, currentUserId
             <div className="border-t border-border" />
             <MessagesSidebar currentUserId={currentUserId} />
           </>
-        )}
-
-        {/* New post button */}
-        {isAuthenticated && (
-          <Button asChild className="gap-2">
-            <Link href="/community/new">
-              <PenSquare className="h-4 w-4" />
-              New Post
-            </Link>
-          </Button>
         )}
       </div>
     </aside>

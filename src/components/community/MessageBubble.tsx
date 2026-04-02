@@ -35,7 +35,7 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
     if (!editBody.trim()) return;
     setIsSubmitting(true);
     try {
-      await editMessage(message.id, editBody, message.body_format as "text" | "html");
+      await editMessage(message.id, editBody, "text");
       setIsEditing(false);
     } catch {
       // Error handled by the action
@@ -125,7 +125,10 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
           >
             {message.body_format === "html" ? (
               <div
-                className="prose-community [&_p]:m-0"
+                className={cn(
+                  "prose-community [&_p]:m-0",
+                  isOwn && "[&_*]:text-primary-foreground",
+                )}
                 dangerouslySetInnerHTML={{ __html: message.body }}
               />
             ) : (
@@ -141,7 +144,9 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
           <button
             type="button"
             onClick={() => {
-              setEditBody(message.body);
+              // Strip HTML tags so the user edits plain text, not raw HTML
+              const plainText = message.body.replace(/<[^>]*>/g, "").trim();
+              setEditBody(plainText);
               setIsEditing(true);
             }}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

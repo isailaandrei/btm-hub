@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 const TEST_USER = { email: "test@btmhub.com", password: "TestPass123" };
 const SARAH = { email: "sarah@btmhub.com", password: "TestPass123" };
 const MARCO = { email: "marco@btmhub.com", password: "TestPass123" };
-const JAKE = { email: "jake@btmhub.com", password: "TestPass123" };
+
 
 async function login(page: Page, user: { email: string; password: string }) {
   await page.goto("/login");
