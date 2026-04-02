@@ -2,13 +2,11 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
-import { useRef } from "react";
 
 export function SearchBar() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const query = searchParams.get("q") ?? "";
-  const formRef = useRef<HTMLFormElement>(null);
 
   function handleClear() {
     router.push("/community");
@@ -16,7 +14,6 @@ export function SearchBar() {
 
   return (
     <form
-      ref={formRef}
       action="/community"
       method="GET"
       className="relative"

@@ -11,7 +11,6 @@ import { ThreadCard } from "@/components/community/ThreadCard";
 import { TopicGroup } from "@/components/community/TopicGroup";
 import { SearchBar } from "@/components/community/SearchBar";
 import { PaginationControls } from "@/components/community/PaginationControls";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PenSquare } from "lucide-react";

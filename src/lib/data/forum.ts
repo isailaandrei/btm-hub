@@ -215,16 +215,18 @@ export const searchThreads = cache(async function searchThreads(
   query: string,
   limit = 20,
 ): Promise<ForumThreadSummary[]> {
-  if (!query.trim()) return [];
+  const sanitized = query.replace(/[,().]/g, " ").trim();
+  if (!sanitized) return [];
 
   const supabase = await createClient();
 
   // Search the listings view — title_search comes from ft.* (forum_threads),
-  // op_search_vector comes from the OP post join
+  // op_search_vector comes from the OP post join.
+  // Sanitize commas/parens/dots to prevent PostgREST filter injection in .or()
   const { data, error } = await supabase
     .from(LISTING_VIEW)
     .select(`*, ${LISTING_PROFILE_JOIN}`)
-    .or(`title_search.wfts.${query},op_search_vector.wfts.${query}`)
+    .or(`title_search.wfts.${sanitized},op_search_vector.wfts.${sanitized}`)
     .order("last_reply_at", { ascending: false })
     .limit(limit);
 
