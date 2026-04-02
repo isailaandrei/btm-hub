@@ -26,7 +26,7 @@ export default async function ConversationPage({
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-medium text-primary">
           {(conversation.participant?.display_name || "?")
             .split(" ")
-            .map((n) => n[0])
+            .map((n: string) => n[0])
             .join("")
             .toUpperCase()
             .slice(0, 2)}
