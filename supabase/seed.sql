@@ -392,3 +392,54 @@ FROM (
 WHERE sub.thread_id = ft.id;
 
 ALTER TABLE public.forum_threads ENABLE TRIGGER forum_threads_restrict_update;
+
+-- =========================================================================
+-- Direct Message seed data
+-- =========================================================================
+
+-- Conversation between Sarah (c3d4...) and Marco (d4e5...)
+-- Sarah < Marco alphabetically by UUID, so Sarah = user1
+INSERT INTO public.dm_conversations (id, user1_id, user2_id, last_message_at, created_at)
+VALUES (
+  '30000000-0000-0000-0000-000000000001',
+  'c3d4e5f6-a7b8-9012-cdef-234567890123',
+  'd4e5f6a7-b8c9-0123-defa-345678901234',
+  now() - interval '1 hour',
+  now() - interval '2 days'
+);
+
+-- Messages in the Sarah-Marco conversation
+INSERT INTO public.dm_messages (id, conversation_id, sender_id, body, body_format, created_at, updated_at)
+VALUES
+  ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'c3d4e5f6-a7b8-9012-cdef-234567890123',
+   '<p>Hey Marco! Loved your freediving post. Have you been to Dahab?</p>', 'html', now() - interval '2 days', now() - interval '2 days'),
+  ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', 'd4e5f6a7-b8c9-0123-defa-345678901234',
+   '<p>Thanks Sarah! Not yet but it is on my list. The Blue Hole looks <strong>incredible</strong> for depth training.</p>', 'html', now() - interval '1 day', now() - interval '1 day'),
+  ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', 'c3d4e5f6-a7b8-9012-cdef-234567890123',
+   '<p>You should go! I can recommend some good guides there.</p>', 'html', now() - interval '1 hour', now() - interval '1 hour');
+
+-- Conversation between Test User (a1b2...) and Emma (e5f6...)
+-- a1b2 < e5f6 so Test User = user1
+INSERT INTO public.dm_conversations (id, user1_id, user2_id, last_message_at, created_at)
+VALUES (
+  '30000000-0000-0000-0000-000000000002',
+  'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  'e5f6a7b8-c9d0-1234-efab-456789012345',
+  now() - interval '3 hours',
+  now() - interval '1 day'
+);
+
+-- Messages in the Test User-Emma conversation
+INSERT INTO public.dm_messages (id, conversation_id, sender_id, body, body_format, created_at, updated_at)
+VALUES
+  ('40000000-0000-0000-0000-000000000010', '30000000-0000-0000-0000-000000000002', 'e5f6a7b8-c9d0-1234-efab-456789012345',
+   '<p>Hi! I saw your GoPro question. Want me to share some underwater settings presets?</p>', 'html', now() - interval '1 day', now() - interval '1 day'),
+  ('40000000-0000-0000-0000-000000000011', '30000000-0000-0000-0000-000000000002', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+   '<p>That would be amazing! Thank you so much.</p>', 'html', now() - interval '3 hours', now() - interval '3 hours');
+
+-- Read receipts: both users have read their conversations
+INSERT INTO public.dm_read_receipts (conversation_id, user_id, last_read_at) VALUES
+  ('30000000-0000-0000-0000-000000000001', 'c3d4e5f6-a7b8-9012-cdef-234567890123', now()),
+  ('30000000-0000-0000-0000-000000000001', 'd4e5f6a7-b8c9-0123-defa-345678901234', now() - interval '2 hours'),
+  ('30000000-0000-0000-0000-000000000002', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', now()),
+  ('30000000-0000-0000-0000-000000000002', 'e5f6a7b8-c9d0-1234-efab-456789012345', now() - interval '4 hours');
