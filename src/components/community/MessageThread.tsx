@@ -12,14 +12,17 @@ interface MessageThreadProps {
   conversationId: string;
   currentUserId: string;
   initialMessages: DmMessageWithSender[];
+  recipientLastReadAt: string | null;
 }
 
 export function MessageThread({
   conversationId,
   currentUserId,
   initialMessages,
+  recipientLastReadAt,
 }: MessageThreadProps) {
   const [messages, setMessages] = useState<OptimisticDmMessage[]>(initialMessages);
+  const [lastReadAt, setLastReadAt] = useState<string | null>(recipientLastReadAt);
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -121,6 +124,23 @@ export function MessageThread({
           );
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "dm_read_receipts",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            const receipt = payload.new as { user_id: string; last_read_at: string };
+            if (receipt.user_id !== currentUserId) {
+              setLastReadAt(receipt.last_read_at);
+            }
+          }
+        },
+      )
       .subscribe();
 
     channelRef.current = channel;
@@ -129,6 +149,24 @@ export function MessageThread({
       supabase.removeChannel(channel);
     };
   }, [conversationId, currentUserId]);
+
+  // Find the last own message (non-optimistic, non-deleted) that the recipient has read
+  const lastSeenMessageId = (() => {
+    if (!lastReadAt) return null;
+    const readTime = new Date(lastReadAt).getTime();
+    let result: string | null = null;
+    for (const msg of messages) {
+      if (
+        msg.sender_id === currentUserId &&
+        !msg._optimistic &&
+        msg.deleted_at === null &&
+        new Date(msg.created_at).getTime() <= readTime
+      ) {
+        result = msg.id;
+      }
+    }
+    return result;
+  })();
 
   return (
     <>
@@ -146,6 +184,7 @@ export function MessageThread({
                 key={msg.id}
                 message={msg}
                 isOwn={msg.sender_id === currentUserId}
+                showSeen={msg.id === lastSeenMessageId}
               />
             ))}
           </div>

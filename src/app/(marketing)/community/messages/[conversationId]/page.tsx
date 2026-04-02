@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/data/auth";
-import { getConversation, getMessages } from "@/lib/data/messages";
+import { getConversation, getMessages, getRecipientLastReadAt } from "@/lib/data/messages";
 import { MessageThread } from "@/components/community/MessageThread";
 
 export default async function ConversationPage({
@@ -10,10 +10,11 @@ export default async function ConversationPage({
 }) {
   const { conversationId } = await params;
 
-  const [user, conversation, messages] = await Promise.all([
+  const [user, conversation, messages, recipientLastReadAt] = await Promise.all([
     getAuthUser(),
     getConversation(conversationId),
     getMessages(conversationId),
+    getRecipientLastReadAt(conversationId),
   ]);
 
   if (!user || !conversation) notFound();
@@ -40,6 +41,7 @@ export default async function ConversationPage({
         conversationId={conversationId}
         currentUserId={user.id}
         initialMessages={messages}
+        recipientLastReadAt={recipientLastReadAt}
       />
 
     </div>

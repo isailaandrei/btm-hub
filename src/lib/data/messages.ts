@@ -163,6 +163,42 @@ export const getConversation = cache(async function getConversation(
 });
 
 // ---------------------------------------------------------------------------
+// Recipient's last read timestamp (for "Seen" receipt)
+// ---------------------------------------------------------------------------
+
+export const getRecipientLastReadAt = cache(async function getRecipientLastReadAt(
+  conversationId: string,
+): Promise<string | null> {
+  const user = await getAuthUser();
+  if (!user) return null;
+
+  const supabase = await createClient();
+
+  // Fetch the conversation to find the other user's ID
+  const { data: conversation, error: convError } = await supabase
+    .from("dm_conversations")
+    .select("user1_id, user2_id")
+    .eq("id", conversationId)
+    .single();
+
+  if (convError || !conversation) return null;
+
+  const recipientId =
+    conversation.user1_id === user.id ? conversation.user2_id : conversation.user1_id;
+
+  const { data, error } = await supabase
+    .from("dm_read_receipts")
+    .select("last_read_at")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", recipientId)
+    .single();
+
+  if (error) return null;
+
+  return data?.last_read_at ?? null;
+});
+
+// ---------------------------------------------------------------------------
 // Unread counts (single RPC call — no N+1)
 // ---------------------------------------------------------------------------
 

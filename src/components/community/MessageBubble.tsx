@@ -12,7 +12,7 @@ interface MessageBubbleProps {
   showSeen?: boolean;
 }
 
-export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbleProps) {
   const isOptimistic = !!message._optimistic;
   const [showActions, setShowActions] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -134,6 +134,9 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
               <p className="m-0 whitespace-pre-wrap">{message.body}</p>
             )}
           </div>
+        )}
+        {showSeen && (
+          <p className="mt-0.5 text-right text-[11px] text-muted-foreground">Seen</p>
         )}
       </div>
 
