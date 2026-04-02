@@ -125,10 +125,7 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
           >
             {message.body_format === "html" ? (
               <div
-                className={cn(
-                  "prose-community [&_p]:m-0",
-                  isOwn && "[&_*]:text-primary-foreground",
-                )}
+                className={isOwn ? "prose-dm-own [&_p]:m-0" : "prose-community [&_p]:m-0"}
                 dangerouslySetInnerHTML={{ __html: message.body }}
               />
             ) : (
