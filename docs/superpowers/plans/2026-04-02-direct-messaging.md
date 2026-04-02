@@ -27,7 +27,6 @@
 | `src/components/community/MessageThread.tsx` | Message list with real-time subscription |
 | `src/components/community/MessageBubble.tsx` | Single message bubble (avatar, body, timestamp, edited, actions) |
 | `src/components/community/MessageComposer.tsx` | TipTap editor (bold, italic, link) |
-| `src/components/community/MessageRealtimeProvider.tsx` | Client context: real-time subscriptions + unread state |
 | `src/components/layout/UnreadBadge.tsx` | Navbar unread count badge (client component) |
 
 ### Modified files
@@ -35,9 +34,8 @@
 | File | Changes |
 |------|---------|
 | `src/components/community/ChannelSidebar.tsx` | Add `MessagesSidebar` below topics section |
-| `src/app/(marketing)/community/layout.tsx` | Fetch conversations + unread counts, pass to sidebar |
-| `src/components/layout/Navbar.tsx` | Add envelope icon linking to `/community/messages` |
-| `src/components/layout/AuthButtons.tsx` | Expose user ID to parent for unread badge |
+| `src/app/(marketing)/community/layout.tsx` | Pass `currentUserId` to sidebar |
+| `src/components/layout/AuthButtons.tsx` | Add `UnreadBadge` for logged-in users |
 
 ---
 
@@ -62,14 +60,16 @@ Create the migration file with all three tables, RLS policies, indexes, triggers
 
 CREATE TABLE IF NOT EXISTS "public"."dm_conversations" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "user1_id" "uuid" NOT NULL,
-    "user2_id" "uuid" NOT NULL,
+    "user1_id" "uuid",
+    "user2_id" "uuid",
     "last_message_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
 
     CONSTRAINT "dm_conversations_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "dm_conversations_pair_key" UNIQUE ("user1_id", "user2_id"),
-    CONSTRAINT "dm_conversations_ordered_pair" CHECK ("user1_id" < "user2_id")
+    CONSTRAINT "dm_conversations_ordered_pair" CHECK (
+        "user1_id" IS NULL OR "user2_id" IS NULL OR "user1_id" < "user2_id"
+    )
 );
 
 ALTER TABLE "public"."dm_conversations" OWNER TO "postgres";
@@ -77,7 +77,7 @@ ALTER TABLE "public"."dm_conversations" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."dm_messages" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "conversation_id" "uuid" NOT NULL,
-    "sender_id" "uuid" NOT NULL,
+    "sender_id" "uuid",
     "body" "text" NOT NULL,
     "body_format" "text" NOT NULL DEFAULT 'html',
     "edited_at" timestamp with time zone,
@@ -112,11 +112,11 @@ ALTER TABLE "public"."dm_read_receipts" OWNER TO "postgres";
 
 ALTER TABLE "public"."dm_conversations"
     ADD CONSTRAINT "dm_conversations_user1_fkey"
-    FOREIGN KEY ("user1_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+    FOREIGN KEY ("user1_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
 
 ALTER TABLE "public"."dm_conversations"
     ADD CONSTRAINT "dm_conversations_user2_fkey"
-    FOREIGN KEY ("user2_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+    FOREIGN KEY ("user2_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
 
 ALTER TABLE "public"."dm_messages"
     ADD CONSTRAINT "dm_messages_conversation_fkey"
@@ -124,7 +124,7 @@ ALTER TABLE "public"."dm_messages"
 
 ALTER TABLE "public"."dm_messages"
     ADD CONSTRAINT "dm_messages_sender_fkey"
-    FOREIGN KEY ("sender_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+    FOREIGN KEY ("sender_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
 
 ALTER TABLE "public"."dm_read_receipts"
     ADD CONSTRAINT "dm_read_receipts_conversation_fkey"
@@ -147,6 +147,9 @@ CREATE INDEX "idx_dm_messages_conversation" ON "public"."dm_messages" ("conversa
 
 -- Sender lookup
 CREATE INDEX "idx_dm_messages_sender" ON "public"."dm_messages" ("sender_id");
+
+-- Composite index for unread count queries
+CREATE INDEX "idx_dm_messages_unread" ON "public"."dm_messages" ("conversation_id", "sender_id", "deleted_at", "created_at");
 
 -- --------------------------------------------------------------------------
 -- Trigger: update last_message_at on new message
@@ -248,12 +251,9 @@ CREATE POLICY "Users can insert conversations they participate in"
         "auth"."uid"() = "user1_id" OR "auth"."uid"() = "user2_id"
     );
 
--- Allow update for last_message_at trigger (SECURITY DEFINER handles it)
-CREATE POLICY "System can update conversations"
-    ON "public"."dm_conversations" FOR UPDATE
-    USING (
-        "auth"."uid"() = "user1_id" OR "auth"."uid"() = "user2_id"
-    );
+-- No UPDATE policy for authenticated users on dm_conversations.
+-- The dm_update_last_message_at trigger is SECURITY DEFINER (runs as postgres),
+-- so it bypasses RLS and handles last_message_at updates automatically.
 
 -- dm_messages: participants of the conversation only
 CREATE POLICY "Users can read messages in own conversations"
@@ -311,7 +311,7 @@ CREATE POLICY "Participants can view conversation read receipts"
 -- Grants
 -- --------------------------------------------------------------------------
 
-GRANT SELECT, INSERT, UPDATE ON TABLE "public"."dm_conversations" TO "authenticated";
+GRANT SELECT, INSERT ON TABLE "public"."dm_conversations" TO "authenticated";
 GRANT ALL ON TABLE "public"."dm_conversations" TO "service_role";
 
 GRANT SELECT, INSERT, UPDATE ON TABLE "public"."dm_messages" TO "authenticated";
@@ -319,6 +319,36 @@ GRANT ALL ON TABLE "public"."dm_messages" TO "service_role";
 
 GRANT SELECT, INSERT, UPDATE ON TABLE "public"."dm_read_receipts" TO "authenticated";
 GRANT ALL ON TABLE "public"."dm_read_receipts" TO "service_role";
+
+-- --------------------------------------------------------------------------
+-- RPC: batch unread counts (avoids N+1 queries)
+-- --------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION "public"."dm_unread_counts"(
+    "_user_id" "uuid"
+)
+    RETURNS TABLE("conversation_id" "uuid", "unread_count" bigint)
+    LANGUAGE "sql"
+    STABLE
+    SECURITY INVOKER
+    AS $$
+    SELECT
+        m.conversation_id,
+        COUNT(*) AS unread_count
+    FROM public.dm_messages m
+    LEFT JOIN public.dm_read_receipts r
+        ON r.conversation_id = m.conversation_id AND r.user_id = _user_id
+    WHERE m.conversation_id IN (
+        SELECT id FROM public.dm_conversations
+        WHERE user1_id = _user_id OR user2_id = _user_id
+    )
+    AND m.sender_id != _user_id
+    AND m.deleted_at IS NULL
+    AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)
+    GROUP BY m.conversation_id;
+$$;
+
+ALTER FUNCTION "public"."dm_unread_counts"("_user_id" "uuid") OWNER TO "postgres";
 
 -- --------------------------------------------------------------------------
 -- Enable Realtime for DM tables
@@ -485,7 +515,8 @@ export const getConversations = cache(async function getConversations(): Promise
     .from("dm_conversations")
     .select("*")
     .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-    .order("last_message_at", { ascending: false });
+    .order("last_message_at", { ascending: false })
+    .limit(30);
 
   if (error) throw new Error(`Failed to fetch conversations: ${error.message}`);
 
@@ -498,26 +529,36 @@ export const getConversations = cache(async function getConversations(): Promise
 
   const uniqueIds = [...new Set(otherUserIds)];
 
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, display_name, avatar_url")
-    .in("id", uniqueIds);
+  // Fetch profiles and unread counts in parallel (single RPC, no N+1)
+  const [{ data: profiles, error: profilesError }, { data: unreadRows, error: unreadError }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id, display_name, avatar_url")
+        .in("id", uniqueIds),
+      supabase.rpc("dm_unread_counts", { _user_id: user.id }),
+    ]);
 
   if (profilesError) throw new Error(`Failed to fetch profiles: ${profilesError.message}`);
+  if (unreadError) throw new Error(`Failed to fetch unread counts: ${unreadError.message}`);
 
   const profileMap = new Map(
     (profiles ?? []).map((p) => [p.id, p as Pick<Profile, "id" | "display_name" | "avatar_url">]),
   );
 
-  // Get unread counts
-  const unreadCounts = await getUnreadCountsInternal(user.id, data.map((c) => c.id));
+  const unreadMap = new Map(
+    (unreadRows ?? []).map((r: { conversation_id: string; unread_count: number }) => [
+      r.conversation_id,
+      r.unread_count,
+    ]),
+  );
 
   return data.map((c) => {
     const otherId = c.user1_id === user.id ? c.user2_id : c.user1_id;
     return {
       ...c,
       participant: profileMap.get(otherId) ?? null,
-      unread_count: unreadCounts.byConversation[c.id] ?? 0,
+      unread_count: unreadMap.get(c.id) ?? 0,
     };
   });
 });
@@ -602,64 +643,8 @@ export const getConversation = cache(async function getConversation(
 });
 
 // ---------------------------------------------------------------------------
-// Unread counts
+// Unread counts (single RPC call — no N+1)
 // ---------------------------------------------------------------------------
-
-async function getUnreadCountsInternal(
-  userId: string,
-  conversationIds: string[],
-): Promise<UnreadCounts> {
-  if (conversationIds.length === 0) return { byConversation: {}, total: 0 };
-
-  const supabase = await createClient();
-
-  // Get read receipts for all conversations
-  const { data: receipts, error: receiptsError } = await supabase
-    .from("dm_read_receipts")
-    .select("conversation_id, last_read_at")
-    .eq("user_id", userId)
-    .in("conversation_id", conversationIds);
-
-  if (receiptsError) throw new Error(`Failed to fetch read receipts: ${receiptsError.message}`);
-
-  const receiptMap = new Map(
-    (receipts ?? []).map((r) => [r.conversation_id, r.last_read_at]),
-  );
-
-  // Count unread messages per conversation
-  const byConversation: Record<string, number> = {};
-  let total = 0;
-
-  // Batch count: for each conversation, count messages after last_read_at from other users
-  await Promise.all(
-    conversationIds.map(async (convId) => {
-      const lastRead = receiptMap.get(convId);
-
-      let query = supabase
-        .from("dm_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("conversation_id", convId)
-        .neq("sender_id", userId)
-        .is("deleted_at", null);
-
-      if (lastRead) {
-        query = query.gt("created_at", lastRead);
-      }
-
-      const { count, error } = await query;
-
-      if (error) return;
-
-      const unread = count ?? 0;
-      if (unread > 0) {
-        byConversation[convId] = unread;
-        total += unread;
-      }
-    }),
-  );
-
-  return { byConversation, total };
-}
 
 export const getUnreadCounts = cache(async function getUnreadCounts(): Promise<UnreadCounts> {
   const user = await getAuthUser();
@@ -667,16 +652,21 @@ export const getUnreadCounts = cache(async function getUnreadCounts(): Promise<U
 
   const supabase = await createClient();
 
-  // Get all conversation IDs for this user
-  const { data: convs, error } = await supabase
-    .from("dm_conversations")
-    .select("id")
-    .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`);
+  const { data, error } = await supabase.rpc("dm_unread_counts", {
+    _user_id: user.id,
+  });
 
-  if (error) throw new Error(`Failed to fetch conversation ids: ${error.message}`);
+  if (error) throw new Error(`Failed to fetch unread counts: ${error.message}`);
 
-  const ids = (convs ?? []).map((c) => c.id);
-  return getUnreadCountsInternal(user.id, ids);
+  const byConversation: Record<string, number> = {};
+  let total = 0;
+
+  for (const row of data ?? []) {
+    byConversation[row.conversation_id] = row.unread_count;
+    total += row.unread_count;
+  }
+
+  return { byConversation, total };
 });
 ```
 
@@ -755,6 +745,12 @@ export async function sendMessage(
 
   const { conversationId, body, bodyFormat } = parsed.data;
   const sanitizedBody = bodyFormat === "html" ? sanitizeBody(body) : body;
+
+  // Check that body has actual visible content (not just empty HTML tags like <p></p>)
+  const textContent = sanitizedBody.replace(/<[^>]*>/g, "").trim();
+  if (!textContent) {
+    return { errors: { body: "Message is required" }, message: "", success: false, resetKey: prevState.resetKey };
+  }
 
   const supabase = await createClient();
 
@@ -1461,7 +1457,6 @@ import type { DmConversationWithParticipant } from "@/types/database";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 interface MessagesSidebarProps {
-  conversations: DmConversationWithParticipant[];
   currentUserId: string;
 }
 
@@ -1471,9 +1466,19 @@ interface SearchResult {
   avatar_url: string | null;
 }
 
-export function MessagesSidebar({ conversations: initialConversations, currentUserId }: MessagesSidebarProps) {
+interface SidebarConversation {
+  id: string;
+  user1_id: string;
+  user2_id: string;
+  last_message_at: string;
+  participant: { id: string; display_name: string | null; avatar_url: string | null } | null;
+  unread_count: number;
+}
+
+export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
   const pathname = usePathname();
-  const [conversations, setConversations] = useState(initialConversations);
+  const [conversations, setConversations] = useState<SidebarConversation[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -1487,14 +1492,55 @@ export function MessagesSidebar({ conversations: initialConversations, currentUs
     return supabaseRef.current;
   }
 
-  // Update conversations when prop changes (e.g., from server revalidation)
-  const [prevConversations, setPrevConversations] = useState(initialConversations);
-  if (initialConversations !== prevConversations) {
-    setPrevConversations(initialConversations);
-    setConversations(initialConversations);
-  }
+  // Fetch conversations on mount (avoids blocking the community layout)
+  useEffect(() => {
+    async function loadConversations() {
+      const supabase = getSupabase();
+
+      const { data: convs } = await supabase
+        .from("dm_conversations")
+        .select("*")
+        .or(`user1_id.eq.${currentUserId},user2_id.eq.${currentUserId}`)
+        .order("last_message_at", { ascending: false })
+        .limit(30);
+
+      if (!convs || convs.length === 0) {
+        setIsLoaded(true);
+        return;
+      }
+
+      // Get other participants' profiles
+      const otherIds = [...new Set(convs.map((c) =>
+        c.user1_id === currentUserId ? c.user2_id : c.user1_id,
+      ))];
+
+      const [{ data: profiles }, { data: unreadRows }] = await Promise.all([
+        supabase.from("profiles").select("id, display_name, avatar_url").in("id", otherIds),
+        supabase.rpc("dm_unread_counts", { _user_id: currentUserId }),
+      ]);
+
+      const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
+      const unreadMap = new Map((unreadRows ?? []).map((r: { conversation_id: string; unread_count: number }) => [r.conversation_id, r.unread_count]));
+
+      setConversations(convs.map((c) => {
+        const otherId = c.user1_id === currentUserId ? c.user2_id : c.user1_id;
+        return {
+          ...c,
+          participant: profileMap.get(otherId) ?? null,
+          unread_count: unreadMap.get(c.id) ?? 0,
+        };
+      }));
+      setIsLoaded(true);
+    }
+
+    loadConversations();
+  }, [currentUserId]);
 
   // Real-time: update conversation order when last_message_at changes
+  // Note: We only subscribe to dm_conversations (filtered by user participation via RLS)
+  // and dm_read_receipts. We do NOT subscribe to dm_messages globally — that would
+  // cause O(users * messages) RLS evaluations. Instead, new message counts are
+  // derived from conversation updates (the trigger updates last_message_at on each send).
   useEffect(() => {
     const supabase = getSupabase();
 
@@ -1503,46 +1549,23 @@ export function MessagesSidebar({ conversations: initialConversations, currentUs
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "UPDATE",
           schema: "public",
           table: "dm_conversations",
         },
         (payload) => {
-          if (payload.eventType === "UPDATE") {
-            setConversations((prev) => {
-              const updated = prev.map((c) =>
-                c.id === (payload.new as DmConversationWithParticipant).id
-                  ? { ...c, last_message_at: (payload.new as { last_message_at: string }).last_message_at }
-                  : c,
-              );
-              // Re-sort by last_message_at descending
-              return updated.sort((a, b) =>
-                new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime(),
-              );
-            });
-          }
-          // For INSERT (new conversation), a full revalidation will pick it up
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "dm_messages",
-        },
-        (payload) => {
-          const newMsg = payload.new as { conversation_id: string; sender_id: string };
-          // Increment unread count if message is from someone else
-          if (newMsg.sender_id !== currentUserId) {
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.id === newMsg.conversation_id
-                  ? { ...c, unread_count: c.unread_count + 1 }
-                  : c,
-              ),
+          const updated = payload.new as { id: string; last_message_at: string };
+          setConversations((prev) => {
+            const next = prev.map((c) =>
+              c.id === updated.id
+                ? { ...c, last_message_at: updated.last_message_at, unread_count: c.unread_count + 1 }
+                : c,
             );
-          }
+            // Re-sort by last_message_at descending
+            return next.sort((a, b) =>
+              new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime(),
+            );
+          });
         },
       )
       .on(
@@ -1857,46 +1880,41 @@ import { MessagesSidebar } from "./MessagesSidebar";
 import type { DmConversationWithParticipant } from "@/types/database";
 ```
 
-Update the interface to accept messages props:
+Update the interface to accept the current user ID:
 ```typescript
 interface ChannelSidebarProps {
   topics: ForumTopic[];
   isAuthenticated: boolean;
   isAdmin: boolean;
-  conversations: DmConversationWithParticipant[];
   currentUserId: string | null;
 }
 ```
 
 Update the component signature:
 ```typescript
-export function ChannelSidebar({ topics, isAuthenticated, isAdmin, conversations, currentUserId }: ChannelSidebarProps) {
+export function ChannelSidebar({ topics, isAuthenticated, isAdmin, currentUserId }: ChannelSidebarProps) {
 ```
 
 Add the Messages section between the channel list `</div>` (closing tag of channel list div, line 126) and the "New post button" section:
 
 ```tsx
-        {/* Messages section */}
+        {/* Messages section — fetches its own data to avoid blocking community pages */}
         {isAuthenticated && currentUserId && (
           <>
             <div className="border-t border-border" />
-            <MessagesSidebar
-              conversations={conversations}
-              currentUserId={currentUserId}
-            />
+            <MessagesSidebar currentUserId={currentUserId} />
           </>
         )}
 ```
 
 - [ ] **Step 2: Update community layout to fetch conversations**
 
-In `src/app/(marketing)/community/layout.tsx`, add the import and fetch conversations:
+In `src/app/(marketing)/community/layout.tsx`, pass `currentUserId` to the sidebar (no DM data fetching here — the `MessagesSidebar` client component fetches its own data to avoid blocking all community pages):
 
 ```typescript
 import { getAuthUser } from "@/lib/data/auth";
 import { getProfile } from "@/lib/data/profiles";
 import { getForumTopics } from "@/lib/data/forum";
-import { getConversations } from "@/lib/data/messages";
 import { ChannelSidebar } from "@/components/community/ChannelSidebar";
 
 export default async function CommunityLayout({
@@ -1904,11 +1922,10 @@ export default async function CommunityLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [user, profile, topics, conversations] = await Promise.all([
+  const [user, profile, topics] = await Promise.all([
     getAuthUser(),
     getProfile(),
     getForumTopics(),
-    getConversations(),
   ]);
 
   const isAdmin = profile?.role === "admin";
@@ -1920,7 +1937,6 @@ export default async function CommunityLayout({
           topics={topics}
           isAuthenticated={!!user}
           isAdmin={isAdmin}
-          conversations={conversations}
           currentUserId={user?.id ?? null}
         />
         <div className="min-w-0 flex-1">{children}</div>
@@ -1974,24 +1990,42 @@ export function UnreadBadge({ initialCount, userId, variant = "dark" }: UnreadBa
     return supabaseRef.current;
   }
 
+  // Fetch actual count on mount (initialCount is 0, this corrects it quickly)
+  useEffect(() => {
+    async function fetchCount() {
+      const supabase = getSupabase();
+      const { data } = await supabase.rpc("dm_unread_counts", { _user_id: userId });
+      if (data) {
+        const total = (data as { unread_count: number }[]).reduce((sum, r) => sum + r.unread_count, 0);
+        setCount(total);
+      }
+    }
+    fetchCount();
+  }, [userId]);
+
+  // Real-time: listen for conversation updates (triggered by new messages)
+  // and read receipts. On any change, re-fetch the actual count to stay accurate.
   useEffect(() => {
     const supabase = getSupabase();
+
+    async function refetchCount() {
+      const { data } = await supabase.rpc("dm_unread_counts", { _user_id: userId });
+      if (data) {
+        const total = (data as { unread_count: number }[]).reduce((sum, r) => sum + r.unread_count, 0);
+        setCount(total);
+      }
+    }
 
     const channel = supabase
       .channel(`dm:unread:${userId}`)
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "UPDATE",
           schema: "public",
-          table: "dm_messages",
+          table: "dm_conversations",
         },
-        (payload) => {
-          const msg = payload.new as { sender_id: string };
-          if (msg.sender_id !== userId) {
-            setCount((prev) => prev + 1);
-          }
-        },
+        () => refetchCount(),
       )
       .on(
         "postgres_changes",
@@ -2001,16 +2035,7 @@ export function UnreadBadge({ initialCount, userId, variant = "dark" }: UnreadBa
           table: "dm_read_receipts",
           filter: `user_id=eq.${userId}`,
         },
-        () => {
-          // A read receipt was created/updated — we need to recalculate
-          // For simplicity, decrement by a reasonable amount or fetch fresh
-          // In practice the sidebar handles the per-conversation detail;
-          // this is just the global badge. We'll use a simple approach:
-          // reading a conversation typically clears that conversation's unread.
-          // We can't know the exact count from just the event, so we
-          // decrement conservatively. The next page load will correct it.
-          setCount((prev) => Math.max(prev - 1, 0));
-        },
+        () => refetchCount(),
       )
       .subscribe();
 
@@ -2086,6 +2111,7 @@ import { redirect } from "next/navigation";
 import { MessageSquare } from "lucide-react";
 import { getAuthUser } from "@/lib/data/auth";
 import { createClient } from "@/lib/supabase/server";
+import { isUUID } from "@/lib/validation-helpers";
 
 export default async function MessagesPage({
   searchParams,
@@ -2095,7 +2121,7 @@ export default async function MessagesPage({
   const { start } = await searchParams;
 
   // If ?start=userId is present, create/find conversation and redirect
-  if (typeof start === "string" && start) {
+  if (typeof start === "string" && isUUID(start)) {
     const user = await getAuthUser();
     if (user && start !== user.id) {
       const supabase = await createClient();
