@@ -119,6 +119,7 @@ export function MessageThread({
       }
     }
     prevMessageCountRef.current = messages.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only trigger on count change, not on messages array identity
   }, [messages.length, isLoadingMore]);
 
   // Load older messages when scrolled to top
@@ -134,6 +135,7 @@ export function MessageThread({
 
     el.addEventListener("scroll", handleScroll);
     return () => el.removeEventListener("scroll", handleScroll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadOlderMessages reads messages via closure; adding it would cause infinite loop
   }, [hasMore, isLoadingMore, messages]);
 
   // Mark conversation as read on mount
