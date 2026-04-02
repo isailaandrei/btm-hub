@@ -71,7 +71,7 @@ export default async function CommunityPage({
         ) : (
           <div className="flex flex-col gap-2">
             {results.map((thread) => (
-              <ThreadCard key={thread.id} thread={thread} />
+              <ThreadCard key={thread.id} thread={thread} query={searchQuery} />
             ))}
           </div>
         )}

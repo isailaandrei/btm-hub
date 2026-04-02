@@ -8,10 +8,58 @@ import type { ForumThreadSummary } from "@/types/database";
 
 interface ThreadCardProps {
   thread: ForumThreadSummary;
+  query?: string;
 }
 
-export function ThreadCard({ thread }: ThreadCardProps) {
+/** Strip HTML tags from a string. */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "");
+}
+
+/** Split text around case-insensitive matches and wrap them in <mark>. */
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  const parts = text.split(regex);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    regex.test(part) ? (
+      <mark key={i} className="bg-primary/20 text-foreground rounded-sm px-0.5">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
+/**
+ * Get the best preview snippet for search results.
+ * If the query appears in body_preview, use that.
+ * Otherwise, find it in the full body and extract a window around the match.
+ */
+function getSearchPreview(thread: ForumThreadSummary, query: string): string {
+  // Always search in the full body so we can center the snippet on the match
+  const fullText =
+    thread.op_body_format === "html" ? stripHtml(thread.op_body) : thread.op_body;
+  const idx = fullText.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return thread.body_preview;
+
+  // Extract a window centered on the match
+  const windowSize = 80;
+  const start = Math.max(0, idx - windowSize);
+  const end = Math.min(fullText.length, idx + query.length + windowSize);
+  let snippet = fullText.slice(start, end).trim();
+  if (start > 0) snippet = `...${snippet}`;
+  if (end < fullText.length) snippet = `${snippet}...`;
+  return snippet;
+}
+
+export function ThreadCard({ thread, query }: ThreadCardProps) {
   const authorName = thread.author?.display_name ?? "[deleted user]";
+  const previewText = query
+    ? getSearchPreview(thread, query)
+    : thread.body_preview;
 
   return (
     <Link href={`/community/${thread.slug}`} className="group block">
@@ -26,7 +74,7 @@ export function ThreadCard({ thread }: ThreadCardProps) {
             {/* Title row */}
             <div className="flex items-start gap-2">
               <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-1">
-                {thread.title}
+                {query ? highlightText(thread.title, query) : thread.title}
               </h3>
               {thread.pinned && (
                 <Pin className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
@@ -40,7 +88,7 @@ export function ThreadCard({ thread }: ThreadCardProps) {
 
             {/* Body preview */}
             <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-              {thread.body_preview}
+              {query ? highlightText(previewText, query) : previewText}
             </p>
 
             {/* Meta row */}
