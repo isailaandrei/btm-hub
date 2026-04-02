@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
@@ -23,6 +24,8 @@ export function MessageThread({
 }: MessageThreadProps) {
   const [messages, setMessages] = useState<OptimisticDmMessage[]>(initialMessages);
   const [lastReadAt, setLastReadAt] = useState<string | null>(recipientLastReadAt);
+  const [hasMore, setHasMore] = useState(initialMessages.length >= 50);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -49,12 +52,89 @@ export function MessageThread({
     setMessages((prev) => [...prev, optimistic]);
   }
 
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  async function loadOlderMessages() {
+    if (isLoadingMore || !hasMore || messages.length === 0) return;
+
+    const oldest = messages.find((m) => !m._optimistic);
+    if (!oldest) return;
+
+    setIsLoadingMore(true);
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("dm_messages")
+        .select("*, profiles!dm_messages_sender_fkey(id, display_name, avatar_url)")
+        .eq("conversation_id", conversationId)
+        .or(`created_at.lt.${oldest.created_at},and(created_at.eq.${oldest.created_at},id.lt.${oldest.id})`)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+
+      const olderMessages: OptimisticDmMessage[] = (data ?? []).reverse().map((row) => ({
+        id: row.id,
+        conversation_id: row.conversation_id,
+        sender_id: row.sender_id,
+        body: row.body,
+        body_format: row.body_format as "text" | "html",
+        edited_at: row.edited_at,
+        deleted_at: row.deleted_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        sender: (row.profiles as Pick<Profile, "id" | "display_name" | "avatar_url">) ?? null,
+      }));
+
+      if (olderMessages.length < 50) setHasMore(false);
+
+      if (olderMessages.length > 0) {
+        // Preserve scroll position
+        const scrollEl = scrollRef.current;
+        const prevScrollHeight = scrollEl?.scrollHeight ?? 0;
+
+        setMessages((prev) => [...olderMessages, ...prev]);
+
+        // Restore scroll position after React renders
+        requestAnimationFrame(() => {
+          if (scrollEl) {
+            scrollEl.scrollTop = scrollEl.scrollHeight - prevScrollHeight;
+          }
+        });
+      }
+    } catch {
+      // Silently fail — user can try scrolling up again
+    } finally {
+      setIsLoadingMore(false);
     }
-  }, [messages.length]);
+  }
+
+  // Scroll to bottom only when new messages are added at the end
+  const prevMessageCountRef = useRef(initialMessages.length);
+  useEffect(() => {
+    if (messages.length > prevMessageCountRef.current) {
+      const lastMsg = messages[messages.length - 1];
+      // Only auto-scroll if the newest message is actually new (not from pagination)
+      if (lastMsg && !isLoadingMore) {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      }
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages.length, isLoadingMore]);
+
+  // Load older messages when scrolled to top
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    function handleScroll() {
+      if (el!.scrollTop < 100 && hasMore && !isLoadingMore) {
+        loadOlderMessages();
+      }
+    }
+
+    el.addEventListener("scroll", handleScroll);
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [hasMore, isLoadingMore, messages]);
 
   // Mark conversation as read on mount
   useEffect(() => {
@@ -179,6 +259,11 @@ export function MessageThread({
           </div>
         ) : (
           <div className="flex flex-col gap-1">
+            {isLoadingMore && (
+              <div className="flex justify-center py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
             {messages.map((msg) => (
               <MessageBubble
                 key={msg.id}
