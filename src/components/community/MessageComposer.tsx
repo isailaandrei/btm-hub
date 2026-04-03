@@ -148,8 +148,8 @@ export function MessageComposer({ conversationId, onSend }: MessageComposerProps
       if (!result.success) {
         setError(result.message || result.errors?.body || "Failed to send");
       }
-    } catch {
-      setError("Failed to send message");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to send message");
     } finally {
       setIsPending(false);
     }

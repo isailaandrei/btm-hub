@@ -48,7 +48,7 @@ export async function uploadMessageFile(
     .upload(filePath, file);
 
   if (uploadError) {
-    return { url: null, fileName: null, isImage: false, error: "Upload failed. Please try again." };
+    return { url: null, fileName: null, isImage: false, error: `Upload failed: ${uploadError.message}` };
   }
 
   const {
