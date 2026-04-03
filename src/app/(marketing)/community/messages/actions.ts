@@ -13,6 +13,52 @@ import {
 } from "@/lib/validations/messages";
 
 // ---------------------------------------------------------------------------
+// File upload (any file type, up to 20 MB)
+// ---------------------------------------------------------------------------
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+
+const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+export async function uploadMessageFile(
+  formData: FormData,
+): Promise<{ url: string | null; fileName: string | null; isImage: boolean; error: string | null }> {
+  const user = await getAuthUser();
+  if (!user) {
+    return { url: null, fileName: null, isImage: false, error: "You must be logged in to upload files." };
+  }
+
+  const file = formData.get("file") as File;
+  if (!file || file.size === 0) {
+    return { url: null, fileName: null, isImage: false, error: "No file selected." };
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    return { url: null, fileName: null, isImage: false, error: "File must be under 20 MB." };
+  }
+
+  const ext = file.name.split(".").pop() || "bin";
+  const filePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
+  const isImage = IMAGE_TYPES.has(file.type);
+
+  const supabase = await createClient();
+
+  const { error: uploadError } = await supabase.storage
+    .from("community-files")
+    .upload(filePath, file);
+
+  if (uploadError) {
+    return { url: null, fileName: null, isImage: false, error: "Upload failed. Please try again." };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("community-files").getPublicUrl(filePath);
+
+  return { url: publicUrl, fileName: file.name, isImage, error: null };
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -57,7 +103,8 @@ export async function sendMessage(
 
   // Check that body has actual visible content (not just empty HTML tags like <p></p>)
   const textContent = sanitizedBody.replace(/<[^>]*>/g, "").trim();
-  if (!textContent) {
+  const hasAttachments = sanitizedBody.includes("<img ") || sanitizedBody.includes("<a ");
+  if (!textContent && !hasAttachments) {
     return { errors: { body: "Message is required" }, message: "", success: false, resetKey: prevState.resetKey };
   }
 

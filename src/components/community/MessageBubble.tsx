@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { editMessage, deleteMessage } from "@/app/(marketing)/community/messages/actions";
@@ -14,12 +15,45 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbleProps) {
   const isOptimistic = !!message._optimistic;
+  const router = useRouter();
   const [showActions, setShowActions] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isDeleted = message.deleted_at !== null;
+
+  // Split HTML body into image blocks and text blocks for separate rendering
+  const bodyParts = (() => {
+    if (message.body_format !== "html" || !message.body.includes("<img ")) {
+      return null; // No splitting needed
+    }
+    // Split around <img> tags (including wrapping <p> tags)
+    const imgRegex = /(<p>\s*<img[^>]+>\s*<\/p>|<img[^>]+>)/g;
+    const parts: { type: "image" | "text"; html: string }[] = [];
+    let lastIndex = 0;
+    let match;
+    while ((match = imgRegex.exec(message.body)) !== null) {
+      const before = message.body.slice(lastIndex, match.index).trim();
+      if (before) parts.push({ type: "text", html: before });
+      parts.push({ type: "image", html: match[1] });
+      lastIndex = match.index + match[0].length;
+    }
+    const after = message.body.slice(lastIndex).trim();
+    if (after) parts.push({ type: "text", html: after });
+    return parts.length > 0 ? parts : null;
+  })();
+
+  // Make @mentions clickable — navigate to member profile
+  const handleMentionClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const mention = target.closest("[data-type='mention']");
+    if (mention) {
+      e.preventDefault();
+      const userId = mention.getAttribute("data-id");
+      if (userId) router.push(`/community/members/${userId}`);
+    }
+  }, [router]);
 
   const initials = (message.sender?.display_name || "?")
     .split(" ")
@@ -82,7 +116,17 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
       <div className={cn("max-w-[70%]", isOwn && "items-end")}>
         {/* Meta */}
         <div className={cn("mb-0.5 flex items-center gap-1 text-[11px] text-muted-foreground", isOwn && "justify-end")}>
-          {!isOwn && <span>{message.sender?.display_name || "Unknown"}</span>}
+          {!isOwn && message.sender?.id ? (
+            <button
+              type="button"
+              onClick={() => router.push(`/community/members/${message.sender!.id}`)}
+              className="hover:text-foreground transition-colors"
+            >
+              {message.sender.display_name || "Unknown"}
+            </button>
+          ) : !isOwn ? (
+            <span>Unknown</span>
+          ) : null}
           <span>{time}</span>
           {message.edited_at && <span>(edited)</span>}
         </div>
@@ -116,6 +160,38 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
               </button>
             </div>
           </div>
+        ) : bodyParts ? (
+          /* Message with images — render images standalone, text in bubbles */
+          <div className="flex flex-col gap-1">
+            {bodyParts.map((part, i) =>
+              part.type === "image" ? (
+                <div
+                  key={i}
+                  className="[&_img]:m-0 [&_img]:max-w-[280px] [&_img]:rounded-xl [&_p]:m-0"
+                  dangerouslySetInnerHTML={{ __html: part.html }}
+                />
+              ) : (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-xl px-3 py-2 text-sm",
+                    isOwn
+                      ? "rounded-tr-sm bg-primary text-primary-foreground"
+                      : "rounded-tl-sm bg-muted text-foreground",
+                  )}
+                  onClick={handleMentionClick}
+                >
+                  <div
+                    className={cn(
+                      isOwn ? "prose-dm-own [&_p]:m-0" : "prose-community [&_p]:m-0",
+                      "[&_span[data-type='mention']]:cursor-pointer [&_span[data-type='mention']]:hover:underline",
+                    )}
+                    dangerouslySetInnerHTML={{ __html: part.html }}
+                  />
+                </div>
+              ),
+            )}
+          </div>
         ) : (
           <div
             className={cn(
@@ -124,10 +200,14 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
                 ? "rounded-tr-sm bg-primary text-primary-foreground"
                 : "rounded-tl-sm bg-muted text-foreground",
             )}
+            onClick={handleMentionClick}
           >
             {message.body_format === "html" ? (
               <div
-                className={isOwn ? "prose-dm-own [&_p]:m-0" : "prose-community [&_p]:m-0"}
+                className={cn(
+                  isOwn ? "prose-dm-own [&_p]:m-0" : "prose-community [&_p]:m-0",
+                  "[&_span[data-type='mention']]:cursor-pointer [&_span[data-type='mention']]:hover:underline",
+                )}
                 dangerouslySetInnerHTML={{ __html: message.body }}
               />
             ) : (
