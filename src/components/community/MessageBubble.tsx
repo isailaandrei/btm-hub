@@ -205,17 +205,14 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
             )}
             onClick={handleMentionClick}
           >
-            {message.body_format === "html" ? (
-              <div
-                className={cn(
-                  isOwn ? "prose-dm-own [&_p]:m-0" : "prose-community [&_p]:m-0",
-                  "[&_span[data-type='mention']]:cursor-pointer [&_span[data-type='mention']]:hover:underline",
-                )}
-                dangerouslySetInnerHTML={{ __html: message.body }}
-              />
-            ) : (
-              <p className="m-0 whitespace-pre-wrap">{message.body}</p>
-            )}
+            <div
+              className={cn(
+                "[&_p]:m-0 [&_span[data-type='mention']]:cursor-pointer [&_span[data-type='mention']]:hover:underline",
+                message.body_format === "html" && (isOwn ? "prose-dm-own" : "prose-community"),
+                message.body_format !== "html" && "whitespace-pre-wrap",
+              )}
+              dangerouslySetInnerHTML={{ __html: message.body_format === "html" ? message.body : message.body }}
+            />
           </div>
         )}
         {showSeen && (
