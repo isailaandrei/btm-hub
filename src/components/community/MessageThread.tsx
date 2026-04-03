@@ -145,9 +145,20 @@ export function MessageThread({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadOlderMessages reads messages via closure; adding it would cause infinite loop
   }, [hasMore, isLoadingMore, messages]);
 
-  // Mark conversation as read on mount
+  // Mark conversation as read only when the tab is visible
   useEffect(() => {
-    markAsRead(conversationId);
+    function markIfVisible() {
+      if (document.visibilityState === "visible") {
+        markAsRead(conversationId);
+      }
+    }
+
+    // Mark on mount if already visible
+    markIfVisible();
+
+    // Mark when tab becomes visible (user switches back to this tab)
+    document.addEventListener("visibilitychange", markIfVisible);
+    return () => document.removeEventListener("visibilitychange", markIfVisible);
   }, [conversationId]);
 
   // Subscribe to real-time messages
@@ -177,8 +188,10 @@ export function MessageThread({
 
             newMsg.sender = (profile as Pick<Profile, "id" | "display_name" | "avatar_url">) ?? null;
 
-            // Mark as read since we're viewing this conversation
-            markAsRead(conversationId);
+            // Mark as read only if the tab is visible
+            if (document.visibilityState === "visible") {
+              markAsRead(conversationId);
+            }
           } else {
             // Own message — we already know our profile
             newMsg.sender = null; // Will be rendered as "own" message

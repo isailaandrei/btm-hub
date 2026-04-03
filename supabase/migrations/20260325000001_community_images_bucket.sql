@@ -6,7 +6,8 @@ values (
   true,
   5242880, -- 5 MB
   array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-);
+)
+on conflict (id) do nothing;
 
 -- Allow authenticated users to upload images
 create policy "Authenticated users can upload community images"

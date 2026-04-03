@@ -5,7 +5,8 @@ values (
   'community-files',
   true,
   20971520 -- 20 MB
-);
+)
+on conflict (id) do nothing;
 
 -- Allow authenticated users to upload files
 create policy "Authenticated users can upload community files"
