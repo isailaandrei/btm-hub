@@ -9,11 +9,13 @@ import { cn } from "@/lib/utils";
 import { createTopic } from "@/app/(marketing)/community/actions";
 import type { ForumTopic } from "@/types/database";
 import type { ForumActionState } from "@/app/(marketing)/community/actions";
+import { MessagesSidebar } from "./MessagesSidebar";
 
 interface ChannelSidebarProps {
   topics: ForumTopic[];
   isAuthenticated: boolean;
   isAdmin: boolean;
+  currentUserId: string | null;
 }
 
 const initialState: ForumActionState = {
@@ -23,7 +25,7 @@ const initialState: ForumActionState = {
   resetKey: 0,
 };
 
-export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSidebarProps) {
+export function ChannelSidebar({ topics, isAuthenticated, isAdmin, currentUserId }: ChannelSidebarProps) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const activeTopic = searchParams.get("topic");
@@ -123,16 +125,23 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
               )}
             </form>
           )}
+          {/* New post button */}
+          {isAuthenticated && (
+            <Button asChild className="mt-2 gap-2">
+              <Link href="/community/new">
+                <PenSquare className="h-4 w-4" />
+                New Post
+              </Link>
+            </Button>
+          )}
         </div>
 
-        {/* New post button */}
-        {isAuthenticated && (
-          <Button asChild className="gap-2">
-            <Link href="/community/new">
-              <PenSquare className="h-4 w-4" />
-              New Post
-            </Link>
-          </Button>
+        {/* Messages section — fetches its own data to avoid blocking community pages */}
+        {isAuthenticated && currentUserId && (
+          <>
+            <div className="border-t border-border" />
+            <MessagesSidebar currentUserId={currentUserId} />
+          </>
         )}
       </div>
     </aside>

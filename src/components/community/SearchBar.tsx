@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, X, Loader2 } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 
 export function SearchBar() {
@@ -25,12 +25,6 @@ export function SearchBar() {
     timerRef.current = setTimeout(() => navigate(next.trim()), 300);
   }
 
-  function handleClear() {
-    setValue("");
-    if (timerRef.current) clearTimeout(timerRef.current);
-    navigate("");
-  }
-
   return (
     <div className="relative">
       {isPending ? (
@@ -43,17 +37,8 @@ export function SearchBar() {
         value={value}
         onChange={handleChange}
         placeholder="Search threads..."
-        className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
       />
-      {value && (
-        <button
-          type="button"
-          onClick={handleClear}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      )}
     </div>
   );
 }

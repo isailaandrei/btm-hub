@@ -190,6 +190,18 @@ button,
   @apply text-primary font-medium;
 }
 
+/* DM own message prose — inherits text color from parent (white on primary bg) */
+.prose-dm-own p,
+.prose-dm-own a,
+.prose-dm-own strong,
+.prose-dm-own em,
+.prose-dm-own span {
+  color: inherit;
+}
+.prose-dm-own a {
+  @apply underline underline-offset-4;
+}
+
 /* TipTap editor content area */
 .tiptap {
   @apply outline-none;

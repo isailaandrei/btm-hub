@@ -23,6 +23,7 @@ export default async function CommunityLayout({
           topics={topics}
           isAuthenticated={!!user}
           isAdmin={isAdmin}
+          currentUserId={user?.id ?? null}
         />
         <div className="min-w-0 flex-1">{children}</div>
       </div>

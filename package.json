@@ -15,6 +15,8 @@
     "typegen": "sanity schema extract --enforce-required-fields && sanity typegen generate"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@emoji-mart/react": "^1.1.1",
     "@portabletext/react": "^6.0.3",
     "@sanity/image-url": "^2.0.3",
     "@supabase/ssr": "^0.9.0",
@@ -29,6 +31,7 @@
     "@tiptap/suggestion": "^3.20.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "emoji-mart": "^5.6.0",
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
     "next-sanity": "^12.1.3",
@@ -44,6 +47,7 @@
     "sanity": "^5.17.1",
     "shadcn": "^4.0.8",
     "sonner": "^2.0.7",
+    "styled-components": "^6.3.12",
     "tailwind-merge": "^3.5.0",
     "tippy.js": "^6.3.7",
     "tw-animate-css": "^1.4.0",

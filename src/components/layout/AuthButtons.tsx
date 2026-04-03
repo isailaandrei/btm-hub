@@ -7,6 +7,7 @@ import { logout } from "@/app/(auth)/actions";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 
+
 type NavbarUser = {
   id: string;
   displayName: string | null;

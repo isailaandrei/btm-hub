@@ -37,6 +37,7 @@ export function ThreadActions({
       <ThreadHeader
         thread={thread}
         topicName={topicName}
+        currentUserId={currentUserId}
         isAdmin={isAdmin}
         onTogglePin={isAdmin ? toggleThreadPin : undefined}
         onToggleLock={isAdmin ? toggleThreadLock : undefined}

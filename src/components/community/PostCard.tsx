@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition, lazy, Suspense } from "react";
+import Link from "next/link";
+import { MessageSquare } from "lucide-react";
 import { PostBody } from "./PostBody";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { RelativeTime } from "./RelativeTime";
@@ -71,12 +73,21 @@ export function PostCard({
     <div className="flex flex-col gap-3 px-5 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
-          <UserAvatar
-            name={post.author?.display_name ?? null}
-            avatarUrl={post.author?.avatar_url}
-            size="sm"
-          />
-          <span className="font-medium text-foreground">{authorName}</span>
+          {post.author_id ? (
+            <Link href={`/community/members/${post.author_id}`} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              <UserAvatar
+                name={post.author?.display_name ?? null}
+                avatarUrl={post.author?.avatar_url}
+                size="sm"
+              />
+              <span className="font-medium text-foreground">{authorName}</span>
+            </Link>
+          ) : (
+            <>
+              <UserAvatar name={null} size="sm" />
+              <span className="font-medium text-foreground">{authorName}</span>
+            </>
+          )}
           <span className="text-muted-foreground">&middot;</span>
           <span className="text-muted-foreground">
             <RelativeTime date={post.created_at} />
@@ -85,6 +96,15 @@ export function PostCard({
             <span className="text-muted-foreground italic text-xs">(edited)</span>
           )}
           {post.is_op && <Badge variant="secondary">OP</Badge>}
+          {currentUserId && post.author_id && post.author_id !== currentUserId && (
+            <Link
+              href={`/community/messages?start=${post.author_id}`}
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:text-primary"
+              title={`Message ${authorName}`}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </Link>
+          )}
         </div>
         {canModify && !editing && (
           <div className="flex items-center gap-1">

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RelativeTime } from "./RelativeTime";
@@ -10,6 +11,7 @@ import type { ForumThreadWithAuthor } from "@/types/database";
 interface ThreadHeaderProps {
   thread: ForumThreadWithAuthor;
   topicName?: string | null;
+  currentUserId?: string | null;
   isAdmin?: boolean;
   onTogglePin?: (threadId: string) => Promise<void>;
   onToggleLock?: (threadId: string) => Promise<void>;
@@ -19,6 +21,7 @@ interface ThreadHeaderProps {
 export function ThreadHeader({
   thread,
   topicName,
+  currentUserId,
   isAdmin = false,
   onTogglePin,
   onToggleLock,
@@ -75,7 +78,22 @@ export function ThreadHeader({
       </h1>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-        <span>{authorName}</span>
+        {thread.author_id ? (
+          <Link href={`/community/members/${thread.author_id}`} className="hover:text-foreground transition-colors">
+            {authorName}
+          </Link>
+        ) : (
+          <span>{authorName}</span>
+        )}
+        {currentUserId && thread.author_id && thread.author_id !== currentUserId && (
+          <Link
+            href={`/community/messages?start=${thread.author_id}`}
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-primary"
+            title={`Message ${authorName}`}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </Link>
+        )}
         <span>&middot;</span>
         <RelativeTime date={thread.created_at} />
         <span>&middot;</span>
