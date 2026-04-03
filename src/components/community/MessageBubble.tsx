@@ -177,7 +177,7 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
                 <div
                   key={i}
                   className={cn(
-                    "rounded-xl px-3 py-2 text-sm",
+                    "rounded-xl px-3 py-1.5 text-sm",
                     isOwn
                       ? "rounded-tr-sm bg-primary text-primary-foreground"
                       : "rounded-tl-sm bg-muted text-foreground",
@@ -198,7 +198,7 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
         ) : (
           <div
             className={cn(
-              "rounded-xl px-3 py-2 text-sm",
+              "rounded-xl px-3 py-1.5 text-sm",
               isOwn
                 ? "rounded-tr-sm bg-primary text-primary-foreground"
                 : "rounded-tl-sm bg-muted text-foreground",
