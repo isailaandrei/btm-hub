@@ -10,7 +10,7 @@ import { useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import data from "@emoji-mart/data";
 import { cn } from "@/lib/utils";
-import { Bold, Italic, Send, ImageIcon, Paperclip, Loader2, Smile, X, FileText } from "lucide-react";
+import { Bold, Italic, Send, Paperclip, Loader2, Smile, X, FileText } from "lucide-react";
 import { sendMessage, uploadMessageFile } from "@/app/(marketing)/community/messages/actions";
 import { mentionSuggestion } from "./mention-suggestion";
 
@@ -31,7 +31,6 @@ interface MessageComposerProps {
 }
 
 export function MessageComposer({ conversationId, onSend }: MessageComposerProps) {
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,17 +153,14 @@ export function MessageComposer({ conversationId, onSend }: MessageComposerProps
     }
   }
 
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>, imagesOnly: boolean) {
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const maxSize = imagesOnly ? 5 * 1024 * 1024 : 20 * 1024 * 1024;
-    const maxLabel = imagesOnly ? "5 MB" : "20 MB";
-
     const newAttachments: Attachment[] = [];
     for (const file of Array.from(files)) {
-      if (file.size > maxSize) {
-        setError(`File must be under ${maxLabel}`);
+      if (file.size > 20 * 1024 * 1024) {
+        setError("File must be under 20 MB");
         continue;
       }
       const isImage = file.type.startsWith("image/");
@@ -175,9 +171,7 @@ export function MessageComposer({ conversationId, onSend }: MessageComposerProps
       });
     }
     setAttachments((prev) => [...prev, ...newAttachments]);
-    // Reset input so the same file can be re-selected
-    if (imagesOnly && imageInputRef.current) imageInputRef.current.value = "";
-    if (!imagesOnly && fileInputRef.current) fileInputRef.current.value = "";
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeAttachment(index: number) {
@@ -265,14 +259,6 @@ export function MessageComposer({ conversationId, onSend }: MessageComposerProps
             </button>
             <button
               type="button"
-              onClick={() => imageInputRef.current?.click()}
-              className={btn(false)}
-              title="Add image"
-            >
-              <ImageIcon className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
               onClick={() => fileInputRef.current?.click()}
               className={btn(false)}
               title="Attach file"
@@ -311,21 +297,11 @@ export function MessageComposer({ conversationId, onSend }: MessageComposerProps
         <EditorContent editor={editor} />
       </div>
 
-      {/* Hidden file inputs */}
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        multiple
-        onChange={(e) => handleFileSelect(e, true)}
-        className="sr-only"
-        tabIndex={-1}
-      />
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        onChange={(e) => handleFileSelect(e, false)}
+        onChange={handleFileSelect}
         className="sr-only"
         tabIndex={-1}
       />
