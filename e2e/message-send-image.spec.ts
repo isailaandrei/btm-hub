@@ -104,4 +104,56 @@ test.describe("Image attachments", () => {
     const previews = page.locator('img[alt="test-image.png"]');
     await expect(previews).toHaveCount(2);
   });
+
+  test("can send an image with text and see both in chat", async ({ page }) => {
+    await login(page, TEST_USER);
+    await openAdminConversation(page);
+
+    const imagePath = createTestImage();
+
+    // Attach image
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
+    await expect(page.locator('img[alt="test-image.png"]')).toBeVisible();
+
+    // Type text
+    const editor = page.locator(".ProseMirror");
+    await editor.click();
+    await editor.fill("Here is the photo!");
+
+    // Send
+    await page.getByTitle("Send message").click();
+
+    // Text should appear in a message bubble
+    await expect(page.getByText("Here is the photo!")).toBeVisible({ timeout: 30_000 });
+
+    // Image should appear in the chat (uploaded to Supabase storage)
+    const chatImage = page.locator(".overflow-y-auto img[src*='community-files']");
+    await expect(chatImage.first()).toBeVisible({ timeout: 30_000 });
+
+    // Attachment preview should be cleared
+    await expect(page.locator('img[alt="test-image.png"]')).not.toBeVisible();
+
+    await page.screenshot({ path: "e2e/screenshots/image-sent-in-chat.png", fullPage: false });
+  });
+
+  test("can send image-only message without text", async ({ page }) => {
+    await login(page, TEST_USER);
+    await openAdminConversation(page);
+
+    const imagePath = createTestImage();
+
+    // Attach image, no text
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
+
+    // Send
+    await page.getByTitle("Send message").click();
+
+    // Image should appear in chat
+    const chatImage = page.locator(".overflow-y-auto img[src*='community-files']");
+    await expect(chatImage.first()).toBeVisible({ timeout: 30_000 });
+  });
 });
