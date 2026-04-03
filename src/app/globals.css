@@ -190,6 +190,11 @@ button,
   @apply text-primary font-medium;
 }
 
+/* DM message prose — kill margins from prose-community (needs higher specificity) */
+.prose-dm.prose-community p {
+  @apply mb-0;
+}
+
 /* DM own message prose — inherits text color from parent (white on primary bg) */
 .prose-dm-own p,
 .prose-dm-own a,
@@ -197,6 +202,9 @@ button,
 .prose-dm-own em,
 .prose-dm-own span {
   color: inherit;
+}
+.prose-dm-own p {
+  @apply mb-0;
 }
 .prose-dm-own a {
   @apply underline underline-offset-4;

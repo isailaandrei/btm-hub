@@ -186,7 +186,7 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
                 >
                   <div
                     className={cn(
-                      isOwn ? "prose-dm-own [&_p]:m-0" : "prose-community [&_p]:m-0",
+                      isOwn ? "prose-dm-own" : "prose-dm prose-community",
                       "[&_span[data-type='mention']]:cursor-pointer [&_span[data-type='mention']]:hover:underline",
                     )}
                     dangerouslySetInnerHTML={{ __html: part.html }}
@@ -208,7 +208,7 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
             <div
               className={cn(
                 "[&_p]:m-0 [&_span[data-type='mention']]:cursor-pointer [&_span[data-type='mention']]:hover:underline",
-                message.body_format === "html" && (isOwn ? "prose-dm-own" : "prose-community"),
+                message.body_format === "html" && (isOwn ? "prose-dm-own" : "prose-dm prose-community"),
                 message.body_format !== "html" && "whitespace-pre-wrap",
               )}
               dangerouslySetInnerHTML={{ __html: message.body_format === "html" ? message.body : message.body }}
