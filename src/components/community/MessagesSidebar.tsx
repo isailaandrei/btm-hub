@@ -129,10 +129,12 @@ export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
         const newEntry: SidebarConversation = {
           ...newConv,
           participant: profile ?? null,
-          unread_count: 1,
+          unread_count: 0,
         };
         return [newEntry, ...prev];
       });
+      // Fetch actual unread count instead of hardcoding
+      refetchUnreadCounts();
     }
 
     const channel = supabase

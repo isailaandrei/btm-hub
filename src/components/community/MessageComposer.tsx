@@ -121,11 +121,13 @@ export function MessageComposer({ conversationId, onSend }: MessageComposerProps
       }
 
       // Build final HTML: text + attachments
+      const escapeHtml = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
       const attachmentHtml = uploaded
         .map((f) =>
           f.isImage
             ? `<p><img src="${f.url}"></p>`
-            : `<p><a href="${f.url}" target="_blank" rel="noopener noreferrer">${f.fileName}</a></p>`,
+            : `<p><a href="${f.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(f.fileName)}</a></p>`,
         )
         .join("");
       const finalBody = textHtml + attachmentHtml;

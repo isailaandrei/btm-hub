@@ -20,6 +20,7 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const isDeleted = message.deleted_at !== null;
 
@@ -70,11 +71,12 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
   async function handleEdit() {
     if (!editBody.trim()) return;
     setIsSubmitting(true);
+    setActionError(null);
     try {
       await editMessage(message.id, editBody, "text");
       setIsEditing(false);
-    } catch {
-      // Error handled by the action
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to edit");
     } finally {
       setIsSubmitting(false);
     }
@@ -83,10 +85,11 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
   async function handleDelete() {
     if (!confirm("Delete this message?")) return;
     setIsSubmitting(true);
+    setActionError(null);
     try {
       await deleteMessage(message.id);
-    } catch {
-      // Error handled by the action
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to delete");
     } finally {
       setIsSubmitting(false);
     }
@@ -217,6 +220,9 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
         )}
         {showSeen && (
           <p className="mt-0.5 text-right text-[11px] text-muted-foreground">Seen</p>
+        )}
+        {actionError && (
+          <p className="mt-0.5 text-xs text-destructive">{actionError}</p>
         )}
       </div>
 

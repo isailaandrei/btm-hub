@@ -7,6 +7,8 @@ import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { markAsRead } from "@/app/(marketing)/community/messages/actions";
 import type { DmMessageWithSender, OptimisticDmMessage, Profile } from "@/types/database";
+
+const MESSAGES_PAGE_SIZE = 50;
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 interface MessageThreadProps {
@@ -24,7 +26,7 @@ export function MessageThread({
 }: MessageThreadProps) {
   const [messages, setMessages] = useState<OptimisticDmMessage[]>(initialMessages);
   const [lastReadAt, setLastReadAt] = useState<string | null>(recipientLastReadAt);
-  const [hasMore, setHasMore] = useState(initialMessages.length >= 50);
+  const [hasMore, setHasMore] = useState(initialMessages.length >= MESSAGES_PAGE_SIZE);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -68,7 +70,7 @@ export function MessageThread({
         .or(`created_at.lt.${oldest.created_at},and(created_at.eq.${oldest.created_at},id.lt.${oldest.id})`)
         .order("created_at", { ascending: false })
         .order("id", { ascending: false })
-        .limit(50);
+        .limit(MESSAGES_PAGE_SIZE);
 
       if (error) throw error;
 
@@ -85,7 +87,7 @@ export function MessageThread({
         sender: (row.profiles as Pick<Profile, "id" | "display_name" | "avatar_url">) ?? null,
       }));
 
-      if (olderMessages.length < 50) setHasMore(false);
+      if (olderMessages.length < MESSAGES_PAGE_SIZE) setHasMore(false);
 
       if (olderMessages.length > 0) {
         // Preserve scroll position
@@ -108,7 +110,12 @@ export function MessageThread({
     }
   }
 
-  // Scroll to bottom only when new messages are added at the end
+  // Scroll to bottom on mount
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, []);
+
+  // Scroll to bottom when new messages are added at the end
   const prevMessageCountRef = useRef(initialMessages.length);
   useEffect(() => {
     if (messages.length > prevMessageCountRef.current) {
