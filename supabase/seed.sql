@@ -437,9 +437,46 @@ VALUES
   ('40000000-0000-0000-0000-000000000011', '30000000-0000-0000-0000-000000000002', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
    '<p>That would be amazing! Thank you so much.</p>', 'html', now() - interval '3 hours', now() - interval '3 hours');
 
+-- Conversation between Test User (a1b2...) and Admin (b2c3...)
+-- a1b2 < b2c3 so Test User = user1
+INSERT INTO public.dm_conversations (id, user1_id, user2_id, last_message_at, created_at)
+VALUES (
+  '30000000-0000-0000-0000-000000000003',
+  'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+  now() - interval '10 minutes',
+  now() - interval '3 days'
+);
+
+-- Messages in the Test User-Admin conversation (longer back-and-forth)
+INSERT INTO public.dm_messages (id, conversation_id, sender_id, body, body_format, created_at, updated_at)
+VALUES
+  ('40000000-0000-0000-0000-000000000020', '30000000-0000-0000-0000-000000000003', 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+   '<p>Hey! Welcome to the BTM community. Let me know if you have any questions about the platform.</p>', 'html', now() - interval '3 days', now() - interval '3 days'),
+  ('40000000-0000-0000-0000-000000000021', '30000000-0000-0000-0000-000000000003', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+   '<p>Thanks! I am really enjoying it so far. Quick question — how do I tag topics when creating a new thread?</p>', 'html', now() - interval '2 days 20 hours', now() - interval '2 days 20 hours'),
+  ('40000000-0000-0000-0000-000000000022', '30000000-0000-0000-0000-000000000003', 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+   '<p>When you click <strong>New Post</strong>, there is a dropdown at the top where you can pick a channel. That acts as the topic tag.</p>', 'html', now() - interval '2 days 19 hours', now() - interval '2 days 19 hours'),
+  ('40000000-0000-0000-0000-000000000023', '30000000-0000-0000-0000-000000000003', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+   '<p>Got it, that makes sense. Also, is there a way to get notified when someone replies to my threads?</p>', 'html', now() - interval '2 days 18 hours', now() - interval '2 days 18 hours'),
+  ('40000000-0000-0000-0000-000000000024', '30000000-0000-0000-0000-000000000003', 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+   '<p>Not yet — that is on our roadmap! For now, you can check back on your threads to see new replies. We will add notifications soon.</p>', 'html', now() - interval '2 days 17 hours', now() - interval '2 days 17 hours'),
+  ('40000000-0000-0000-0000-000000000025', '30000000-0000-0000-0000-000000000003', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+   '<p>No worries, looking forward to it! By the way, I just posted my first thread about GoPro settings. Would love some feedback.</p>', 'html', now() - interval '1 day', now() - interval '1 day'),
+  ('40000000-0000-0000-0000-000000000026', '30000000-0000-0000-0000-000000000003', 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+   '<p>Just saw it — <strong>great first post!</strong> Sarah left a really helpful reply about white balance and color profiles. Definitely worth checking out.</p>', 'html', now() - interval '20 hours', now() - interval '20 hours'),
+  ('40000000-0000-0000-0000-000000000027', '30000000-0000-0000-0000-000000000003', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+   '<p>Yeah I saw that! Super useful. This community is awesome.</p>', 'html', now() - interval '18 hours', now() - interval '18 hours'),
+  ('40000000-0000-0000-0000-000000000028', '30000000-0000-0000-0000-000000000003', 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+   '<p>Glad to hear it! Also, we are planning a group dive trip in Bali next month. Keep an eye on the Trip Reports channel for details.</p>', 'html', now() - interval '2 hours', now() - interval '2 hours'),
+  ('40000000-0000-0000-0000-000000000029', '30000000-0000-0000-0000-000000000003', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+   '<p>That sounds incredible! I have always wanted to dive in Bali. Count me in!</p>', 'html', now() - interval '10 minutes', now() - interval '10 minutes');
+
 -- Read receipts: both users have read their conversations
 INSERT INTO public.dm_read_receipts (conversation_id, user_id, last_read_at) VALUES
   ('30000000-0000-0000-0000-000000000001', 'c3d4e5f6-a7b8-9012-cdef-234567890123', now()),
   ('30000000-0000-0000-0000-000000000001', 'd4e5f6a7-b8c9-0123-defa-345678901234', now() - interval '2 hours'),
   ('30000000-0000-0000-0000-000000000002', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', now()),
-  ('30000000-0000-0000-0000-000000000002', 'e5f6a7b8-c9d0-1234-efab-456789012345', now() - interval '4 hours');
+  ('30000000-0000-0000-0000-000000000002', 'e5f6a7b8-c9d0-1234-efab-456789012345', now() - interval '4 hours'),
+  ('30000000-0000-0000-0000-000000000003', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', now()),
+  ('30000000-0000-0000-0000-000000000003', 'b2c3d4e5-f6a7-8901-bcde-f12345678901', now() - interval '15 minutes');
