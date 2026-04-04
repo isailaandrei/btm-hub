@@ -7,7 +7,7 @@ import TiptapLink from "@tiptap/extension-link";
 import Mention from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
 import NextImage from "next/image";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import data from "@emoji-mart/data";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,6 @@ import {
   FileText,
 } from "lucide-react";
 import { mentionSuggestion } from "./mention-suggestion";
-import { uploadMessageFile } from "@/app/(marketing)/community/messages/actions";
 
 const EmojiPicker = dynamic(() => import("@emoji-mart/react").then((m) => m.default), {
   ssr: false,
@@ -71,10 +70,8 @@ export function RichTextEditor({
   defaultValue = "",
   placeholder,
   onSubmit,
-  uploadFile: uploadFileProp,
+  uploadFile,
 }: RichTextEditorProps) {
-  const uploadFile = uploadFileProp ?? uploadMessageFile;
-  const containerRef = useRef<HTMLDivElement>(null);
   const hiddenRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -154,61 +151,6 @@ export function RichTextEditor({
   // ---------------------------------------------------------------------------
   // Actions
   // ---------------------------------------------------------------------------
-
-  // Thread variant: intercept parent form submission to upload attachments first
-  useEffect(() => {
-    if (!isThread || !containerRef.current) return;
-    const form = containerRef.current.closest("form");
-    if (!form) return;
-
-    async function handleFormSubmit(e: SubmitEvent) {
-      if (attachments.length === 0) return; // No attachments, let form submit normally
-
-      e.preventDefault();
-      setIsUploading(true);
-      setUploadError(null);
-
-      try {
-        const uploaded: string[] = [];
-        for (const attachment of attachments) {
-          const fd = new FormData();
-          fd.append("file", attachment.file);
-          const result = await uploadFile(fd);
-          if (result.error) {
-            setUploadError(result.error);
-            setIsUploading(false);
-            return;
-          }
-          if (result.url) {
-            const isImg = attachment.isImage;
-            uploaded.push(
-              isImg
-                ? `<p><img src="${result.url}"></p>`
-                : `<p><a href="${result.url}" target="_blank" rel="noopener noreferrer">${attachment.file.name.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</a></p>`,
-            );
-          }
-        }
-
-        // Append attachment HTML to the hidden body input
-        if (hiddenRef.current) {
-          hiddenRef.current.value = (hiddenRef.current.value || "") + uploaded.join("");
-        }
-
-        setAttachments([]);
-        setIsUploading(false);
-
-        // Re-submit the form now that attachments are in the body
-        form!.requestSubmit();
-      } catch {
-        setUploadError("Upload failed. Please try again.");
-        setIsUploading(false);
-      }
-    }
-
-    form.addEventListener("submit", handleFormSubmit);
-    return () => form.removeEventListener("submit", handleFormSubmit);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- attachments read via closure
-  }, [isThread, attachments.length]);
 
   function addLink() {
     if (!editor) return;
@@ -314,7 +256,7 @@ export function RichTextEditor({
   // ---------------------------------------------------------------------------
 
   return (
-    <div ref={containerRef}>
+    <div>
       {/* Attachment previews */}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
