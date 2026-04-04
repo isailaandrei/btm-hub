@@ -2,15 +2,14 @@
 
 import {
   editThread,
-  editReply,
   deleteThread,
-  deleteReply,
   toggleThreadPin,
   toggleThreadLock,
 } from "@/app/(marketing)/community/actions";
 import { Card } from "@/components/ui/card";
 import { ThreadHeader } from "./ThreadHeader";
 import { PostCard } from "./PostCard";
+import { ThreadRealtime } from "./ThreadRealtime";
 import type { ForumThreadWithAuthor, ForumPostWithAuthor, BodyFormat } from "@/types/database";
 
 interface ThreadActionsProps {
@@ -67,30 +66,14 @@ export function ThreadActions({
           }
         />
 
-        {/* Replies */}
-        {replies.length > 0 && (
-          <div className="divide-y divide-border border-t border-border">
-            {replies.map((reply) => (
-              <PostCard
-                key={reply.id}
-                post={reply}
-                currentUserId={currentUserId}
-                isAdmin={isAdmin}
-                liked={likedPostIds.has(reply.id)}
-                onEdit={
-                  isAdmin || (currentUserId && reply.author_id === currentUserId)
-                    ? editReply
-                    : undefined
-                }
-                onDelete={
-                  isAdmin || (currentUserId && reply.author_id === currentUserId)
-                    ? deleteReply
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-        )}
+        {/* Replies (real-time) */}
+        <ThreadRealtime
+          threadId={thread.id}
+          initialReplies={replies}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          likedPostIds={likedPostIds}
+        />
       </Card>
     </>
   );
