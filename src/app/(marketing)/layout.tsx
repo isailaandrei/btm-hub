@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { draftMode } from "next/headers";
 import { VisualEditing } from "next-sanity/visual-editing";
 import { Navbar } from "@/components/layout/Navbar";
@@ -24,7 +25,9 @@ export default async function MarketingLayout({
       <Navbar variant="dark" />
       <main>{children}</main>
       <Footer />
-      <SanityLive />
+      <Suspense>
+        <SanityLive />
+      </Suspense>
       {draft && <VisualEditing />}
     </>
   );
