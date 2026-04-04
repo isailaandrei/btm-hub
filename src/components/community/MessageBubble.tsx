@@ -63,10 +63,18 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
     .toUpperCase()
     .slice(0, 2);
 
-  const time = new Date(message.created_at).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const time = (() => {
+    const date = new Date(message.created_at);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const clock = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+    if (msgDay.getTime() === today.getTime()) return clock;
+    if (msgDay.getTime() === yesterday.getTime()) return `Yesterday, ${clock}`;
+    return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${clock}`;
+  })();
 
   async function handleEdit() {
     if (!editBody.trim()) return;
