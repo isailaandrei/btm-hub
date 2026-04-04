@@ -1,25 +1,22 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Heart } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { editMessage, deleteMessage, toggleMessageLike } from "@/app/(marketing)/community/messages/actions";
+import { editMessage, deleteMessage } from "@/app/(marketing)/community/messages/actions";
 import type { OptimisticDmMessage } from "@/types/database";
 
 interface MessageBubbleProps {
   message: OptimisticDmMessage;
   isOwn: boolean;
   showSeen?: boolean;
-  liked?: boolean;
 }
 
-export function MessageBubble({ message, isOwn, showSeen = false, liked = false }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbleProps) {
   const isOptimistic = !!message._optimistic;
   const router = useRouter();
   const [showActions, setShowActions] = useState(false);
-  const [isLiked, setIsLiked] = useState(liked);
-  const lastTapRef = useRef(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -106,16 +103,6 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
     }
   }
 
-  function handleDoubleTap() {
-    const now = Date.now();
-    if (now - lastTapRef.current < 300) {
-      const next = !isLiked;
-      setIsLiked(next);
-      toggleMessageLike(message.id).catch(() => setIsLiked(!next));
-    }
-    lastTapRef.current = now;
-  }
-
   if (isDeleted) {
     return (
       <div className={cn("flex gap-2 px-4 py-1", isOwn && "flex-row-reverse")}>
@@ -148,8 +135,7 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
           {message.edited_at && <span>(edited)</span>}
         </div>
 
-        {/* Bubble (double-tap to like) */}
-        <div className="relative" onClick={isEditing ? undefined : handleDoubleTap}>
+        {/* Bubble */}
         {isEditing ? (
           <div className="rounded-lg border border-border bg-background p-2">
             <textarea
@@ -230,15 +216,6 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
             />
           </div>
         )}
-        </div>
-
-        {/* Liked indicator */}
-        {isLiked && (
-          <div className={cn("mt-0.5 flex", isOwn ? "justify-end" : "justify-start")}>
-            <Heart className="h-3 w-3 fill-red-500 text-red-500" />
-          </div>
-        )}
-
         {showSeen && (
           <p className="mt-0.5 text-right text-[11px] text-muted-foreground">Seen</p>
         )}

@@ -274,38 +274,3 @@ export async function startConversation(
   revalidatePath("/community/messages");
   redirect(`/community/messages/${convId}`);
 }
-
-// ---------------------------------------------------------------------------
-// Toggle message like (heart reaction)
-// ---------------------------------------------------------------------------
-
-export async function toggleMessageLike(messageId: string): Promise<{ liked: boolean }> {
-  validateUUID(messageId, "message");
-
-  const user = await getAuthUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const supabase = await createClient();
-
-  // Try to insert — if already liked, delete (toggle)
-  const { error: insertError } = await supabase
-    .from("dm_message_likes")
-    .insert({ message_id: messageId, user_id: user.id });
-
-  if (insertError) {
-    if (insertError.code === "23505") {
-      // Already liked — remove it
-      const { error: deleteError } = await supabase
-        .from("dm_message_likes")
-        .delete()
-        .eq("message_id", messageId)
-        .eq("user_id", user.id);
-
-      if (deleteError) throw new Error(`Failed to unlike: ${deleteError.message}`);
-      return { liked: false };
-    }
-    throw new Error(`Failed to like: ${insertError.message}`);
-  }
-
-  return { liked: true };
-}
