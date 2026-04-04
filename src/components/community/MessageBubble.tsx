@@ -117,27 +117,20 @@ export function MessageBubble({ message, isOwn, showSeen = false }: MessageBubbl
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
-      {/* Avatar (only for received messages) */}
+      {/* Avatar (only for received messages, clickable to profile) */}
       {!isOwn && (
-        <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-medium text-primary">
+        <button
+          type="button"
+          onClick={() => message.sender?.id && router.push(`/community/members/${message.sender.id}`)}
+          className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-medium text-primary transition-opacity hover:opacity-75"
+        >
           {initials}
-        </div>
+        </button>
       )}
 
       <div className={cn("max-w-[70%]", isOwn && "items-end")}>
         {/* Meta */}
         <div className={cn("mb-0.5 flex items-center gap-1 text-[11px] text-muted-foreground", isOwn && "justify-end")}>
-          {!isOwn && message.sender?.id ? (
-            <button
-              type="button"
-              onClick={() => router.push(`/community/members/${message.sender!.id}`)}
-              className="hover:text-foreground transition-colors"
-            >
-              {message.sender.display_name || "Unknown"}
-            </button>
-          ) : !isOwn ? (
-            <span>Unknown</span>
-          ) : null}
           <span>{time}</span>
           {message.edited_at && <span>(edited)</span>}
         </div>
