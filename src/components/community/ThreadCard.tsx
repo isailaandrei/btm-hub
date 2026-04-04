@@ -63,7 +63,7 @@ export function ThreadCard({ thread, query }: ThreadCardProps) {
 
   return (
     <Link href={`/community/${thread.slug}`} className="group block">
-      <Card className="py-0 transition-colors group-hover:border-primary/30">
+      <Card className="py-4 transition-colors group-hover:border-primary/30">
         <CardContent className="flex gap-3 px-3">
           <UserAvatar
             name={thread.author?.display_name ?? null}
@@ -91,9 +91,11 @@ export function ThreadCard({ thread, query }: ThreadCardProps) {
               {query ? highlightText(previewText, query) : previewText}
             </p>
 
-            {/* Meta row */}
-            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-              <span>{authorName}</span>
+            {/* Author */}
+            <p className="mt-0.5 text-xs text-muted-foreground">{authorName}</p>
+
+            {/* Stats row */}
+            <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-0.5">
                 <MessageCircle className="h-3 w-3" />
                 {thread.reply_count}
