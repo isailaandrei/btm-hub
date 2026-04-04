@@ -3,7 +3,7 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TiptapLink from "@tiptap/extension-link";
-import TiptapImage from "@tiptap/extension-image";
+
 import Mention from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
 import NextImage from "next/image";
@@ -20,7 +20,6 @@ import {
   ListOrdered,
   Quote,
   Link as LinkIcon,
-  ImageIcon,
   Minus,
   Loader2,
   Paperclip,
@@ -30,7 +29,6 @@ import {
   FileText,
 } from "lucide-react";
 import { mentionSuggestion } from "./mention-suggestion";
-import { uploadCommunityImage } from "@/app/(marketing)/community/actions";
 
 const EmojiPicker = dynamic(() => import("@emoji-mart/react").then((m) => m.default), {
   ssr: false,
@@ -76,7 +74,6 @@ export function RichTextEditor({
 }: RichTextEditorProps) {
   const hiddenRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -112,14 +109,6 @@ export function RichTextEditor({
           class: "text-primary underline underline-offset-4",
         },
       }),
-      ...(isThread
-        ? [
-            TiptapImage.configure({
-              inline: false,
-              allowBase64: false,
-            }),
-          ]
-        : []),
       Mention.configure({
         HTMLAttributes: {
           class: "text-primary font-medium",
@@ -168,30 +157,6 @@ export function RichTextEditor({
     const url = prompt("Enter URL:");
     if (!url) return;
     editor.chain().focus().setLink({ href: url }).run();
-  }
-
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !editor) return;
-    e.target.value = "";
-    setUploadError(null);
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      const result = await uploadCommunityImage(formData);
-      if (result.error) {
-        setUploadError(result.error);
-        return;
-      }
-      if (result.url) {
-        editor.chain().focus().setImage({ src: result.url }).createParagraphNear().run();
-      }
-    } catch {
-      setUploadError("Upload failed. Please try again.");
-    } finally {
-      setIsUploading(false);
-    }
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -292,8 +257,8 @@ export function RichTextEditor({
 
   return (
     <div>
-      {/* Attachment previews (message variant) */}
-      {isMessage && attachments.length > 0 && (
+      {/* Attachment previews */}
+      {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {attachments.map((attachment, i) => (
             <div key={attachment.previewUrl ?? attachment.file.name} className="group/att relative">
@@ -370,18 +335,17 @@ export function RichTextEditor({
                 <button type="button" onClick={addLink} className={btn(editorState.link)} title="Add link">
                   <LinkIcon className={iconSize} />
                 </button>
-                <button type="button" onClick={() => imageInputRef.current?.click()} className={btn(false)} title="Add image" disabled={isUploading}>
-                  {isUploading ? <Loader2 className={cn(iconSize, "animate-spin")} /> : <ImageIcon className={iconSize} />}
-                </button>
               </>
             )}
 
-            {/* Message-only: attach file, emoji, send */}
+            {/* Attach file (both variants) */}
+            <button type="button" onClick={() => fileInputRef.current?.click()} className={btn(false)} title="Attach file">
+              <Paperclip className={iconSize} />
+            </button>
+
+            {/* Message-only: emoji, send */}
             {isMessage && (
               <>
-                <button type="button" onClick={() => fileInputRef.current?.click()} className={btn(false)} title="Attach file">
-                  <Paperclip className={iconSize} />
-                </button>
                 <div className="relative">
                   <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className={btn(showEmojiPicker)} title="Emoji">
                     <Smile className={iconSize} />
@@ -413,27 +377,15 @@ export function RichTextEditor({
         )}
       </div>
 
-      {/* Hidden file inputs */}
-      {isThread && (
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
-          onChange={handleImageUpload}
-          className="sr-only"
-          tabIndex={-1}
-        />
-      )}
-      {isMessage && (
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          onChange={handleFileSelect}
-          className="sr-only"
-          tabIndex={-1}
-        />
-      )}
+      {/* Hidden file input (both variants) */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={handleFileSelect}
+        className="sr-only"
+        tabIndex={-1}
+      />
 
       {/* Hidden form inputs (thread variant) */}
       {isThread && name && (
