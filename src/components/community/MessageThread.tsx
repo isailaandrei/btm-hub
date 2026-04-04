@@ -28,6 +28,7 @@ export function MessageThread({
   const [lastReadAt, setLastReadAt] = useState<string | null>(recipientLastReadAt);
   const [hasMore, setHasMore] = useState(initialMessages.length >= MESSAGES_PAGE_SIZE);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [likesMap, setLikesMap] = useState<Record<string, boolean>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -114,6 +115,26 @@ export function MessageThread({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, []);
+
+  // Fetch which messages the current user has liked
+  useEffect(() => {
+    async function fetchLikes() {
+      const supabase = getSupabase();
+      const messageIds = initialMessages.map((m) => m.id);
+      if (messageIds.length === 0) return;
+      const { data } = await supabase
+        .from("dm_message_likes")
+        .select("message_id")
+        .eq("user_id", currentUserId)
+        .in("message_id", messageIds);
+      if (data) {
+        const map: Record<string, boolean> = {};
+        for (const row of data) map[row.message_id] = true;
+        setLikesMap(map);
+      }
+    }
+    fetchLikes();
+  }, [initialMessages, currentUserId]);
 
   // Scroll to bottom when new messages are added at the end
   const prevMessageCountRef = useRef(initialMessages.length);
@@ -292,6 +313,7 @@ export function MessageThread({
                 message={msg}
                 isOwn={msg.sender_id === currentUserId}
                 showSeen={msg.id === lastSeenMessageId}
+                liked={likesMap[msg.id] ?? false}
               />
             ))}
           </div>
