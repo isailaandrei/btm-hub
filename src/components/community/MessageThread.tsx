@@ -28,6 +28,8 @@ export function MessageThread({
   const [lastReadAt, setLastReadAt] = useState<string | null>(recipientLastReadAt);
   const [hasMore, setHasMore] = useState(initialMessages.length >= MESSAGES_PAGE_SIZE);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Track likes: messageId → { liked by current user, total count }
+  const [likesMap, setLikesMap] = useState<Record<string, { liked: boolean; count: number }>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -114,6 +116,31 @@ export function MessageThread({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, []);
+
+  // Fetch likes for all messages on mount
+  useEffect(() => {
+    async function fetchLikes() {
+      const supabase = getSupabase();
+      const messageIds = initialMessages.map((m) => m.id);
+      if (messageIds.length === 0) return;
+
+      const { data: allLikes } = await supabase
+        .from("dm_message_likes")
+        .select("message_id, user_id")
+        .in("message_id", messageIds);
+
+      if (!allLikes) return;
+
+      const map: Record<string, { liked: boolean; count: number }> = {};
+      for (const like of allLikes) {
+        if (!map[like.message_id]) map[like.message_id] = { liked: false, count: 0 };
+        map[like.message_id].count++;
+        if (like.user_id === currentUserId) map[like.message_id].liked = true;
+      }
+      setLikesMap(map);
+    }
+    fetchLikes();
+  }, [initialMessages, currentUserId]);
 
   // Scroll to bottom when new messages are added at the end
   const prevMessageCountRef = useRef(initialMessages.length);
@@ -243,6 +270,46 @@ export function MessageThread({
           }
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "dm_message_likes",
+        },
+        (payload) => {
+          const like = payload.new as { message_id: string; user_id: string };
+          if (like.user_id !== currentUserId) {
+            setLikesMap((prev) => ({
+              ...prev,
+              [like.message_id]: {
+                liked: prev[like.message_id]?.liked ?? false,
+                count: (prev[like.message_id]?.count ?? 0) + 1,
+              },
+            }));
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "dm_message_likes",
+        },
+        (payload) => {
+          const like = payload.old as { message_id: string; user_id: string };
+          if (like.user_id !== currentUserId) {
+            setLikesMap((prev) => ({
+              ...prev,
+              [like.message_id]: {
+                liked: prev[like.message_id]?.liked ?? false,
+                count: Math.max((prev[like.message_id]?.count ?? 1) - 1, 0),
+              },
+            }));
+          }
+        },
+      )
       .subscribe();
 
     channelRef.current = channel;
@@ -292,6 +359,7 @@ export function MessageThread({
                 message={msg}
                 isOwn={msg.sender_id === currentUserId}
                 showSeen={msg.id === lastSeenMessageId}
+                liked={likesMap[msg.id]?.liked ?? false}
               />
             ))}
           </div>
