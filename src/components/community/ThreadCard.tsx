@@ -63,8 +63,8 @@ export function ThreadCard({ thread, query }: ThreadCardProps) {
 
   return (
     <Link href={`/community/${thread.slug}`} className="group block">
-      <Card className="transition-colors group-hover:border-primary/30">
-        <CardContent className="flex gap-3 px-3 py-1.5">
+      <Card className="py-0 transition-colors group-hover:border-primary/30">
+        <CardContent className="flex gap-3 px-3">
           <UserAvatar
             name={thread.author?.display_name ?? null}
             avatarUrl={thread.author?.avatar_url}
