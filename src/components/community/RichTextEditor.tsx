@@ -75,7 +75,7 @@ export function RichTextEditor({
 }: RichTextEditorProps) {
   const uploadFile = uploadFileProp ?? uploadMessageFile;
   const containerRef = useRef<HTMLDivElement>(null);
-  const [bodyHtml, setBodyHtml] = useState(defaultValue);
+  const hiddenRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -133,7 +133,9 @@ export function RichTextEditor({
       },
     },
     onUpdate({ editor: e }) {
-      setBodyHtml(e.isEmpty ? "" : e.getHTML());
+      if (hiddenRef.current) {
+        hiddenRef.current.value = e.isEmpty ? "" : e.getHTML();
+      }
     },
     onTransaction({ editor: e }) {
       setEditorState({
@@ -187,16 +189,16 @@ export function RichTextEditor({
           }
         }
 
-        // Append attachment HTML to the body and re-submit after state update
-        const attachmentHtml = uploaded.join("");
-        setBodyHtml((prev) => (prev || "") + attachmentHtml);
+        // Append attachment HTML to the hidden body input
+        if (hiddenRef.current) {
+          hiddenRef.current.value = (hiddenRef.current.value || "") + uploaded.join("");
+        }
+
         setAttachments([]);
         setIsUploading(false);
 
-        // Wait for React to flush the state update before re-submitting
-        requestAnimationFrame(() => {
-          form!.requestSubmit();
-        });
+        // Re-submit the form now that attachments are in the body
+        form!.requestSubmit();
       } catch {
         setUploadError("Upload failed. Please try again.");
         setIsUploading(false);
@@ -446,7 +448,7 @@ export function RichTextEditor({
       {/* Hidden form inputs (thread variant) */}
       {isThread && name && (
         <>
-          <input type="hidden" name={name} value={bodyHtml} readOnly />
+          <input ref={hiddenRef} type="hidden" name={name} defaultValue={defaultValue} />
           <input type="hidden" name="bodyFormat" value="html" />
         </>
       )}
