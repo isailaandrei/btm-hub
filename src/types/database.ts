@@ -177,5 +177,5 @@ export interface DmReadReceipt {
 }
 
 export interface OptimisticDmMessage extends DmMessageWithSender {
-  _optimistic?: "sending" | "failed";
+  _optimistic?: "sending";
 }

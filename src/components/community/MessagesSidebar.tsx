@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Search, X, Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getInitials } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
@@ -229,14 +229,7 @@ export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
     };
   }, [searchQuery, currentUserId, conversations]);
 
-  function getInitials(name: string | null): string {
-    return (name || "?")
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  }
+
 
   return (
     <div>

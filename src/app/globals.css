@@ -190,8 +190,8 @@ button,
   @apply text-primary font-medium;
 }
 
-/* DM message prose — kill margins from prose-community (needs higher specificity) */
-.prose-dm.prose-community p {
+/* DM message prose — kill paragraph margins for chat bubbles */
+.prose-dm p {
   @apply mb-0;
 }
 

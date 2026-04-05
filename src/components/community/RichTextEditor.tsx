@@ -165,7 +165,7 @@ function Toolbar({
   onAddImage,
   isUploading = false,
 }: {
-  editor: ReturnType<typeof useEditor> & {};
+  editor: NonNullable<ReturnType<typeof useEditor>>;
   onAddLink: () => void;
   onAddImage: () => void;
   isUploading?: boolean;

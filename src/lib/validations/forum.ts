@@ -42,8 +42,3 @@ export const editReplySchema = z.object({
     .max(10000, "Reply must be under 10,000 characters"),
   bodyFormat: bodyFormatSchema,
 });
-
-export type CreateThreadInput = z.infer<typeof createThreadSchema>;
-export type CreateReplyInput = z.infer<typeof createReplySchema>;
-export type EditThreadInput = z.infer<typeof editThreadSchema>;
-export type EditReplyInput = z.infer<typeof editReplySchema>;

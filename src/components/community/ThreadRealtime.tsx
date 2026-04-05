@@ -31,7 +31,10 @@ export function ThreadRealtime({
     return supabaseRef.current;
   }
 
-  // Sync with server-rendered data when it changes (e.g. after revalidation)
+  // Sync with server-rendered data when props change (e.g. after revalidation).
+  // This is the React-recommended "previous value in state" pattern (replaces
+  // getDerivedStateFromProps) — updating state during render is safe when
+  // guarded by a comparison. See: https://react.dev/reference/react/useState#storing-information-from-previous-renders
   const [prevInitial, setPrevInitial] = useState(initialReplies);
   if (initialReplies !== prevInitial) {
     setPrevInitial(initialReplies);

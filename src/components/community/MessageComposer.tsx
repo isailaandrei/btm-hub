@@ -9,7 +9,7 @@ import NextImage from "next/image";
 import { useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import data from "@emoji-mart/data";
-import { cn } from "@/lib/utils";
+import { cn, escapeHtml } from "@/lib/utils";
 import { Bold, Italic, Send, Paperclip, Loader2, Smile, X, FileText } from "lucide-react";
 import { sendMessage, uploadMessageFile } from "@/app/(marketing)/community/messages/actions";
 import { mentionSuggestion } from "./mention-suggestion";
@@ -121,8 +121,6 @@ export function MessageComposer({ conversationId, onSend }: MessageComposerProps
       }
 
       // Build final HTML: text + attachments
-      const escapeHtml = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
       const attachmentHtml = uploaded
         .map((f) =>
           f.isImage

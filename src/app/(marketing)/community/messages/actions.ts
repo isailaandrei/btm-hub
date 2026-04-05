@@ -137,6 +137,25 @@ export async function sendMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function getOwnedMessage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  messageId: string,
+  userId: string,
+) {
+  const { data, error } = await supabase
+    .from("dm_messages")
+    .select("sender_id, conversation_id")
+    .eq("id", messageId)
+    .single();
+  if (error || !data) throw new Error("Message not found");
+  if (data.sender_id !== userId) throw new Error("You can only modify your own messages");
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 // Edit message (imperative — called directly, throws on error)
 // ---------------------------------------------------------------------------
 
@@ -151,15 +170,7 @@ export async function editMessage(messageId: string, body: string, bodyFormat: "
 
   const sanitizedBody = bodyFormat === "html" ? sanitizeBody(body) : body;
   const supabase = await createClient();
-
-  const { data: msg, error: fetchError } = await supabase
-    .from("dm_messages")
-    .select("sender_id, conversation_id")
-    .eq("id", messageId)
-    .single();
-
-  if (fetchError || !msg) throw new Error("Message not found");
-  if (msg.sender_id !== user.id) throw new Error("You can only edit your own messages");
+  const msg = await getOwnedMessage(supabase, messageId, user.id);
 
   const { error } = await supabase
     .from("dm_messages")
@@ -187,15 +198,7 @@ export async function deleteMessage(messageId: string): Promise<void> {
   if (!user) throw new Error("Not authenticated");
 
   const supabase = await createClient();
-
-  const { data: msg, error: fetchError } = await supabase
-    .from("dm_messages")
-    .select("sender_id, conversation_id")
-    .eq("id", messageId)
-    .single();
-
-  if (fetchError || !msg) throw new Error("Message not found");
-  if (msg.sender_id !== user.id) throw new Error("You can only delete your own messages");
+  const msg = await getOwnedMessage(supabase, messageId, user.id);
 
   const { error } = await supabase
     .from("dm_messages")

@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, Heart } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getInitials, escapeHtml } from "@/lib/utils";
 import { editMessage, deleteMessage, toggleMessageLike } from "@/app/(marketing)/community/messages/actions";
 import type { OptimisticDmMessage } from "@/types/database";
 
@@ -59,12 +59,7 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
     }
   }, [router]);
 
-  const initials = (message.sender?.display_name || "?")
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  const initials = getInitials(message.sender?.display_name ?? null);
 
   const time = (() => {
     const date = new Date(message.created_at);
@@ -226,7 +221,7 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
                 message.body_format === "html" && (isOwn ? "prose-dm-own" : "prose-dm prose-community"),
                 message.body_format !== "html" && "whitespace-pre-wrap",
               )}
-              dangerouslySetInnerHTML={{ __html: message.body_format === "html" ? message.body : message.body }}
+              dangerouslySetInnerHTML={{ __html: message.body_format === "html" ? message.body : escapeHtml(message.body) }}
             />
           </div>
         )}
@@ -253,7 +248,10 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
           <button
             type="button"
             onClick={() => {
-              // Strip HTML tags so the user edits plain text, not raw HTML
+              // Strip HTML tags — editing uses a plain textarea, so the user
+              // edits as plaintext and saves as bodyFormat="text". This is
+              // intentionally lossy (formatting lost). Inline TipTap editing
+              // would preserve formatting but is out of scope for now.
               const plainText = message.body.replace(/<[^>]*>/g, "").trim();
               setEditBody(plainText);
               setIsEditing(true);

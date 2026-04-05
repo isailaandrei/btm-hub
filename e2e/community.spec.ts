@@ -43,14 +43,12 @@ test.describe("Feed page", () => {
 
     const seeMoreButtons = page.getByText("See more");
     const countBefore = await seeMoreButtons.count();
-    console.log(`"See more" buttons before: ${countBefore}`);
 
     if (countBefore > 0) {
       await seeMoreButtons.first().click();
       await page.waitForTimeout(500);
       // One fewer "See more" button after expanding
       const countAfter = await seeMoreButtons.count();
-      console.log(`"See more" buttons after: ${countAfter}`);
       expect(countAfter).toBe(countBefore - 1);
     }
   });
@@ -66,7 +64,6 @@ test.describe("Feed page", () => {
     // Click should navigate to thread detail
     await commentLink.click();
     await page.waitForURL(/\/community\/[a-z0-9-]+/);
-    console.log("Navigated to thread:", page.url());
   });
 
   test("top replies shown with View all link", async ({ page }) => {
@@ -119,7 +116,6 @@ test.describe("Thread detail page", () => {
 
     // Verify the page loaded with replies
     const replyCount = await page.locator("button:has(.lucide-heart)").count();
-    console.log(`Like buttons on thread page: ${replyCount}`);
     expect(replyCount).toBeGreaterThan(1); // OP + at least 1 reply
   });
 });
@@ -148,8 +144,7 @@ test.describe("Create new post", () => {
     await page.waitForTimeout(1000);
 
     // Should show validation error (title required)
-    const body = await page.locator("body").textContent();
-    console.log("After empty submit, errors visible:", body?.includes("required") || body?.includes("at least"));
+    await expect(page.locator("body")).toContainText(/required|at least/i);
   });
 });
 
@@ -179,9 +174,6 @@ test.describe("Admin actions", () => {
     const lockBtn = page.getByRole("button", { name: /^(Lock|Unlock)$/ });
     const deleteBtn = page.getByRole("button", { name: "Delete Thread" });
 
-    console.log("Pin button:", await pinBtn.count() > 0 ? "visible" : "missing");
-    console.log("Lock button:", await lockBtn.count() > 0 ? "visible" : "missing");
-    console.log("Delete button:", await deleteBtn.count() > 0 ? "visible" : "missing");
 
     await expect(pinBtn).toBeVisible();
     await expect(lockBtn).toBeVisible();
@@ -194,22 +186,18 @@ test.describe("Admin actions", () => {
 
     // Go to a thread
     const title = page.locator("[data-slot='card'] h3").nth(1); // skip pinned
-    const titleText = await title.textContent();
-    console.log("Testing pin on thread:", titleText);
     await title.click();
     await page.waitForURL(/\/community\/[a-z0-9-]+/, { timeout: 10_000 });
     await page.waitForTimeout(2000);
 
     const pinBtn = page.getByRole("button", { name: /^(Pin|Unpin)$/ });
     const btnText = await pinBtn.textContent();
-    console.log("Pin button text:", btnText);
 
     await pinBtn.click();
     await page.waitForTimeout(2000);
 
     // Button text should toggle
     const newBtnText = await pinBtn.textContent();
-    console.log("Pin button text after click:", newBtnText);
     expect(newBtnText).not.toBe(btnText);
   });
 
@@ -224,13 +212,11 @@ test.describe("Admin actions", () => {
 
     const lockBtn = page.getByRole("button", { name: /^(Lock|Unlock)$/ });
     const btnText = await lockBtn.textContent();
-    console.log("Lock button text:", btnText);
 
     await lockBtn.click();
     await page.waitForTimeout(2000);
 
     const newBtnText = await lockBtn.textContent();
-    console.log("Lock button text after click:", newBtnText);
     expect(newBtnText).not.toBe(btnText);
   });
 
@@ -238,14 +224,8 @@ test.describe("Admin actions", () => {
     await page.goto("/community");
     await page.waitForSelector("[data-slot='card']", { timeout: 10_000 });
 
-    // Count cards before
-    const cardsBefore = await page.locator("[data-slot='card']").count();
-    console.log("Cards before delete:", cardsBefore);
-
     // Go to the last thread (least important)
     const lastTitle = page.locator("[data-slot='card'] h3").last();
-    const titleText = await lastTitle.textContent();
-    console.log("Deleting thread:", titleText);
     await lastTitle.click();
     await page.waitForURL(/\/community\/[a-z0-9-]+/, { timeout: 10_000 });
     await page.waitForTimeout(2000);
@@ -262,12 +242,9 @@ test.describe("Admin actions", () => {
     await page.waitForTimeout(5000);
 
     await page.screenshot({ path: "e2e/screenshots/after-delete.png", fullPage: false });
-    console.log("After delete, URL:", page.url());
 
-    // Should redirect back to /community or show error
-    const body = await page.locator("body").textContent();
-    const hasError = body?.toLowerCase().includes("error") || body?.toLowerCase().includes("failed");
-    console.log("Has error:", hasError);
+    // Should redirect back to /community
+    await page.waitForURL(/\/community/, { timeout: 10_000 });
   });
 
   test("admin add channel form appears", async ({ page }) => {
@@ -282,11 +259,9 @@ test.describe("Admin actions", () => {
 
       const input = page.locator("aside input[name='name']");
       await expect(input).toBeVisible();
-      console.log("Add channel form visible: true");
 
       await page.screenshot({ path: "e2e/screenshots/add-channel-form.png", fullPage: false });
     } else {
-      console.log("Add channel button not found in sidebar");
     }
   });
 
@@ -303,7 +278,6 @@ test.describe("Admin actions", () => {
     // Look for Edit button
     const editBtn = page.getByRole("button", { name: "Edit" }).first();
     const editVisible = await editBtn.count() > 0;
-    console.log("Edit button visible:", editVisible);
 
     if (editVisible) {
       await editBtn.click();
@@ -325,14 +299,12 @@ test.describe("Admin actions", () => {
     // Find delete buttons (should be on replies for admin)
     const deleteButtons = page.getByRole("button", { name: "Delete" }).filter({ hasNotText: "Thread" });
     const deleteCount = await deleteButtons.count();
-    console.log("Delete reply buttons:", deleteCount);
 
     if (deleteCount > 0) {
       page.on("dialog", (dialog) => dialog.accept());
       await deleteButtons.first().click();
       await page.waitForTimeout(3000);
       await page.screenshot({ path: "e2e/screenshots/after-reply-delete.png", fullPage: false });
-      console.log("After reply delete, URL:", page.url());
     }
   });
 });
@@ -366,6 +338,5 @@ test.describe("Regular user permissions", () => {
     expect(await pinBtn.count()).toBe(0);
     expect(await lockBtn.count()).toBe(0);
 
-    console.log("Regular user correctly sees no admin controls");
   });
 });

@@ -2,86 +2,9 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/data/auth";
 import type {
-  DmConversationWithParticipant,
   DmMessageWithSender,
   Profile,
 } from "@/types/database";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface UnreadCounts {
-  /** Map of conversationId → unread count */
-  byConversation: Record<string, number>;
-  /** Total unread across all conversations */
-  total: number;
-}
-
-// ---------------------------------------------------------------------------
-// Conversations
-// ---------------------------------------------------------------------------
-
-export const getConversations = cache(async function getConversations(): Promise<
-  DmConversationWithParticipant[]
-> {
-  const user = await getAuthUser();
-  if (!user) return [];
-
-  const supabase = await createClient();
-
-  // Fetch conversations where user is a participant
-  const { data, error } = await supabase
-    .from("dm_conversations")
-    .select("*")
-    .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-    .order("last_message_at", { ascending: false })
-    .limit(30);
-
-  if (error) throw new Error(`Failed to fetch conversations: ${error.message}`);
-
-  if (!data || data.length === 0) return [];
-
-  // Get the other participant's profile for each conversation
-  const otherUserIds = data.map((c) =>
-    c.user1_id === user.id ? c.user2_id : c.user1_id,
-  );
-
-  const uniqueIds = [...new Set(otherUserIds)];
-
-  // Fetch profiles and unread counts in parallel (single RPC, no N+1)
-  const [{ data: profiles, error: profilesError }, { data: unreadRows, error: unreadError }] =
-    await Promise.all([
-      supabase
-        .from("profiles")
-        .select("id, display_name, avatar_url")
-        .in("id", uniqueIds),
-      supabase.rpc("dm_unread_counts", { _user_id: user.id }),
-    ]);
-
-  if (profilesError) throw new Error(`Failed to fetch profiles: ${profilesError.message}`);
-  if (unreadError) throw new Error(`Failed to fetch unread counts: ${unreadError.message}`);
-
-  const profileMap = new Map(
-    (profiles ?? []).map((p) => [p.id, p as Pick<Profile, "id" | "display_name" | "avatar_url">]),
-  );
-
-  const unreadMap = new Map(
-    (unreadRows ?? []).map((r: { conversation_id: string; unread_count: number }) => [
-      r.conversation_id,
-      r.unread_count,
-    ]),
-  );
-
-  return data.map((c) => {
-    const otherId = c.user1_id === user.id ? c.user2_id : c.user1_id;
-    return {
-      ...c,
-      participant: profileMap.get(otherId) ?? null,
-      unread_count: unreadMap.get(c.id) ?? 0,
-    };
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Messages
@@ -198,29 +121,3 @@ export const getRecipientLastReadAt = cache(async function getRecipientLastReadA
   return data?.last_read_at ?? null;
 });
 
-// ---------------------------------------------------------------------------
-// Unread counts (single RPC call — no N+1)
-// ---------------------------------------------------------------------------
-
-export const getUnreadCounts = cache(async function getUnreadCounts(): Promise<UnreadCounts> {
-  const user = await getAuthUser();
-  if (!user) return { byConversation: {}, total: 0 };
-
-  const supabase = await createClient();
-
-  const { data, error } = await supabase.rpc("dm_unread_counts", {
-    _user_id: user.id,
-  });
-
-  if (error) throw new Error(`Failed to fetch unread counts: ${error.message}`);
-
-  const byConversation: Record<string, number> = {};
-  let total = 0;
-
-  for (const row of data ?? []) {
-    byConversation[row.conversation_id] = row.unread_count;
-    total += row.unread_count;
-  }
-
-  return { byConversation, total };
-});

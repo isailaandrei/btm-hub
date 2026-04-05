@@ -14,13 +14,10 @@ async function login(page: Page, user: { email: string; password: string }) {
   });
 }
 
-// Create a small test image file
 function createTestImage(): string {
   const dir = join(process.cwd(), "e2e", "fixtures");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "test-image.png");
-
-  // Minimal valid 1x1 red PNG
   const png = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
     "base64",
@@ -29,74 +26,134 @@ function createTestImage(): string {
   return path;
 }
 
+async function openAdminConversation(page: Page) {
+  await page.goto("/community/messages");
+  await expect(page.getByText("Admin User")).toBeVisible({ timeout: 10_000 });
+  await page.getByText("Admin User").click();
+  await page.waitForURL(/\/community\/messages\/[a-f0-9-]+/, { timeout: 10_000 });
+  await page.waitForTimeout(1000);
+}
+
 test.describe("Image attachments", () => {
   test.setTimeout(60_000);
 
-  test("can attach an image and see the preview", async ({ page }) => {
+  test("can attach an image and see the preview thumbnail", async ({ page }) => {
     await login(page, TEST_USER);
-    await page.goto("/community/messages");
+    await openAdminConversation(page);
 
-    // Open conversation with Emma
-    await expect(page.getByText("Emma Thompson")).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByText("Emma Thompson").click();
-    await page.waitForURL(/\/community\/messages\/[a-f0-9-]+/, {
-      timeout: 10_000,
-    });
-
-    // Create test image
     const imagePath = createTestImage();
-
-    // Listen for console output from the app
-    page.on("console", (msg) => {
-      console.log(`[browser ${msg.type()}]`, msg.text());
-    });
-
-    // Use setInputFiles on the image file input (the one with accept="image/*")
-    const fileInput = page.locator('input[type="file"][accept*="image"]');
+    const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
 
-    // Wait for React state to update
-    await page.waitForTimeout(1000);
-
-    // Take a screenshot
-    await page.screenshot({
-      path: "e2e/screenshots/attachment-after-select.png",
-      fullPage: false,
-    });
-
-    // The preview thumbnail should appear
     const preview = page.locator('img[alt="test-image.png"]');
     await expect(preview).toBeVisible({ timeout: 5_000 });
+
+    await page.screenshot({ path: "e2e/screenshots/image-attachment-preview.png", fullPage: false });
   });
 
-  test("clicking 'Add image' button triggers file input", async ({
-    page,
-  }) => {
+  test("clicking attach button opens file picker", async ({ page }) => {
     await login(page, TEST_USER);
-    await page.goto("/community/messages");
+    await openAdminConversation(page);
 
-    await expect(page.getByText("Emma Thompson")).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByText("Emma Thompson").click();
-    await page.waitForURL(/\/community\/messages\/[a-f0-9-]+/, {
-      timeout: 10_000,
-    });
-
-    // Check that the "Add image" button exists
-    const imageBtn = page.getByTitle("Add image");
-    await expect(imageBtn).toBeVisible();
-
-    // Verify clicking it triggers the file input
-    // We can check this by listening for the file chooser
     const [fileChooser] = await Promise.all([
       page.waitForEvent("filechooser", { timeout: 5_000 }),
-      imageBtn.click(),
+      page.getByTitle("Attach file").click(),
     ]);
 
     expect(fileChooser).toBeTruthy();
-    console.log("File chooser opened:", fileChooser.isMultiple());
+    expect(fileChooser.isMultiple()).toBe(true);
+  });
+
+  test("can remove an attached image before sending", async ({ page }) => {
+    await login(page, TEST_USER);
+    await openAdminConversation(page);
+
+    const imagePath = createTestImage();
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
+
+    const preview = page.locator('img[alt="test-image.png"]');
+    await expect(preview).toBeVisible({ timeout: 5_000 });
+
+    // Hover to reveal remove button
+    const previewContainer = preview.locator("..");
+    await previewContainer.hover();
+    await page.getByTitle("Remove").click();
+
+    await expect(preview).not.toBeVisible();
+  });
+
+  test("can attach multiple images", async ({ page }) => {
+    await login(page, TEST_USER);
+    await openAdminConversation(page);
+
+    const imagePath = createTestImage();
+    const fileInput = page.locator('input[type="file"]');
+
+    // Attach first image
+    await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
+
+    // Attach second image
+    await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
+
+    // Should have 2 preview thumbnails
+    const previews = page.locator('img[alt="test-image.png"]');
+    await expect(previews).toHaveCount(2);
+  });
+
+  test("can send an image with text and see both in chat", async ({ page }) => {
+    await login(page, TEST_USER);
+    await openAdminConversation(page);
+
+    const imagePath = createTestImage();
+
+    // Attach image
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
+    await expect(page.locator('img[alt="test-image.png"]')).toBeVisible();
+
+    // Type text
+    const editor = page.locator(".ProseMirror");
+    await editor.click();
+    await editor.fill("Here is the photo!");
+
+    // Send
+    await page.getByTitle("Send message").click();
+
+    // Text should appear in a message bubble
+    await expect(page.getByText("Here is the photo!")).toBeVisible({ timeout: 30_000 });
+
+    // Image should appear in the chat (uploaded to Supabase storage)
+    const chatImage = page.locator(".overflow-y-auto img[src*='community-files']");
+    await expect(chatImage.first()).toBeVisible({ timeout: 30_000 });
+
+    // Attachment preview should be cleared
+    await expect(page.locator('img[alt="test-image.png"]')).not.toBeVisible();
+
+    await page.screenshot({ path: "e2e/screenshots/image-sent-in-chat.png", fullPage: false });
+  });
+
+  test("can send image-only message without text", async ({ page }) => {
+    await login(page, TEST_USER);
+    await openAdminConversation(page);
+
+    const imagePath = createTestImage();
+
+    // Attach image, no text
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(imagePath);
+    await page.waitForTimeout(500);
+
+    // Send
+    await page.getByTitle("Send message").click();
+
+    // Image should appear in chat
+    const chatImage = page.locator(".overflow-y-auto img[src*='community-files']");
+    await expect(chatImage.first()).toBeVisible({ timeout: 30_000 });
   });
 });

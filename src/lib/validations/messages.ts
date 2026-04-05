@@ -21,7 +21,3 @@ export const editMessageSchema = z.object({
 export const startConversationSchema = z.object({
   recipientId: z.string().uuid("Invalid user ID"),
 });
-
-export type SendMessageInput = z.infer<typeof sendMessageSchema>;
-export type EditMessageInput = z.infer<typeof editMessageSchema>;
-export type StartConversationInput = z.infer<typeof startConversationSchema>;
