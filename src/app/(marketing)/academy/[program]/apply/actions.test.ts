@@ -61,6 +61,7 @@ await import("@/lib/academy/forms");
 const mockApplication: Application = {
   id: "app-123",
   user_id: null,
+  contact_id: null,
   program: "photography" as ProgramSlug,
   status: "reviewing",
   answers: {},
@@ -76,6 +77,10 @@ vi.mock("@/lib/data/applications", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/lib/data/applications")>();
   return { ...orig, submitApplication: mockSubmitApplication };
 });
+
+vi.mock("@/lib/data/contacts", () => ({
+  findOrCreateContact: vi.fn().mockResolvedValue("mock-contact-id"),
+}));
 
 const { submitAcademyApplication } = await import("./actions");
 
@@ -131,6 +136,7 @@ describe("submitAcademyApplication", () => {
     mockBuildFullSchema.mockReturnValueOnce(z.object({}).passthrough());
 
     const formData = new FormData();
+    formData.set("email", "alice@example.com");
     formData.set("first_name", "Alice");
     formData.set("last_name", "Smith");
 
@@ -143,12 +149,15 @@ describe("submitAcademyApplication", () => {
     mockBuildFullSchema.mockReturnValueOnce(z.object({}).passthrough());
 
     const formData = new FormData();
+    formData.set("email", "alice@example.com");
     formData.set("first_name", "Alice");
+    formData.set("last_name", "Smith");
 
     await expect(
       submitAcademyApplication("photography", prevState, formData),
     ).rejects.toThrow(RedirectError);
 
+    mockBuildFullSchema.mockReturnValueOnce(z.object({}).passthrough());
     try {
       await submitAcademyApplication("photography", prevState, formData);
     } catch (e) {

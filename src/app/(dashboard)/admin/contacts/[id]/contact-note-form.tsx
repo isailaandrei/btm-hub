@@ -4,11 +4,11 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { addNote } from "../actions";
 
-interface NoteFormProps {
-  applicationId: string;
+interface ContactNoteFormProps {
+  contactId: string;
 }
 
-export function NoteForm({ applicationId }: NoteFormProps) {
+export function ContactNoteForm({ contactId }: ContactNoteFormProps) {
   const [text, setText] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -17,7 +17,7 @@ export function NoteForm({ applicationId }: NoteFormProps) {
     if (!text.trim()) return;
     startTransition(async () => {
       try {
-        await addNote(applicationId, text);
+        await addNote(contactId, text);
         setText("");
       } catch {
         toast.error("Failed to add note. Please try again.");
@@ -32,6 +32,7 @@ export function NoteForm({ applicationId }: NoteFormProps) {
         onChange={(e) => setText(e.target.value)}
         placeholder="Add a note..."
         rows={3}
+        maxLength={2000}
         className="resize-none rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
       />
       <button

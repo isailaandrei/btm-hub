@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { Tag } from "@/components/ui/Tag";
-import { FORUM_TOPICS } from "@/lib/community/topics";
+import { getForumTopics } from "@/lib/data/forum";
 
-const topics = Object.values(FORUM_TOPICS);
-
-export function CommunitySection() {
+export async function CommunitySection() {
+  const topics = await getForumTopics();
   return (
     <section className="bg-muted px-5 py-12 md:px-24 md:py-24">
       <div className="flex flex-col items-center gap-6 text-center md:gap-10">

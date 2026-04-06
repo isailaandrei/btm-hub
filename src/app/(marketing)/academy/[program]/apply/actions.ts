@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { submitApplication } from "@/lib/data/applications";
+import { findOrCreateContact } from "@/lib/data/contacts";
 import { getFormDefinition } from "@/lib/academy/forms";
 import { buildFullSchema } from "@/lib/academy/forms/schema-builder";
 import { getProgram } from "@/lib/academy/programs";
@@ -100,6 +101,13 @@ export async function submitAcademyApplication(
     };
   }
 
+  // Find or create contact from the applicant's email
+  const contactId = await findOrCreateContact(
+    parsed.data.email as string,
+    [parsed.data.first_name, parsed.data.last_name].filter(Boolean).join(" ") || "Unknown",
+    (parsed.data.phone as string) ?? null,
+  );
+
   // Get current user (optional — guest applications are allowed)
   const supabase = await createClient();
   const {
@@ -111,6 +119,7 @@ export async function submitAcademyApplication(
       programSlug as ProgramSlug,
       parsed.data as Record<string, unknown>,
       user?.id,
+      contactId,
     );
   } catch (err) {
     console.error("submitApplication error:", err);

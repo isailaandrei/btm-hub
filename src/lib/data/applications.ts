@@ -112,6 +112,7 @@ export async function submitApplication(
   program: ProgramSlug,
   answers: Record<string, unknown>,
   userId?: string,
+  contactId: string | null = null,
 ): Promise<Application> {
   const supabase = await createClient();
 
@@ -121,6 +122,7 @@ export async function submitApplication(
       program,
       answers,
       user_id: userId ?? null,
+      contact_id: contactId,
       status: "reviewing" as ApplicationStatus,
       tags: [],
       admin_notes: [],
