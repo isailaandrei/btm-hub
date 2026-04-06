@@ -28,7 +28,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import type { Application, Profile } from "@/types/database";
+import type { Application, Profile, Contact, TagCategory, Tag, ContactTag } from "@/types/database";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 type FetchState = "idle" | "loading" | "done";
@@ -40,6 +40,12 @@ interface AdminDataContextValue {
   profilesError: string | null;
   ensureApplications: () => void;
   ensureProfiles: () => void;
+  contacts: Contact[] | null;
+  tagCategories: TagCategory[] | null;
+  tags: Tag[] | null;
+  contactTags: ContactTag[] | null;
+  contactsError: string | null;
+  ensureContacts: () => void;
 }
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
@@ -56,8 +62,15 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [appsError, setAppsError] = useState<string | null>(null);
   const [profilesError, setProfilesError] = useState<string | null>(null);
 
+  const [contacts, setContacts] = useState<Contact[] | null>(null);
+  const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(null);
+  const [tags, setTags] = useState<Tag[] | null>(null);
+  const [contactTags, setContactTags] = useState<ContactTag[] | null>(null);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+
   const appsFetchState = useRef<FetchState>("idle");
   const profilesFetchState = useRef<FetchState>("idle");
+  const contactsFetchState = useRef<FetchState>("idle");
   const channelsRef = useRef<RealtimeChannel[]>([]);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
 
@@ -188,6 +201,125 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     fetchProfiles();
   }, []);
 
+  const ensureContacts = useCallback(() => {
+    if (contactsFetchState.current !== "idle") return;
+    contactsFetchState.current = "loading";
+
+    const supabase = getSupabase();
+
+    async function fetchContacts() {
+      const [
+        { data: contactsData, error: contactsErr },
+        { data: tagCategoriesData, error: tagCategoriesErr },
+        { data: tagsData, error: tagsErr },
+        { data: contactTagsData, error: contactTagsErr },
+      ] = await Promise.all([
+        supabase.from("contacts").select("*").order("name"),
+        supabase.from("tag_categories").select("*").order("sort_order"),
+        supabase.from("tags").select("*").order("sort_order"),
+        supabase.from("contact_tags").select("*"),
+      ]);
+
+      const fetchError = contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr;
+      if (fetchError) {
+        contactsFetchState.current = "idle";
+        setContactsError("Failed to load contacts.");
+        toast.error("Failed to load contacts. Please try again.");
+        return;
+      }
+
+      setContactsError(null);
+      setContacts(contactsData ?? []);
+      setTagCategories(tagCategoriesData ?? []);
+      setTags(tagsData ?? []);
+      setContactTags(contactTagsData ?? []);
+      contactsFetchState.current = "done";
+
+      // Subscribe to Realtime only after the initial fetch succeeds
+      const contactsChannel = supabase
+        .channel("admin-contacts")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "contacts" },
+          (payload) => {
+            setContacts((prev) => [payload.new as Contact, ...(prev ?? [])]);
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "contacts" },
+          (payload) => {
+            setContacts((prev) =>
+              (prev ?? []).map((c) =>
+                c.id === (payload.new as Contact).id ? (payload.new as Contact) : c
+              )
+            );
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "contacts" },
+          (payload) => {
+            setContacts((prev) =>
+              (prev ?? []).filter((c) => c.id !== (payload.old as Contact).id)
+            );
+          },
+        )
+        .subscribe();
+
+      const contactTagsChannel = supabase
+        .channel("admin-contact-tags")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "contact_tags" },
+          (payload) => {
+            setContactTags((prev) => [...(prev ?? []), payload.new as ContactTag]);
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "contact_tags" },
+          (payload) => {
+            const deleted = payload.old as ContactTag;
+            setContactTags((prev) =>
+              (prev ?? []).filter(
+                (ct) => !(ct.contact_id === deleted.contact_id && ct.tag_id === deleted.tag_id)
+              )
+            );
+          },
+        )
+        .subscribe();
+
+      const tagCategoriesChannel = supabase
+        .channel("admin-tag-categories")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "tag_categories" },
+          async () => {
+            const { data } = await supabase.from("tag_categories").select("*").order("sort_order");
+            if (data) setTagCategories(data);
+          },
+        )
+        .subscribe();
+
+      const tagsChannel = supabase
+        .channel("admin-tags")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "tags" },
+          async () => {
+            const { data } = await supabase.from("tags").select("*").order("sort_order");
+            if (data) setTags(data);
+          },
+        )
+        .subscribe();
+
+      channelsRef.current.push(contactsChannel, contactTagsChannel, tagCategoriesChannel, tagsChannel);
+    }
+
+    fetchContacts();
+  }, []);
+
   // Cleanup only the channels that were actually created
   useEffect(() => {
     return () => {
@@ -202,7 +334,20 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   return (
     <AdminDataContext.Provider
-      value={{ applications, profiles, appsError, profilesError, ensureApplications, ensureProfiles }}
+      value={{
+          applications,
+          profiles,
+          appsError,
+          profilesError,
+          ensureApplications,
+          ensureProfiles,
+          contacts,
+          tagCategories,
+          tags,
+          contactTags,
+          contactsError,
+          ensureContacts,
+        }}
     >
       {children}
     </AdminDataContext.Provider>
