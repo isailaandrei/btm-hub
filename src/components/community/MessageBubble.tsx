@@ -3,7 +3,8 @@
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, Heart } from "lucide-react";
-import { cn, getInitials, escapeHtml } from "@/lib/utils";
+import { cn, escapeHtml } from "@/lib/utils";
+import { UserAvatar } from "./UserAvatar";
 import { editMessage, deleteMessage, toggleMessageLike } from "@/app/(marketing)/community/messages/actions";
 import type { OptimisticDmMessage } from "@/types/database";
 
@@ -58,8 +59,6 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
       if (userId) router.push(`/community/members/${userId}`);
     }
   }, [router]);
-
-  const initials = getInitials(message.sender?.display_name ?? null);
 
   const time = (() => {
     const date = new Date(message.created_at);
@@ -130,9 +129,13 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
         <button
           type="button"
           onClick={() => message.sender?.id && router.push(`/community/members/${message.sender.id}`)}
-          className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-medium text-primary transition-opacity hover:opacity-75"
+          className="mt-1 shrink-0 transition-opacity hover:opacity-75"
         >
-          {initials}
+          <UserAvatar
+            name={message.sender?.display_name ?? null}
+            avatarUrl={message.sender?.avatar_url}
+            size="sm"
+          />
         </button>
       )}
 
