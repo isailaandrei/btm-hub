@@ -76,6 +76,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
             <Link
               key={link.href}
               href={link.href}
+              prefetch={false}
               className={`text-base font-normal transition-opacity hover:opacity-75 ${textClass}`}
             >
               {link.label}
@@ -115,6 +116,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
             <Link
               key={link.href}
               href={link.href}
+              prefetch={false}
               className="text-lg text-white transition-opacity hover:opacity-75"
               onClick={() => setMobileOpen(false)}
             >
