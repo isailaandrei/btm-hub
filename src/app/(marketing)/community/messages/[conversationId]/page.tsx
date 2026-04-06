@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getAuthUser } from "@/lib/data/auth";
 import { getConversation, getMessages, getRecipientLastReadAt } from "@/lib/data/messages";
 import { MessageThread } from "@/components/community/MessageThread";
+import { UserAvatar } from "@/components/community/UserAvatar";
 
 export default async function ConversationPage({
   params,
@@ -28,14 +29,11 @@ export default async function ConversationPage({
           href={`/community/members/${conversation.participant?.id}`}
           className="flex items-center gap-3 transition-opacity hover:opacity-80"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-medium text-primary">
-            {(conversation.participant?.display_name || "?")
-              .split(" ")
-              .map((n: string) => n[0])
-              .join("")
-              .toUpperCase()
-              .slice(0, 2)}
-          </span>
+          <UserAvatar
+            name={conversation.participant?.display_name ?? null}
+            avatarUrl={conversation.participant?.avatar_url}
+            size="sm"
+          />
           <h2 className="text-sm font-semibold text-foreground">
             {conversation.participant?.display_name || "Unknown user"}
           </h2>

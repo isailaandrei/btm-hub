@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Search, X, Plus } from "lucide-react";
-import { cn, getInitials } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { UserAvatar } from "./UserAvatar";
 import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
@@ -290,9 +291,7 @@ export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
                   }}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
                 >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-medium text-primary">
-                    {getInitials(user.display_name)}
-                  </span>
+                  <UserAvatar name={user.display_name} avatarUrl={user.avatar_url} size="sm" />
                   <span className="truncate">{user.display_name || "Unknown"}</span>
                 </Link>
               ))}
@@ -321,9 +320,7 @@ export function MessagesSidebar({ currentUserId }: MessagesSidebarProps) {
               )}
             >
               <span className="flex items-center gap-2 truncate">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-medium text-primary">
-                  {getInitials(conv.participant?.display_name ?? null)}
-                </span>
+                <UserAvatar name={conv.participant?.display_name ?? null} avatarUrl={conv.participant?.avatar_url} size="sm" />
                 <span className="truncate">{conv.participant?.display_name || "Unknown"}</span>
               </span>
 
