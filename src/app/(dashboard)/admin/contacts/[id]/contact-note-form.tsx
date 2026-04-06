@@ -32,6 +32,7 @@ export function ContactNoteForm({ contactId }: ContactNoteFormProps) {
         onChange={(e) => setText(e.target.value)}
         placeholder="Add a note..."
         rows={3}
+        maxLength={2000}
         className="resize-none rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
       />
       <button

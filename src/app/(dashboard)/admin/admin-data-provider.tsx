@@ -12,8 +12,8 @@
 // This will degrade as the applications table grows. Consider adding server-side
 // pagination or cursor-based fetching once the table exceeds ~500 rows.
 
-// TODO: Filter/search state for the applications tab (program, status, search)
-// lives inside the ApplicationsPanel component and resets when switching tabs.
+// TODO: Filter/search state for the contacts tab (name, email, tag filters)
+// lives inside the ContactsPanel component and resets when switching tabs.
 // If preserving filter state across tab switches is desired, lift it into this
 // context.
 

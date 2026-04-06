@@ -55,7 +55,8 @@ export async function updateContact(
 
 /**
  * Find or create a contact by email. Used during application submission.
- * Does NOT require admin — called from the public submission flow.
+ * Does NOT require admin — delegates to a SECURITY DEFINER RPC so the contacts
+ * table is never directly accessible from the public submission flow.
  */
 export async function findOrCreateContact(
   email: string,
@@ -63,26 +64,14 @@ export async function findOrCreateContact(
   phone: string | null,
 ): Promise<string> {
   const supabase = await createClient();
-  const normalizedEmail = email.toLowerCase().trim();
+  const { data, error } = await supabase.rpc("find_or_create_contact", {
+    p_email: email,
+    p_name: name,
+    p_phone: phone,
+  });
 
-  // Try to find existing contact
-  const { data: existing } = await supabase
-    .from("contacts")
-    .select("id")
-    .eq("email", normalizedEmail)
-    .single();
-
-  if (existing) return existing.id;
-
-  // Create new contact
-  const { data: created, error } = await supabase
-    .from("contacts")
-    .insert({ email: normalizedEmail, name, phone })
-    .select("id")
-    .single();
-
-  if (error) throw new Error(`Failed to create contact: ${error.message}`);
-  return created.id;
+  if (error) throw new Error(`Failed to find or create contact: ${error.message}`);
+  return data as string;
 }
 
 // ---------------------------------------------------------------------------

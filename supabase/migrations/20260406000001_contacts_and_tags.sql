@@ -138,11 +138,39 @@ CREATE POLICY "Admins can insert contact_notes" ON contact_notes
     SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
   ));
 
--- Also allow the application submission flow to insert/read contacts (for find-or-create)
-CREATE POLICY "Anyone can insert contacts on submission" ON contacts
-  FOR INSERT WITH CHECK (true);
-CREATE POLICY "Anyone can read contacts by email" ON contacts
-  FOR SELECT USING (true);
+-- Atomic find-or-create for the public application submission flow.
+-- SECURITY DEFINER runs as the function owner (bypasses RLS) so unauthenticated
+-- applicants can create/find a contact without exposing the contacts table publicly.
+CREATE OR REPLACE FUNCTION find_or_create_contact(
+  p_email text,
+  p_name text,
+  p_phone text DEFAULT NULL
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  SELECT id INTO v_id FROM contacts WHERE email = lower(trim(p_email));
+  IF v_id IS NOT NULL THEN
+    RETURN v_id;
+  END IF;
+
+  INSERT INTO contacts (email, name, phone)
+  VALUES (lower(trim(p_email)), p_name, p_phone)
+  ON CONFLICT (email) DO NOTHING
+  RETURNING id INTO v_id;
+
+  -- If ON CONFLICT hit, the RETURNING gives NULL, so re-select
+  IF v_id IS NULL THEN
+    SELECT id INTO v_id FROM contacts WHERE email = lower(trim(p_email));
+  END IF;
+
+  RETURN v_id;
+END;
+$$;
 
 -- Enable Realtime for relevant tables
 ALTER PUBLICATION supabase_realtime ADD TABLE contacts;

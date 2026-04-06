@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { validateUUID } from "@/lib/validation-helpers";
 import {
   getContactById,
   getApplicationsByContactId,
@@ -19,6 +20,11 @@ export default async function ContactDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  try {
+    validateUUID(id);
+  } catch {
+    return notFound();
+  }
   const [contact, applications, contactTagRows, notes, categories, allTags] =
     await Promise.all([
       getContactById(id),
