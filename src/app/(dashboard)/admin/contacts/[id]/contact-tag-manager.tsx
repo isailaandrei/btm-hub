@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { TAG_COLOR_CLASSES } from "../../tags/tags-panel";
+import { TAG_COLOR_CLASSES } from "../../constants";
 import { assignContactTag, unassignContactTag } from "../actions";
 import { addTagToCategory } from "../../tags/actions";
 

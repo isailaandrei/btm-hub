@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../admin-data-provider";
 import { ContactsFilters } from "./contacts-filters";
-import { TAG_COLOR_CLASSES } from "../tags/tags-panel";
+import { TAG_COLOR_CLASSES } from "../constants";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,

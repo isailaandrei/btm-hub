@@ -137,6 +137,13 @@ CREATE POLICY "Admins can insert contact_notes" ON contact_notes
   FOR INSERT WITH CHECK (EXISTS (
     SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
   ));
+CREATE POLICY "Admins can update contact_notes" ON contact_notes
+  FOR UPDATE USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+  ));
+
+-- Ensure Realtime DELETE events include all columns for composite-PK tables
+ALTER TABLE contact_tags REPLICA IDENTITY FULL;
 
 -- Atomic find-or-create for the public application submission flow.
 -- SECURITY DEFINER runs as the function owner (bypasses RLS) so unauthenticated
@@ -170,6 +177,27 @@ BEGIN
 
   RETURN v_id;
 END;
+$$;
+
+GRANT EXECUTE ON FUNCTION find_or_create_contact TO anon, authenticated;
+
+-- Atomic sort_order helpers to avoid TOCTOU races
+CREATE OR REPLACE FUNCTION insert_tag_category(p_name text, p_color text DEFAULT NULL)
+RETURNS tag_categories
+LANGUAGE sql
+AS $$
+  INSERT INTO tag_categories (name, color, sort_order)
+  VALUES (p_name, p_color, (SELECT coalesce(max(sort_order), -1) + 1 FROM tag_categories))
+  RETURNING *;
+$$;
+
+CREATE OR REPLACE FUNCTION insert_tag(p_category_id uuid, p_name text)
+RETURNS tags
+LANGUAGE sql
+AS $$
+  INSERT INTO tags (category_id, name, sort_order)
+  VALUES (p_category_id, p_name, (SELECT coalesce(max(sort_order), -1) + 1 FROM tags WHERE category_id = p_category_id))
+  RETURNING *;
 $$;
 
 -- Enable Realtime for relevant tables

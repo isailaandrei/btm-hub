@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { PROGRAMS } from "../applications/constants";
-import { TAG_COLOR_CLASSES } from "../tags/tags-panel";
+import { TAG_COLOR_CLASSES } from "../constants";
 
 interface ContactsFiltersProps {
   search: string;

@@ -93,20 +93,11 @@ export async function createTagCategory(name: string, color: string | null) {
   await requireAdmin();
   const supabase = await createClient();
 
-  // Set sort_order to max + 1
-  const { data: maxRow } = await supabase
-    .from("tag_categories")
-    .select("sort_order")
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .single();
-  const sortOrder = (maxRow?.sort_order ?? -1) + 1;
-
-  const { data, error } = await supabase
-    .from("tag_categories")
-    .insert({ name, color, sort_order: sortOrder })
-    .select("*")
-    .single();
+  // Atomic sort_order assignment to avoid TOCTOU race
+  const { data, error } = await supabase.rpc("insert_tag_category", {
+    p_name: name,
+    p_color: color,
+  });
 
   if (error) throw new Error(`Failed to create category: ${error.message}`);
   return data as TagCategory;
@@ -156,20 +147,11 @@ export async function createTag(categoryId: string, name: string) {
   await requireAdmin();
   const supabase = await createClient();
 
-  const { data: maxRow } = await supabase
-    .from("tags")
-    .select("sort_order")
-    .eq("category_id", categoryId)
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .single();
-  const sortOrder = (maxRow?.sort_order ?? -1) + 1;
-
-  const { data, error } = await supabase
-    .from("tags")
-    .insert({ category_id: categoryId, name, sort_order: sortOrder })
-    .select("*")
-    .single();
+  // Atomic sort_order assignment to avoid TOCTOU race
+  const { data, error } = await supabase.rpc("insert_tag", {
+    p_category_id: categoryId,
+    p_name: name,
+  });
 
   if (error) throw new Error(`Failed to create tag: ${error.message}`);
   return data as Tag;
