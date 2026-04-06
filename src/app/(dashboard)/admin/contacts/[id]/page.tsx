@@ -88,8 +88,8 @@ export default async function ContactDetailPage({
             </CardContent>
           </Card>
 
-          {/* Tags */}
-          <Card>
+          {/* Tags — overflow-visible so the tag assignment dropdown isn't clipped */}
+          <Card className="overflow-visible">
             <CardHeader>
               <CardTitle className="text-sm text-muted-foreground">Tags</CardTitle>
             </CardHeader>

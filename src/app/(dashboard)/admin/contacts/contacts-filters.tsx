@@ -84,29 +84,34 @@ export function ContactsFilters({
       </div>
 
       {tagCategories.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2">
           {tagCategories.map((category) => {
             const categoryTags = tags.filter((t) => t.category_id === category.id);
             if (categoryTags.length === 0) return null;
             const color = category.color ?? "blue";
             const colorClass = TAG_COLOR_CLASSES[color] ?? "";
-            return categoryTags.map((tag) => {
-              const isActive = selectedTagIds.includes(tag.id);
-              return (
-                <Badge
-                  key={tag.id}
-                  variant="outline"
-                  className={`cursor-pointer select-none transition-opacity ${
-                    isActive
-                      ? colorClass
-                      : "opacity-50 hover:opacity-80"
-                  }`}
-                  onClick={() => onTagToggle(tag.id)}
-                >
-                  {tag.name}
-                </Badge>
-              );
-            });
+            return (
+              <div key={category.id} className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{category.name}:</span>
+                {categoryTags.map((tag) => {
+                  const isActive = selectedTagIds.includes(tag.id);
+                  return (
+                    <Badge
+                      key={tag.id}
+                      variant="outline"
+                      className={`cursor-pointer select-none transition-opacity ${
+                        isActive
+                          ? colorClass
+                          : "opacity-50 hover:opacity-80"
+                      }`}
+                      onClick={() => onTagToggle(tag.id)}
+                    >
+                      {tag.name}
+                    </Badge>
+                  );
+                })}
+              </div>
+            );
           })}
 
           {selectedTagIds.length > 0 && (

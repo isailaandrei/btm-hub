@@ -2,10 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// Load .env.test.local manually
+// Load .env.local manually (Playwright doesn't auto-load Next.js env files)
 try {
   const content = readFileSync(
-    resolve(process.cwd(), ".env.test.local"),
+    resolve(process.cwd(), ".env.local"),
     "utf-8",
   );
   for (const line of content.split("\n")) {
@@ -14,20 +14,20 @@ try {
     const eqIdx = trimmed.indexOf("=");
     if (eqIdx === -1) continue;
     const key = trimmed.slice(0, eqIdx);
-    const value = trimmed.slice(eqIdx + 1);
+    const value = trimmed.slice(eqIdx + 1).replace(/^"|"$/g, "");
     if (!process.env[key]) process.env[key] = value;
   }
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code === "ENOENT") {
     if (!process.env.CI) {
       throw new Error(
-        "Missing .env.test.local — copy .env.test.local.example or create it with NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        "Missing .env.local — create it with NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       );
     }
     // CI: env vars are set via GitHub secrets, file not needed
   } else {
     throw new Error(
-      `Failed to load .env.test.local: ${error instanceof Error ? error.message : error}`,
+      `Failed to load .env.local: ${error instanceof Error ? error.message : error}`,
     );
   }
 }

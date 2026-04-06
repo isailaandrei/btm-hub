@@ -16,7 +16,15 @@ import {
 } from "@/components/ui/table";
 import type { ProgramSlug } from "@/types/database";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZES = [25, 50, 150] as const;
+type PageSize = (typeof PAGE_SIZES)[number];
+
+const PROGRAM_BADGE_CLASS: Record<string, string> = {
+  filmmaking: "border-blue-500/40 bg-blue-500/10 text-blue-400",
+  photography: "border-amber-500/40 bg-amber-500/10 text-amber-400",
+  freediving: "border-teal-500/40 bg-teal-500/10 text-teal-400",
+  internship: "border-purple-500/40 bg-purple-500/10 text-purple-400",
+};
 
 export function ContactsPanel() {
   const {
@@ -33,6 +41,7 @@ export function ContactsPanel() {
   const [search, setSearch] = useState("");
   const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>();
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -73,11 +82,11 @@ export function ContactsPanel() {
     return result;
   }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / pageSize);
   const currentPage = Math.min(page, Math.max(totalPages, 1));
   const paginated = filtered.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
   );
 
   function onFilterChange<T>(setter: (v: T) => void) {
@@ -161,9 +170,28 @@ export function ContactsPanel() {
         />
       </div>
 
-      <p className="mb-4 text-sm text-muted-foreground">
-        {filtered.length} contact{filtered.length !== 1 ? "s" : ""} found
-      </p>
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {filtered.length} contact{filtered.length !== 1 ? "s" : ""} found
+        </p>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Show</span>
+          {PAGE_SIZES.map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => { setPageSize(size); setPage(1); }}
+              className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
+                pageSize === size
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {paginated.length === 0 ? (
         <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
@@ -215,8 +243,8 @@ export function ContactsPanel() {
                         {uniquePrograms.map((program) => (
                           <Badge
                             key={program}
-                            variant="secondary"
-                            className="capitalize"
+                            variant="outline"
+                            className={`capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
                           >
                             {program}
                           </Badge>
@@ -238,7 +266,7 @@ export function ContactsPanel() {
                               variant="outline"
                               className={TAG_COLOR_CLASSES[color] ?? ""}
                             >
-                              {tag.name}
+                              {category?.name}: {tag.name}
                             </Badge>
                           );
                         })}

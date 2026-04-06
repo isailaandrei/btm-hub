@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { TAG_COLOR_CLASSES } from "../../tags/tags-panel";
@@ -50,8 +50,20 @@ export function ContactTagManager({
   allTags,
 }: ContactTagManagerProps) {
   const [isPending, startTransition] = useTransition();
+  const dropdownRef = useRef<HTMLDivElement>(null);
   // Per-category dropdown open state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openDropdown) return;
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [openDropdown]);
   // Per-category quick-create input state
   const [newTagNames, setNewTagNames] = useState<Record<string, string>>({});
 
@@ -156,7 +168,7 @@ export function ContactTagManager({
               ))}
 
               {/* "+" button to open dropdown */}
-              <div className="relative">
+              <div className="relative" ref={isOpen ? dropdownRef : undefined}>
                 <button
                   type="button"
                   onClick={() => setOpenDropdown(isOpen ? null : category.id)}
