@@ -2,27 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { useAdminData } from "./admin-data-provider";
-import { ApplicationsPanel } from "./applications/applications-panel";
-import { UsersPanel } from "./users/users-panel";
+import { ContactsPanel } from "./contacts/contacts-panel";
+import { TagsPanel } from "./tags/tags-panel";
 
-type Tab = "applications" | "users";
+type Tab = "contacts" | "tags";
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: "applications", label: "Applications" },
-  { key: "users", label: "Users" },
+  { key: "contacts", label: "Contacts" },
+  { key: "tags", label: "Tags" },
 ];
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("applications");
-  const { ensureApplications, ensureProfiles } = useAdminData();
+  const [activeTab, setActiveTab] = useState<Tab>("contacts");
+  const { ensureContacts, ensureApplications } = useAdminData();
 
   useEffect(() => {
-    if (activeTab === "applications") {
+    // Contacts tab needs both contacts and applications data
+    if (activeTab === "contacts") {
+      ensureContacts();
       ensureApplications();
     } else {
-      ensureProfiles();
+      ensureContacts(); // Tags tab also needs tag data from ensureContacts
     }
-  }, [activeTab, ensureApplications, ensureProfiles]);
+  }, [activeTab, ensureContacts, ensureApplications]);
 
   return (
     <div>
@@ -43,7 +45,7 @@ export default function AdminPage() {
         ))}
       </nav>
 
-      {activeTab === "applications" ? <ApplicationsPanel /> : <UsersPanel />}
+      {activeTab === "contacts" ? <ContactsPanel /> : <TagsPanel />}
     </div>
   );
 }

@@ -13,13 +13,6 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 
-CREATE EXTENSION IF NOT EXISTS "pg_net" WITH SCHEMA "extensions";
-
-
-
-
-
-
 COMMENT ON SCHEMA "public" IS 'standard public schema';
 
 
@@ -1235,6 +1228,10 @@ ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
 
 
+
+
+
+
 ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."applications";
 
 
@@ -1255,18 +1252,7 @@ ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."dm_read_receipts"
 
 
 
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."forum_posts";
-
-
-
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."forum_threads";
-
-
-
 ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."profiles";
-
-
-
 
 
 
@@ -1274,12 +1260,6 @@ GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
 GRANT USAGE ON SCHEMA "public" TO "service_role";
-
-
-
-
-
-
 
 
 
@@ -1674,35 +1654,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-
-
-
-
---
--- Dumped schema changes for auth and storage
---
-
-CREATE POLICY "Anyone can view community files" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'community-files'::"text"));
-
-
-
-CREATE POLICY "Anyone can view community images" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'community-images'::"text"));
-
-
-
-CREATE POLICY "Authenticated users can upload community files" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'community-files'::"text") AND (("storage"."foldername"("name"))[1] = ( SELECT ("auth"."uid"())::"text" AS "uid"))));
-
-
-
-CREATE POLICY "Authenticated users can upload community images" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'community-images'::"text") AND (("storage"."foldername"("name"))[1] = ( SELECT ("auth"."uid"())::"text" AS "uid"))));
-
-
-
-CREATE POLICY "Users can delete own community files" ON "storage"."objects" FOR DELETE TO "authenticated" USING ((("bucket_id" = 'community-files'::"text") AND (("storage"."foldername"("name"))[1] = ( SELECT ("auth"."uid"())::"text" AS "uid"))));
-
-
-
-CREATE POLICY "Users can delete own community images" ON "storage"."objects" FOR DELETE TO "authenticated" USING ((("bucket_id" = 'community-images'::"text") AND (("storage"."foldername"("name"))[1] = ( SELECT ("auth"."uid"())::"text" AS "uid"))));
 
 
 

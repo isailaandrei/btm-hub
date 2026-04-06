@@ -82,8 +82,18 @@ UPDATE public.profiles SET display_name = 'Jake Miller', bio = 'Gear nerd. If it
 UPDATE public.profiles SET display_name = 'Aisha Patel', bio = 'Travel diver exploring the world''s best dive sites.' WHERE id = 'a7b8c9d0-e1f2-3456-abcd-678901234567';
 
 -- =========================================================================
--- Community seed data: threads, posts, replies, likes, mentions
+-- Community seed data: topics, threads, posts, replies, likes, mentions
 -- =========================================================================
+
+-- Forum topics (must exist before threads due to FK constraint)
+INSERT INTO public.forum_topics (slug, name, description, sort_order) VALUES
+  ('trip-reports', 'Trip Reports', 'Share your dive adventures and trip experiences from around the world.', 1),
+  ('underwater-filmmaking-photography', 'Underwater Filmmaking & Photography', 'Techniques, critiques, and inspiration for shooting beneath the surface.', 2),
+  ('gear-talk', 'Gear Talk', 'Discuss cameras, housings, lights, fins, and everything in between.', 3),
+  ('marine-life', 'Marine Life', 'Identify species, share sightings, and discuss ocean conservation.', 4),
+  ('freediving', 'Freediving', 'Training tips, breath-hold techniques, and freediving stories.', 5),
+  ('beginner-questions', 'Beginner Questions', 'New to diving or underwater content creation? Ask anything here.', 6)
+ON CONFLICT (slug) DO NOTHING;
 
 -- Thread 1: Pinned post by admin (HTML, topic: beginner-questions)
 INSERT INTO public.forum_threads (id, author_id, topic, title, slug, pinned, created_at, updated_at, last_reply_at)
