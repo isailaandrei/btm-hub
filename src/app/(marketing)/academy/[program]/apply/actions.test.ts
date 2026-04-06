@@ -61,6 +61,7 @@ await import("@/lib/academy/forms");
 const mockApplication: Application = {
   id: "app-123",
   user_id: null,
+  contact_id: null,
   program: "photography" as ProgramSlug,
   status: "reviewing",
   answers: {},

@@ -16,6 +16,7 @@ export type ProgramSlug = "photography" | "filmmaking" | "freediving" | "interns
 export interface Application {
   id: string;
   user_id: string | null;
+  contact_id: string | null;
   program: ProgramSlug;
   status: ApplicationStatus;
   answers: Record<string, unknown>;
