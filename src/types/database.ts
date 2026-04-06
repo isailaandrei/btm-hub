@@ -38,6 +38,54 @@ export interface AdminNote {
 }
 
 // ---------------------------------------------------------------------------
+// Contacts & Tags
+// ---------------------------------------------------------------------------
+
+export interface Contact {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  profile_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TagCategory {
+  id: string;
+  name: string;
+  color: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface Tag {
+  id: string;
+  category_id: string;
+  name: string;
+  sort_order: number;
+}
+
+export interface TagWithCategory extends Tag {
+  category: TagCategory;
+}
+
+export interface ContactTag {
+  contact_id: string;
+  tag_id: string;
+  assigned_at: string;
+}
+
+export interface ContactNote {
+  id: string;
+  contact_id: string;
+  author_id: string;
+  author_name: string;
+  text: string;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Forum
 // ---------------------------------------------------------------------------
 
