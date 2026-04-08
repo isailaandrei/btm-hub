@@ -30,111 +30,118 @@ export function DynamicFormRenderer({
   errors,
 }: DynamicFormRendererProps) {
   return (
-    <>
+    <div className="grid md:grid-cols-2 gap-x-4">
       {fields.filter((f) => isFieldVisible(f, answers)).map((field) => {
         const error = errors[field.name];
+        const wrapperClass = field.half ? "py-4" : "md:col-span-2 py-4";
 
-        switch (field.type) {
-          case "text": {
-            if (field.storeAs === "string[]") {
-              const arrValue = answers[field.name];
-              const displayValue = Array.isArray(arrValue)
-                ? arrValue.join(", ")
-                : (arrValue as string) ?? "";
-              return (
-                <TextField
-                  key={field.name}
-                  label={field.label}
-                  name={field.name}
-                  required={field.required}
-                  placeholder={field.placeholder}
-                  value={displayValue}
-                  onChange={(v) =>
-                    onChange(
-                      field.name,
-                      v
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    )
-                  }
-                  error={error}
-                />
-              );
-            }
-            return (
-              <TextField
-                key={field.name}
-                label={field.label}
-                name={field.name}
-                type={field.inputType ?? "text"}
-                required={field.required}
-                placeholder={field.placeholder}
-                multiline={field.multiline}
-                value={(answers[field.name] as string) ?? ""}
-                onChange={(v) => onChange(field.name, v)}
-                error={error}
-              />
-            );
-          }
-
-          case "select":
-            return (
-              <SelectField
-                key={field.name}
-                label={field.label}
-                name={field.name}
-                options={field.options}
-                required={field.required}
-                value={answers[field.name] as string}
-                onChange={(v) => onChange(field.name, v)}
-                columns={inferColumns(field.options.length)}
-                error={error}
-              />
-            );
-
-          case "multiselect":
-            return (
-              <MultiSelectField
-                key={field.name}
-                label={field.label}
-                name={field.name}
-                options={field.options}
-                required={field.required}
-                values={answers[field.name] as string[]}
-                onChange={(v) => onChange(field.name, v)}
-                columns={inferColumns(field.options.length)}
-                error={error}
-              />
-            );
-
-          case "rating":
-            return (
-              <RatingField
-                key={field.name}
-                label={field.label}
-                name={field.name}
-                value={answers[field.name] as number}
-                onChange={(v) => onChange(field.name, v)}
-                error={error}
-              />
-            );
-
-          case "date":
-            return (
-              <DateField
-                key={field.name}
-                label={field.label}
-                name={field.name}
-                required={field.required}
-                value={(answers[field.name] as string) ?? ""}
-                onChange={(v) => onChange(field.name, v)}
-                error={error}
-              />
-            );
-
-        }
+        return (
+          <div key={field.name} className={wrapperClass}>
+            {renderField(field, answers, onChange, error)}
+          </div>
+        );
       })}
-    </>
+    </div>
   );
+}
+
+function renderField(
+  field: FieldDefinition,
+  answers: Record<string, unknown>,
+  onChange: (key: string, value: unknown) => void,
+  error: string | undefined,
+) {
+  switch (field.type) {
+    case "text": {
+      if (field.storeAs === "string[]") {
+        const arrValue = answers[field.name];
+        const displayValue = Array.isArray(arrValue)
+          ? arrValue.join(", ")
+          : (arrValue as string) ?? "";
+        return (
+          <TextField
+            label={field.label}
+            name={field.name}
+            required={field.required}
+            placeholder={field.placeholder}
+            value={displayValue}
+            onChange={(v) =>
+              onChange(
+                field.name,
+                v
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              )
+            }
+            error={error}
+          />
+        );
+      }
+      return (
+        <TextField
+          label={field.label}
+          name={field.name}
+          type={field.inputType ?? "text"}
+          required={field.required}
+          placeholder={field.placeholder}
+          multiline={field.multiline}
+          value={(answers[field.name] as string) ?? ""}
+          onChange={(v) => onChange(field.name, v)}
+          error={error}
+        />
+      );
+    }
+
+    case "select":
+      return (
+        <SelectField
+          label={field.label}
+          name={field.name}
+          options={field.options}
+          required={field.required}
+          value={answers[field.name] as string}
+          onChange={(v) => onChange(field.name, v)}
+          columns={field.columns ?? inferColumns(field.options.length)}
+          error={error}
+        />
+      );
+
+    case "multiselect":
+      return (
+        <MultiSelectField
+          label={field.label}
+          name={field.name}
+          options={field.options}
+          required={field.required}
+          values={answers[field.name] as string[]}
+          onChange={(v) => onChange(field.name, v)}
+          columns={field.columns ?? inferColumns(field.options.length)}
+          error={error}
+        />
+      );
+
+    case "rating":
+      return (
+        <RatingField
+          label={field.label}
+          name={field.name}
+          value={answers[field.name] as number}
+          onChange={(v) => onChange(field.name, v)}
+          error={error}
+        />
+      );
+
+    case "date":
+      return (
+        <DateField
+          label={field.label}
+          name={field.name}
+          required={field.required}
+          value={(answers[field.name] as string) ?? ""}
+          onChange={(v) => onChange(field.name, v)}
+          error={error}
+        />
+      );
+  }
 }

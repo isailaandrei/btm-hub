@@ -1,5 +1,5 @@
 import type { FieldDefinition, FormStepDefinition, FormDefinition } from "./types";
-import { personalStep } from "./common/personal";
+import { personalFields } from "./common/personal";
 import { backgroundFields } from "./common/background";
 import { registerForm } from "./registry";
 import { FITNESS_LEVELS, HEALTH_CONDITIONS } from "./common/health";
@@ -39,20 +39,19 @@ const CONTENT_CREATED = [
 // Internship-specific steps
 // ---------------------------------------------------------------------------
 
-const backgroundEducationFields: FieldDefinition[] = [
-  ...backgroundFields,
-  { type: "text", name: "online_links", label: "If you have an online presence, please share your links.", placeholder: "Instagram, website, portfolio...", required: false },
-  { type: "text", multiline: true, name: "azores_ties", label: "Do you already have accommodation, connections, or other ties to Faial, Azores?", required: false },
-  { type: "select", name: "education_level", label: "Highest Level of Education or Training", options: EDUCATION_LEVELS, required: true },
-  { type: "text", name: "field_of_study", label: "What is your field of study, training or profession?", required: true },
-  { type: "text", multiline: true, name: "recent_activities", label: "Which activities (like jobs, studies, school, time-intensive interests) have primarily occupied your time over the past few years?", required: true },
-];
-
-const backgroundEducationStep: FormStepDefinition = {
-  id: "background_education",
-  title: "Background & Education",
-  description: "Tell us about your background, education, and connection to the Azores.",
-  fields: backgroundEducationFields,
+const internshipPersonalStep: FormStepDefinition = {
+  id: "personal",
+  title: "About You",
+  description: "Help us get to know you better. This information will be kept confidential and used only for BTM Academy purposes.",
+  fields: [
+    ...personalFields,
+    ...backgroundFields,
+    { type: "select", name: "education_level", label: "Highest Level of Education or Training", options: EDUCATION_LEVELS, required: true },
+    { type: "text", name: "field_of_study", label: "What is your field of study, training or profession?", required: true, half: true },
+    { type: "text", multiline: true, name: "recent_activities", label: "Which activities (like jobs, studies, school, time-intensive interests) have primarily occupied your time over the past few years?", required: true },
+    { type: "text", name: "online_links", label: "If you have an online presence, please share your links.", placeholder: "Instagram, website, portfolio...", required: false },
+    { type: "text", multiline: true, name: "azores_ties", label: "Do you already have accommodation, connections, or other ties to Faial, Azores?", required: false },
+  ],
 };
 
 const filmmakingExperienceFields: FieldDefinition[] = [
@@ -83,7 +82,7 @@ const motivationStep: FormStepDefinition = {
 };
 
 const healthDivingFields: FieldDefinition[] = [
-  { type: "select", name: "physical_fitness", label: "Physical Fitness Level", options: FITNESS_LEVELS, required: true },
+  { type: "select", name: "physical_fitness", label: "Physical Fitness Level", options: FITNESS_LEVELS, required: true, columns: 1 },
   { type: "select", name: "health_conditions", label: "Health Conditions", options: HEALTH_CONDITIONS, required: true },
   { type: "text", multiline: true, name: "health_details", label: "Health Details (optional)", placeholder: "If you have any conditions, please provide details...", required: false, visibleWhen: { field: "health_conditions", operator: "neq", value: "None" } },
   { type: "multiselect", name: "diving_types", label: "Types of Diving", options: DIVING_TYPES, required: true },
@@ -121,8 +120,7 @@ const openQuestionsStep: FormStepDefinition = {
 export const internshipFormDefinition: FormDefinition = {
   programSlug: "internship",
   steps: [
-    personalStep,
-    backgroundEducationStep,
+    internshipPersonalStep,
     filmmakingExperienceStep,
     motivationStep,
     healthDivingStep,

@@ -11,14 +11,14 @@ export interface ProgramDefinition {
 export const PROGRAMS: Record<ProgramSlug, ProgramDefinition> = {
   photography: {
     slug: "photography",
-    name: "Underwater Photography",
+    name: "Photography",
     shortDescription: "Master the art of capturing life beneath the surface through mentorship-based training.",
     icon: null,
     applicationOpen: true,
   },
   filmmaking: {
     slug: "filmmaking",
-    name: "Underwater Filmmaking",
+    name: "Filmmaking",
     shortDescription: "Learn to tell compelling underwater stories through film, from shooting to post-production.",
     icon: null,
     applicationOpen: true,
@@ -32,7 +32,7 @@ export const PROGRAMS: Record<ProgramSlug, ProgramDefinition> = {
   },
   internship: {
     slug: "internship",
-    name: "BTM Internship",
+    name: "Internship",
     shortDescription: "Join the Behind the Mask team for an extended hands-on learning experience across all disciplines.",
     icon: null,
     applicationOpen: true,

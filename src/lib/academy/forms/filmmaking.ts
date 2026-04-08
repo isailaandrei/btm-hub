@@ -1,6 +1,5 @@
 import type { FieldDefinition, FormStepDefinition, FormDefinition } from "./types";
 import { personalStep } from "./common/personal";
-import { backgroundStep } from "./common/background";
 import { healthStep } from "./common/health";
 import { registerForm } from "./registry";
 import {
@@ -35,13 +34,14 @@ const FILMMAKING_EQUIPMENT_OWNED = [
 ] as const;
 
 const CONTENT_CREATED = [
+  "None yet, excited to start",
   "Personal vacation videos",
   "Social media content",
   "Documentary style",
   "Commercial work",
   "Scientific / research documentation",
   "Conservation stories",
-  "None yet",
+  "Other"
 ] as const;
 
 const ONLINE_PRESENCE = [
@@ -60,12 +60,11 @@ const INCOME_FROM_FILMING = [
 ] as const;
 
 const PRIMARY_GOALS = [
-  "Learn underwater filming from scratch",
-  "Improve existing skills",
-  "Transition to professional",
-  "Build a portfolio",
-  "Content creation",
-  "Conservation / scientific documentation",
+  "Learn basics of underwater filming as a hobby",
+  "Improve content creation for social media",
+  "Transform hobby into professional career",
+  "Enhance existing professional skills",
+  "Document marine conservation/research",
 ] as const;
 
 const LEARNING_ASPECTS = [
@@ -157,24 +156,24 @@ const skillsStep: FormStepDefinition = {
   fields: skillsFields,
 };
 
-const creativeProfileFields: FieldDefinition[] = [
-  { type: "multiselect", name: "content_created", label: "Content You've Created", options: CONTENT_CREATED, required: true },
-  { type: "select", name: "btm_category", label: "How Would You Categorize Yourself?", options: BTM_CATEGORIES, required: true },
-  { type: "select", name: "involvement_level", label: "Level of Involvement in Underwater Filming", options: INVOLVEMENT_LEVELS, required: true },
+const professionalStatusFields: FieldDefinition[] = [
+  { type: "select", name: "btm_category", label: "Which BTM Academy category best describes you?", options: BTM_CATEGORIES, required: true, columns: 1 },
+  { type: "multiselect", name: "content_created", label: "What type of underwater content have you created so far?", options: CONTENT_CREATED, required: true },
+  { type: "select", name: "involvement_level", label: "Current involvement in underwater filming", options: INVOLVEMENT_LEVELS, required: true },
   { type: "select", name: "online_presence", label: "Online Presence", options: ONLINE_PRESENCE, required: true },
   { type: "text", name: "online_links", label: "Links to Your Work (optional)", placeholder: "Instagram, website, portfolio...", required: false },
   { type: "select", name: "income_from_filming", label: "Income from Underwater Filming", options: INCOME_FROM_FILMING, required: true },
 ];
 
-const creativeProfileStep: FormStepDefinition = {
+const professionalStatus: FormStepDefinition = {
   id: "creative_profile",
-  title: "Creative Profile",
-  description: "Help us understand your creative journey and online presence.",
-  fields: creativeProfileFields,
+  title: "Professional Status",
+  description: "Let us understand where you are in your underwater filming journey, whether it's a hobby, a developing career, or a conservation passion",
+  fields: professionalStatusFields,
 };
 
 const goalsFields: FieldDefinition[] = [
-  { type: "select", name: "primary_goal", label: "Primary Goal", options: PRIMARY_GOALS, required: true },
+  { type: "select", name: "primary_goal", label: "What is your primary goal with BTM Academy?", options: PRIMARY_GOALS, required: true },
   { type: "text", name: "secondary_goal", label: "Secondary Goal (optional)", placeholder: "Any other goals you'd like to achieve?", required: false },
   { type: "multiselect", name: "learning_aspects", label: "Aspects You Want to Learn", options: LEARNING_ASPECTS, required: true },
   { type: "multiselect", name: "content_to_create", label: "Content You Want to Create", options: CONTENT_TO_CREATE, required: true },
@@ -226,12 +225,11 @@ export const filmmakingFormDefinition: FormDefinition = {
   programSlug: "filmmaking",
   steps: [
     personalStep,
-    backgroundStep,
     healthStep,
     divingStep,
     equipmentStep,
     skillsStep,
-    creativeProfileStep,
+    professionalStatus,
     goalsStep,
     logisticsStep,
     openQuestionsStep,

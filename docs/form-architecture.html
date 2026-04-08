@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BTM Hub — Academy Form Architecture</title>
+  <style>
+    @media print {
+      .page-break { page-break-before: always; }
+      body { font-size: 11pt; }
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    h1 { font-size: 1.8rem; border-bottom: 2px solid #333; padding-bottom: 0.5rem; }
+    h2 { font-size: 1.3rem; margin-top: 2.5rem; color: #2563eb; }
+    h3 { font-size: 1.1rem; margin-top: 1.5rem; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #d1d5db; padding: 0.5rem 0.75rem; text-align: left; font-size: 0.9rem; }
+    th { background: #f3f4f6; font-weight: 600; }
+    code { background: #f3f4f6; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.85em; }
+    .mermaid { margin: 1.5rem 0; }
+    .caption { font-size: 0.85rem; color: #6b7280; text-align: center; margin-top: -0.5rem; }
+    .file-ref { color: #6b7280; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+
+<h1>BTM Hub — Academy Form System Architecture</h1>
+<p>This document describes how academy application forms are defined, rendered, validated, and submitted.</p>
+
+<!-- ============================================================ -->
+<h2>1. Type Hierarchy — Form Definitions</h2>
+<p class="file-ref">src/lib/academy/forms/types.ts</p>
+
+<div class="mermaid">
+classDiagram
+    class FormDefinition {
+        +string programSlug
+        +FormStepDefinition[] steps
+    }
+
+    class FormStepDefinition {
+        +string id
+        +string title
+        +string description
+        +FieldDefinition[] fields
+    }
+
+    class FieldDefinition {
+        +string name
+        +string label
+        +boolean required
+        +VisibleWhen? visibleWhen
+    }
+
+    class TextFieldDef {
+        +type = "text"
+        +inputType?: "text" | "email" | "tel"
+        +boolean? multiline
+        +string? placeholder
+        +number? minLength
+        +storeAs?: "string" | "string[]"
+    }
+
+    class SelectFieldDef {
+        +type = "select"
+        +readonly string[] options
+    }
+
+    class MultiSelectFieldDef {
+        +type = "multiselect"
+        +readonly string[] options
+    }
+
+    class RatingFieldDef {
+        +type = "rating"
+        ~~1–10 scale~~
+    }
+
+    class DateFieldDef {
+        +type = "date"
+    }
+
+    class VisibleWhen {
+        +string field
+        +operator: "eq" | "neq" | "in"
+        +unknown value
+    }
+
+    FormDefinition "1" *-- "1..*" FormStepDefinition : steps
+    FormStepDefinition "1" *-- "1..*" FieldDefinition : fields
+    FieldDefinition <|-- TextFieldDef
+    FieldDefinition <|-- SelectFieldDef
+    FieldDefinition <|-- MultiSelectFieldDef
+    FieldDefinition <|-- RatingFieldDef
+    FieldDefinition <|-- DateFieldDef
+    FieldDefinition "0..1" --> VisibleWhen : visibleWhen
+</div>
+<p class="caption">Figure 1 — FieldDefinition is a discriminated union on the <code>type</code> property.</p>
+
+<!-- ============================================================ -->
+<h2>2. Form Registry &amp; Composition</h2>
+<p class="file-ref">src/lib/academy/forms/registry.ts, index.ts, common/*.ts</p>
+
+<div class="mermaid">
+flowchart LR
+    subgraph "Common Steps"
+        P[personalStep]
+        B[backgroundStep]
+        H[healthStep]
+    end
+
+    subgraph "Program Configs"
+        PH[photography.ts]
+        FM[filmmaking.ts]
+        FD[freediving.ts]
+        IN[internship.ts]
+    end
+
+    P --> PH
+    P --> FM
+    P --> FD
+    P --> IN
+    B --> PH
+    B --> FM
+    B --> FD
+    B --> IN
+    H --> PH
+    H --> FM
+    H --> FD
+
+    subgraph "Registry"
+        R["formRegistry\n Map&lt;slug, FormDefinition&gt;"]
+    end
+
+    PH -- "registerForm()" --> R
+    FM -- "registerForm()" --> R
+    FD -- "registerForm()" --> R
+    IN -- "registerForm()" --> R
+
+    IDX["index.ts\n(side-effect imports)"] -.-> PH
+    IDX -.-> FM
+    IDX -.-> FD
+    IDX -.-> IN
+</div>
+<p class="caption">Figure 2 — Programs compose shared common steps with program-specific steps, then self-register.</p>
+
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h2>3. UI Component Tree</h2>
+<p class="file-ref">src/components/forms/*.tsx, src/app/(marketing)/academy/[program]/apply/page.tsx</p>
+
+<div class="mermaid">
+flowchart TD
+    PAGE["ApplyPage\n(client component)\n\nState: currentStep, answers,\nstepErrors, formState\n+ localStorage persistence"]
+
+    PAGE --> FS["FormStepper\nprogress bar · step counter\nnav buttons (Back / Next / Submit)"]
+
+    FS --> |"step &lt; total"| DFR["DynamicFormRenderer\nfilters visible fields\nswitches on field.type\ninfers grid columns"]
+    FS --> |"step = total"| REV["ReviewStep\ngroups by step\nformats values\nedit buttons"]
+
+    DFR --> TF["TextField\ninput / textarea"]
+    DFR --> SF["SelectField\nradio-button grid"]
+    DFR --> MSF["MultiSelectField\ncheckbox grid"]
+    DFR --> RF["RatingField\n1–10 buttons"]
+    DFR --> DF["DateField\ndate picker"]
+
+    style PAGE fill:#dbeafe,stroke:#2563eb
+    style FS fill:#e0e7ff,stroke:#4f46e5
+    style DFR fill:#fef3c7,stroke:#d97706
+    style REV fill:#fef3c7,stroke:#d97706
+    style TF fill:#f3f4f6,stroke:#6b7280
+    style SF fill:#f3f4f6,stroke:#6b7280
+    style MSF fill:#f3f4f6,stroke:#6b7280
+    style RF fill:#f3f4f6,stroke:#6b7280
+    style DF fill:#f3f4f6,stroke:#6b7280
+</div>
+<p class="caption">Figure 3 — The page component owns all state; FormStepper orchestrates navigation; DynamicFormRenderer delegates to field components.</p>
+
+<!-- ============================================================ -->
+<h2>4. Schema Builder — Validation Strategy</h2>
+<p class="file-ref">src/lib/academy/forms/schema-builder.ts</p>
+
+<div class="mermaid">
+flowchart TD
+    FD["FieldDefinition"] --> BFS["buildFieldSchema(field)\nfield → Zod schema"]
+
+    BFS --> BSS["buildStepSchema(fields[])\nmerges field schemas\ninto z.object"]
+    BFS --> BFull["buildFullSchema(steps[], answers)\nfilters by isFieldVisible()\nmerges all into z.object"]
+
+    BSS --> CLIENT["Client-side validation\n(per-step, on 'Next' click)"]
+    BFull --> SERVER["Server-side validation\n(full form, on submit)"]
+
+    IFV["isFieldVisible(field, answers)\nevaluates visibleWhen rules"] --> BFull
+    IFV --> DFR2["DynamicFormRenderer\n(filters rendered fields)"]
+
+    style CLIENT fill:#dcfce7,stroke:#16a34a
+    style SERVER fill:#fef9c3,stroke:#ca8a04
+    style IFV fill:#fce7f3,stroke:#db2777
+</div>
+<p class="caption">Figure 4 — Client validates one step at a time; server validates all visible fields. Both use the same <code>isFieldVisible</code> logic.</p>
+
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h2>5. Full Lifecycle — Sequence Diagram</h2>
+<p class="file-ref">
+  page.tsx → schema-builder.ts → actions.ts → Supabase
+</p>
+
+<div class="mermaid">
+sequenceDiagram
+    actor User
+    participant Page as ApplyPage<br/>(client)
+    participant Renderer as DynamicForm<br/>Renderer
+    participant Schema as SchemaBuilder
+    participant Action as Server Action<br/>actions.ts
+    participant DB as Supabase
+
+    Note over Page: Page mount
+    Page->>Page: getFormDefinition(slug)
+    Page->>Page: restore from localStorage<br/>{answers, step, formVersion}
+    Page->>Page: check formVersion hash<br/>discard stale state if mismatch
+
+    rect rgb(240, 245, 255)
+        Note over User,Renderer: Step-by-step form filling (repeated per step)
+        Page->>Renderer: render step fields
+        Renderer->>Schema: isFieldVisible(field, answers)
+        Schema-->>Renderer: visible fields list
+        Renderer-->>User: field components
+
+        User->>Page: fill in fields (onChange)
+        Page->>Page: update answers state
+        Page->>Page: save to localStorage
+
+        User->>Page: click "Next"
+        Page->>Schema: buildStepSchema(visibleFields)
+        Schema-->>Page: Zod schema for step
+        Page->>Page: schema.safeParse(answers)
+
+        alt Validation fails
+            Page-->>User: show inline errors
+        else Validation passes
+            Page->>Page: currentStep++
+        end
+    end
+
+    Note over User,Page: After last step
+    User->>Page: click "Review"
+    Page->>Page: render ReviewStep<br/>(all answers grouped by step)
+    User-->>Page: review answers
+
+    User->>Page: click "Submit"
+    Page->>Page: build FormData<br/>arrays → JSON.stringify<br/>numbers → String
+
+    Page->>Action: submitAcademyApplication(slug, formData)
+
+    rect rgb(255, 248, 235)
+        Note over Action: Server-side processing
+        Action->>Action: validate program exists<br/>& applications open
+        Action->>Action: parse FormData with type map
+        Action->>Schema: buildFullSchema(steps, answers)
+        Schema-->>Action: visibility-aware Zod schema
+        Action->>Action: schema.safeParse(answers)
+
+        alt Validation fails
+            Action-->>Page: return { errors: fieldMap }
+            Page-->>User: show errors, stay on form
+        else Validation passes
+            Action->>DB: findOrCreateContact(email, name, phone)
+            DB-->>Action: contactId
+            Action->>DB: insert application<br/>{answers, status: "reviewing",<br/>tags: [], admin_notes: []}
+            DB-->>Action: ok
+            Action-->>Page: redirect → /apply/success
+        end
+    end
+
+    Note over Page: Success page
+    Page->>Page: ClearFormStorage<br/>localStorage.removeItem()
+    Page-->>User: success confirmation
+</div>
+<p class="caption">Figure 5 — Complete lifecycle from page load through submission.</p>
+
+<!-- ============================================================ -->
+<div class="page-break"></div>
+<h2>6. Summary Table</h2>
+
+<table>
+  <thead>
+    <tr><th>Concern</th><th>Where</th><th>How</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Form definition</td>
+      <td><code>src/lib/academy/forms/*.ts</code></td>
+      <td>Declarative config objects composed from shared + program-specific steps</td>
+    </tr>
+    <tr>
+      <td>Registration</td>
+      <td><code>registry.ts</code> + <code>index.ts</code></td>
+      <td>Side-effect imports auto-register into in-memory map</td>
+    </tr>
+    <tr>
+      <td>Schema generation</td>
+      <td><code>schema-builder.ts</code></td>
+      <td>Dynamic Zod — per-step for client, full + visibility-aware for server</td>
+    </tr>
+    <tr>
+      <td>Conditional fields</td>
+      <td><code>isFieldVisible()</code></td>
+      <td><code>visibleWhen</code> rules evaluated in both UI and schema builder</td>
+    </tr>
+    <tr>
+      <td>Client validation</td>
+      <td><code>page.tsx</code></td>
+      <td><code>buildStepSchema</code> → <code>safeParse</code> on "Next" click</td>
+    </tr>
+    <tr>
+      <td>Server validation</td>
+      <td><code>actions.ts</code></td>
+      <td><code>buildFullSchema</code> → <code>safeParse</code> on submit</td>
+    </tr>
+    <tr>
+      <td>Persistence</td>
+      <td><code>localStorage</code></td>
+      <td>Keyed by slug, versioned by field hash, cleared on success</td>
+    </tr>
+    <tr>
+      <td>Submission</td>
+      <td><code>actions.ts</code> → Supabase</td>
+      <td>Parse FormData → validate → find/create contact → insert application</td>
+    </tr>
+  </tbody>
+</table>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true, wrap: true, mirrorActors: false }
+  });
+</script>
+
+</body>
+</html>

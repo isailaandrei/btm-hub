@@ -116,7 +116,12 @@ export default function ApplyPage({
 
   const steps = formDef.steps;
 
+  // TODO: revert — skip client-side step validation for debugging
+  const SKIP_VALIDATION = true;
+
   function validateCurrentStep(): boolean {
+    if (SKIP_VALIDATION) return true;
+
     const step = steps[currentStep];
     const visibleFields = step.fields.filter((f) => isFieldVisible(f, answers));
     const schema = buildStepSchema(visibleFields);

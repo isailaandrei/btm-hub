@@ -4,11 +4,13 @@
 
 // Diving-related
 export const DIVING_TYPES = [
-  "Scuba diving",
-  "Freediving",
+  "Recreational Scuba diving",
+  "Technical Scuba diving",
   "Snorkeling",
   "Technical diving",
   "Rebreather diving",
+  "Neither, but interested in learning",
+  "Freediving"
 ] as const;
 
 export const CERTIFICATION_LEVELS = [
@@ -21,29 +23,27 @@ export const CERTIFICATION_LEVELS = [
 ] as const;
 
 export const NUMBER_OF_DIVES = [
-  "0-10",
-  "11-50",
-  "51-100",
-  "101-500",
-  "500+",
+  "0-50",
+  "51-250",
+  "250+",
 ] as const;
 
 export const DIVING_ENVIRONMENTS = [
-  "Reef",
-  "Wreck",
-  "Cave / Cavern",
-  "Open water",
-  "Freshwater",
+  "Tropical Reefs",
   "Cold water",
-  "Muck diving",
+  "Deep diving",
+  "Night diving",
+  "Cave / Wreck diving",
+  "Other",
 ] as const;
 
 // Profile
 export const BTM_CATEGORIES = [
-  "Beginner",
-  "Enthusiast",
-  "Semi-professional",
-  "Professional",
+  "BEGINNER - Creative Explorer (Just starting, hobby-focused, seeking basic skills)",
+  "INDEPENDENT CREATOR (Experienced hobbyist/influencer seeking improvement)",
+  "ASPIRING PROFESSIONAL (Part-time professional aiming for full-time career)",
+  "DEDICATED ACHIEVER (Business-focused, seeking intensive mentorship)",
+  "OCEAN STEWARD (NGO/scientific focus, conservation-driven)"
 ] as const;
 
 // Logistics
@@ -82,25 +82,25 @@ export const START_TIMELINES = [
 
 // Experience & involvement
 export const PLANNING_TO_INVEST = [
-  "Yes, significant investment planned",
-  "Yes, moderate investment planned",
-  "Small investment planned",
-  "No investment planned at this time",
+  "Yes, within the near future",
+  "Yes, within the next years",
+  "No immediate plans"
 ] as const;
 
 export const YEARS_EXPERIENCE = [
+  "None",
   "Less than 1 year",
   "1-2 years",
   "3-5 years",
-  "5-10 years",
-  "10+ years",
+  "5+"
 ] as const;
 
 export const INVOLVEMENT_LEVELS = [
+  "Complete beginner",
   "Hobby",
   "Part-time",
   "Full-time",
-  "Transitioning to full-time",
+  "Conservation/Scientific work",
 ] as const;
 
 // Referral
@@ -113,4 +113,94 @@ export const REFERRAL_SOURCES = [
   "Photography community",
   "Event / exhibition",
   "Other",
+] as const;
+
+
+// Photography / Filmmaking
+
+export const EQUIPMENT_OWNED = [
+  "No equipment yet",
+  "Action camera (GoPro, Osmo, Insta360, etc)",
+  "Compact camera with housing",
+  "DSLR/Mirrorless with housing",
+  "Professional video camera",
+  "Drone",
+  "Lighting equipment",
+  "Other"
+] as const;
+
+export const CONTENT_CREATED = [
+  "Stills — underwater",
+  "Stills — topside",
+  "Video — underwater",
+  "Video — topside",
+  "Drone footage",
+  "360 / VR",
+  "Social media content",
+] as const;
+
+export const ONLINE_PRESENCE = [
+  "Active social media",
+  "Personal website",
+  "Professional portofolio",
+  "Client base",
+  "None of the above",
+] as const;
+
+export const INCOME_FROM_PHOTOGRAPHY = [
+  "None",
+  "Occasional / side income",
+  "Part of my income",
+  "Primary income source",
+] as const;
+
+export const PRIMARY_GOALS = [
+  "Learn underwater photography from scratch",
+  "Improve existing skills",
+  "Transition to professional",
+  "Build a portfolio",
+  "Content creation",
+  "Conservation / scientific documentation",
+] as const;
+
+export const LEARNING_ASPECTS = [
+  "Camera settings & exposure",
+  "Lighting techniques",
+  "Composition",
+  "Post-production / editing",
+  "Wide-angle photography",
+  "Macro photography",
+  "Video / filmmaking",
+  "Business & marketing",
+  "Conservation storytelling",
+] as const;
+
+export const CONTENT_TO_CREATE = [
+  "Social media content",
+  "Fine art prints",
+  "Editorial / magazine",
+  "Conservation / documentary",
+  "Commercial / stock",
+  "Personal portfolio",
+  "Educational content",
+] as const;
+
+export const LEARNING_APPROACHES = [
+  "One-on-one mentorship",
+  "Group workshops",
+  "Online courses",
+  "Self-paced learning",
+  "Field trips",
+  "Portfolio reviews",
+] as const;
+
+export const MARINE_SUBJECTS = [
+  "Coral reefs",
+  "Large marine life (sharks, rays, whales)",
+  "Macro / small creatures",
+  "Wrecks",
+  "Underwater landscapes / scenery",
+  "Marine conservation",
+  "Freediving / human subjects",
+  "Cave / cenote environments",
 ] as const;

@@ -7,6 +7,8 @@ interface FieldBase {
   label: string;
   /** Defaults to `true` when omitted — set to `false` to make the field optional. */
   required?: boolean;
+  /** Render at half width (2-column grid on desktop). */
+  half?: boolean;
   visibleWhen?: { field: string; operator: "eq" | "neq" | "in"; value: unknown };
 }
 
@@ -22,11 +24,13 @@ export interface TextFieldDef extends FieldBase {
 export interface SelectFieldDef extends FieldBase {
   type: "select";
   options: readonly string[];
+  columns?: 1 | 2 | 3;
 }
 
 export interface MultiSelectFieldDef extends FieldBase {
   type: "multiselect";
   options: readonly string[];
+  columns?: 1 | 2 | 3;
 }
 
 export interface RatingFieldDef extends FieldBase {

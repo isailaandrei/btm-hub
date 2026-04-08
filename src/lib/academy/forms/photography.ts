@@ -1,6 +1,5 @@
 import type { FieldDefinition, FormStepDefinition, FormDefinition } from "./types";
 import { personalStep } from "./common/personal";
-import { backgroundStep } from "./common/background";
 import { healthStep } from "./common/health";
 import { registerForm } from "./registry";
 import {
@@ -17,98 +16,16 @@ import {
   BUDGETS,
   START_TIMELINES,
   REFERRAL_SOURCES,
+  EQUIPMENT_OWNED,
+  CONTENT_CREATED,
+  ONLINE_PRESENCE,
+  INCOME_FROM_PHOTOGRAPHY,
+  PRIMARY_GOALS,
+  LEARNING_ASPECTS,
+  CONTENT_TO_CREATE,
+  LEARNING_APPROACHES,
+  MARINE_SUBJECTS,
 } from "./common/options";
-
-// ---------------------------------------------------------------------------
-// Photography-specific option lists
-// ---------------------------------------------------------------------------
-
-const EQUIPMENT_OWNED = [
-  "Camera",
-  "Underwater housing",
-  "Strobes / Lights",
-  "Wide-angle lens",
-  "Macro lens",
-  "Drone",
-  "Video lights",
-  "Editing software",
-] as const;
-
-const CONTENT_CREATED = [
-  "Stills — underwater",
-  "Stills — topside",
-  "Video — underwater",
-  "Video — topside",
-  "Drone footage",
-  "360 / VR",
-  "Social media content",
-] as const;
-
-const ONLINE_PRESENCE = [
-  "None",
-  "Personal social media only",
-  "Dedicated photography social media",
-  "Website / portfolio",
-  "Multiple platforms",
-] as const;
-
-const INCOME_FROM_PHOTOGRAPHY = [
-  "None",
-  "Occasional / side income",
-  "Part of my income",
-  "Primary income source",
-] as const;
-
-const PRIMARY_GOALS = [
-  "Learn underwater photography from scratch",
-  "Improve existing skills",
-  "Transition to professional",
-  "Build a portfolio",
-  "Content creation",
-  "Conservation / scientific documentation",
-] as const;
-
-const LEARNING_ASPECTS = [
-  "Camera settings & exposure",
-  "Lighting techniques",
-  "Composition",
-  "Post-production / editing",
-  "Wide-angle photography",
-  "Macro photography",
-  "Video / filmmaking",
-  "Business & marketing",
-  "Conservation storytelling",
-] as const;
-
-const CONTENT_TO_CREATE = [
-  "Social media content",
-  "Fine art prints",
-  "Editorial / magazine",
-  "Conservation / documentary",
-  "Commercial / stock",
-  "Personal portfolio",
-  "Educational content",
-] as const;
-
-const LEARNING_APPROACHES = [
-  "One-on-one mentorship",
-  "Group workshops",
-  "Online courses",
-  "Self-paced learning",
-  "Field trips",
-  "Portfolio reviews",
-] as const;
-
-const MARINE_SUBJECTS = [
-  "Coral reefs",
-  "Large marine life (sharks, rays, whales)",
-  "Macro / small creatures",
-  "Wrecks",
-  "Underwater landscapes / scenery",
-  "Marine conservation",
-  "Freediving / human subjects",
-  "Cave / cenote environments",
-] as const;
 
 // ---------------------------------------------------------------------------
 // Photography-specific steps
@@ -231,7 +148,6 @@ export const photographyFormDefinition: FormDefinition = {
   programSlug: "photography",
   steps: [
     personalStep,
-    backgroundStep,
     healthStep,
     divingStep,
     equipmentStep,

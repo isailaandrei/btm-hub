@@ -1,6 +1,5 @@
 import type { FieldDefinition, FormStepDefinition, FormDefinition } from "./types";
 import { personalStep } from "./common/personal";
-import { backgroundStep } from "./common/background";
 import { healthStep } from "./common/health";
 import { registerForm } from "./registry";
 import {
@@ -217,7 +216,6 @@ const freedivingModellingFormDefinition: FormDefinition = {
   programSlug: "freediving",
   steps: [
     personalStep,
-    backgroundStep,
     healthStep,
     freedivingExperienceStep,
     underwaterPerformanceStep,
