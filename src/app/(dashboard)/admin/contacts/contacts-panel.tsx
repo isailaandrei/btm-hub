@@ -25,6 +25,11 @@ import { BulkActionBar } from "./bulk-action-bar";
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
 
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function renderFieldValue(
   contactApps: Application[],
   field: FieldRegistryEntry,
@@ -411,6 +416,7 @@ export function ContactsPanel() {
                   />
                 </TableHead>
                 <TableHead>Name</TableHead>
+                <TableHead>Submitted</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Programs</TableHead>
@@ -437,7 +443,7 @@ export function ContactsPanel() {
               {paginated.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={6 + activeFields.length + 1}
+                    colSpan={7 + activeFields.length + 1}
                     className="py-8 text-center text-muted-foreground"
                   >
                     No contacts match your filters.
@@ -470,6 +476,19 @@ export function ContactsPanel() {
                       >
                         {contact.name}
                       </Link>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {contactApps.length === 1
+                        ? formatDate(contactApps[0].submitted_at)
+                        : contactApps.length > 1
+                          ? (<div className="flex flex-col gap-0.5">
+                              {contactApps.map((a) => (
+                                <div key={a.id}>
+                                  <span className="text-muted-foreground/60">{a.program}:</span> {formatDate(a.submitted_at)}
+                                </div>
+                              ))}
+                            </div>)
+                          : "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {contact.email}

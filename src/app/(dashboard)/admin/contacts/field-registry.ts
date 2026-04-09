@@ -77,14 +77,6 @@ function union(...arrays: (readonly string[])[]): string[] {
 export const FIELD_REGISTRY: FieldRegistryEntry[] = [
   // ---- Curated (shown upfront in column picker) ----
   {
-    key: "submitted_at",
-    label: "Submission Date",
-    type: "date",
-    options: [],
-    programs: ["filmmaking", "photography", "freediving", "internship"],
-    curated: true,
-  },
-  {
     key: "budget",
     label: "Budget",
     type: "select",
