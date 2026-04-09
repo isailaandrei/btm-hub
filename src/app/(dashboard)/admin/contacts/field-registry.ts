@@ -24,9 +24,11 @@ import {
   CONTENT_TO_CREATE,
   LEARNING_APPROACHES,
   MARINE_SUBJECTS,
+  AGE_RANGES,
+  GENDERS,
+  FITNESS_LEVELS,
+  HEALTH_CONDITIONS
 } from "@/lib/academy/forms/common/options";
-import { AGE_RANGES, GENDERS } from "@/lib/academy/forms/common/personal";
-import { FITNESS_LEVELS, HEALTH_CONDITIONS } from "@/lib/academy/forms/common/health";
 
 // Filmmaking-specific options
 import {
@@ -59,7 +61,7 @@ import {
 export interface FieldRegistryEntry {
   key: string;
   label: string;
-  type: "select" | "multiselect" | "rating";
+  type: "select" | "multiselect" | "rating" | "date";
   options: readonly string[] | string[];
   programs: ProgramSlug[];
   curated: boolean;
@@ -74,6 +76,14 @@ function union(...arrays: (readonly string[])[]): string[] {
 
 export const FIELD_REGISTRY: FieldRegistryEntry[] = [
   // ---- Curated (shown upfront in column picker) ----
+  {
+    key: "submitted_at",
+    label: "Submission Date",
+    type: "date",
+    options: [],
+    programs: ["filmmaking", "photography", "freediving", "internship"],
+    curated: true,
+  },
   {
     key: "budget",
     label: "Budget",

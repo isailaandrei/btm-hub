@@ -32,11 +32,17 @@ function renderFieldValue(
   const entries: { program: string; value: string }[] = [];
 
   for (const app of contactApps) {
-    const raw = app.answers[field.key];
+    // Top-level application fields (e.g., submitted_at) vs answers
+    const raw = field.key === "submitted_at"
+      ? app.submitted_at
+      : app.answers[field.key];
     if (raw == null) continue;
 
     let display: string;
-    if (Array.isArray(raw)) {
+    if (field.type === "date") {
+      const d = new Date(String(raw));
+      display = isNaN(d.getTime()) ? String(raw) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    } else if (Array.isArray(raw)) {
       display = raw.join(", ");
     } else {
       display = String(raw);
@@ -413,13 +419,15 @@ export function ContactsPanel() {
                   <TableHead key={field.key}>
                     <span className="inline-flex items-center">
                       {field.label}
-                      <ColumnFilterPopover
-                        field={field}
-                        options={[...(dataOptions.get(field.key) ?? [])].sort()}
-                        selected={columnFilters[field.key] ?? []}
-                        onToggle={(v) => handleColumnFilterToggle(field.key, v)}
-                        onClear={() => handleColumnFilterClear(field.key)}
-                      />
+                      {field.type !== "date" && (
+                        <ColumnFilterPopover
+                          field={field}
+                          options={[...(dataOptions.get(field.key) ?? [])].sort()}
+                          selected={columnFilters[field.key] ?? []}
+                          onToggle={(v) => handleColumnFilterToggle(field.key, v)}
+                          onClear={() => handleColumnFilterClear(field.key)}
+                        />
+                      )}
                     </span>
                   </TableHead>
                 ))}
