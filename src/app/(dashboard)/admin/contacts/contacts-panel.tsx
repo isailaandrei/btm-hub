@@ -21,8 +21,20 @@ import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
 import { updatePreferences } from "./actions";
 import { ColumnFilterPopover } from "./column-filter-popover";
 import { BulkActionBar } from "./bulk-action-bar";
+import { ResizeHandle } from "./resize-handle";
 
 const PAGE_SIZES = [25, 50, 150] as const;
+
+const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
+  _select: 40,
+  _name: 160,
+  _email: 220,
+  _phone: 130,
+  _programs: 140,
+  _tags: 180,
+};
+const DEFAULT_DYNAMIC_WIDTH = 150;
+const MIN_COLUMN_WIDTH = 50;
 type PageSize = (typeof PAGE_SIZES)[number];
 
 function renderFieldValue(
@@ -71,6 +83,7 @@ export function ContactsPanel() {
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(DEFAULT_COLUMN_WIDTHS);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
@@ -268,6 +281,17 @@ export function ContactsPanel() {
     });
   }
 
+  function handleColumnResize(columnKey: string, delta: number) {
+    setColumnWidths((prev) => {
+      const current = prev[columnKey] ?? DEFAULT_DYNAMIC_WIDTH;
+      return { ...prev, [columnKey]: Math.max(MIN_COLUMN_WIDTH, current + delta) };
+    });
+  }
+
+  function getColWidth(key: string): number {
+    return columnWidths[key] ?? DEFAULT_DYNAMIC_WIDTH;
+  }
+
   const activeFields = useMemo(
     () => visibleColumns.map(getFieldEntry).filter((f): f is FieldRegistryEntry => f !== undefined),
     [visibleColumns],
@@ -375,23 +399,38 @@ export function ContactsPanel() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <Table>
+          <Table style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
             <TableHeader>
               <TableRow className="bg-card text-muted-foreground">
-                <TableHead className="w-10">
+                <TableHead className="relative" style={{ width: getColWidth("_select") }}>
                   <Checkbox
                     checked={allOnPageSelected}
                     onCheckedChange={handleSelectAll}
                     aria-label="Select all on page"
                   />
                 </TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Programs</TableHead>
-                <TableHead>Tags</TableHead>
+                <TableHead className="relative" style={{ width: getColWidth("_name") }}>
+                  Name
+                  <ResizeHandle onResize={(d) => handleColumnResize("_name", d)} />
+                </TableHead>
+                <TableHead className="relative" style={{ width: getColWidth("_email") }}>
+                  Email
+                  <ResizeHandle onResize={(d) => handleColumnResize("_email", d)} />
+                </TableHead>
+                <TableHead className="relative" style={{ width: getColWidth("_phone") }}>
+                  Phone
+                  <ResizeHandle onResize={(d) => handleColumnResize("_phone", d)} />
+                </TableHead>
+                <TableHead className="relative" style={{ width: getColWidth("_programs") }}>
+                  Programs
+                  <ResizeHandle onResize={(d) => handleColumnResize("_programs", d)} />
+                </TableHead>
+                <TableHead className="relative" style={{ width: getColWidth("_tags") }}>
+                  Tags
+                  <ResizeHandle onResize={(d) => handleColumnResize("_tags", d)} />
+                </TableHead>
                 {activeFields.map((field) => (
-                  <TableHead key={field.key}>
+                  <TableHead key={field.key} className="relative" style={{ width: getColWidth(field.key) }}>
                     <span className="inline-flex items-center">
                       {field.label}
                       <ColumnFilterPopover
@@ -401,6 +440,7 @@ export function ContactsPanel() {
                         onClear={() => handleColumnFilterClear(field.key)}
                       />
                     </span>
+                    <ResizeHandle onResize={(d) => handleColumnResize(field.key, d)} />
                   </TableHead>
                 ))}
               </TableRow>
