@@ -129,7 +129,10 @@ export function ContactsPanel() {
       else appsByContact.set(app.contact_id, [app]);
     }
 
-    // Collect unique values per field from actual application data
+    // TODO: This derives filter options from actual DB values as a workaround
+    // because form definition options don't yet match the stored data.
+    // Once options in forms/common/options.ts match the DB, switch back to
+    // using field.options from the registry and remove this computation.
     const dataOptions = new Map<string, Set<string>>();
     for (const app of apps) {
       for (const [key, raw] of Object.entries(app.answers)) {
