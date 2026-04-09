@@ -96,7 +96,7 @@ export function ContactsPanel() {
     }
   }, [preferences]);
 
-  const { filtered, appsByContact } = useMemo(() => {
+  const { filtered, appsByContact, dataOptions } = useMemo(() => {
     const items = contacts ?? [];
     const apps = applications ?? [];
     const ctags = contactTags ?? [];
@@ -108,6 +108,22 @@ export function ContactsPanel() {
       const list = appsByContact.get(app.contact_id);
       if (list) list.push(app);
       else appsByContact.set(app.contact_id, [app]);
+    }
+
+    // Collect unique values per field from actual application data
+    const dataOptions = new Map<string, Set<string>>();
+    for (const app of apps) {
+      for (const [key, raw] of Object.entries(app.answers)) {
+        if (raw == null) continue;
+        let set = dataOptions.get(key);
+        if (!set) { set = new Set(); dataOptions.set(key, set); }
+        if (Array.isArray(raw)) {
+          for (const v of raw) { const s = String(v).trim(); if (s) set.add(s); }
+        } else {
+          const s = String(raw).trim();
+          if (s) set.add(s);
+        }
+      }
     }
 
     let result = items;
@@ -153,7 +169,7 @@ export function ContactsPanel() {
       });
     }
 
-    return { filtered: result, appsByContact };
+    return { filtered: result, appsByContact, dataOptions };
   }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters]);
 
   const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
@@ -391,6 +407,7 @@ export function ContactsPanel() {
                       {field.label}
                       <ColumnFilterPopover
                         field={field}
+                        options={[...(dataOptions.get(field.key) ?? [])].sort()}
                         selected={columnFilters[field.key] ?? []}
                         onToggle={(v) => handleColumnFilterToggle(field.key, v)}
                         onClear={() => handleColumnFilterClear(field.key)}

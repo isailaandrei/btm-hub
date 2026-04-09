@@ -6,6 +6,7 @@ import type { FieldRegistryEntry } from "./field-registry";
 
 interface ColumnFilterPopoverProps {
   field: FieldRegistryEntry;
+  options: string[];
   selected: string[];
   onToggle: (value: string) => void;
   onClear: () => void;
@@ -13,6 +14,7 @@ interface ColumnFilterPopoverProps {
 
 export function ColumnFilterPopover({
   field,
+  options,
   selected,
   onToggle,
   onClear,
@@ -43,7 +45,7 @@ export function ColumnFilterPopover({
       </PopoverTrigger>
       <PopoverContent className="w-64 p-0" align="start">
         <div className="max-h-56 overflow-y-auto p-2">
-          {field.options.map((option) => {
+          {options.map((option) => {
             const checked = selected.includes(option);
             return (
               <label
