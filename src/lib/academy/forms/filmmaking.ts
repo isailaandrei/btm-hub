@@ -53,10 +53,12 @@ export const FILMMAKING_ONLINE_PRESENCE = [
 ] as const;
 
 export const INCOME_FROM_FILMING = [
-  "None",
-  "Occasional / side income",
-  "Part of my income",
-  "Primary income source",
+  "No, that's not my goal",
+  "No, not yet",
+  "Occasional (few projects per year)",
+  "Regular part-time income",
+  "Full-time income",
+  "Prefer not to say"
 ] as const;
 
 export const FILMMAKING_PRIMARY_GOALS = [
@@ -77,6 +79,7 @@ export const FILMMAKING_LEARNING_ASPECTS = [
   "Business aspects of underwater filming",
   "Client relations & project management",
   "Conservation documentation",
+  "Other"
 ] as const;
 
 export const FILMMAKING_CONTENT_TO_CREATE = [
@@ -86,14 +89,15 @@ export const FILMMAKING_CONTENT_TO_CREATE = [
   "Commercial / advertising content",
   "Scientific / research documentation",
   "Conservation stories",
+  "Other"
 ] as const;
 
 export const FILMMAKING_LEARNING_APPROACHES = [
+  "Group workshops (within a group of approx. 10 people)",
+  "Small group workshop (within a group of approx. 4 people)",
   "One-on-one mentorship",
-  "Group workshops",
-  "Small group workshop",
   "Mixed approach (combination of group and individual)",
-  "Project-based learning",
+  "Project-based learning (Within a BTM project)",
 ] as const;
 
 export const FILMMAKING_MARINE_SUBJECTS = [

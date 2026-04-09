@@ -2,13 +2,14 @@ import type { FieldDefinition, FormStepDefinition, FormDefinition } from "./type
 import { personalFields } from "./common/personal";
 import { backgroundFields } from "./common/background";
 import { registerForm } from "./registry";
-import { FITNESS_LEVELS, HEALTH_CONDITIONS } from "./common/health";
 import {
   DIVING_TYPES,
   CERTIFICATION_LEVELS,
   NUMBER_OF_DIVES,
   DIVING_ENVIRONMENTS,
   REFERRAL_SOURCES,
+  HEALTH_CONDITIONS,
+  FITNESS_LEVELS
 } from "./common/options";
 
 // ---------------------------------------------------------------------------

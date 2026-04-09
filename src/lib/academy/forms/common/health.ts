@@ -1,19 +1,5 @@
 import type { FieldDefinition, FormStepDefinition } from "../types";
-
-export const FITNESS_LEVELS = [
-  "Excellent - Regular exercise, no health concerns",
-  "Good - Moderately active, no major health concerns",
-  "Average - Some physical activity, manageable health conditions",
-  "Need improvement - Limited physical activity or health concerns",
-  "Prefer to discuss privately"
-] as const;
-
-export const HEALTH_CONDITIONS = [
-  "No health conditions affecting diving",
-  "Yes, but cleared by doctor for diving",
-  "Need medical clearance",
-  "Prefer to discuss privately"
-] as const;
+import { FITNESS_LEVELS, HEALTH_CONDITIONS } from "./options";
 
 export const healthFields: FieldDefinition[] = [
   { type: "select", name: "physical_fitness", label: "Physical Fitness Level", options: FITNESS_LEVELS, required: true, columns: 1 },
