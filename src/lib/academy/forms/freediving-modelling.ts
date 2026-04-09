@@ -14,7 +14,7 @@ import {
 // Freediving & Modelling–specific option lists
 // ---------------------------------------------------------------------------
 
-const FREEDIVING_CERTIFICATION_LEVELS = [
+export const FREEDIVING_CERTIFICATION_LEVELS = [
   "None",
   "AIDA 2 or equivalent",
   "AIDA 3 or equivalent",
@@ -23,21 +23,21 @@ const FREEDIVING_CERTIFICATION_LEVELS = [
   "SSI level 2",
 ] as const;
 
-const NUMBER_OF_SESSIONS = [
+export const NUMBER_OF_SESSIONS = [
   "0-10",
   "11-50",
   "51-250",
   "250+",
 ] as const;
 
-const PRACTICE_DURATION = [
+export const PRACTICE_DURATION = [
   "Less than 6 months",
   "6 months - 1 year",
   "1-2 years",
   "> 2 years",
 ] as const;
 
-const FREEDIVING_ENVIRONMENTS = [
+export const FREEDIVING_ENVIRONMENTS = [
   "Tropical Reefs",
   "Open water",
   "Pool",
@@ -46,7 +46,7 @@ const FREEDIVING_ENVIRONMENTS = [
   "Night diving",
 ] as const;
 
-const PERFORMANCE_EXPERIENCE = [
+export const PERFORMANCE_EXPERIENCE = [
   "None",
   "Less than 1 year",
   "1-3 years",
@@ -54,26 +54,26 @@ const PERFORMANCE_EXPERIENCE = [
   "5+ years",
 ] as const;
 
-const CHOREOGRAPHY_EXPERIENCE = [
+export const CHOREOGRAPHY_EXPERIENCE = [
   "No",
   "Yes, little experience",
   "Yes, extended experience",
 ] as const;
 
-const FILMED_UNDERWATER = [
+export const FILMED_UNDERWATER = [
   "No",
   "Yes, little experience",
   "Yes, extended experience",
 ] as const;
 
-const FREEDIVING_BTM_CATEGORIES = [
+export const FREEDIVING_BTM_CATEGORIES = [
   "Beginner",
   "Developing artist (starting to build a creative identity)",
   "Independent creator (experienced hobbyist/influencer seeking improvement)",
   "Professional (working in the field, seeking refinement or mentorship)",
 ] as const;
 
-const ONLINE_PRESENCE = [
+export const FREEDIVING_ONLINE_PRESENCE = [
   "None",
   "Active social media",
   "Professional portfolio",
@@ -81,7 +81,7 @@ const ONLINE_PRESENCE = [
   "Multiple platforms",
 ] as const;
 
-const LEARNING_ASPECTS = [
+export const FREEDIVING_LEARNING_ASPECTS = [
   "Body awareness",
   "Soul-body connection",
   "Marine life behavior understanding",
@@ -92,7 +92,7 @@ const LEARNING_ASPECTS = [
   "Business aspects of underwater performance",
 ] as const;
 
-const LEARNING_APPROACHES = [
+export const FREEDIVING_LEARNING_APPROACHES = [
   "One-on-one mentorship",
   "Group workshops",
   "Small group workshop",
@@ -153,7 +153,7 @@ const equipmentStep: FormStepDefinition = {
 
 const creativeProfileFields: FieldDefinition[] = [
   { type: "select", name: "btm_category", label: "Which BTM Academy category best describes you?", options: FREEDIVING_BTM_CATEGORIES, required: true },
-  { type: "select", name: "online_presence", label: "Online Presence", options: ONLINE_PRESENCE, required: true },
+  { type: "select", name: "online_presence", label: "Online Presence", options: FREEDIVING_ONLINE_PRESENCE, required: true },
   { type: "text", name: "online_links", label: "If you have an online presence, please share your links.", placeholder: "Instagram, website, portfolio...", required: false },
 ];
 
@@ -167,8 +167,8 @@ const creativeProfileStep: FormStepDefinition = {
 const goalsFields: FieldDefinition[] = [
   { type: "text", name: "primary_goal", label: "What is your primary goal with BTM Academy?", required: true },
   { type: "text", name: "secondary_goal", label: "What is your secondary goal with BTM Academy? (optional)", required: false },
-  { type: "multiselect", name: "learning_aspects", label: "What aspects are you most interested in learning?", options: LEARNING_ASPECTS, required: true },
-  { type: "select", name: "learning_approach", label: "Preferred Learning Approach", options: LEARNING_APPROACHES, required: true },
+  { type: "multiselect", name: "learning_aspects", label: "What aspects are you most interested in learning?", options: FREEDIVING_LEARNING_ASPECTS, required: true },
+  { type: "select", name: "learning_approach", label: "Preferred Learning Approach", options: FREEDIVING_LEARNING_APPROACHES, required: true },
   { type: "text", multiline: true, name: "professional_material_purpose", label: "Would you like to receive professional video and photo material of yourself performing underwater? If yes, for what purpose?", required: false },
 ];
 
