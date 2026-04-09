@@ -17,6 +17,7 @@ import {
 import type { Application, ProgramSlug } from "@/types/database";
 import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
 import { updatePreferences } from "./actions";
+import { ColumnFilterPopover } from "./column-filter-popover";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
@@ -65,6 +66,7 @@ export function ContactsPanel() {
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const visibleColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -128,8 +130,28 @@ export function ContactsPanel() {
       );
     }
 
+    // Column filters (application-derived fields)
+    const activeColumnFilters = Object.entries(columnFilters);
+    if (activeColumnFilters.length > 0) {
+      result = result.filter((c) => {
+        const contactApps = appsByContact.get(c.id) ?? [];
+        return activeColumnFilters.every(([fieldKey, values]) =>
+          contactApps.some((app) => {
+            const raw = app.answers[fieldKey];
+            if (raw == null) return false;
+            if (Array.isArray(raw)) {
+              return raw.some((v) => values.includes(String(v)));
+            }
+            return values.includes(String(raw));
+          }),
+        );
+      });
+    }
+
     return { filtered: result, appsByContact };
-  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds]);
+  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters]);
+
+  const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const currentPage = Math.min(page, Math.max(totalPages, 1));
@@ -168,6 +190,37 @@ export function ContactsPanel() {
     saveTimeoutRef.current = setTimeout(() => {
       updatePreferences({ contacts_table: { visible_columns: visibleColumnsRef.current } });
     }, 1000);
+  }
+
+  function handleColumnFilterToggle(fieldKey: string, value: string) {
+    setColumnFilters((prev) => {
+      const current = prev[fieldKey] ?? [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      if (next.length === 0) {
+        const { [fieldKey]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [fieldKey]: next };
+    });
+    setPage(1);
+  }
+
+  function handleColumnFilterClear(fieldKey: string) {
+    setColumnFilters((prev) => {
+      const { [fieldKey]: _, ...rest } = prev;
+      return rest;
+    });
+    setPage(1);
+  }
+
+  function handleClearAllFilters() {
+    setSearch("");
+    setSelectedProgram(undefined);
+    setSelectedTagIds([]);
+    setColumnFilters({});
+    setPage(1);
   }
 
   const activeFields = useMemo(
@@ -242,6 +295,15 @@ export function ContactsPanel() {
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {filtered.length} contact{filtered.length !== 1 ? "s" : ""} found
+          {hasAnyFilter && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="ml-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Clear all filters
+            </button>
+          )}
         </p>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Show</span>
@@ -277,7 +339,17 @@ export function ContactsPanel() {
                 <TableHead>Programs</TableHead>
                 <TableHead>Tags</TableHead>
                 {activeFields.map((field) => (
-                  <TableHead key={field.key}>{field.label}</TableHead>
+                  <TableHead key={field.key}>
+                    <span className="inline-flex items-center">
+                      {field.label}
+                      <ColumnFilterPopover
+                        field={field}
+                        selected={columnFilters[field.key] ?? []}
+                        onToggle={(v) => handleColumnFilterToggle(field.key, v)}
+                        onClear={() => handleColumnFilterClear(field.key)}
+                      />
+                    </span>
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
