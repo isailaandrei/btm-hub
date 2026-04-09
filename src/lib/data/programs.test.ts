@@ -30,7 +30,7 @@ describe("getProgramShowcase", () => {
     const result = await getProgramShowcase("photography");
     expect(result).not.toBeNull();
     expect(result!.config.slug).toBe("photography");
-    expect(result!.config.name).toBe("Underwater Photography");
+    expect(result!.config.name).toBe("Photography");
     expect(result!.cms).toBeNull();
   });
 

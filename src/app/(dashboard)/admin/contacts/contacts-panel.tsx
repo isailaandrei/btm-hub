@@ -45,8 +45,7 @@ function renderFieldValue(
 
     let display: string;
     if (field.type === "date") {
-      const d = new Date(String(raw));
-      display = isNaN(d.getTime()) ? String(raw) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+      display = formatDate(String(raw));
     } else if (Array.isArray(raw)) {
       display = raw.join(", ");
     } else {
@@ -446,7 +445,7 @@ export function ContactsPanel() {
               {paginated.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7 + activeFields.length + 1}
+                    colSpan={7 + activeFields.length}
                     className="py-8 text-center text-muted-foreground"
                   >
                     No contacts match your filters.

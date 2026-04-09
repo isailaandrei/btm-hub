@@ -11,7 +11,7 @@ export const healthFields: FieldDefinition[] = [
     label: "Health Details (optional)",
     placeholder: "If you have any conditions, please provide details...",
     required: false,
-    visibleWhen: { field: "health_conditions", operator: "neq", value: "None" },
+    visibleWhen: { field: "health_conditions", operator: "neq", value: "No health conditions affecting diving" },
   },
 ];
 
