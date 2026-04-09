@@ -150,7 +150,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     async function fetchProfiles() {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, email, role, display_name, bio, avatar_url, created_at, updated_at")
+        .select("id, email, role, display_name, bio, avatar_url, preferences, created_at, updated_at")
         .order("created_at", { ascending: false });
 
       if (error) {
