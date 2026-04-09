@@ -35,6 +35,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
 };
 const DEFAULT_DYNAMIC_WIDTH = 150;
 const MIN_COLUMN_WIDTH = 20;
+const CORE_COLUMN_KEYS = ["_select", "_name", "_email", "_phone", "_programs", "_tags"] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
 
 function renderFieldValue(
@@ -399,7 +400,7 @@ export function ContactsPanel() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <Table style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+          <Table style={{ tableLayout: "fixed", width: CORE_COLUMN_KEYS.reduce((sum, k) => sum + getColWidth(k), 0) + activeFields.reduce((sum, f) => sum + getColWidth(f.key), 0) }}>
             <TableHeader>
               <TableRow className="bg-card text-muted-foreground">
                 <TableHead className="relative" style={{ width: getColWidth("_select") }}>
