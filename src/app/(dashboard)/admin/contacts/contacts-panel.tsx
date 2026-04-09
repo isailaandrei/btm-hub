@@ -21,21 +21,8 @@ import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
 import { updatePreferences } from "./actions";
 import { ColumnFilterPopover } from "./column-filter-popover";
 import { BulkActionBar } from "./bulk-action-bar";
-import { ResizeHandle } from "./resize-handle";
 
 const PAGE_SIZES = [25, 50, 150] as const;
-
-const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
-  _select: 40,
-  _name: 160,
-  _email: 220,
-  _phone: 130,
-  _programs: 140,
-  _tags: 180,
-};
-const DEFAULT_DYNAMIC_WIDTH = 150;
-const MIN_COLUMN_WIDTH = 20;
-const CORE_COLUMN_KEYS = ["_select", "_name", "_email", "_phone", "_programs", "_tags"] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
 
 function renderFieldValue(
@@ -84,7 +71,6 @@ export function ContactsPanel() {
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(DEFAULT_COLUMN_WIDTHS);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
@@ -282,17 +268,6 @@ export function ContactsPanel() {
     });
   }
 
-  function handleColumnResize(columnKey: string, delta: number) {
-    setColumnWidths((prev) => {
-      const current = prev[columnKey] ?? DEFAULT_DYNAMIC_WIDTH;
-      return { ...prev, [columnKey]: Math.max(MIN_COLUMN_WIDTH, current + delta) };
-    });
-  }
-
-  function getColWidth(key: string): number {
-    return columnWidths[key] ?? DEFAULT_DYNAMIC_WIDTH;
-  }
-
   const activeFields = useMemo(
     () => visibleColumns.map(getFieldEntry).filter((f): f is FieldRegistryEntry => f !== undefined),
     [visibleColumns],
@@ -394,44 +369,24 @@ export function ContactsPanel() {
         </div>
       </div>
 
-      {paginated.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-          No contacts match your filters.
-        </div>
-      ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <Table style={{ tableLayout: "fixed", width: CORE_COLUMN_KEYS.reduce((sum, k) => sum + getColWidth(k), 0) + activeFields.reduce((sum, f) => sum + getColWidth(f.key), 0) }}>
+          <Table>
             <TableHeader>
               <TableRow className="bg-card text-muted-foreground">
-                <TableHead className="relative" style={{ width: getColWidth("_select") }}>
+                <TableHead className="w-10">
                   <Checkbox
                     checked={allOnPageSelected}
                     onCheckedChange={handleSelectAll}
                     aria-label="Select all on page"
                   />
                 </TableHead>
-                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_name") }}>
-                  Name
-                  <ResizeHandle onResize={(d) => handleColumnResize("_name", d)} />
-                </TableHead>
-                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_email") }}>
-                  Email
-                  <ResizeHandle onResize={(d) => handleColumnResize("_email", d)} />
-                </TableHead>
-                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_phone") }}>
-                  Phone
-                  <ResizeHandle onResize={(d) => handleColumnResize("_phone", d)} />
-                </TableHead>
-                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_programs") }}>
-                  Programs
-                  <ResizeHandle onResize={(d) => handleColumnResize("_programs", d)} />
-                </TableHead>
-                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_tags") }}>
-                  Tags
-                  <ResizeHandle onResize={(d) => handleColumnResize("_tags", d)} />
-                </TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Programs</TableHead>
+                <TableHead>Tags</TableHead>
                 {activeFields.map((field) => (
-                  <TableHead key={field.key} className="relative overflow-hidden" style={{ width: getColWidth(field.key) }}>
+                  <TableHead key={field.key}>
                     <span className="inline-flex items-center">
                       {field.label}
                       <ColumnFilterPopover
@@ -441,13 +396,22 @@ export function ContactsPanel() {
                         onClear={() => handleColumnFilterClear(field.key)}
                       />
                     </span>
-                    <ResizeHandle onResize={(d) => handleColumnResize(field.key, d)} />
                   </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginated.map((contact) => {
+              {paginated.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={6 + activeFields.length + 1}
+                    className="py-8 text-center text-muted-foreground"
+                  >
+                    No contacts match your filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+              paginated.map((contact) => {
                 const contactApps = appsByContact.get(contact.id) ?? [];
                 const uniquePrograms = [
                   ...new Set(contactApps.map((a) => a.program)),
@@ -466,7 +430,7 @@ export function ContactsPanel() {
                         aria-label={`Select ${contact.name}`}
                       />
                     </TableCell>
-                    <TableCell className="overflow-hidden text-ellipsis">
+                    <TableCell>
                       <Link
                         href={`/admin/contacts/${contact.id}`}
                         className="font-medium text-foreground hover:text-primary"
@@ -474,13 +438,13 @@ export function ContactsPanel() {
                         {contact.name}
                       </Link>
                     </TableCell>
-                    <TableCell className="overflow-hidden text-ellipsis text-muted-foreground">
+                    <TableCell className="text-muted-foreground">
                       {contact.email}
                     </TableCell>
-                    <TableCell className="overflow-hidden text-ellipsis text-muted-foreground">
+                    <TableCell className="text-muted-foreground">
                       {contact.phone || "—"}
                     </TableCell>
-                    <TableCell className="overflow-hidden">
+                    <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {uniquePrograms.map((program) => (
                           <Badge
@@ -493,7 +457,7 @@ export function ContactsPanel() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="overflow-hidden">
+                    <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {contactTagEntries.map((ct) => {
                           const tag = (tags ?? []).find((t) => t.id === ct.tag_id);
@@ -515,17 +479,17 @@ export function ContactsPanel() {
                       </div>
                     </TableCell>
                     {activeFields.map((field) => (
-                      <TableCell key={field.key} className="overflow-hidden text-ellipsis whitespace-nowrap text-sm text-muted-foreground">
+                      <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
                         {renderFieldValue(contactApps, field)}
                       </TableCell>
                     ))}
                   </TableRow>
                 );
-              })}
+              })
+              )}
             </TableBody>
           </Table>
         </div>
-      )}
 
       {selectedIds.size > 0 && (
         <BulkActionBar
