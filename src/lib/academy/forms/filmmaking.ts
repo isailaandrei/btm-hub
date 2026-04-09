@@ -22,7 +22,7 @@ import {
 // Filmmaking-specific option lists
 // ---------------------------------------------------------------------------
 
-const FILMMAKING_EQUIPMENT_OWNED = [
+export const FILMMAKING_EQUIPMENT_OWNED = [
   "Camera",
   "Underwater housing",
   "Video lights",
@@ -33,7 +33,7 @@ const FILMMAKING_EQUIPMENT_OWNED = [
   "Editing software",
 ] as const;
 
-const CONTENT_CREATED = [
+export const FILMMAKING_CONTENT_CREATED = [
   "None yet, excited to start",
   "Personal vacation videos",
   "Social media content",
@@ -44,7 +44,7 @@ const CONTENT_CREATED = [
   "Other"
 ] as const;
 
-const ONLINE_PRESENCE = [
+export const FILMMAKING_ONLINE_PRESENCE = [
   "None",
   "Personal social media only",
   "Dedicated filming social media",
@@ -52,14 +52,16 @@ const ONLINE_PRESENCE = [
   "Multiple platforms",
 ] as const;
 
-const INCOME_FROM_FILMING = [
-  "None",
-  "Occasional / side income",
-  "Part of my income",
-  "Primary income source",
+export const INCOME_FROM_FILMING = [
+  "No, that's not my goal",
+  "No, not yet",
+  "Occasional (few projects per year)",
+  "Regular part-time income",
+  "Full-time income",
+  "Prefer not to say"
 ] as const;
 
-const PRIMARY_GOALS = [
+export const FILMMAKING_PRIMARY_GOALS = [
   "Learn basics of underwater filming as a hobby",
   "Improve content creation for social media",
   "Transform hobby into professional career",
@@ -67,7 +69,7 @@ const PRIMARY_GOALS = [
   "Document marine conservation/research",
 ] as const;
 
-const LEARNING_ASPECTS = [
+export const FILMMAKING_LEARNING_ASPECTS = [
   "Basic equipment setup & operation",
   "Camera settings & techniques",
   "Lighting techniques",
@@ -77,26 +79,28 @@ const LEARNING_ASPECTS = [
   "Business aspects of underwater filming",
   "Client relations & project management",
   "Conservation documentation",
+  "Other"
 ] as const;
 
-const CONTENT_TO_CREATE = [
+export const FILMMAKING_CONTENT_TO_CREATE = [
   "Personal / travel memories",
   "Social media content",
   "Documentary style films",
   "Commercial / advertising content",
   "Scientific / research documentation",
   "Conservation stories",
+  "Other"
 ] as const;
 
-const LEARNING_APPROACHES = [
+export const FILMMAKING_LEARNING_APPROACHES = [
+  "Group workshops (within a group of approx. 10 people)",
+  "Small group workshop (within a group of approx. 4 people)",
   "One-on-one mentorship",
-  "Group workshops",
-  "Small group workshop",
   "Mixed approach (combination of group and individual)",
-  "Project-based learning",
+  "Project-based learning (Within a BTM project)",
 ] as const;
 
-const MARINE_SUBJECTS = [
+export const FILMMAKING_MARINE_SUBJECTS = [
   "Coral reefs",
   "Big marine life (sharks, whales, etc.)",
   "Macro subjects",
@@ -158,9 +162,9 @@ const skillsStep: FormStepDefinition = {
 
 const professionalStatusFields: FieldDefinition[] = [
   { type: "select", name: "btm_category", label: "Which BTM Academy category best describes you?", options: BTM_CATEGORIES, required: true, columns: 1 },
-  { type: "multiselect", name: "content_created", label: "What type of underwater content have you created so far?", options: CONTENT_CREATED, required: true },
+  { type: "multiselect", name: "content_created", label: "What type of underwater content have you created so far?", options: FILMMAKING_CONTENT_CREATED, required: true },
   { type: "select", name: "involvement_level", label: "Current involvement in underwater filming", options: INVOLVEMENT_LEVELS, required: true },
-  { type: "select", name: "online_presence", label: "Online Presence", options: ONLINE_PRESENCE, required: true },
+  { type: "select", name: "online_presence", label: "Online Presence", options: FILMMAKING_ONLINE_PRESENCE, required: true },
   { type: "text", name: "online_links", label: "Links to Your Work (optional)", placeholder: "Instagram, website, portfolio...", required: false },
   { type: "select", name: "income_from_filming", label: "Income from Underwater Filming", options: INCOME_FROM_FILMING, required: true },
 ];
@@ -173,12 +177,12 @@ const professionalStatus: FormStepDefinition = {
 };
 
 const goalsFields: FieldDefinition[] = [
-  { type: "select", name: "primary_goal", label: "What is your primary goal with BTM Academy?", options: PRIMARY_GOALS, required: true },
+  { type: "select", name: "primary_goal", label: "What is your primary goal with BTM Academy?", options: FILMMAKING_PRIMARY_GOALS, required: true },
   { type: "text", name: "secondary_goal", label: "Secondary Goal (optional)", placeholder: "Any other goals you'd like to achieve?", required: false },
-  { type: "multiselect", name: "learning_aspects", label: "Aspects You Want to Learn", options: LEARNING_ASPECTS, required: true },
-  { type: "multiselect", name: "content_to_create", label: "Content You Want to Create", options: CONTENT_TO_CREATE, required: true },
-  { type: "multiselect", name: "learning_approach", label: "Preferred Learning Approach", options: LEARNING_APPROACHES, required: true },
-  { type: "multiselect", name: "marine_subjects", label: "Marine Subjects of Interest", options: MARINE_SUBJECTS, required: true },
+  { type: "multiselect", name: "learning_aspects", label: "Aspects You Want to Learn", options: FILMMAKING_LEARNING_ASPECTS, required: true },
+  { type: "multiselect", name: "content_to_create", label: "Content You Want to Create", options: FILMMAKING_CONTENT_TO_CREATE, required: true },
+  { type: "multiselect", name: "learning_approach", label: "Preferred Learning Approach", options: FILMMAKING_LEARNING_APPROACHES, required: true },
+  { type: "multiselect", name: "marine_subjects", label: "Marine Subjects of Interest", options: FILMMAKING_MARINE_SUBJECTS, required: true },
 ];
 
 const goalsStep: FormStepDefinition = {

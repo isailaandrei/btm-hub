@@ -46,6 +46,9 @@ interface AdminDataContextValue {
   contactTags: ContactTag[] | null;
   contactsError: string | null;
   ensureContacts: () => void;
+  preferences: Record<string, unknown>;
+  setPreferences: React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
+  ensurePreferences: () => void;
 }
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
@@ -68,9 +71,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [contactTags, setContactTags] = useState<ContactTag[] | null>(null);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
+  const [preferences, setPreferences] = useState<Record<string, unknown>>({});
+
   const appsFetchState = useRef<FetchState>("idle");
   const profilesFetchState = useRef<FetchState>("idle");
   const contactsFetchState = useRef<FetchState>("idle");
+  const preferencesFetchState = useRef<FetchState>("idle");
   const channelsRef = useRef<RealtimeChannel[]>([]);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
 
@@ -150,7 +156,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     async function fetchProfiles() {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, email, role, display_name, bio, avatar_url, created_at, updated_at")
+        .select("id, email, role, display_name, bio, avatar_url, preferences, created_at, updated_at")
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -320,6 +326,38 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     fetchContacts();
   }, []);
 
+  const ensurePreferences = useCallback(() => {
+    if (preferencesFetchState.current !== "idle") return;
+    preferencesFetchState.current = "loading";
+
+    const supabase = getSupabase();
+
+    async function fetchPreferences() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        preferencesFetchState.current = "done";
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("preferences")
+        .eq("id", user.id)
+        .single();
+
+      if (error) {
+        preferencesFetchState.current = "idle";
+        toast.error("Failed to load preferences.");
+        return;
+      }
+
+      setPreferences((data?.preferences as Record<string, unknown>) ?? {});
+      preferencesFetchState.current = "done";
+    }
+
+    fetchPreferences();
+  }, []);
+
   // Cleanup only the channels that were actually created
   useEffect(() => {
     return () => {
@@ -347,6 +385,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           contactTags,
           contactsError,
           ensureContacts,
+          preferences,
+          setPreferences,
+          ensurePreferences,
         }}
     >
       {children}

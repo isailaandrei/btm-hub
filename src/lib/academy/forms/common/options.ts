@@ -6,11 +6,10 @@
 export const DIVING_TYPES = [
   "Recreational Scuba diving",
   "Technical Scuba diving",
-  "Snorkeling",
-  "Technical diving",
   "Rebreather diving",
+  "Freediving",
+  "Snorkeling",
   "Neither, but interested in learning",
-  "Freediving"
 ] as const;
 
 export const CERTIFICATION_LEVELS = [
@@ -20,7 +19,41 @@ export const CERTIFICATION_LEVELS = [
   "Rescue Diver",
   "Divemaster",
   "Instructor",
+  "Technical Diving certification",
+  "Certified Freediver, please specify below"
 ] as const;
+
+export const FITNESS_LEVELS = [
+  "Excellent - Regular exercise, no health concerns",
+  "Good - Moderately active, no major health concerns",
+  "Average - Some physical activity, manageable health conditions",
+  "Need improvement - Limited physical activity or health concerns",
+  "Prefer to discuss privately"
+] as const;
+
+export const HEALTH_CONDITIONS = [
+  "No health conditions affecting diving",
+  "Yes, but cleared by doctor for diving",
+  "Need medical clearance",
+  "Prefer to discuss privately"
+] as const;
+
+export const AGE_RANGES = [
+  "Under 18",
+  "18-24",
+  "25-34",
+  "35-44",
+  "45-54",
+  "55+",
+] as const;
+
+export const GENDERS = [
+  "Male",
+  "Female",
+  "Non-binary",
+  "Prefer not to say",
+] as const;
+
 
 export const NUMBER_OF_DIVES = [
   "0-50",
@@ -66,9 +99,9 @@ export const TRAVEL_WILLINGNESS = [
 export const BUDGETS = [
   "Under $1,000",
   "$1,000 - $3,000",
-  "$3,000 - $5,000",
-  "$5,000 - $10,000",
-  "$10,000+",
+  "$3,000 - $6,000",
+  "$6,000 - $12,000",
+  "$12,000+",
 ] as const;
 
 export const START_TIMELINES = [
@@ -97,10 +130,10 @@ export const YEARS_EXPERIENCE = [
 
 export const INVOLVEMENT_LEVELS = [
   "Complete beginner",
-  "Hobby",
+  "Hobby only",
   "Part-time",
   "Full-time",
-  "Conservation/Scientific work",
+  "Conservation / Scientific work",
 ] as const;
 
 // Referral
@@ -124,8 +157,8 @@ export const EQUIPMENT_OWNED = [
   "Compact camera with housing",
   "DSLR/Mirrorless with housing",
   "Professional video camera",
-  "Drone",
   "Lighting equipment",
+  "Drone",
   "Other"
 ] as const;
 

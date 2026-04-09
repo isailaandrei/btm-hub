@@ -8,7 +8,9 @@ import {
   assignTag,
   unassignTag,
   addContactNote,
+  bulkAssignTags,
 } from "@/lib/data/contacts";
+import { updateProfilePreferences } from "@/lib/data/profiles";
 
 export async function editContact(
   contactId: string,
@@ -54,4 +56,23 @@ export async function addNote(contactId: string, text: string) {
   if (!trimmed) return;
   await addContactNote(contactId, profile.id, profile.display_name ?? profile.email, trimmed);
   revalidatePath(`/admin/contacts/${contactId}`);
+}
+
+export async function updatePreferences(patch: Record<string, unknown>) {
+  const profile = await requireAdmin();
+  return updateProfilePreferences(profile.id, patch);
+}
+
+const MAX_BULK_ASSIGN = 500;
+
+export async function bulkAssignTag(contactIds: string[], tagId: string) {
+  if (contactIds.length === 0) return;
+  if (contactIds.length > MAX_BULK_ASSIGN) {
+    throw new Error(`Cannot assign to more than ${MAX_BULK_ASSIGN} contacts at once`);
+  }
+  for (const id of contactIds) validateUUID(id, "contact");
+  validateUUID(tagId, "tag");
+  await requireAdmin();
+  await bulkAssignTags(contactIds, tagId);
+  revalidatePath("/admin");
 }

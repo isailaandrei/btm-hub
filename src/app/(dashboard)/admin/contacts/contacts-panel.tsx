@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useAdminData } from "../admin-data-provider";
 import { ContactsFilters } from "./contacts-filters";
-import { TAG_COLOR_CLASSES } from "../constants";
+import { TAG_COLOR_CLASSES, PROGRAM_BADGE_CLASS } from "../constants";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableHeader,
@@ -14,17 +16,56 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import type { ProgramSlug } from "@/types/database";
+import type { Application, ProgramSlug } from "@/types/database";
+import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
+import { updatePreferences } from "./actions";
+import { ColumnFilterPopover } from "./column-filter-popover";
+import { BulkActionBar } from "./bulk-action-bar";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
 
-const PROGRAM_BADGE_CLASS: Record<string, string> = {
-  filmmaking: "border-blue-500/40 bg-blue-500/10 text-blue-400",
-  photography: "border-amber-500/40 bg-amber-500/10 text-amber-400",
-  freediving: "border-teal-500/40 bg-teal-500/10 text-teal-400",
-  internship: "border-purple-500/40 bg-purple-500/10 text-purple-400",
-};
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function renderFieldValue(
+  contactApps: Application[],
+  field: FieldRegistryEntry,
+): React.ReactNode {
+  const entries: { program: string; value: string }[] = [];
+
+  for (const app of contactApps) {
+    // Top-level application fields (e.g., submitted_at) vs answers
+    const raw = field.key === "submitted_at"
+      ? app.submitted_at
+      : app.answers[field.key];
+    if (raw == null) continue;
+
+    let display: string;
+    if (field.type === "date") {
+      display = formatDate(String(raw));
+    } else if (Array.isArray(raw)) {
+      display = raw.join(", ");
+    } else {
+      display = String(raw);
+    }
+    entries.push({ program: app.program, value: display });
+  }
+
+  if (entries.length === 0) return "—";
+  if (entries.length === 1) return entries[0].value;
+  return (
+    <div className="flex flex-col gap-0.5">
+      {entries.map((e, i) => (
+        <div key={i}>
+          <span className="text-muted-foreground/60">{e.program}:</span> {e.value}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function ContactsPanel() {
   const {
@@ -36,6 +77,9 @@ export function ContactsPanel() {
     contactsError,
     ensureContacts,
     ensureApplications,
+    preferences,
+    setPreferences,
+    ensurePreferences,
   } = useAdminData();
 
   const [search, setSearch] = useState("");
@@ -43,16 +87,65 @@ export function ContactsPanel() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
+  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const visibleColumnsRef = useRef<string[]>([]);
+  const initializedRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     ensureContacts();
     ensureApplications();
   }, [ensureContacts, ensureApplications]);
 
-  const filtered = useMemo(() => {
+  useEffect(() => {
+    ensurePreferences();
+  }, [ensurePreferences]);
+
+  // Sync preferences to local state once (one-time initialization)
+  useEffect(() => {
+    if (initializedRef.current) return;
+    const saved = (preferences as { contacts_table?: { visible_columns?: string[] } })
+      ?.contacts_table?.visible_columns;
+    if (Array.isArray(saved)) {
+      setVisibleColumns(saved);
+      initializedRef.current = true;
+    }
+  }, [preferences]);
+
+  const { filtered, appsByContact, dataOptions } = useMemo(() => {
     const items = contacts ?? [];
     const apps = applications ?? [];
     const ctags = contactTags ?? [];
+
+    // Precompute apps by contact
+    const appsByContact = new Map<string, typeof apps>();
+    for (const app of apps) {
+      if (!app.contact_id) continue;
+      const list = appsByContact.get(app.contact_id);
+      if (list) list.push(app);
+      else appsByContact.set(app.contact_id, [app]);
+    }
+
+    // TODO: This derives filter options from actual DB values as a workaround
+    // because form definition options don't yet match the stored data.
+    // Once options in forms/common/options.ts match the DB, switch back to
+    // using field.options from the registry and remove this computation.
+    const dataOptions = new Map<string, Set<string>>();
+    for (const app of apps) {
+      for (const [key, raw] of Object.entries(app.answers)) {
+        if (raw == null) continue;
+        let set = dataOptions.get(key);
+        if (!set) { set = new Set(); dataOptions.set(key, set); }
+        if (Array.isArray(raw)) {
+          for (const v of raw) { const s = String(v).trim(); if (s) set.add(s); }
+        } else {
+          const s = String(raw).trim();
+          if (s) set.add(s);
+        }
+      }
+    }
 
     let result = items;
 
@@ -67,7 +160,7 @@ export function ContactsPanel() {
 
     if (selectedProgram) {
       result = result.filter((c) =>
-        apps.some((a) => a.contact_id === c.id && a.program === selectedProgram),
+        (appsByContact.get(c.id) ?? []).some((a) => a.program === selectedProgram),
       );
     }
 
@@ -79,8 +172,28 @@ export function ContactsPanel() {
       );
     }
 
-    return result;
-  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds]);
+    // Column filters (application-derived fields)
+    const activeColumnFilters = Object.entries(columnFilters);
+    if (activeColumnFilters.length > 0) {
+      result = result.filter((c) => {
+        const contactApps = appsByContact.get(c.id) ?? [];
+        return activeColumnFilters.every(([fieldKey, values]) =>
+          contactApps.some((app) => {
+            const raw = app.answers[fieldKey];
+            if (raw == null) return false;
+            if (Array.isArray(raw)) {
+              return raw.some((v) => values.includes(String(v)));
+            }
+            return values.includes(String(raw));
+          }),
+        );
+      });
+    }
+
+    return { filtered: result, appsByContact, dataOptions };
+  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters]);
+
+  const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const currentPage = Math.min(page, Math.max(totalPages, 1));
@@ -89,10 +202,15 @@ export function ContactsPanel() {
     currentPage * pageSize,
   );
 
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
   function onFilterChange<T>(setter: (v: T) => void) {
     return (value: T) => {
       setter(value);
       setPage(1);
+      clearSelection();
     };
   }
 
@@ -101,12 +219,96 @@ export function ContactsPanel() {
       prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
     );
     setPage(1);
+    clearSelection();
   }
 
   function handleClearTags() {
     setSelectedTagIds([]);
     setPage(1);
+    clearSelection();
   }
+
+  function handleColumnToggle(key: string) {
+    setVisibleColumns((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      visibleColumnsRef.current = next;
+      return next;
+    });
+
+    clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(async () => {
+      const columns = visibleColumnsRef.current;
+      try {
+        await updatePreferences({ contacts_table: { visible_columns: columns } });
+        // Update provider state so tab remounts get the latest value
+        setPreferences((prev) => ({ ...prev, contacts_table: { visible_columns: columns } }));
+      } catch {
+        toast.error("Failed to save column preferences.");
+      }
+    }, 1000);
+  }
+
+  function handleColumnFilterToggle(fieldKey: string, value: string) {
+    setColumnFilters((prev) => {
+      const current = prev[fieldKey] ?? [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      if (next.length === 0) {
+        const { [fieldKey]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [fieldKey]: next };
+    });
+    setPage(1);
+    clearSelection();
+  }
+
+  function handleColumnFilterClear(fieldKey: string) {
+    setColumnFilters((prev) => {
+      const { [fieldKey]: _, ...rest } = prev;
+      return rest;
+    });
+    setPage(1);
+    clearSelection();
+  }
+
+  function handleClearAllFilters() {
+    setSearch("");
+    setSelectedProgram(undefined);
+    setSelectedTagIds([]);
+    setColumnFilters({});
+    setPage(1);
+    clearSelection();
+  }
+
+  const allOnPageSelected = paginated.length > 0 && paginated.every((c) => selectedIds.has(c.id));
+
+  function handleSelectAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        for (const c of paginated) next.delete(c.id);
+      } else {
+        for (const c of paginated) next.add(c.id);
+      }
+      return next;
+    });
+  }
+
+  function handleSelectOne(contactId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) next.delete(contactId);
+      else next.add(contactId);
+      return next;
+    });
+  }
+
+  const activeFields = useMemo(
+    () => visibleColumns.map(getFieldEntry).filter((f): f is FieldRegistryEntry => f !== undefined),
+    [visibleColumns],
+  );
 
   if (contacts === null) {
     if (contactsError) {
@@ -163,16 +365,27 @@ export function ContactsPanel() {
           selectedTagIds={selectedTagIds}
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
+          visibleColumns={visibleColumns}
           onSearchChange={onFilterChange(setSearch)}
           onProgramChange={onFilterChange(setSelectedProgram)}
           onTagToggle={handleTagToggle}
           onClearTags={handleClearTags}
+          onColumnToggle={handleColumnToggle}
         />
       </div>
 
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {filtered.length} contact{filtered.length !== 1 ? "s" : ""} found
+          {hasAnyFilter && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="ml-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Clear all filters
+            </button>
+          )}
         </p>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Show</span>
@@ -180,7 +393,7 @@ export function ContactsPanel() {
             <button
               key={size}
               type="button"
-              onClick={() => { setPageSize(size); setPage(1); }}
+              onClick={() => { setPageSize(size); setPage(1); clearSelection(); }}
               className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
                 pageSize === size
                   ? "bg-primary text-primary-foreground"
@@ -193,27 +406,54 @@ export function ContactsPanel() {
         </div>
       </div>
 
-      {paginated.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-          No contacts match your filters.
-        </div>
-      ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow className="bg-card text-muted-foreground">
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allOnPageSelected}
+                    onCheckedChange={handleSelectAll}
+                    aria-label="Select all on page"
+                  />
+                </TableHead>
                 <TableHead>Name</TableHead>
+                <TableHead>Submitted</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Programs</TableHead>
                 <TableHead>Tags</TableHead>
+                {activeFields.map((field) => (
+                  <TableHead key={field.key}>
+                    <span className="inline-flex items-center">
+                      {field.label}
+                      {field.type !== "date" && (
+                        <ColumnFilterPopover
+                          field={field}
+                          options={[...(dataOptions.get(field.key) ?? [])].sort()}
+                          selected={columnFilters[field.key] ?? []}
+                          onToggle={(v) => handleColumnFilterToggle(field.key, v)}
+                          onClear={() => handleColumnFilterClear(field.key)}
+                        />
+                      )}
+                    </span>
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginated.map((contact) => {
-                const contactApps = (applications ?? []).filter(
-                  (a) => a.contact_id === contact.id,
-                );
+              {paginated.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7 + activeFields.length}
+                    className="py-8 text-center text-muted-foreground"
+                  >
+                    No contacts match your filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+              paginated.map((contact) => {
+                const contactApps = appsByContact.get(contact.id) ?? [];
                 const uniquePrograms = [
                   ...new Set(contactApps.map((a) => a.program)),
                 ];
@@ -224,6 +464,13 @@ export function ContactsPanel() {
 
                 return (
                   <TableRow key={contact.id}>
+                    <TableCell className="w-10">
+                      <Checkbox
+                        checked={selectedIds.has(contact.id)}
+                        onCheckedChange={() => handleSelectOne(contact.id)}
+                        aria-label={`Select ${contact.name}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Link
                         href={`/admin/contacts/${contact.id}`}
@@ -231,6 +478,19 @@ export function ContactsPanel() {
                       >
                         {contact.name}
                       </Link>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {contactApps.length === 1
+                        ? formatDate(contactApps[0].submitted_at)
+                        : contactApps.length > 1
+                          ? (<div className="flex flex-col gap-0.5">
+                              {contactApps.map((a) => (
+                                <div key={a.id}>
+                                  <span className="text-muted-foreground/60">{a.program}:</span> {formatDate(a.submitted_at)}
+                                </div>
+                              ))}
+                            </div>)
+                          : "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {contact.email}
@@ -272,12 +532,27 @@ export function ContactsPanel() {
                         })}
                       </div>
                     </TableCell>
+                    {activeFields.map((field) => (
+                      <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
+                        {renderFieldValue(contactApps, field)}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 );
-              })}
+              })
+              )}
             </TableBody>
           </Table>
         </div>
+
+      {selectedIds.size > 0 && (
+        <BulkActionBar
+          selectedCount={selectedIds.size}
+          selectedIds={[...selectedIds]}
+          tagCategories={tagCategories ?? []}
+          tags={tags ?? []}
+          onClearSelection={clearSelection}
+        />
       )}
 
       {totalPages > 1 && (
@@ -285,7 +560,7 @@ export function ContactsPanel() {
           {currentPage > 1 && (
             <button
               type="button"
-              onClick={() => setPage(currentPage - 1)}
+              onClick={() => { setPage(currentPage - 1); clearSelection(); }}
               className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Previous
@@ -297,7 +572,7 @@ export function ContactsPanel() {
           {currentPage < totalPages && (
             <button
               type="button"
-              onClick={() => setPage(currentPage + 1)}
+              onClick={() => { setPage(currentPage + 1); clearSelection(); }}
               className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Next

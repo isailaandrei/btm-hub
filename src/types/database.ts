@@ -5,6 +5,7 @@ export interface Profile {
   bio: string | null;
   avatar_url: string | null;
   role: "admin" | "member";
+  preferences: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
