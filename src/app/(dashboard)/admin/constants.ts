@@ -7,3 +7,10 @@ export const TAG_COLOR_CLASSES: Record<string, string> = {
   purple: "border-purple-500/40 bg-purple-500/10 text-purple-400",
   pink: "border-pink-500/40 bg-pink-500/10 text-pink-400",
 };
+
+export const PROGRAM_BADGE_CLASS: Record<string, string> = {
+  filmmaking: "border-blue-500/40 bg-blue-500/10 text-blue-400",
+  photography: "border-amber-500/40 bg-amber-500/10 text-amber-400",
+  freediving: "border-teal-500/40 bg-teal-500/10 text-teal-400",
+  internship: "border-purple-500/40 bg-purple-500/10 text-purple-400",
+};

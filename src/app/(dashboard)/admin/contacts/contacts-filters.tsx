@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { PROGRAMS } from "../applications/constants";
 import { TAG_COLOR_CLASSES } from "../constants";
+import { ColumnPicker } from "./column-picker";
 
 interface ContactsFiltersProps {
   search: string;
@@ -19,10 +20,12 @@ interface ContactsFiltersProps {
   selectedTagIds: string[];
   tagCategories: TagCategory[];
   tags: Tag[];
+  visibleColumns: string[];
   onSearchChange: (value: string) => void;
   onProgramChange: (value: ProgramSlug | undefined) => void;
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
+  onColumnToggle: (key: string) => void;
 }
 
 export function ContactsFilters({
@@ -31,10 +34,12 @@ export function ContactsFilters({
   selectedTagIds,
   tagCategories,
   tags,
+  visibleColumns,
   onSearchChange,
   onProgramChange,
   onTagToggle,
   onClearTags,
+  onColumnToggle,
 }: ContactsFiltersProps) {
   const [searchInput, setSearchInput] = useState(search);
 
@@ -81,6 +86,8 @@ export function ContactsFilters({
             ))}
           </SelectContent>
         </Select>
+
+        <ColumnPicker visibleColumns={visibleColumns} onToggle={onColumnToggle} />
       </div>
 
       {tagCategories.length > 0 && (

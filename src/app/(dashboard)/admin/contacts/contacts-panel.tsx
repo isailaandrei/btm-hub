@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../admin-data-provider";
 import { ContactsFilters } from "./contacts-filters";
-import { TAG_COLOR_CLASSES } from "../constants";
+import { TAG_COLOR_CLASSES, PROGRAM_BADGE_CLASS } from "../constants";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -14,17 +14,36 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import type { ProgramSlug } from "@/types/database";
+import type { Application, ProgramSlug } from "@/types/database";
+import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
+import { updatePreferences } from "./actions";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
 
-const PROGRAM_BADGE_CLASS: Record<string, string> = {
-  filmmaking: "border-blue-500/40 bg-blue-500/10 text-blue-400",
-  photography: "border-amber-500/40 bg-amber-500/10 text-amber-400",
-  freediving: "border-teal-500/40 bg-teal-500/10 text-teal-400",
-  internship: "border-purple-500/40 bg-purple-500/10 text-purple-400",
-};
+function renderFieldValue(
+  contactApps: Application[],
+  field: FieldRegistryEntry,
+): React.ReactNode {
+  const entries: { program: string; value: string }[] = [];
+
+  for (const app of contactApps) {
+    const raw = app.answers[field.key];
+    if (raw == null) continue;
+
+    let display: string;
+    if (Array.isArray(raw)) {
+      display = raw.join(", ");
+    } else {
+      display = String(raw);
+    }
+    entries.push({ program: app.program, value: display });
+  }
+
+  if (entries.length === 0) return "—";
+  if (entries.length === 1) return entries[0].value;
+  return entries.map((e) => `${e.program}: ${e.value}`).join(" · ");
+}
 
 export function ContactsPanel() {
   const {
@@ -36,6 +55,8 @@ export function ContactsPanel() {
     contactsError,
     ensureContacts,
     ensureApplications,
+    preferences,
+    ensurePreferences,
   } = useAdminData();
 
   const [search, setSearch] = useState("");
@@ -43,16 +64,43 @@ export function ContactsPanel() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
+  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const initializedRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     ensureContacts();
     ensureApplications();
   }, [ensureContacts, ensureApplications]);
 
-  const filtered = useMemo(() => {
+  useEffect(() => {
+    ensurePreferences();
+  }, [ensurePreferences]);
+
+  // Sync preferences to local state once (one-time initialization)
+  useEffect(() => {
+    if (initializedRef.current) return;
+    const saved = (preferences as { contacts_table?: { visible_columns?: string[] } })
+      ?.contacts_table?.visible_columns;
+    if (Array.isArray(saved)) {
+      setVisibleColumns(saved);
+      initializedRef.current = true;
+    }
+  }, [preferences]);
+
+  const { filtered, appsByContact } = useMemo(() => {
     const items = contacts ?? [];
     const apps = applications ?? [];
     const ctags = contactTags ?? [];
+
+    // Precompute apps by contact
+    const appsByContact = new Map<string, typeof apps>();
+    for (const app of apps) {
+      if (!app.contact_id) continue;
+      const list = appsByContact.get(app.contact_id);
+      if (list) list.push(app);
+      else appsByContact.set(app.contact_id, [app]);
+    }
 
     let result = items;
 
@@ -67,7 +115,7 @@ export function ContactsPanel() {
 
     if (selectedProgram) {
       result = result.filter((c) =>
-        apps.some((a) => a.contact_id === c.id && a.program === selectedProgram),
+        (appsByContact.get(c.id) ?? []).some((a) => a.program === selectedProgram),
       );
     }
 
@@ -79,7 +127,7 @@ export function ContactsPanel() {
       );
     }
 
-    return result;
+    return { filtered: result, appsByContact };
   }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
@@ -107,6 +155,25 @@ export function ContactsPanel() {
     setSelectedTagIds([]);
     setPage(1);
   }
+
+  function handleColumnToggle(key: string) {
+    setVisibleColumns((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+
+    clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      setVisibleColumns((current) => {
+        updatePreferences({ contacts_table: { visible_columns: current } });
+        return current;
+      });
+    }, 1000);
+  }
+
+  const activeFields = useMemo(
+    () => visibleColumns.map(getFieldEntry).filter((f): f is FieldRegistryEntry => f !== undefined),
+    [visibleColumns],
+  );
 
   if (contacts === null) {
     if (contactsError) {
@@ -163,10 +230,12 @@ export function ContactsPanel() {
           selectedTagIds={selectedTagIds}
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
+          visibleColumns={visibleColumns}
           onSearchChange={onFilterChange(setSearch)}
           onProgramChange={onFilterChange(setSelectedProgram)}
           onTagToggle={handleTagToggle}
           onClearTags={handleClearTags}
+          onColumnToggle={handleColumnToggle}
         />
       </div>
 
@@ -207,13 +276,14 @@ export function ContactsPanel() {
                 <TableHead>Phone</TableHead>
                 <TableHead>Programs</TableHead>
                 <TableHead>Tags</TableHead>
+                {activeFields.map((field) => (
+                  <TableHead key={field.key}>{field.label}</TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginated.map((contact) => {
-                const contactApps = (applications ?? []).filter(
-                  (a) => a.contact_id === contact.id,
-                );
+                const contactApps = appsByContact.get(contact.id) ?? [];
                 const uniquePrograms = [
                   ...new Set(contactApps.map((a) => a.program)),
                 ];
@@ -272,6 +342,11 @@ export function ContactsPanel() {
                         })}
                       </div>
                     </TableCell>
+                    {activeFields.map((field) => (
+                      <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
+                        {renderFieldValue(contactApps, field)}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 );
               })}
