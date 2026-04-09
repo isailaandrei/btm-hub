@@ -34,7 +34,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   _tags: 180,
 };
 const DEFAULT_DYNAMIC_WIDTH = 150;
-const MIN_COLUMN_WIDTH = 50;
+const MIN_COLUMN_WIDTH = 20;
 type PageSize = (typeof PAGE_SIZES)[number];
 
 function renderFieldValue(
@@ -409,28 +409,28 @@ export function ContactsPanel() {
                     aria-label="Select all on page"
                   />
                 </TableHead>
-                <TableHead className="relative" style={{ width: getColWidth("_name") }}>
+                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_name") }}>
                   Name
                   <ResizeHandle onResize={(d) => handleColumnResize("_name", d)} />
                 </TableHead>
-                <TableHead className="relative" style={{ width: getColWidth("_email") }}>
+                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_email") }}>
                   Email
                   <ResizeHandle onResize={(d) => handleColumnResize("_email", d)} />
                 </TableHead>
-                <TableHead className="relative" style={{ width: getColWidth("_phone") }}>
+                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_phone") }}>
                   Phone
                   <ResizeHandle onResize={(d) => handleColumnResize("_phone", d)} />
                 </TableHead>
-                <TableHead className="relative" style={{ width: getColWidth("_programs") }}>
+                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_programs") }}>
                   Programs
                   <ResizeHandle onResize={(d) => handleColumnResize("_programs", d)} />
                 </TableHead>
-                <TableHead className="relative" style={{ width: getColWidth("_tags") }}>
+                <TableHead className="relative overflow-hidden" style={{ width: getColWidth("_tags") }}>
                   Tags
                   <ResizeHandle onResize={(d) => handleColumnResize("_tags", d)} />
                 </TableHead>
                 {activeFields.map((field) => (
-                  <TableHead key={field.key} className="relative" style={{ width: getColWidth(field.key) }}>
+                  <TableHead key={field.key} className="relative overflow-hidden" style={{ width: getColWidth(field.key) }}>
                     <span className="inline-flex items-center">
                       {field.label}
                       <ColumnFilterPopover
@@ -465,7 +465,7 @@ export function ContactsPanel() {
                         aria-label={`Select ${contact.name}`}
                       />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="overflow-hidden text-ellipsis">
                       <Link
                         href={`/admin/contacts/${contact.id}`}
                         className="font-medium text-foreground hover:text-primary"
@@ -473,13 +473,13 @@ export function ContactsPanel() {
                         {contact.name}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="overflow-hidden text-ellipsis text-muted-foreground">
                       {contact.email}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="overflow-hidden text-ellipsis text-muted-foreground">
                       {contact.phone || "—"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="overflow-hidden">
                       <div className="flex flex-wrap gap-1">
                         {uniquePrograms.map((program) => (
                           <Badge
@@ -492,7 +492,7 @@ export function ContactsPanel() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="overflow-hidden">
                       <div className="flex flex-wrap gap-1">
                         {contactTagEntries.map((ct) => {
                           const tag = (tags ?? []).find((t) => t.id === ct.tag_id);
@@ -514,7 +514,7 @@ export function ContactsPanel() {
                       </div>
                     </TableCell>
                     {activeFields.map((field) => (
-                      <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
+                      <TableCell key={field.key} className="overflow-hidden text-ellipsis whitespace-nowrap text-sm text-muted-foreground">
                         {renderFieldValue(contactApps, field)}
                       </TableCell>
                     ))}
