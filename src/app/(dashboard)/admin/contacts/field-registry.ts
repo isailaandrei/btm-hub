@@ -102,7 +102,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
   },
   {
     key: "btm_category",
-    label: "BTM Category",
+    label: "Professional Status",
     type: "select",
     options: union(BTM_CATEGORIES, FREEDIVING_BTM_CATEGORIES),
     programs: ["filmmaking", "photography", "freediving"],
