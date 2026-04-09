@@ -65,6 +65,7 @@ export function ContactsPanel() {
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const visibleColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -157,16 +158,15 @@ export function ContactsPanel() {
   }
 
   function handleColumnToggle(key: string) {
-    setVisibleColumns((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
+    setVisibleColumns((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      visibleColumnsRef.current = next;
+      return next;
+    });
 
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      setVisibleColumns((current) => {
-        updatePreferences({ contacts_table: { visible_columns: current } });
-        return current;
-      });
+      updatePreferences({ contacts_table: { visible_columns: visibleColumnsRef.current } });
     }, 1000);
   }
 
