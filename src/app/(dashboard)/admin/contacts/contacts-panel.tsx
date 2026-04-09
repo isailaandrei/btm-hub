@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useAdminData } from "../admin-data-provider";
 import { ContactsFilters } from "./contacts-filters";
 import { TAG_COLOR_CLASSES, PROGRAM_BADGE_CLASS } from "../constants";
@@ -59,6 +60,7 @@ export function ContactsPanel() {
     ensureContacts,
     ensureApplications,
     preferences,
+    setPreferences,
     ensurePreferences,
   } = useAdminData();
 
@@ -197,8 +199,15 @@ export function ContactsPanel() {
     });
 
     clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      updatePreferences({ contacts_table: { visible_columns: visibleColumnsRef.current } });
+    saveTimeoutRef.current = setTimeout(async () => {
+      const columns = visibleColumnsRef.current;
+      try {
+        await updatePreferences({ contacts_table: { visible_columns: columns } });
+        // Update provider state so tab remounts get the latest value
+        setPreferences((prev) => ({ ...prev, contacts_table: { visible_columns: columns } }));
+      } catch {
+        toast.error("Failed to save column preferences.");
+      }
     }, 1000);
   }
 

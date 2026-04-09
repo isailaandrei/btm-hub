@@ -47,7 +47,7 @@ interface AdminDataContextValue {
   contactsError: string | null;
   ensureContacts: () => void;
   preferences: Record<string, unknown>;
-  setPreferences: (prefs: Record<string, unknown>) => void;
+  setPreferences: React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
   ensurePreferences: () => void;
 }
 

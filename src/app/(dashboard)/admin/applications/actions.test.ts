@@ -12,6 +12,7 @@ const mockProfile: Profile = {
   bio: null,
   avatar_url: null,
   role: "admin",
+  preferences: {},
   created_at: "2024-01-01T00:00:00Z",
   updated_at: "2024-01-01T00:00:00Z",
 };
