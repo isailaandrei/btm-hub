@@ -46,7 +46,15 @@ function renderFieldValue(
 
   if (entries.length === 0) return "—";
   if (entries.length === 1) return entries[0].value;
-  return entries.map((e) => `${e.program}: ${e.value}`).join(" · ");
+  return (
+    <div className="flex flex-col gap-0.5">
+      {entries.map((e) => (
+        <div key={e.program}>
+          <span className="text-muted-foreground/60">{e.program}:</span> {e.value}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ContactsPanel() {
