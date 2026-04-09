@@ -9,6 +9,7 @@ import {
   unassignTag,
   addContactNote,
 } from "@/lib/data/contacts";
+import { updateProfilePreferences } from "@/lib/data/profiles";
 
 export async function editContact(
   contactId: string,
@@ -54,4 +55,9 @@ export async function addNote(contactId: string, text: string) {
   if (!trimmed) return;
   await addContactNote(contactId, profile.id, profile.display_name ?? profile.email, trimmed);
   revalidatePath(`/admin/contacts/${contactId}`);
+}
+
+export async function updatePreferences(patch: Record<string, unknown>) {
+  const profile = await requireAdmin();
+  return updateProfilePreferences(profile.id, patch);
 }

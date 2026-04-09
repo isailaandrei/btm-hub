@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/data/auth";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import type { Profile } from "@/types/database";
 
 export const getProfile = cache(async (): Promise<Profile | null> => {
@@ -43,3 +44,20 @@ export const getProfileById = cache(async function getProfileById(id: string): P
   if (error && error.code !== "PGRST116") throw new Error(`Profile fetch failed: ${error.message}`);
   return data;
 });
+
+export async function updateProfilePreferences(
+  profileId: string,
+  patch: Record<string, unknown>,
+) {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  // Atomic merge via Postgres RPC — avoids read-modify-write race condition
+  const { data, error } = await supabase.rpc("merge_preferences", {
+    p_profile_id: profileId,
+    p_patch: patch,
+  });
+
+  if (error) throw new Error(`Failed to update preferences: ${error.message}`);
+  return data as Record<string, unknown>;
+}
