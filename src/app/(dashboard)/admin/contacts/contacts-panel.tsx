@@ -59,8 +59,8 @@ function renderFieldValue(
   if (entries.length === 1) return entries[0].value;
   return (
     <div className="flex flex-col gap-0.5">
-      {entries.map((e) => (
-        <div key={e.program}>
+      {entries.map((e, i) => (
+        <div key={i}>
           <span className="text-muted-foreground/60">{e.program}:</span> {e.value}
         </div>
       ))}
