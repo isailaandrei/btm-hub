@@ -6,6 +6,7 @@ import { useAdminData } from "../admin-data-provider";
 import { ContactsFilters } from "./contacts-filters";
 import { TAG_COLOR_CLASSES, PROGRAM_BADGE_CLASS } from "../constants";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableHeader,
@@ -18,6 +19,7 @@ import type { Application, ProgramSlug } from "@/types/database";
 import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
 import { updatePreferences } from "./actions";
 import { ColumnFilterPopover } from "./column-filter-popover";
+import { BulkActionBar } from "./bulk-action-bar";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
@@ -67,6 +69,7 @@ export function ContactsPanel() {
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -160,10 +163,15 @@ export function ContactsPanel() {
     currentPage * pageSize,
   );
 
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
   function onFilterChange<T>(setter: (v: T) => void) {
     return (value: T) => {
       setter(value);
       setPage(1);
+      clearSelection();
     };
   }
 
@@ -172,11 +180,13 @@ export function ContactsPanel() {
       prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
     );
     setPage(1);
+    clearSelection();
   }
 
   function handleClearTags() {
     setSelectedTagIds([]);
     setPage(1);
+    clearSelection();
   }
 
   function handleColumnToggle(key: string) {
@@ -205,6 +215,7 @@ export function ContactsPanel() {
       return { ...prev, [fieldKey]: next };
     });
     setPage(1);
+    clearSelection();
   }
 
   function handleColumnFilterClear(fieldKey: string) {
@@ -213,6 +224,7 @@ export function ContactsPanel() {
       return rest;
     });
     setPage(1);
+    clearSelection();
   }
 
   function handleClearAllFilters() {
@@ -221,6 +233,30 @@ export function ContactsPanel() {
     setSelectedTagIds([]);
     setColumnFilters({});
     setPage(1);
+    clearSelection();
+  }
+
+  const allOnPageSelected = paginated.length > 0 && paginated.every((c) => selectedIds.has(c.id));
+
+  function handleSelectAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        for (const c of paginated) next.delete(c.id);
+      } else {
+        for (const c of paginated) next.add(c.id);
+      }
+      return next;
+    });
+  }
+
+  function handleSelectOne(contactId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) next.delete(contactId);
+      else next.add(contactId);
+      return next;
+    });
   }
 
   const activeFields = useMemo(
@@ -311,7 +347,7 @@ export function ContactsPanel() {
             <button
               key={size}
               type="button"
-              onClick={() => { setPageSize(size); setPage(1); }}
+              onClick={() => { setPageSize(size); setPage(1); clearSelection(); }}
               className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
                 pageSize === size
                   ? "bg-primary text-primary-foreground"
@@ -333,6 +369,13 @@ export function ContactsPanel() {
           <Table>
             <TableHeader>
               <TableRow className="bg-card text-muted-foreground">
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allOnPageSelected}
+                    onCheckedChange={handleSelectAll}
+                    aria-label="Select all on page"
+                  />
+                </TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone</TableHead>
@@ -366,6 +409,13 @@ export function ContactsPanel() {
 
                 return (
                   <TableRow key={contact.id}>
+                    <TableCell className="w-10">
+                      <Checkbox
+                        checked={selectedIds.has(contact.id)}
+                        onCheckedChange={() => handleSelectOne(contact.id)}
+                        aria-label={`Select ${contact.name}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Link
                         href={`/admin/contacts/${contact.id}`}
@@ -427,12 +477,22 @@ export function ContactsPanel() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <BulkActionBar
+          selectedCount={selectedIds.size}
+          selectedIds={[...selectedIds]}
+          tagCategories={tagCategories ?? []}
+          tags={tags ?? []}
+          onClearSelection={clearSelection}
+        />
+      )}
+
       {totalPages > 1 && (
         <div className="mt-6 flex items-center justify-center gap-2">
           {currentPage > 1 && (
             <button
               type="button"
-              onClick={() => setPage(currentPage - 1)}
+              onClick={() => { setPage(currentPage - 1); clearSelection(); }}
               className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Previous
@@ -444,7 +504,7 @@ export function ContactsPanel() {
           {currentPage < totalPages && (
             <button
               type="button"
-              onClick={() => setPage(currentPage + 1)}
+              onClick={() => { setPage(currentPage + 1); clearSelection(); }}
               className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Next

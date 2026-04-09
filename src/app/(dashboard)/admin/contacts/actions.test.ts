@@ -41,7 +41,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
-const { updatePreferences } = await import("./actions");
+const { updatePreferences, bulkAssignTag } = await import("./actions");
 
 describe("updatePreferences", () => {
   beforeEach(() => {
@@ -52,5 +52,38 @@ describe("updatePreferences", () => {
     const patch = { contacts_table: { visible_columns: ["budget"] } };
     await updatePreferences(patch);
     expect(mockUpdateProfilePreferences).toHaveBeenCalledWith(mockProfile.id, patch);
+  });
+});
+
+const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
+
+describe("bulkAssignTag", () => {
+  beforeEach(() => {
+    mockBulkAssignTags.mockResolvedValue({});
+  });
+
+  it("throws for invalid contact UUID", async () => {
+    await expect(bulkAssignTag(["not-a-uuid"], VALID_UUID)).rejects.toThrow(
+      "Invalid contact ID",
+    );
+    expect(mockBulkAssignTags).not.toHaveBeenCalled();
+  });
+
+  it("throws for invalid tag UUID", async () => {
+    await expect(bulkAssignTag([VALID_UUID], "bad")).rejects.toThrow(
+      "Invalid tag ID",
+    );
+    expect(mockBulkAssignTags).not.toHaveBeenCalled();
+  });
+
+  it("calls bulkAssignTags with valid input", async () => {
+    const ids = [VALID_UUID, "660e8400-e29b-41d4-a716-446655440001"];
+    await bulkAssignTag(ids, VALID_UUID);
+    expect(mockBulkAssignTags).toHaveBeenCalledWith(ids, VALID_UUID);
+  });
+
+  it("does nothing for empty array", async () => {
+    await bulkAssignTag([], VALID_UUID);
+    expect(mockBulkAssignTags).not.toHaveBeenCalled();
   });
 });
