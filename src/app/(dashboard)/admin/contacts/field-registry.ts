@@ -61,6 +61,49 @@ export interface FieldRegistryEntry {
   options: readonly string[] | string[];
   programs: ProgramSlug[];
   curated: boolean;
+  /**
+   * Optional canonical bucket mapping. When set:
+   * - The column filter dropdown shows `canonical.options` instead of
+   *   the raw `options` list.
+   * - The filter predicate runs each stored answer through `normalize(raw)`
+   *   before comparing against the selected filter values, so values that
+   *   share a canonical bucket (e.g., internship numeric "21" and
+   *   filmmaking "18-24") match the same filter entry.
+   * - The sort comparator uses the same normalization, keeping cross-
+   *   program sort order stable.
+   * Values for which `normalize` returns null fall through to the
+   * synthetic "Other" filter bucket.
+   */
+  canonical?: {
+    options: readonly string[];
+    normalize: (raw: unknown) => string | null;
+  };
+}
+
+/**
+ * Maps a raw `answers.age` value to its canonical AGE_RANGES bucket.
+ * Handles the three shapes partner A's Google Forms emit today:
+ *   - Canonical range string ("18-24", "25-34", …) → passthrough
+ *   - Numeric internship text ("21", "30", …)     → bucketed
+ *   - Free-text variants ("24 years old", "30 year old") → bucketed
+ * Returns null for anything that can't be mapped to a canonical bucket
+ * (empty, non-string, non-numeric, or below the curated range ≥18).
+ */
+export function normalizeAgeToRange(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  if ((AGE_RANGES as readonly string[]).includes(trimmed)) return trimmed;
+  const match = trimmed.match(/^(\d{1,3})(?:\s+years?\s+old)?$/i);
+  if (!match) return null;
+  const n = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n < 18) return null;
+  if (n <= 24) return "18-24";
+  if (n <= 34) return "25-34";
+  if (n <= 44) return "35-44";
+  if (n <= 54) return "45-54";
+  return "55+";
 }
 
 const RATING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
@@ -155,8 +198,16 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     label: "Age Range",
     type: "select",
     options: AGE_RANGES,
-    programs: ["filmmaking", "photography", "freediving"],
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
+    // Internship applications store age as raw numeric text ("21", "30",
+    // "24 years old") rather than a range string. Canonical normalization
+    // maps any shape to the AGE_RANGES buckets so a filter on "18-24"
+    // catches both "18-24" (f/p/fd) and "21" (internship) rows.
+    canonical: {
+      options: AGE_RANGES,
+      normalize: normalizeAgeToRange,
+    },
   },
   {
     key: "gender",
