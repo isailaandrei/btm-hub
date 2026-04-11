@@ -125,6 +125,7 @@ const NUMBER = "num"; // parseInt
 const DATE = "date"; // German → ISO
 const STRING_MULTI = "str_multi"; // multi-select stored as comma-joined string
 const ARRAY_MULTI = "arr_multi"; // multi-select stored as JSON array
+const SKIP = "skip"; // column ignored entirely (e.g., CSV junk column)
 
 // ---------------------------------------------------------------------------
 // Column mappings per program. Each entry is [dbKey, type] for that column
@@ -329,24 +330,99 @@ const MAPPINGS = {
     ["questions_or_concerns", STRING],
     ["anything_else", STRING],
   ],
+  // Filmmaking OLD form — partner A's original Google Form, replaced by
+  // the current `filmmaking` mapping above. Column order differs
+  // significantly: a junk "Column 53" at index 0, nickname is spelled
+  // "Nikname", several personal fields are reordered, and Last Name is
+  // at the END of the form. Rows are merged into the `filmmaking` program
+  // after parsing; duplicates across the two files (and within either
+  // file) are deduped by email keeping the latest submission.
+  filmmaking_old: [
+    [null, SKIP], // "Column 53" CSV export artifact
+    [null, "timestamp"],
+    ["first_name", STRING],
+    ["nickname", STRING], // header is "Nikname" (typo in partner A's form)
+    ["email", STRING],
+    ["online_links", STRING],
+    ["age", STRING],
+    ["budget", STRING],
+    ["phone", STRING],
+    ["gender", STRING],
+    ["nationality", STRING],
+    ["country_of_residence", STRING],
+    ["languages", STRING_MULTI],
+    ["current_occupation", STRING],
+    ["physical_fitness", STRING],
+    ["health_conditions", STRING],
+    ["diving_types", ARRAY_MULTI],
+    ["certification_level", STRING_MULTI],
+    ["number_of_dives", STRING],
+    ["last_dive_date", DATE],
+    ["diving_environments", ARRAY_MULTI],
+    ["buoyancy_skill", NUMBER],
+    ["equipment_owned", ARRAY_MULTI],
+    ["filming_equipment", STRING],
+    ["planning_to_invest", STRING],
+    ["years_experience", STRING],
+    ["skill_camera_settings", NUMBER],
+    ["skill_lighting", NUMBER],
+    ["skill_post_production", NUMBER],
+    ["skill_color_correction", NUMBER],
+    ["skill_storytelling", NUMBER],
+    ["skill_drone", NUMBER],
+    ["skill_over_water", NUMBER],
+    ["content_created", ARRAY_MULTI],
+    ["btm_category", STRING],
+    ["involvement_level", STRING],
+    ["online_presence", ARRAY_MULTI],
+    ["income_from_filming", STRING],
+    ["primary_goal", STRING],
+    ["secondary_goal", STRING],
+    ["learning_aspects", ARRAY_MULTI],
+    ["content_to_create", ARRAY_MULTI],
+    ["learning_approach", ARRAY_MULTI],
+    ["marine_subjects", ARRAY_MULTI],
+    ["time_availability", STRING],
+    ["travel_willingness", STRING],
+    ["start_timeline", STRING],
+    ["ultimate_vision", STRING],
+    ["inspiration_to_apply", STRING],
+    ["referral_source", ARRAY_MULTI],
+    ["questions_or_concerns", STRING],
+    ["anything_else", STRING],
+    ["last_name", STRING], // last column in the OLD form!
+  ],
 };
 
-const PROGRAMS = [
+// Each entry: [dbProgram, csvFile, mappingKey].
+// Multiple sources may map into the same dbProgram — they're merged and
+// deduped by email (latest submission wins). Mapping keys reference the
+// MAPPINGS object above.
+const SOURCES = [
   [
     "filmmaking",
     "_2602 Filmmaking - BTM Academy Application Form (Antworten) - Formularantworten 1.csv",
+    "filmmaking",
+  ],
+  [
+    "filmmaking",
+    "_2602 Filmmaking - BTM Academy Application Form (Antworten) - Formularantworten 1 - OLD FORM.csv",
+    "filmmaking_old",
   ],
   [
     "photography",
     "2602 Photography - BTM Academy Application Form (Antworten) - Formularantworten 1.csv",
+    "photography",
   ],
   [
     "freediving",
     "Freediving and Modeling - BTM Academy Application Form (Antworten) - Formularantworten 1.csv",
+    "freediving",
   ],
   [
     "internship",
     "2602 Internship - BTM Academy Application Form (Antworten) - Formularantworten 1.csv",
+    "internship",
   ],
 ];
 
@@ -373,79 +449,123 @@ function uuid(prefix, counter) {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+/**
+ * Parse a single CSV file with a given mapping, returning a list of
+ * { answers, submittedAt } objects for rows that have a non-empty email.
+ */
+async function parseSource(file, mappingKey) {
+  const path = resolve(REPO_ROOT, file);
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (err) {
+    console.error(`\n✗ Failed to read ${file}`);
+    console.error(`  ${err.message}`);
+    process.exit(1);
+  }
+  const rows = parseCsv(text);
+  const mapping = MAPPINGS[mappingKey];
+  if (!mapping) {
+    throw new Error(`No mapping named "${mappingKey}"`);
+  }
+
+  const parsed = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.every((c) => (c ?? "").trim() === "")) continue;
+
+    const answers = {};
+    let submittedAt = null;
+
+    for (let i = 0; i < mapping.length && i < row.length; i++) {
+      const [key, type] = mapping[i];
+      const raw = (row[i] ?? "").trim();
+
+      if (type === "timestamp") {
+        submittedAt = parseGermanTimestamp(raw);
+        continue;
+      }
+      if (type === SKIP) continue;
+      if (key === null) continue;
+      if (raw === "") continue;
+
+      switch (type) {
+        case STRING:
+          answers[key] = raw;
+          break;
+        case NUMBER: {
+          const n = Number.parseInt(raw, 10);
+          if (!Number.isNaN(n)) answers[key] = n;
+          break;
+        }
+        case DATE:
+          answers[key] = parseGermanDate(raw);
+          break;
+        case STRING_MULTI:
+          answers[key] = raw;
+          break;
+        case ARRAY_MULTI:
+          answers[key] = raw
+            .split(/,\s+/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          break;
+      }
+    }
+
+    const email = (answers.email ?? "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "");
+    if (!email) continue; // skip rows without an email entirely
+
+    parsed.push({ email, answers, submittedAt });
+  }
+  return parsed;
+}
+
 async function main() {
+  // 1. Parse every source CSV, grouped by destination program.
+  const perProgram = new Map(); // program → array of { email, answers, submittedAt }
+  for (const [program, file, mappingKey] of SOURCES) {
+    const rows = await parseSource(file, mappingKey);
+    if (!perProgram.has(program)) perProgram.set(program, []);
+    perProgram.get(program).push(...rows);
+  }
+
+  // 2. Dedupe within each program by email — keep the latest submission.
+  //    Sorting is done lexicographically on the ISO timestamp (`null`
+  //    treated as a very old date so real submissions beat it).
+  const stats = {};
+  const dedupedByProgram = new Map();
+  for (const [program, rows] of perProgram) {
+    const byEmail = new Map();
+    for (const row of rows) {
+      const existing = byEmail.get(row.email);
+      const rowTs = row.submittedAt ?? "0000-01-01 00:00:00";
+      const existingTs = existing?.submittedAt ?? "0000-01-01 00:00:00";
+      if (!existing || rowTs > existingTs) {
+        byEmail.set(row.email, row);
+      }
+    }
+    const deduped = [...byEmail.values()];
+    dedupedByProgram.set(program, deduped);
+    stats[program] = {
+      raw: rows.length,
+      deduped: deduped.length,
+      dropped: rows.length - deduped.length,
+    };
+  }
+
+  // 3. Build contacts (deduped by email across all programs) and
+  //    application rows with stable IDs.
   const contacts = new Map(); // email → contact
   const applications = [];
   let contactCounter = 0;
   let appCounter = 0;
-  const stats = {};
 
-  for (const [program, file] of PROGRAMS) {
-    const path = resolve(REPO_ROOT, file);
-    let text;
-    try {
-      text = await readFile(path, "utf8");
-    } catch (err) {
-      console.error(`\n✗ Failed to read ${file}`);
-      console.error(`  ${err.message}`);
-      process.exit(1);
-    }
-    const rows = parseCsv(text);
-    const mapping = MAPPINGS[program];
-    let programCount = 0;
-
-    for (let r = 1; r < rows.length; r++) {
-      const row = rows[r];
-      if (!row || row.every((c) => (c ?? "").trim() === "")) continue;
-
-      const answers = {};
-      let submittedAt = null;
-
-      for (let i = 0; i < mapping.length && i < row.length; i++) {
-        const [key, type] = mapping[i];
-        const raw = (row[i] ?? "").trim();
-
-        if (type === "timestamp") {
-          submittedAt = parseGermanTimestamp(raw);
-          continue;
-        }
-        if (key === null) continue;
-        if (raw === "") continue;
-
-        switch (type) {
-          case STRING:
-            answers[key] = raw;
-            break;
-          case NUMBER: {
-            const n = Number.parseInt(raw, 10);
-            if (!Number.isNaN(n)) answers[key] = n;
-            break;
-          }
-          case DATE:
-            answers[key] = parseGermanDate(raw);
-            break;
-          case STRING_MULTI:
-            answers[key] = raw;
-            break;
-          case ARRAY_MULTI:
-            answers[key] = raw
-              .split(/,\s+/)
-              .map((s) => s.trim())
-              .filter(Boolean);
-            break;
-        }
-      }
-
-      const email = (answers.email ?? "")
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, "");
-      if (!email) {
-        // No email — skip (shouldn't happen in partner A's data but be safe)
-        continue;
-      }
-
-      // Dedupe contact by email across all programs.
+  for (const [program, rows] of dedupedByProgram) {
+    for (const { email, answers, submittedAt } of rows) {
       let contact = contacts.get(email);
       if (!contact) {
         contactCounter++;
@@ -469,10 +589,7 @@ async function main() {
         answers,
         submitted_at: submittedAt ?? "2026-01-01 00:00:00",
       });
-      programCount++;
     }
-
-    stats[program] = programCount;
   }
 
   // -----------------------------------------------------------------------
@@ -488,9 +605,14 @@ async function main() {
     `-- Input: 4 Google Forms CSVs in the repo root (all gitignored).`,
   );
   out.push("");
-  out.push("-- Row counts per program:");
-  for (const [p, n] of Object.entries(stats)) out.push(`--   ${p}: ${n}`);
-  out.push(`--   contacts (deduped by email): ${contacts.size}`);
+  out.push("-- Row counts per program (deduped by email, latest-wins):");
+  for (const [p, s] of Object.entries(stats)) {
+    out.push(
+      `--   ${p}: ${s.deduped}` +
+        (s.dropped > 0 ? ` (${s.raw} raw → dropped ${s.dropped} duplicate${s.dropped === 1 ? "" : "s"})` : ""),
+    );
+  }
+  out.push(`--   contacts (deduped by email across all programs): ${contacts.size}`);
   out.push("");
 
   out.push("INSERT INTO public.contacts (id, email, name, phone) VALUES");
@@ -588,8 +710,14 @@ async function main() {
   await writeFile(OUTPUT_PATH, out.join("\n") + "\n", "utf8");
 
   console.log(`✓ Wrote ${OUTPUT_PATH}`);
-  console.log(`  contacts (deduped by email): ${contacts.size}`);
-  for (const [p, n] of Object.entries(stats)) console.log(`  ${p}: ${n}`);
+  console.log(`  contacts (deduped by email across all programs): ${contacts.size}`);
+  for (const [p, s] of Object.entries(stats)) {
+    const note =
+      s.dropped > 0
+        ? ` (${s.raw} raw, dropped ${s.dropped} duplicate${s.dropped === 1 ? "" : "s"})`
+        : "";
+    console.log(`  ${p}: ${s.deduped}${note}`);
+  }
 }
 
 main().catch((err) => {
