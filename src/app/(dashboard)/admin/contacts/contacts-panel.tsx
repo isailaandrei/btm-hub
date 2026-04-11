@@ -114,7 +114,7 @@ export function ContactsPanel() {
     }
   }, [preferences]);
 
-  const { filtered, appsByContact, dataOptions } = useMemo(() => {
+  const { filtered, appsByContact } = useMemo(() => {
     const items = contacts ?? [];
     const apps = applications ?? [];
     const ctags = contactTags ?? [];
@@ -126,25 +126,6 @@ export function ContactsPanel() {
       const list = appsByContact.get(app.contact_id);
       if (list) list.push(app);
       else appsByContact.set(app.contact_id, [app]);
-    }
-
-    // TODO: This derives filter options from actual DB values as a workaround
-    // because form definition options don't yet match the stored data.
-    // Once options in forms/common/options.ts match the DB, switch back to
-    // using field.options from the registry and remove this computation.
-    const dataOptions = new Map<string, Set<string>>();
-    for (const app of apps) {
-      for (const [key, raw] of Object.entries(app.answers)) {
-        if (raw == null) continue;
-        let set = dataOptions.get(key);
-        if (!set) { set = new Set(); dataOptions.set(key, set); }
-        if (Array.isArray(raw)) {
-          for (const v of raw) { const s = String(v).trim(); if (s) set.add(s); }
-        } else {
-          const s = String(raw).trim();
-          if (s) set.add(s);
-        }
-      }
     }
 
     let result = items;
@@ -172,25 +153,38 @@ export function ContactsPanel() {
       );
     }
 
-    // Column filters (application-derived fields)
+    // Column filters (application-derived fields). When "Other" is in the
+    // selected values, it matches any value on the row that isn't in the
+    // field's curated option list — that's how we catch free-text "Other"
+    // responses and legacy DB values without polluting the dropdown with
+    // every distinct raw string.
     const activeColumnFilters = Object.entries(columnFilters);
     if (activeColumnFilters.length > 0) {
       result = result.filter((c) => {
         const contactApps = appsByContact.get(c.id) ?? [];
-        return activeColumnFilters.every(([fieldKey, values]) =>
-          contactApps.some((app) => {
+        return activeColumnFilters.every(([fieldKey, values]) => {
+          const field = getFieldEntry(fieldKey);
+          const canonicalOptions = field
+            ? new Set<string>(field.options as readonly string[])
+            : new Set<string>();
+          const otherSelected = values.includes("Other");
+          const canonicalSelected = values.filter((v) => v !== "Other");
+
+          return contactApps.some((app) => {
             const raw = app.answers[fieldKey];
             if (raw == null) return false;
-            if (Array.isArray(raw)) {
-              return raw.some((v) => values.includes(String(v)));
+            const rawValues = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+            if (canonicalSelected.some((v) => rawValues.includes(v))) return true;
+            if (otherSelected && rawValues.some((v) => v !== "" && !canonicalOptions.has(v))) {
+              return true;
             }
-            return values.includes(String(raw));
-          }),
-        );
+            return false;
+          });
+        });
       });
     }
 
-    return { filtered: result, appsByContact, dataOptions };
+    return { filtered: result, appsByContact };
   }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters]);
 
   const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
@@ -430,7 +424,7 @@ export function ContactsPanel() {
                       {field.type !== "date" && (
                         <ColumnFilterPopover
                           field={field}
-                          options={[...(dataOptions.get(field.key) ?? [])].sort()}
+                          options={[...field.options, "Other"]}
                           selected={columnFilters[field.key] ?? []}
                           onToggle={(v) => handleColumnFilterToggle(field.key, v)}
                           onClear={() => handleColumnFilterClear(field.key)}
