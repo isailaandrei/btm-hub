@@ -20,6 +20,11 @@ import type { Application, ProgramSlug } from "@/types/database";
 import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
 import { updatePreferences } from "./actions";
 import { ColumnFilterPopover } from "./column-filter-popover";
+import { ColumnSortToggle } from "./column-sort-toggle";
+import {
+  compareContacts,
+  type SortState,
+} from "./sort-helpers";
 import { BulkActionBar } from "./bulk-action-bar";
 
 const PAGE_SIZES = [25, 50, 150] as const;
@@ -89,6 +94,7 @@ export function ContactsPanel() {
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [sortBy, setSortBy] = useState<SortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
@@ -192,8 +198,16 @@ export function ContactsPanel() {
       });
     }
 
+    // Sort (single-column, applied after all filters).
+    if (sortBy) {
+      const field = getFieldEntry(sortBy.key);
+      result = [...result].sort((a, b) =>
+        compareContacts(a, b, sortBy, appsByContact, field),
+      );
+    }
+
     return { filtered: result, appsByContact };
-  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters]);
+  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters, sortBy]);
 
   const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
 
@@ -270,6 +284,16 @@ export function ContactsPanel() {
     setColumnFilters((prev) => {
       const { [fieldKey]: _, ...rest } = prev;
       return rest;
+    });
+    setPage(1);
+    clearSelection();
+  }
+
+  function toggleSort(key: string) {
+    setSortBy((prev) => {
+      if (!prev || prev.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      return null;
     });
     setPage(1);
     clearSelection();
@@ -419,10 +443,50 @@ export function ContactsPanel() {
                     aria-label="Select all on page"
                   />
                 </TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Submitted</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center">
+                    Name
+                    <ColumnSortToggle
+                      active={sortBy?.key === "name"}
+                      direction={sortBy?.key === "name" ? sortBy.direction : null}
+                      onClick={() => toggleSort("name")}
+                      label="Name"
+                    />
+                  </span>
+                </TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center">
+                    Submitted
+                    <ColumnSortToggle
+                      active={sortBy?.key === "submitted_at"}
+                      direction={sortBy?.key === "submitted_at" ? sortBy.direction : null}
+                      onClick={() => toggleSort("submitted_at")}
+                      label="Submitted"
+                    />
+                  </span>
+                </TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center">
+                    Email
+                    <ColumnSortToggle
+                      active={sortBy?.key === "email"}
+                      direction={sortBy?.key === "email" ? sortBy.direction : null}
+                      onClick={() => toggleSort("email")}
+                      label="Email"
+                    />
+                  </span>
+                </TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center">
+                    Phone
+                    <ColumnSortToggle
+                      active={sortBy?.key === "phone"}
+                      direction={sortBy?.key === "phone" ? sortBy.direction : null}
+                      onClick={() => toggleSort("phone")}
+                      label="Phone"
+                    />
+                  </span>
+                </TableHead>
                 <TableHead>Programs</TableHead>
                 <TableHead>Tags</TableHead>
                 {activeFields.map((field) => (
@@ -438,6 +502,12 @@ export function ContactsPanel() {
                           onClear={() => handleColumnFilterClear(field.key)}
                         />
                       )}
+                      <ColumnSortToggle
+                        active={sortBy?.key === field.key}
+                        direction={sortBy?.key === field.key ? sortBy.direction : null}
+                        onClick={() => toggleSort(field.key)}
+                        label={field.label}
+                      />
                     </span>
                   </TableHead>
                 ))}
