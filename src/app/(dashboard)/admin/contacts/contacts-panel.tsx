@@ -153,20 +153,25 @@ export function ContactsPanel() {
       );
     }
 
-    // Column filters (application-derived fields). When "Other" is in the
-    // selected values, it matches any value on the row that isn't in the
-    // field's curated option list — that's how we catch free-text "Other"
-    // responses and legacy DB values without polluting the dropdown with
-    // every distinct raw string.
+    // Column filters (application-derived fields). When a field has a
+    // `canonical` normalization config (see FieldRegistryEntry), each
+    // stored answer is first mapped to its canonical bucket and we match
+    // against the canonical list; otherwise we match raw. "Other" catches
+    // any value that falls outside the (canonical or raw) option list,
+    // so free-text Other responses and unmappable legacy values surface
+    // in one place without polluting the dropdown.
     const activeColumnFilters = Object.entries(columnFilters);
     if (activeColumnFilters.length > 0) {
       result = result.filter((c) => {
         const contactApps = appsByContact.get(c.id) ?? [];
         return activeColumnFilters.every(([fieldKey, values]) => {
           const field = getFieldEntry(fieldKey);
-          const canonicalOptions = field
-            ? new Set<string>(field.options as readonly string[])
-            : new Set<string>();
+          const normalize = field?.canonical?.normalize;
+          const canonicalOptions = new Set<string>(
+            (field?.canonical?.options ??
+              (field?.options as readonly string[] | undefined) ??
+              []) as readonly string[],
+          );
           const otherSelected = values.includes("Other");
           const canonicalSelected = values.filter((v) => v !== "Other");
 
@@ -174,8 +179,11 @@ export function ContactsPanel() {
             const raw = app.answers[fieldKey];
             if (raw == null) return false;
             const rawValues = Array.isArray(raw) ? raw.map(String) : [String(raw)];
-            if (canonicalSelected.some((v) => rawValues.includes(v))) return true;
-            if (otherSelected && rawValues.some((v) => v !== "" && !canonicalOptions.has(v))) {
+            const matched = rawValues.map((v) =>
+              normalize ? normalize(v) ?? v : v,
+            );
+            if (canonicalSelected.some((v) => matched.includes(v))) return true;
+            if (otherSelected && matched.some((v) => v !== "" && !canonicalOptions.has(v))) {
               return true;
             }
             return false;
@@ -424,7 +432,7 @@ export function ContactsPanel() {
                       {field.type !== "date" && (
                         <ColumnFilterPopover
                           field={field}
-                          options={[...field.options, "Other"]}
+                          options={[...(field.canonical?.options ?? field.options), "Other"]}
                           selected={columnFilters[field.key] ?? []}
                           onToggle={(v) => handleColumnFilterToggle(field.key, v)}
                           onClear={() => handleColumnFilterClear(field.key)}
