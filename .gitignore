@@ -58,8 +58,8 @@ BTM Project Doc.pdf
 e2e/screenshots
 
 
-#Scripts
-scripts
+#Scripts (top-level user scratchpad only; supabase/scripts/ stays tracked)
+/scripts
 
 # superpowers brainstorming
 .superpowers/
@@ -68,3 +68,7 @@ scripts
 *.csv
 backup_schema_*.sql
 supabase/import-*.sql
+# Locally-generated seed slices that contain PII (e.g., applications
+# imported from partner A's Google Forms CSVs via
+# supabase/scripts/import-academy-applications.mjs)
+supabase/seed.*.local.sql
