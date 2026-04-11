@@ -264,32 +264,7 @@ export function ContactsPanel() {
     clearSelection();
   }
 
-  function handleColumnToggle(key: string) {
-    // Compute next visible state from the ref (source of truth for the
-    // debounced save below) and mirror it to React state for rendering.
-    const wasVisible = visibleColumnsRef.current.includes(key);
-    const isEnabling = !wasVisible;
-    const nextVisible = wasVisible
-      ? visibleColumnsRef.current.filter((k) => k !== key)
-      : [...visibleColumnsRef.current, key];
-    visibleColumnsRef.current = nextVisible;
-    setVisibleColumns(nextVisible);
-
-    // Permanently promote non-curated columns into the Suggested list on
-    // enable, so the user doesn't have to re-search for them next time.
-    // Never remove from promoted on deselect — the whole point is that
-    // once the user has looked for a column, it stays within easy reach.
-    const isCurated = CURATED_FIELDS.some((f) => f.key === key);
-    if (
-      isEnabling &&
-      !isCurated &&
-      !promotedColumnsRef.current.includes(key)
-    ) {
-      const nextPromoted = [...promotedColumnsRef.current, key];
-      promotedColumnsRef.current = nextPromoted;
-      setPromotedColumns(nextPromoted);
-    }
-
+  function persistColumnPreferences() {
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const columns = visibleColumnsRef.current;
@@ -313,6 +288,46 @@ export function ContactsPanel() {
         toast.error("Failed to save column preferences.");
       }
     }, 1000);
+  }
+
+  function handleColumnToggle(key: string) {
+    // Compute next visible state from the ref (source of truth for the
+    // debounced save) and mirror it to React state for rendering.
+    const wasVisible = visibleColumnsRef.current.includes(key);
+    const nextVisible = wasVisible
+      ? visibleColumnsRef.current.filter((k) => k !== key)
+      : [...visibleColumnsRef.current, key];
+    visibleColumnsRef.current = nextVisible;
+    setVisibleColumns(nextVisible);
+
+    // Non-curated columns: every toggle (ON or OFF) is an "interaction"
+    // that should move this column to the front of promotedColumns so
+    // the Suggested list shows most-recently-touched entries first.
+    // Curated columns don't participate — they stay in CURATED_FIELDS
+    // order at the bottom of the Suggested section.
+    const isCurated = CURATED_FIELDS.some((f) => f.key === key);
+    if (!isCurated) {
+      const nextPromoted = [
+        key,
+        ...promotedColumnsRef.current.filter((k) => k !== key),
+      ];
+      promotedColumnsRef.current = nextPromoted;
+      setPromotedColumns(nextPromoted);
+    }
+
+    persistColumnPreferences();
+  }
+
+  function handleColumnUnpromote(key: string) {
+    // Remove the key from promotedColumns entirely. Does NOT touch
+    // visibleColumns — unpromoting is orthogonal to visibility, though
+    // in practice the button only appears for columns that aren't
+    // currently active.
+    const nextPromoted = promotedColumnsRef.current.filter((k) => k !== key);
+    if (nextPromoted.length === promotedColumnsRef.current.length) return;
+    promotedColumnsRef.current = nextPromoted;
+    setPromotedColumns(nextPromoted);
+    persistColumnPreferences();
   }
 
   function handleColumnFilterToggle(fieldKey: string, value: string) {
@@ -449,6 +464,7 @@ export function ContactsPanel() {
           onTagToggle={handleTagToggle}
           onClearTags={handleClearTags}
           onColumnToggle={handleColumnToggle}
+          onColumnUnpromote={handleColumnUnpromote}
         />
       </div>
 

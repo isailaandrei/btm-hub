@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -15,19 +16,23 @@ import { PROGRAM_BADGE_CLASS } from "../constants";
 interface ColumnPickerProps {
   visibleColumns: string[];
   /**
-   * Non-curated columns the user has ever selected — they stick around
-   * in the Suggested section permanently so the user doesn't have to
-   * re-search for them next time. Persisted in
+   * Non-curated columns the user has interacted with, ordered most-
+   * recently-touched first. They stick around in the Suggested section
+   * permanently (above curated defaults) until the user explicitly
+   * clicks the × button. Persisted in
    * `profiles.preferences.contacts_table.promoted_columns` by the parent.
    */
   promotedColumns: string[];
   onToggle: (key: string) => void;
+  /** Remove a key from `promotedColumns`. Does not touch visibility. */
+  onUnpromote: (key: string) => void;
 }
 
 export function ColumnPicker({
   visibleColumns,
   promotedColumns,
   onToggle,
+  onUnpromote,
 }: ColumnPickerProps) {
   const [search, setSearch] = useState("");
 
@@ -49,21 +54,22 @@ export function ColumnPicker({
   // table's left-to-right layout mirrors the picker's top-to-bottom list,
   // making it one click to toggle any active column off.
   //
-  // SUGGESTED: CURATED_FIELDS plus any `promotedColumns` the user has ever
-  // selected that aren't currently active. Once a column has been picked,
-  // it sticks around in Suggested forever — even after deselection — so
-  // users don't re-search for columns they've shown interest in before.
+  // SUGGESTED: promoted (most-recently-touched) columns first, then the
+  // CURATED_FIELDS defaults. Currently-active columns are filtered out
+  // (they're in Active instead). Promoted entries render with an × button
+  // to unpromote them back out of the Suggested list.
   const selectedKeys = new Set(visibleColumns);
   const activeFields = visibleColumns
     .map((key) => getFieldEntry(key))
     .filter((f): f is FieldRegistryEntry => f !== undefined);
 
   const curatedKeys = new Set(CURATED_FIELDS.map((f) => f.key));
+  const promotedKeySet = new Set(promotedColumns);
   const promotedEntries = promotedColumns
-    .filter((key) => !curatedKeys.has(key)) // de-dupe with curated
+    .filter((key) => !curatedKeys.has(key) && !selectedKeys.has(key))
     .map((key) => getFieldEntry(key))
     .filter((f): f is FieldRegistryEntry => f !== undefined);
-  const suggestedFields = [...CURATED_FIELDS, ...promotedEntries].filter(
+  const curatedUnselected = CURATED_FIELDS.filter(
     (f) => !selectedKeys.has(f.key),
   );
 
@@ -106,6 +112,12 @@ export function ColumnPicker({
                     field={field}
                     checked={selectedKeys.has(field.key)}
                     onToggle={onToggle}
+                    onUnpromote={
+                      promotedKeySet.has(field.key) &&
+                      !curatedKeys.has(field.key)
+                        ? () => onUnpromote(field.key)
+                        : undefined
+                    }
                   />
                 ))
               )}
@@ -127,7 +139,7 @@ export function ColumnPicker({
                   ))}
                 </>
               )}
-              {suggestedFields.length > 0 && (
+              {(promotedEntries.length > 0 || curatedUnselected.length > 0) && (
                 <>
                   <p
                     className={`mb-1 px-2 text-xs font-semibold text-muted-foreground ${
@@ -136,7 +148,16 @@ export function ColumnPicker({
                   >
                     Suggested
                   </p>
-                  {suggestedFields.map((field) => (
+                  {promotedEntries.map((field) => (
+                    <FieldRow
+                      key={field.key}
+                      field={field}
+                      checked={false}
+                      onToggle={onToggle}
+                      onUnpromote={() => onUnpromote(field.key)}
+                    />
+                  ))}
+                  {curatedUnselected.map((field) => (
                     <FieldRow
                       key={field.key}
                       field={field}
@@ -158,28 +179,51 @@ function FieldRow({
   field,
   checked,
   onToggle,
+  onUnpromote,
 }: {
   field: FieldRegistryEntry;
   checked: boolean;
   onToggle: (key: string) => void;
+  /** When provided, renders an × button that removes this row from
+   * the persistent promoted list (Suggested section). */
+  onUnpromote?: () => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
-      <Checkbox checked={checked} onCheckedChange={() => onToggle(field.key)} />
-      <span className="flex-1 text-sm text-foreground">{field.label}</span>
-      <span className="flex gap-0.5">
-        {field.programs.map((p) => (
-          <Badge
-            key={p}
-            variant="outline"
-            className={`px-1 py-0 text-[10px] capitalize ${
-              PROGRAM_BADGE_CLASS[p] ?? ""
-            }`}
-          >
-            {p.slice(0, 4)}
-          </Badge>
-        ))}
-      </span>
-    </label>
+    <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
+      <label className="flex flex-1 cursor-pointer items-center gap-2">
+        <Checkbox
+          checked={checked}
+          onCheckedChange={() => onToggle(field.key)}
+        />
+        <span className="flex-1 text-sm text-foreground">{field.label}</span>
+        <span className="flex gap-0.5">
+          {field.programs.map((p) => (
+            <Badge
+              key={p}
+              variant="outline"
+              className={`px-1 py-0 text-[10px] capitalize ${
+                PROGRAM_BADGE_CLASS[p] ?? ""
+              }`}
+            >
+              {p.slice(0, 4)}
+            </Badge>
+          ))}
+        </span>
+      </label>
+      {onUnpromote && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUnpromote();
+          }}
+          className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100"
+          aria-label={`Remove ${field.label} from suggested`}
+          title="Remove from suggested"
+        >
+          <X size={12} strokeWidth={2.5} />
+        </button>
+      )}
+    </div>
   );
 }

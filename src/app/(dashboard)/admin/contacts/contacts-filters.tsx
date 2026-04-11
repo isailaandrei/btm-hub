@@ -27,6 +27,7 @@ interface ContactsFiltersProps {
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
+  onColumnUnpromote: (key: string) => void;
 }
 
 export function ContactsFilters({
@@ -42,6 +43,7 @@ export function ContactsFilters({
   onTagToggle,
   onClearTags,
   onColumnToggle,
+  onColumnUnpromote,
 }: ContactsFiltersProps) {
   const [searchInput, setSearchInput] = useState(search);
 
@@ -93,6 +95,7 @@ export function ContactsFilters({
           visibleColumns={visibleColumns}
           promotedColumns={promotedColumns}
           onToggle={onColumnToggle}
+          onUnpromote={onColumnUnpromote}
         />
       </div>
 
