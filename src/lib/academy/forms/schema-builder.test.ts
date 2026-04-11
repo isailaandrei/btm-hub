@@ -141,6 +141,46 @@ describe("buildStepSchema", () => {
     expect(schema.safeParse({ skills: [] }).success).toBe(true);
   });
 
+  // --- allowOther ---
+
+  it("select with allowOther accepts a value outside the option list", () => {
+    const fields: SelectFieldDef[] = [
+      { type: "select", name: "source", label: "Source", options: ["A", "B"], allowOther: true },
+    ];
+    const schema = buildStepSchema(fields);
+
+    expect(schema.safeParse({ source: "A" }).success).toBe(true);
+    expect(schema.safeParse({ source: "Custom text" }).success).toBe(true);
+  });
+
+  it("select with allowOther still rejects an empty string when required", () => {
+    const fields: SelectFieldDef[] = [
+      { type: "select", name: "source", label: "Source", options: ["A"], allowOther: true },
+    ];
+    const schema = buildStepSchema(fields);
+
+    expect(schema.safeParse({ source: "" }).success).toBe(false);
+  });
+
+  it("multiselect with allowOther accepts an array containing non-canonical strings", () => {
+    const fields: MultiSelectFieldDef[] = [
+      { type: "multiselect", name: "tags", label: "Tags", options: ["X", "Y"], allowOther: true },
+    ];
+    const schema = buildStepSchema(fields);
+
+    expect(schema.safeParse({ tags: ["X", "free text"] }).success).toBe(true);
+    expect(schema.safeParse({ tags: ["only free text"] }).success).toBe(true);
+  });
+
+  it("multiselect with allowOther still requires at least one value when required", () => {
+    const fields: MultiSelectFieldDef[] = [
+      { type: "multiselect", name: "tags", label: "Tags", options: ["X"], allowOther: true },
+    ];
+    const schema = buildStepSchema(fields);
+
+    expect(schema.safeParse({ tags: [] }).success).toBe(false);
+  });
+
   // --- Rating fields ---
 
   it("validates rating field (1–10 integer)", () => {

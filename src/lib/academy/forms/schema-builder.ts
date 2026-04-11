@@ -52,11 +52,20 @@ function buildFieldSchema(field: FieldDefinition): z.ZodType {
       return str;
     }
 
-    case "select":
+    case "select": {
+      if (field.allowOther) {
+        return field.required !== false
+          ? z.string().min(1, `${field.label} is required`)
+          : z.string().optional();
+      }
       return z.enum(field.options as [string, ...string[]]);
+    }
 
     case "multiselect": {
-      const arr = z.array(z.enum(field.options as [string, ...string[]]));
+      const elementSchema = field.allowOther
+        ? z.string()
+        : z.enum(field.options as [string, ...string[]]);
+      const arr = z.array(elementSchema);
       return field.required !== false
         ? arr.check(z.minLength(1, "Select at least one option"))
         : arr;
