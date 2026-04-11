@@ -9,6 +9,7 @@ interface MultiSelectFieldProps {
   error?: string;
   columns?: 1 | 2 | 3;
   required?: boolean;
+  allowOther?: boolean;
 }
 
 const gridCols: Record<number, string> = {
@@ -26,13 +27,24 @@ export function MultiSelectField({
   error,
   columns = 2,
   required,
+  allowOther,
 }: MultiSelectFieldProps) {
+  const canonicalSet = new Set(options);
+  const otherValue = allowOther
+    ? values.find((v) => !canonicalSet.has(v)) ?? ""
+    : "";
+
   function toggle(option: string) {
     if (values.includes(option)) {
       onChange(values.filter((v) => v !== option));
     } else {
       onChange([...values, option]);
     }
+  }
+
+  function setOther(next: string) {
+    const canonical = values.filter((v) => canonicalSet.has(v));
+    onChange(next.trim() === "" ? canonical : [...canonical, next]);
   }
 
   return (
@@ -42,7 +54,11 @@ export function MultiSelectField({
         {required && <span className="ml-1 text-primary">*</span>}
       </label>
       <input type="hidden" name={name} value={JSON.stringify(values)} />
-      <div className={`grid gap-2 ${gridCols[columns]} ${error ? "rounded-lg ring-1 ring-red-400 p-1" : ""}`}>
+      <div
+        className={`grid gap-2 ${gridCols[columns]} ${
+          error ? "rounded-lg ring-1 ring-red-400 p-1" : ""
+        }`}
+      >
         {options.map((option) => {
           const selected = values.includes(option);
           return (
@@ -61,6 +77,17 @@ export function MultiSelectField({
           );
         })}
       </div>
+      {allowOther && (
+        <input
+          type="text"
+          placeholder="Other (please specify)"
+          value={otherValue}
+          onChange={(e) => setOther(e.target.value)}
+          className={`mt-1 rounded-lg border bg-card px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary ${
+            otherValue ? "border-primary" : "border-border"
+          }`}
+        />
+      )}
     </div>
   );
 }
