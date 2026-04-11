@@ -53,10 +53,7 @@ function renderFieldValue(
   const entries: { program: string; value: string }[] = [];
 
   for (const app of contactApps) {
-    // Top-level application fields (e.g., submitted_at) vs answers
-    const raw = field.key === "submitted_at"
-      ? app.submitted_at
-      : app.answers[field.key];
+    const raw = app.answers[field.key];
     if (raw == null) continue;
 
     let display: string;
@@ -530,159 +527,159 @@ export function ContactsPanel() {
         </div>
       </div>
 
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-card text-muted-foreground">
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allOnPageSelected}
-                    onCheckedChange={handleSelectAll}
-                    aria-label="Select all on page"
-                  />
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-card text-muted-foreground">
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allOnPageSelected}
+                  onCheckedChange={handleSelectAll}
+                  aria-label="Select all on page"
+                />
+              </TableHead>
+              {BUILTIN_SORTABLE_COLUMNS.map(({ key, label }) => (
+                <TableHead key={key}>
+                  <span className="inline-flex items-center">
+                    {label}
+                    <ColumnSortToggle
+                      active={sortBy?.key === key}
+                      direction={sortBy?.key === key ? sortBy.direction : null}
+                      onClick={() => toggleSort(key)}
+                      label={label}
+                    />
+                  </span>
                 </TableHead>
-                {BUILTIN_SORTABLE_COLUMNS.map(({ key, label }) => (
-                  <TableHead key={key}>
-                    <span className="inline-flex items-center">
-                      {label}
-                      <ColumnSortToggle
-                        active={sortBy?.key === key}
-                        direction={sortBy?.key === key ? sortBy.direction : null}
-                        onClick={() => toggleSort(key)}
-                        label={label}
+              ))}
+              <TableHead>Programs</TableHead>
+              <TableHead>Tags</TableHead>
+              {activeFields.map((field) => (
+                <TableHead key={field.key}>
+                  <span className="inline-flex items-center">
+                    {field.label}
+                    {field.type !== "date" && (
+                      <ColumnFilterPopover
+                        field={field}
+                        options={[...(field.canonical?.options ?? field.options), "Other"]}
+                        selected={columnFilters[field.key] ?? []}
+                        onToggle={(v) => handleColumnFilterToggle(field.key, v)}
+                        onClear={() => handleColumnFilterClear(field.key)}
                       />
-                    </span>
-                  </TableHead>
-                ))}
-                <TableHead>Programs</TableHead>
-                <TableHead>Tags</TableHead>
-                {activeFields.map((field) => (
-                  <TableHead key={field.key}>
-                    <span className="inline-flex items-center">
-                      {field.label}
-                      {field.type !== "date" && (
-                        <ColumnFilterPopover
-                          field={field}
-                          options={[...(field.canonical?.options ?? field.options), "Other"]}
-                          selected={columnFilters[field.key] ?? []}
-                          onToggle={(v) => handleColumnFilterToggle(field.key, v)}
-                          onClear={() => handleColumnFilterClear(field.key)}
-                        />
-                      )}
-                      <ColumnSortToggle
-                        active={sortBy?.key === field.key}
-                        direction={sortBy?.key === field.key ? sortBy.direction : null}
-                        onClick={() => toggleSort(field.key)}
-                        label={field.label}
-                      />
-                    </span>
-                  </TableHead>
-                ))}
+                    )}
+                    <ColumnSortToggle
+                      active={sortBy?.key === field.key}
+                      direction={sortBy?.key === field.key ? sortBy.direction : null}
+                      onClick={() => toggleSort(field.key)}
+                      label={field.label}
+                    />
+                  </span>
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginated.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={7 + activeFields.length}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  No contacts match your filters.
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginated.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={7 + activeFields.length}
-                    className="py-8 text-center text-muted-foreground"
-                  >
-                    No contacts match your filters.
+            ) : (
+            paginated.map((contact) => {
+              const contactApps = appsByContact.get(contact.id) ?? [];
+              const uniquePrograms = [
+                ...new Set(contactApps.map((a) => a.program)),
+              ];
+
+              const contactTagEntries = (contactTags ?? []).filter(
+                (ct) => ct.contact_id === contact.id,
+              );
+
+              return (
+                <TableRow key={contact.id}>
+                  <TableCell className="w-10">
+                    <Checkbox
+                      checked={selectedIds.has(contact.id)}
+                      onCheckedChange={() => handleSelectOne(contact.id)}
+                      aria-label={`Select ${contact.name}`}
+                    />
                   </TableCell>
-                </TableRow>
-              ) : (
-              paginated.map((contact) => {
-                const contactApps = appsByContact.get(contact.id) ?? [];
-                const uniquePrograms = [
-                  ...new Set(contactApps.map((a) => a.program)),
-                ];
-
-                const contactTagEntries = (contactTags ?? []).filter(
-                  (ct) => ct.contact_id === contact.id,
-                );
-
-                return (
-                  <TableRow key={contact.id}>
-                    <TableCell className="w-10">
-                      <Checkbox
-                        checked={selectedIds.has(contact.id)}
-                        onCheckedChange={() => handleSelectOne(contact.id)}
-                        aria-label={`Select ${contact.name}`}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/admin/contacts/${contact.id}`}
-                        className="font-medium text-foreground hover:text-primary"
-                      >
-                        {contact.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {contactApps.length === 1
-                        ? formatDate(contactApps[0].submitted_at)
-                        : contactApps.length > 1
-                          ? (<div className="flex flex-col gap-0.5">
-                              {contactApps.map((a) => (
-                                <div key={a.id}>
-                                  <span className="text-muted-foreground/60">{a.program}:</span> {formatDate(a.submitted_at)}
-                                </div>
-                              ))}
-                            </div>)
-                          : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {contact.email}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {contact.phone || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {uniquePrograms.map((program) => (
+                  <TableCell>
+                    <Link
+                      href={`/admin/contacts/${contact.id}`}
+                      className="font-medium text-foreground hover:text-primary"
+                    >
+                      {contact.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    {contactApps.length === 1
+                      ? formatDate(contactApps[0].submitted_at)
+                      : contactApps.length > 1
+                        ? (<div className="flex flex-col gap-0.5">
+                            {contactApps.map((a) => (
+                              <div key={a.id}>
+                                <span className="text-muted-foreground/60">{a.program}:</span> {formatDate(a.submitted_at)}
+                              </div>
+                            ))}
+                          </div>)
+                        : "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {contact.email}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {contact.phone || "—"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {uniquePrograms.map((program) => (
+                        <Badge
+                          key={program}
+                          variant="outline"
+                          className={`capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
+                        >
+                          {program}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {contactTagEntries.map((ct) => {
+                        const tag = (tags ?? []).find((t) => t.id === ct.tag_id);
+                        if (!tag) return null;
+                        const category = (tagCategories ?? []).find(
+                          (c) => c.id === tag.category_id,
+                        );
+                        const color = category?.color ?? "blue";
+                        return (
                           <Badge
-                            key={program}
+                            key={ct.tag_id}
                             variant="outline"
-                            className={`capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
+                            className={TAG_COLOR_CLASSES[color] ?? ""}
                           >
-                            {program}
+                            {category?.name}: {tag.name}
                           </Badge>
-                        ))}
-                      </div>
+                        );
+                      })}
+                    </div>
+                  </TableCell>
+                  {activeFields.map((field) => (
+                    <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
+                      {renderFieldValue(contactApps, field)}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {contactTagEntries.map((ct) => {
-                          const tag = (tags ?? []).find((t) => t.id === ct.tag_id);
-                          if (!tag) return null;
-                          const category = (tagCategories ?? []).find(
-                            (c) => c.id === tag.category_id,
-                          );
-                          const color = category?.color ?? "blue";
-                          return (
-                            <Badge
-                              key={ct.tag_id}
-                              variant="outline"
-                              className={TAG_COLOR_CLASSES[color] ?? ""}
-                            >
-                              {category?.name}: {tag.name}
-                            </Badge>
-                          );
-                        })}
-                      </div>
-                    </TableCell>
-                    {activeFields.map((field) => (
-                      <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
-                        {renderFieldValue(contactApps, field)}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                  ))}
+                </TableRow>
+              );
+            })
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       {selectedIds.size > 0 && (
         <BulkActionBar

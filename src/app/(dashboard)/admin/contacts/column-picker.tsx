@@ -138,11 +138,13 @@ export function ColumnPicker({
               )}
               {remainingFields.length > 0 && (
                 <>
-                  {previouslySelectedFields.length > 0 && (
-                    <p className="mb-1 mt-3 px-2 text-xs font-semibold text-muted-foreground">
-                      All columns
-                    </p>
-                  )}
+                  <p
+                    className={`mb-1 px-2 text-xs font-semibold text-muted-foreground ${
+                      previouslySelectedFields.length > 0 ? "mt-3" : ""
+                    }`}
+                  >
+                    All columns
+                  </p>
                   {remainingFields.map((field) => (
                     <FieldRow
                       key={field.key}

@@ -53,6 +53,9 @@ export function getSortValue(
 
   // select / multiselect — pick the first value, optionally normalize,
   // then sort by canonical option index (values outside the list sort last).
+  // For multiselect, only the first element contributes to ordering; later
+  // elements still render in the cell but don't affect sort position. Kept
+  // simple to keep the comparator stable and cheap.
   const firstValue = Array.isArray(raw) ? String(raw[0] ?? "") : String(raw);
   if (firstValue === "") return null;
   const normalized = field.canonical?.normalize(firstValue) ?? firstValue;

@@ -33,12 +33,14 @@
 -- ---------------------------------------------------------------------------
 
 -- (1) Age "54+" → "55+"
+-- Expected: 2 rows updated (1 filmmaking + 1 photography in current prod data)
 UPDATE applications
 SET answers = jsonb_set(answers, '{age}', '"55+"'::jsonb)
 WHERE program IN ('filmmaking', 'photography', 'freediving')
   AND answers->>'age' = '54+';
 
 -- (2) time_availability: "aproject" → "a project"
+-- Expected: 36 rows updated (30 filmmaking + 6 photography in current prod data)
 UPDATE applications
 SET answers = jsonb_set(
   answers,
@@ -49,6 +51,7 @@ WHERE program IN ('filmmaking', 'photography')
   AND answers->>'time_availability' LIKE '%aproject%';
 
 -- (3) income_from_photography: add missing apostrophe in "thats"
+-- Expected: 1 row updated (photography only)
 UPDATE applications
 SET answers = jsonb_set(
   answers,
@@ -64,6 +67,7 @@ WHERE program = 'photography'
 --     rows where all 3 fragments appear (i.e., the exact ingest-bug
 --     signature); pre-audited to confirm no standalone "Facebook" rows
 --     would be accidentally modified.
+-- Expected: 56 rows updated (spread across all 4 programs in current prod data)
 UPDATE applications
 SET answers = jsonb_set(
   answers,

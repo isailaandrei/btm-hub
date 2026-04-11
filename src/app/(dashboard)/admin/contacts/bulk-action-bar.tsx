@@ -23,7 +23,11 @@ export function BulkActionBar({
 }: BulkActionBarProps) {
   const [categoryId, setCategoryId] = useState<string>("");
   const [tagId, setTagId] = useState<string>("");
-  const [isPending, startTransition] = useTransition();
+  // Separate transitions per action so each button shows its own pending
+  // state — a click on Remove only disables Remove, not Assign.
+  const [isAssigning, startAssignTransition] = useTransition();
+  const [isRemoving, startRemoveTransition] = useTransition();
+  const isPending = isAssigning || isRemoving;
 
   const categoryTags = categoryId
     ? tags.filter((t) => t.category_id === categoryId)
@@ -33,7 +37,7 @@ export function BulkActionBar({
 
   function handleAssign() {
     if (!tagId) return;
-    startTransition(async () => {
+    startAssignTransition(async () => {
       try {
         await bulkAssignTag(selectedIds, tagId);
         toast.success(`Tag assigned to ${contactLabel}`);
@@ -47,7 +51,7 @@ export function BulkActionBar({
 
   function handleRemove() {
     if (!tagId) return;
-    startTransition(async () => {
+    startRemoveTransition(async () => {
       try {
         await bulkUnassignTag(selectedIds, tagId);
         toast.success(`Tag removed from ${contactLabel}`);
@@ -98,7 +102,7 @@ export function BulkActionBar({
         disabled={!tagId || isPending}
         className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
       >
-        {isPending ? "Working..." : "Assign"}
+        {isAssigning ? "Assigning..." : "Assign"}
       </button>
 
       <button
@@ -107,7 +111,7 @@ export function BulkActionBar({
         disabled={!tagId || isPending}
         className="rounded-lg border border-destructive/60 px-4 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
       >
-        Remove
+        {isRemoving ? "Removing..." : "Remove"}
       </button>
 
       <button

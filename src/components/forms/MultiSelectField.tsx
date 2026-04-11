@@ -30,8 +30,11 @@ export function MultiSelectField({
   allowOther,
 }: MultiSelectFieldProps) {
   const canonicalSet = new Set(options);
+  // Legacy rows (especially from the Google Forms ingest) can contain
+  // multiple non-canonical values — surface all of them joined so the
+  // admin can see and edit them, not just the first one.
   const otherValue = allowOther
-    ? values.find((v) => !canonicalSet.has(v)) ?? ""
+    ? values.filter((v) => !canonicalSet.has(v)).join(", ")
     : "";
 
   function toggle(option: string) {
@@ -44,7 +47,8 @@ export function MultiSelectField({
 
   function setOther(next: string) {
     const canonical = values.filter((v) => canonicalSet.has(v));
-    onChange(next.trim() === "" ? canonical : [...canonical, next]);
+    const trimmed = next.trim();
+    onChange(trimmed === "" ? canonical : [...canonical, trimmed]);
   }
 
   return (
