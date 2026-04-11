@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { ProgramSlug, TagCategory, Tag } from "@/types/database";
 import {
   Select,
@@ -45,32 +44,16 @@ export function ContactsFilters({
   onColumnToggle,
   onColumnDismiss,
 }: ContactsFiltersProps) {
-  const [searchInput, setSearchInput] = useState(search);
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <form
-          className="flex items-center gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSearchChange(searchInput);
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Search by name or email..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
-          />
-          <button
-            type="submit"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-          >
-            Search
-          </button>
-        </form>
+        <input
+          type="text"
+          placeholder="Search by name or email..."
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
+        />
 
         <Select
           value={selectedProgram ?? "all"}
