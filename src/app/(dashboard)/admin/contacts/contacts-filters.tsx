@@ -20,13 +20,12 @@ interface ContactsFiltersProps {
   tagCategories: TagCategory[];
   tags: Tag[];
   visibleColumns: string[];
-  suggestedColumns: string[];
+  previouslySelectedColumns: string[];
   onSearchChange: (value: string) => void;
   onProgramChange: (value: ProgramSlug | undefined) => void;
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
-  onColumnDismiss: (key: string) => void;
 }
 
 export function ContactsFilters({
@@ -36,13 +35,12 @@ export function ContactsFilters({
   tagCategories,
   tags,
   visibleColumns,
-  suggestedColumns,
+  previouslySelectedColumns,
   onSearchChange,
   onProgramChange,
   onTagToggle,
   onClearTags,
   onColumnToggle,
-  onColumnDismiss,
 }: ContactsFiltersProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -76,9 +74,8 @@ export function ContactsFilters({
 
         <ColumnPicker
           visibleColumns={visibleColumns}
-          suggestedColumns={suggestedColumns}
+          previouslySelectedColumns={previouslySelectedColumns}
           onToggle={onColumnToggle}
-          onDismiss={onColumnDismiss}
         />
       </div>
 

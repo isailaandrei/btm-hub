@@ -19,7 +19,6 @@ import {
 import type { Application, ProgramSlug } from "@/types/database";
 import {
   getFieldEntry,
-  CURATED_FIELDS,
   type FieldRegistryEntry,
 } from "./field-registry";
 import { updatePreferences } from "./actions";
@@ -97,16 +96,19 @@ export function ContactsPanel() {
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
-  // The user's personal Suggested list. Defaults to CURATED_FIELDS on
-  // first load; grows when the user enables a new column via search
-  // and shrinks when they click the × button on any suggested row.
-  // Ordered most-recently-touched first.
-  const [suggestedColumns, setSuggestedColumns] = useState<string[]>([]);
+  // Every column the user has ever toggled on (including ones they later
+  // deselected). Used to populate the ColumnPicker's "Previously selected"
+  // section so the user sees their working set above the full alphabetical
+  // list of every available column. Write-once per column — we never
+  // remove from this set.
+  const [previouslySelectedColumns, setPreviouslySelectedColumns] = useState<
+    string[]
+  >([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [sortBy, setSortBy] = useState<SortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
-  const suggestedColumnsRef = useRef<string[]>([]);
+  const previouslySelectedColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -125,21 +127,20 @@ export function ContactsPanel() {
     const pref = preferences as {
       contacts_table?: {
         visible_columns?: string[];
-        suggested_columns?: string[];
+        previously_selected_columns?: string[];
       };
     };
     const savedVisible = pref?.contacts_table?.visible_columns;
-    const savedSuggested = pref?.contacts_table?.suggested_columns;
+    const savedPrev = pref?.contacts_table?.previously_selected_columns;
     if (Array.isArray(savedVisible)) {
       setVisibleColumns(savedVisible);
       visibleColumnsRef.current = savedVisible;
-      // First time the user touches the picker → seed Suggested with the
-      // curated defaults. After that, whatever the user customized wins.
-      const initialSuggested = Array.isArray(savedSuggested)
-        ? savedSuggested
-        : CURATED_FIELDS.map((f) => f.key);
-      setSuggestedColumns(initialSuggested);
-      suggestedColumnsRef.current = initialSuggested;
+      // Seed "previously selected" with any saved value, falling back to
+      // whatever is currently visible so the Previously-selected section
+      // isn't empty on existing users' first post-upgrade picker open.
+      const initialPrev = Array.isArray(savedPrev) ? savedPrev : savedVisible;
+      setPreviouslySelectedColumns(initialPrev);
+      previouslySelectedColumnsRef.current = initialPrev;
       initializedRef.current = true;
     }
   }, [preferences]);
@@ -272,20 +273,20 @@ export function ContactsPanel() {
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const columns = visibleColumnsRef.current;
-      const suggested = suggestedColumnsRef.current;
+      const prev = previouslySelectedColumnsRef.current;
       try {
         await updatePreferences({
           contacts_table: {
             visible_columns: columns,
-            suggested_columns: suggested,
+            previously_selected_columns: prev,
           },
         });
         // Update provider state so tab remounts get the latest value
-        setPreferences((prev) => ({
-          ...prev,
+        setPreferences((prior) => ({
+          ...prior,
           contacts_table: {
             visible_columns: columns,
-            suggested_columns: suggested,
+            previously_selected_columns: prev,
           },
         }));
       } catch {
@@ -304,26 +305,18 @@ export function ContactsPanel() {
     visibleColumnsRef.current = nextVisible;
     setVisibleColumns(nextVisible);
 
-    // Every toggle (on or off) counts as an interaction — move the key
-    // to the front of suggestedColumns so the Suggested section shows
-    // most-recently-touched entries first.
-    const nextSuggested = [
-      key,
-      ...suggestedColumnsRef.current.filter((k) => k !== key),
-    ];
-    suggestedColumnsRef.current = nextSuggested;
-    setSuggestedColumns(nextSuggested);
+    // Write-once: the first time the user selects a column, add it to
+    // the Previously selected set. Never remove — the whole point is
+    // that the user keeps seeing columns they've touched before.
+    if (
+      !wasVisible &&
+      !previouslySelectedColumnsRef.current.includes(key)
+    ) {
+      const nextPrev = [...previouslySelectedColumnsRef.current, key];
+      previouslySelectedColumnsRef.current = nextPrev;
+      setPreviouslySelectedColumns(nextPrev);
+    }
 
-    persistColumnPreferences();
-  }
-
-  function handleColumnDismiss(key: string) {
-    // Remove the key from suggestedColumns entirely. Does NOT touch
-    // visibleColumns — dismissing is orthogonal to visibility.
-    const nextSuggested = suggestedColumnsRef.current.filter((k) => k !== key);
-    if (nextSuggested.length === suggestedColumnsRef.current.length) return;
-    suggestedColumnsRef.current = nextSuggested;
-    setSuggestedColumns(nextSuggested);
     persistColumnPreferences();
   }
 
@@ -455,13 +448,12 @@ export function ContactsPanel() {
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
           visibleColumns={visibleColumns}
-          suggestedColumns={suggestedColumns}
+          previouslySelectedColumns={previouslySelectedColumns}
           onSearchChange={onFilterChange(setSearch)}
           onProgramChange={onFilterChange(setSelectedProgram)}
           onTagToggle={handleTagToggle}
           onClearTags={handleClearTags}
           onColumnToggle={handleColumnToggle}
-          onColumnDismiss={handleColumnDismiss}
         />
       </div>
 

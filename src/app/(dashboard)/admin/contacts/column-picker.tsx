@@ -1,13 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
   FIELD_REGISTRY,
-  getFieldEntry,
   type FieldRegistryEntry,
 } from "./field-registry";
 import { PROGRAM_BADGE_CLASS } from "../constants";
@@ -15,52 +13,70 @@ import { PROGRAM_BADGE_CLASS } from "../constants";
 interface ColumnPickerProps {
   visibleColumns: string[];
   /**
-   * The user's personal Suggested list. Starts as the curated defaults
-   * on first mount and is user-editable from there — toggling a column
-   * moves it to the front, the × button removes it entirely. Persisted
-   * as `profiles.preferences.contacts_table.suggested_columns`.
+   * Every column the user has ever toggled on, in any order. The picker
+   * renders these at the top under "Previously selected", alphabetized,
+   * so the user's working set stays above the full alphabetical list of
+   * every available column. Persisted as
+   * `profiles.preferences.contacts_table.previously_selected_columns`.
    */
-  suggestedColumns: string[];
+  previouslySelectedColumns: string[];
   onToggle: (key: string) => void;
-  /** Remove a key from the suggested list. Does not touch visibility. */
-  onDismiss: (key: string) => void;
+}
+
+function byLabel(a: FieldRegistryEntry, b: FieldRegistryEntry): number {
+  return a.label.localeCompare(b.label);
 }
 
 export function ColumnPicker({
   visibleColumns,
-  suggestedColumns,
+  previouslySelectedColumns,
   onToggle,
-  onDismiss,
 }: ColumnPickerProps) {
   const [search, setSearch] = useState("");
 
   const q = search.toLowerCase().trim();
   const showSearch = q.length > 0;
 
-  const selectedKeys = new Set(visibleColumns);
-  const suggestedKeySet = new Set(suggestedColumns);
+  const selectedKeys = useMemo(
+    () => new Set(visibleColumns),
+    [visibleColumns],
+  );
+  const previouslySelectedKeys = useMemo(
+    () => new Set(previouslySelectedColumns),
+    [previouslySelectedColumns],
+  );
 
-  // Search mode: filter the full registry by label/key.
-  const searchResults = showSearch
-    ? FIELD_REGISTRY.filter(
-        (f) =>
-          f.label.toLowerCase().includes(q) ||
-          f.key.toLowerCase().includes(q),
-      )
-    : [];
+  // Alphabetized full list used in both render modes.
+  const allFieldsSorted = useMemo(
+    () => [...FIELD_REGISTRY].sort(byLabel),
+    [],
+  );
 
-  // Default mode:
-  //   ACTIVE    = currently-visible columns, in visibleColumns order
-  //   SUGGESTED = suggestedColumns minus active, in suggestedColumns
-  //               order (most-recently-touched first)
-  const activeFields = visibleColumns
-    .map((key) => getFieldEntry(key))
-    .filter((f): f is FieldRegistryEntry => f !== undefined);
+  // Search mode: flat filtered alphabetical list.
+  const searchResults = useMemo(() => {
+    if (!showSearch) return [];
+    return allFieldsSorted.filter(
+      (f) =>
+        f.label.toLowerCase().includes(q) ||
+        f.key.toLowerCase().includes(q),
+    );
+  }, [allFieldsSorted, q, showSearch]);
 
-  const suggestedFields = suggestedColumns
-    .filter((key) => !selectedKeys.has(key))
-    .map((key) => getFieldEntry(key))
-    .filter((f): f is FieldRegistryEntry => f !== undefined);
+  // Default mode: two stacked sections.
+  //   PREVIOUSLY SELECTED — everything the user has ever toggled on,
+  //                        alphabetical.
+  //   (unlabeled rest)    — every other FIELD_REGISTRY column,
+  //                        alphabetical.
+  const previouslySelectedFields = useMemo(
+    () =>
+      allFieldsSorted.filter((f) => previouslySelectedKeys.has(f.key)),
+    [allFieldsSorted, previouslySelectedKeys],
+  );
+  const remainingFields = useMemo(
+    () =>
+      allFieldsSorted.filter((f) => !previouslySelectedKeys.has(f.key)),
+    [allFieldsSorted, previouslySelectedKeys],
+  );
 
   return (
     <Popover>
@@ -89,60 +105,50 @@ export function ColumnPicker({
         </div>
         <div className="max-h-64 overflow-y-auto p-2">
           {showSearch ? (
-            <>
-              {searchResults.length === 0 ? (
-                <p className="px-2 py-3 text-center text-sm text-muted-foreground">
-                  No matching fields
-                </p>
-              ) : (
-                searchResults.map((field) => (
-                  <FieldRow
-                    key={field.key}
-                    field={field}
-                    checked={selectedKeys.has(field.key)}
-                    onToggle={onToggle}
-                    onDismiss={
-                      suggestedKeySet.has(field.key)
-                        ? () => onDismiss(field.key)
-                        : undefined
-                    }
-                  />
-                ))
-              )}
-            </>
+            searchResults.length === 0 ? (
+              <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+                No matching fields
+              </p>
+            ) : (
+              searchResults.map((field) => (
+                <FieldRow
+                  key={field.key}
+                  field={field}
+                  checked={selectedKeys.has(field.key)}
+                  onToggle={onToggle}
+                />
+              ))
+            )
           ) : (
             <>
-              {activeFields.length > 0 && (
+              {previouslySelectedFields.length > 0 && (
                 <>
                   <p className="mb-1 px-2 text-xs font-semibold text-muted-foreground">
-                    Active
+                    Previously selected
                   </p>
-                  {activeFields.map((field) => (
+                  {previouslySelectedFields.map((field) => (
                     <FieldRow
                       key={field.key}
                       field={field}
-                      checked
+                      checked={selectedKeys.has(field.key)}
                       onToggle={onToggle}
                     />
                   ))}
                 </>
               )}
-              {suggestedFields.length > 0 && (
+              {remainingFields.length > 0 && (
                 <>
-                  <p
-                    className={`mb-1 px-2 text-xs font-semibold text-muted-foreground ${
-                      activeFields.length > 0 ? "mt-3" : ""
-                    }`}
-                  >
-                    Suggested
-                  </p>
-                  {suggestedFields.map((field) => (
+                  {previouslySelectedFields.length > 0 && (
+                    <p className="mb-1 mt-3 px-2 text-xs font-semibold text-muted-foreground">
+                      All columns
+                    </p>
+                  )}
+                  {remainingFields.map((field) => (
                     <FieldRow
                       key={field.key}
                       field={field}
-                      checked={false}
+                      checked={selectedKeys.has(field.key)}
                       onToggle={onToggle}
-                      onDismiss={() => onDismiss(field.key)}
                     />
                   ))}
                 </>
@@ -159,51 +165,28 @@ function FieldRow({
   field,
   checked,
   onToggle,
-  onDismiss,
 }: {
   field: FieldRegistryEntry;
   checked: boolean;
   onToggle: (key: string) => void;
-  /** When provided, renders an × button that removes this row from
-   * the user's suggested list (does NOT toggle visibility). */
-  onDismiss?: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
-      <label className="flex flex-1 cursor-pointer items-center gap-2">
-        <Checkbox
-          checked={checked}
-          onCheckedChange={() => onToggle(field.key)}
-        />
-        <span className="flex-1 text-sm text-foreground">{field.label}</span>
-        <span className="flex gap-0.5">
-          {field.programs.map((p) => (
-            <Badge
-              key={p}
-              variant="outline"
-              className={`px-1 py-0 text-[10px] capitalize ${
-                PROGRAM_BADGE_CLASS[p] ?? ""
-              }`}
-            >
-              {p.slice(0, 4)}
-            </Badge>
-          ))}
-        </span>
-      </label>
-      {onDismiss && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismiss();
-          }}
-          className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:text-foreground"
-          aria-label={`Remove ${field.label} from suggested`}
-          title="Remove from suggested"
-        >
-          <X size={12} strokeWidth={2.5} />
-        </button>
-      )}
-    </div>
+    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
+      <Checkbox checked={checked} onCheckedChange={() => onToggle(field.key)} />
+      <span className="flex-1 text-sm text-foreground">{field.label}</span>
+      <span className="flex gap-0.5">
+        {field.programs.map((p) => (
+          <Badge
+            key={p}
+            variant="outline"
+            className={`px-1 py-0 text-[10px] capitalize ${
+              PROGRAM_BADGE_CLASS[p] ?? ""
+            }`}
+          >
+            {p.slice(0, 4)}
+          </Badge>
+        ))}
+      </span>
+    </label>
   );
 }
