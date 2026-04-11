@@ -14,10 +14,21 @@ import { PROGRAM_BADGE_CLASS } from "../constants";
 
 interface ColumnPickerProps {
   visibleColumns: string[];
+  /**
+   * Non-curated columns the user has ever selected — they stick around
+   * in the Suggested section permanently so the user doesn't have to
+   * re-search for them next time. Persisted in
+   * `profiles.preferences.contacts_table.promoted_columns` by the parent.
+   */
+  promotedColumns: string[];
   onToggle: (key: string) => void;
 }
 
-export function ColumnPicker({ visibleColumns, onToggle }: ColumnPickerProps) {
+export function ColumnPicker({
+  visibleColumns,
+  promotedColumns,
+  onToggle,
+}: ColumnPickerProps) {
   const [search, setSearch] = useState("");
 
   const q = search.toLowerCase().trim();
@@ -32,21 +43,27 @@ export function ColumnPicker({ visibleColumns, onToggle }: ColumnPickerProps) {
       )
     : [];
 
-  // Default mode: two stacked sections. Currently-active (selected)
-  // columns come first in `visibleColumns` order — so the table's
-  // left-to-right layout mirrors the picker's top-to-bottom layout,
-  // making it one click to toggle any active column off. Suggested
-  // shows CURATED_FIELDS with anything already active filtered out.
+  // Default mode: two stacked sections.
   //
-  // Side effect: selecting a non-curated column via search
-  // automatically promotes it into the Active section on the next
-  // picker open — so the "suggested" list effectively grows as the
-  // user discovers the columns they care about.
+  // ACTIVE: currently-visible columns in `visibleColumns` order — so the
+  // table's left-to-right layout mirrors the picker's top-to-bottom list,
+  // making it one click to toggle any active column off.
+  //
+  // SUGGESTED: CURATED_FIELDS plus any `promotedColumns` the user has ever
+  // selected that aren't currently active. Once a column has been picked,
+  // it sticks around in Suggested forever — even after deselection — so
+  // users don't re-search for columns they've shown interest in before.
   const selectedKeys = new Set(visibleColumns);
   const activeFields = visibleColumns
     .map((key) => getFieldEntry(key))
     .filter((f): f is FieldRegistryEntry => f !== undefined);
-  const suggestedFields = CURATED_FIELDS.filter(
+
+  const curatedKeys = new Set(CURATED_FIELDS.map((f) => f.key));
+  const promotedEntries = promotedColumns
+    .filter((key) => !curatedKeys.has(key)) // de-dupe with curated
+    .map((key) => getFieldEntry(key))
+    .filter((f): f is FieldRegistryEntry => f !== undefined);
+  const suggestedFields = [...CURATED_FIELDS, ...promotedEntries].filter(
     (f) => !selectedKeys.has(f.key),
   );
 

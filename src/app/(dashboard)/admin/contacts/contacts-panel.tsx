@@ -17,7 +17,11 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import type { Application, ProgramSlug } from "@/types/database";
-import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
+import {
+  getFieldEntry,
+  CURATED_FIELDS,
+  type FieldRegistryEntry,
+} from "./field-registry";
 import { updatePreferences } from "./actions";
 import { ColumnFilterPopover } from "./column-filter-popover";
 import { ColumnSortToggle } from "./column-sort-toggle";
@@ -93,10 +97,15 @@ export function ContactsPanel() {
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  // Columns the user has ever selected that aren't in CURATED_FIELDS —
+  // these stick around in the ColumnPicker's Suggested section forever
+  // so the user doesn't have to re-search for them next time.
+  const [promotedColumns, setPromotedColumns] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [sortBy, setSortBy] = useState<SortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
+  const promotedColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -112,10 +121,21 @@ export function ContactsPanel() {
   // Sync preferences to local state once (one-time initialization)
   useEffect(() => {
     if (initializedRef.current) return;
-    const saved = (preferences as { contacts_table?: { visible_columns?: string[] } })
-      ?.contacts_table?.visible_columns;
-    if (Array.isArray(saved)) {
-      setVisibleColumns(saved);
+    const pref = preferences as {
+      contacts_table?: {
+        visible_columns?: string[];
+        promoted_columns?: string[];
+      };
+    };
+    const savedVisible = pref?.contacts_table?.visible_columns;
+    const savedPromoted = pref?.contacts_table?.promoted_columns;
+    if (Array.isArray(savedVisible)) {
+      setVisibleColumns(savedVisible);
+      visibleColumnsRef.current = savedVisible;
+      if (Array.isArray(savedPromoted)) {
+        setPromotedColumns(savedPromoted);
+        promotedColumnsRef.current = savedPromoted;
+      }
       initializedRef.current = true;
     }
   }, [preferences]);
@@ -245,19 +265,50 @@ export function ContactsPanel() {
   }
 
   function handleColumnToggle(key: string) {
-    setVisibleColumns((prev) => {
-      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-      visibleColumnsRef.current = next;
-      return next;
-    });
+    // Compute next visible state from the ref (source of truth for the
+    // debounced save below) and mirror it to React state for rendering.
+    const wasVisible = visibleColumnsRef.current.includes(key);
+    const isEnabling = !wasVisible;
+    const nextVisible = wasVisible
+      ? visibleColumnsRef.current.filter((k) => k !== key)
+      : [...visibleColumnsRef.current, key];
+    visibleColumnsRef.current = nextVisible;
+    setVisibleColumns(nextVisible);
+
+    // Permanently promote non-curated columns into the Suggested list on
+    // enable, so the user doesn't have to re-search for them next time.
+    // Never remove from promoted on deselect — the whole point is that
+    // once the user has looked for a column, it stays within easy reach.
+    const isCurated = CURATED_FIELDS.some((f) => f.key === key);
+    if (
+      isEnabling &&
+      !isCurated &&
+      !promotedColumnsRef.current.includes(key)
+    ) {
+      const nextPromoted = [...promotedColumnsRef.current, key];
+      promotedColumnsRef.current = nextPromoted;
+      setPromotedColumns(nextPromoted);
+    }
 
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const columns = visibleColumnsRef.current;
+      const promoted = promotedColumnsRef.current;
       try {
-        await updatePreferences({ contacts_table: { visible_columns: columns } });
+        await updatePreferences({
+          contacts_table: {
+            visible_columns: columns,
+            promoted_columns: promoted,
+          },
+        });
         // Update provider state so tab remounts get the latest value
-        setPreferences((prev) => ({ ...prev, contacts_table: { visible_columns: columns } }));
+        setPreferences((prev) => ({
+          ...prev,
+          contacts_table: {
+            visible_columns: columns,
+            promoted_columns: promoted,
+          },
+        }));
       } catch {
         toast.error("Failed to save column preferences.");
       }
@@ -392,6 +443,7 @@ export function ContactsPanel() {
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
           visibleColumns={visibleColumns}
+          promotedColumns={promotedColumns}
           onSearchChange={onFilterChange(setSearch)}
           onProgramChange={onFilterChange(setSelectedProgram)}
           onTagToggle={handleTagToggle}

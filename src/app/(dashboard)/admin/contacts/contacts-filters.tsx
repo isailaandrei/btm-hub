@@ -21,6 +21,7 @@ interface ContactsFiltersProps {
   tagCategories: TagCategory[];
   tags: Tag[];
   visibleColumns: string[];
+  promotedColumns: string[];
   onSearchChange: (value: string) => void;
   onProgramChange: (value: ProgramSlug | undefined) => void;
   onTagToggle: (tagId: string) => void;
@@ -35,6 +36,7 @@ export function ContactsFilters({
   tagCategories,
   tags,
   visibleColumns,
+  promotedColumns,
   onSearchChange,
   onProgramChange,
   onTagToggle,
@@ -87,7 +89,11 @@ export function ContactsFilters({
           </SelectContent>
         </Select>
 
-        <ColumnPicker visibleColumns={visibleColumns} onToggle={onColumnToggle} />
+        <ColumnPicker
+          visibleColumns={visibleColumns}
+          promotedColumns={promotedColumns}
+          onToggle={onColumnToggle}
+        />
       </div>
 
       {tagCategories.length > 0 && (
