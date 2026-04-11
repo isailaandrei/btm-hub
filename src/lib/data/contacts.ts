@@ -227,6 +227,18 @@ export async function bulkAssignTags(contactIds: string[], tagId: string) {
   if (error) throw new Error(`Failed to bulk assign tags: ${error.message}`);
 }
 
+export async function bulkUnassignTags(contactIds: string[], tagId: string) {
+  await requireAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("contact_tags")
+    .delete()
+    .in("contact_id", contactIds)
+    .eq("tag_id", tagId);
+
+  if (error) throw new Error(`Failed to bulk unassign tags: ${error.message}`);
+}
+
 // ---------------------------------------------------------------------------
 // Contact Notes
 // ---------------------------------------------------------------------------
