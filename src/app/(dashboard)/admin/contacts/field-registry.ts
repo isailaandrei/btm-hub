@@ -108,15 +108,7 @@ export function normalizeAgeToRange(raw: unknown): string | null {
 
 const RATING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
-/**
- * Merge option arrays for cross-program filter entries. Each element appears
- * at most once; ordering is "first seen" across the input arrays.
- *
- * Used only for fields where the concept is the same across programs but the
- * option lists genuinely differ (e.g., certification_level is scuba vs
- * freediving). Phase B will introduce canonical cross-program filtering on
- * top of this.
- */
+/** Deduplicated union of multiple option arrays (first-seen ordering). */
 function union(...arrays: (readonly string[])[]): string[] {
   return [...new Set(arrays.flat())];
 }

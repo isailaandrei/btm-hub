@@ -26,12 +26,20 @@ import { ColumnFilterPopover } from "./column-filter-popover";
 import { ColumnSortToggle } from "./column-sort-toggle";
 import {
   compareContacts,
+  BUILTIN_COLUMN,
   type SortState,
 } from "./sort-helpers";
 import { BulkActionBar } from "./bulk-action-bar";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
+
+const BUILTIN_SORTABLE_COLUMNS: { key: string; label: string }[] = [
+  { key: BUILTIN_COLUMN.name, label: "Name" },
+  { key: BUILTIN_COLUMN.submittedAt, label: "Submitted" },
+  { key: BUILTIN_COLUMN.email, label: "Email" },
+  { key: BUILTIN_COLUMN.phone, label: "Phone" },
+];
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -109,7 +117,10 @@ export function ContactsPanel() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
   const previouslySelectedColumnsRef = useRef<string[]>([]);
-  const initializedRef = useRef(false);
+  // `null` until the one-time preferences sync has run; `true` afterwards.
+  // React 19's react-hooks/refs rule allows render-time ref writes only
+  // via this `if (ref.current == null)` lazy-init pattern.
+  const initializedRef = useRef<true | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -121,9 +132,18 @@ export function ContactsPanel() {
     ensurePreferences();
   }, [ensurePreferences]);
 
-  // Sync preferences to local state once (one-time initialization)
+  // Prevent a stale debounced save from firing after the component unmounts.
   useEffect(() => {
-    if (initializedRef.current) return;
+    return () => clearTimeout(saveTimeoutRef.current);
+  }, []);
+
+  // One-time sync from preferences context into local state as soon as
+  // the context value has settable data. Uses React 19's ref lazy-init
+  // pattern (`if (ref.current == null)`) to satisfy react-hooks/refs
+  // while allowing the setState calls to run during render. The check
+  // re-runs on every render until preferences is populated, at which
+  // point initializedRef flips and subsequent renders skip the block.
+  if (initializedRef.current == null) {
     const pref = preferences as {
       contacts_table?: {
         visible_columns?: string[];
@@ -131,33 +151,46 @@ export function ContactsPanel() {
       };
     };
     const savedVisible = pref?.contacts_table?.visible_columns;
-    const savedPrev = pref?.contacts_table?.previously_selected_columns;
     if (Array.isArray(savedVisible)) {
-      setVisibleColumns(savedVisible);
-      visibleColumnsRef.current = savedVisible;
-      // Seed "previously selected" with any saved value, falling back to
-      // whatever is currently visible so the Previously-selected section
+      const savedPrev = pref?.contacts_table?.previously_selected_columns;
+      // Fall back to `visible_columns` so the Previously-selected section
       // isn't empty on existing users' first post-upgrade picker open.
       const initialPrev = Array.isArray(savedPrev) ? savedPrev : savedVisible;
+      setVisibleColumns(savedVisible);
       setPreviouslySelectedColumns(initialPrev);
-      previouslySelectedColumnsRef.current = initialPrev;
       initializedRef.current = true;
     }
-  }, [preferences]);
+  }
 
-  const { filtered, appsByContact } = useMemo(() => {
-    const items = contacts ?? [];
-    const apps = applications ?? [];
-    const ctags = contactTags ?? [];
+  // Mirror state → refs after commit, so the debounced save in
+  // persistColumnPreferences (which fires from a setTimeout 1s later)
+  // always reads committed values. Event handlers still write the refs
+  // synchronously before calling setState so that subsequent reads
+  // within the same handler see the updated value without waiting for
+  // the effect to flush.
+  useEffect(() => {
+    visibleColumnsRef.current = visibleColumns;
+  }, [visibleColumns]);
+  useEffect(() => {
+    previouslySelectedColumnsRef.current = previouslySelectedColumns;
+  }, [previouslySelectedColumns]);
 
-    // Precompute apps by contact
-    const appsByContact = new Map<string, typeof apps>();
-    for (const app of apps) {
+  // Rebuilt only when the applications list itself changes — not on
+  // search/filter/sort, which don't affect this grouping.
+  const appsByContact = useMemo(() => {
+    const map = new Map<string, Application[]>();
+    for (const app of applications ?? []) {
       if (!app.contact_id) continue;
-      const list = appsByContact.get(app.contact_id);
+      const list = map.get(app.contact_id);
       if (list) list.push(app);
-      else appsByContact.set(app.contact_id, [app]);
+      else map.set(app.contact_id, [app]);
     }
+    return map;
+  }, [applications]);
+
+  const filtered = useMemo(() => {
+    const items = contacts ?? [];
+    const ctags = contactTags ?? [];
 
     let result = items;
 
@@ -184,46 +217,52 @@ export function ContactsPanel() {
       );
     }
 
-    // Column filters (application-derived fields). When a field has a
-    // `canonical` normalization config (see FieldRegistryEntry), each
-    // stored answer is first mapped to its canonical bucket and we match
-    // against the canonical list; otherwise we match raw. "Other" catches
-    // any value that falls outside the (canonical or raw) option list,
-    // so free-text Other responses and unmappable legacy values surface
-    // in one place without polluting the dropdown.
+    // Column filters: precompute per-filter metadata (field entry, normalizer,
+    // canonical option set, selected-value partitions) ONCE per active filter,
+    // not per contact. Previously this ran inside the contact loop — O(contacts
+    // × active_filters) field lookups and Set allocations — now it's O(filters).
     const activeColumnFilters = Object.entries(columnFilters);
     if (activeColumnFilters.length > 0) {
+      const precomputed = activeColumnFilters.map(([fieldKey, values]) => {
+        const field = getFieldEntry(fieldKey);
+        const canonicalOptions = new Set<string>(
+          (field?.canonical?.options ??
+            (field?.options as readonly string[] | undefined) ??
+            []) as readonly string[],
+        );
+        return {
+          fieldKey,
+          normalize: field?.canonical?.normalize,
+          canonicalOptions,
+          otherSelected: values.includes("Other"),
+          canonicalSelected: values.filter((v) => v !== "Other"),
+        };
+      });
+
       result = result.filter((c) => {
         const contactApps = appsByContact.get(c.id) ?? [];
-        return activeColumnFilters.every(([fieldKey, values]) => {
-          const field = getFieldEntry(fieldKey);
-          const normalize = field?.canonical?.normalize;
-          const canonicalOptions = new Set<string>(
-            (field?.canonical?.options ??
-              (field?.options as readonly string[] | undefined) ??
-              []) as readonly string[],
-          );
-          const otherSelected = values.includes("Other");
-          const canonicalSelected = values.filter((v) => v !== "Other");
-
-          return contactApps.some((app) => {
-            const raw = app.answers[fieldKey];
-            if (raw == null) return false;
-            const rawValues = Array.isArray(raw) ? raw.map(String) : [String(raw)];
-            const matched = rawValues.map((v) =>
-              normalize ? normalize(v) ?? v : v,
-            );
-            if (canonicalSelected.some((v) => matched.includes(v))) return true;
-            if (otherSelected && matched.some((v) => v !== "" && !canonicalOptions.has(v))) {
-              return true;
-            }
-            return false;
-          });
-        });
+        return precomputed.every(
+          ({ fieldKey, normalize, canonicalOptions, otherSelected, canonicalSelected }) =>
+            contactApps.some((app) => {
+              const raw = app.answers[fieldKey];
+              if (raw == null) return false;
+              const rawValues = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+              const matched = rawValues.map((v) =>
+                normalize ? normalize(v) ?? v : v,
+              );
+              if (canonicalSelected.some((v) => matched.includes(v))) return true;
+              if (
+                otherSelected &&
+                matched.some((v) => v !== "" && !canonicalOptions.has(v))
+              ) {
+                return true;
+              }
+              return false;
+            }),
+        );
       });
     }
 
-    // Sort (single-column, applied after all filters).
     if (sortBy) {
       const field = getFieldEntry(sortBy.key);
       result = [...result].sort((a, b) =>
@@ -231,8 +270,8 @@ export function ContactsPanel() {
       );
     }
 
-    return { filtered: result, appsByContact };
-  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters, sortBy]);
+    return result;
+  }, [contacts, contactTags, search, selectedProgram, selectedTagIds, columnFilters, sortBy, appsByContact]);
 
   const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
 
@@ -327,7 +366,8 @@ export function ContactsPanel() {
         ? current.filter((v) => v !== value)
         : [...current, value];
       if (next.length === 0) {
-        const { [fieldKey]: _, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[fieldKey];
         return rest;
       }
       return { ...prev, [fieldKey]: next };
@@ -338,7 +378,8 @@ export function ContactsPanel() {
 
   function handleColumnFilterClear(fieldKey: string) {
     setColumnFilters((prev) => {
-      const { [fieldKey]: _, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[fieldKey];
       return rest;
     });
     setPage(1);
@@ -500,50 +541,19 @@ export function ContactsPanel() {
                     aria-label="Select all on page"
                   />
                 </TableHead>
-                <TableHead>
-                  <span className="inline-flex items-center">
-                    Name
-                    <ColumnSortToggle
-                      active={sortBy?.key === "name"}
-                      direction={sortBy?.key === "name" ? sortBy.direction : null}
-                      onClick={() => toggleSort("name")}
-                      label="Name"
-                    />
-                  </span>
-                </TableHead>
-                <TableHead>
-                  <span className="inline-flex items-center">
-                    Submitted
-                    <ColumnSortToggle
-                      active={sortBy?.key === "submitted_at"}
-                      direction={sortBy?.key === "submitted_at" ? sortBy.direction : null}
-                      onClick={() => toggleSort("submitted_at")}
-                      label="Submitted"
-                    />
-                  </span>
-                </TableHead>
-                <TableHead>
-                  <span className="inline-flex items-center">
-                    Email
-                    <ColumnSortToggle
-                      active={sortBy?.key === "email"}
-                      direction={sortBy?.key === "email" ? sortBy.direction : null}
-                      onClick={() => toggleSort("email")}
-                      label="Email"
-                    />
-                  </span>
-                </TableHead>
-                <TableHead>
-                  <span className="inline-flex items-center">
-                    Phone
-                    <ColumnSortToggle
-                      active={sortBy?.key === "phone"}
-                      direction={sortBy?.key === "phone" ? sortBy.direction : null}
-                      onClick={() => toggleSort("phone")}
-                      label="Phone"
-                    />
-                  </span>
-                </TableHead>
+                {BUILTIN_SORTABLE_COLUMNS.map(({ key, label }) => (
+                  <TableHead key={key}>
+                    <span className="inline-flex items-center">
+                      {label}
+                      <ColumnSortToggle
+                        active={sortBy?.key === key}
+                        direction={sortBy?.key === key ? sortBy.direction : null}
+                        onClick={() => toggleSort(key)}
+                        label={label}
+                      />
+                    </span>
+                  </TableHead>
+                ))}
                 <TableHead>Programs</TableHead>
                 <TableHead>Tags</TableHead>
                 {activeFields.map((field) => (

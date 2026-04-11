@@ -6,17 +6,16 @@ export type SortState = { key: string; direction: SortDirection };
 
 type SortValue = string | number | null;
 
-/**
- * Extract the sortable value for a contact at a given column.
- *
- * Built-in columns (name, email, phone, submitted_at) are handled directly.
- * Registry-backed columns look up the first (most recent) application's
- * answer and run it through canonical normalization if the field has one,
- * then return an index into the canonical/raw option list.
- *
- * Null indicates "no sortable value for this row" — null always sorts LAST
- * regardless of direction, enforced by `compareContacts`.
- */
+/** Column keys for contact-level fields not backed by the FIELD_REGISTRY. */
+export const BUILTIN_COLUMN = {
+  name: "name",
+  email: "email",
+  phone: "phone",
+  submittedAt: "submitted_at",
+} as const;
+
+/** Extract the sortable value for a contact at a given column. Null sorts
+ *  last regardless of direction (enforced by `compareContacts`). */
 export function getSortValue(
   contact: Contact,
   key: string,
@@ -24,13 +23,13 @@ export function getSortValue(
   field: FieldRegistryEntry | undefined,
 ): SortValue {
   switch (key) {
-    case "name":
+    case BUILTIN_COLUMN.name:
       return contact.name.toLocaleLowerCase();
-    case "email":
+    case BUILTIN_COLUMN.email:
       return contact.email.toLocaleLowerCase();
-    case "phone":
+    case BUILTIN_COLUMN.phone:
       return contact.phone ?? null;
-    case "submitted_at": {
+    case BUILTIN_COLUMN.submittedAt: {
       const apps = appsByContact.get(contact.id);
       return apps?.[0]?.submitted_at ?? null;
     }
