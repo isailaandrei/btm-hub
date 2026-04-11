@@ -4,7 +4,12 @@ import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { FIELD_REGISTRY, CURATED_FIELDS } from "./field-registry";
+import {
+  FIELD_REGISTRY,
+  CURATED_FIELDS,
+  getFieldEntry,
+  type FieldRegistryEntry,
+} from "./field-registry";
 import { PROGRAM_BADGE_CLASS } from "../constants";
 
 interface ColumnPickerProps {
@@ -18,9 +23,32 @@ export function ColumnPicker({ visibleColumns, onToggle }: ColumnPickerProps) {
   const q = search.toLowerCase().trim();
   const showSearch = q.length > 0;
 
-  const displayed = showSearch
-    ? FIELD_REGISTRY.filter((f) => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q))
-    : CURATED_FIELDS;
+  // Search mode: filter the full registry by label/key.
+  const searchResults = showSearch
+    ? FIELD_REGISTRY.filter(
+        (f) =>
+          f.label.toLowerCase().includes(q) ||
+          f.key.toLowerCase().includes(q),
+      )
+    : [];
+
+  // Default mode: two stacked sections. Currently-active (selected)
+  // columns come first in `visibleColumns` order — so the table's
+  // left-to-right layout mirrors the picker's top-to-bottom layout,
+  // making it one click to toggle any active column off. Suggested
+  // shows CURATED_FIELDS with anything already active filtered out.
+  //
+  // Side effect: selecting a non-curated column via search
+  // automatically promotes it into the Active section on the next
+  // picker open — so the "suggested" list effectively grows as the
+  // user discovers the columns they care about.
+  const selectedKeys = new Set(visibleColumns);
+  const activeFields = visibleColumns
+    .map((key) => getFieldEntry(key))
+    .filter((f): f is FieldRegistryEntry => f !== undefined);
+  const suggestedFields = CURATED_FIELDS.filter(
+    (f) => !selectedKeys.has(f.key),
+  );
 
   return (
     <Popover>
@@ -48,40 +76,93 @@ export function ColumnPicker({ visibleColumns, onToggle }: ColumnPickerProps) {
           />
         </div>
         <div className="max-h-64 overflow-y-auto p-2">
-          {!showSearch && (
-            <p className="mb-1 px-2 text-xs font-semibold text-muted-foreground">Suggested</p>
-          )}
-          {displayed.length === 0 && (
-            <p className="px-2 py-3 text-center text-sm text-muted-foreground">No matching fields</p>
-          )}
-          {displayed.map((field) => {
-            const checked = visibleColumns.includes(field.key);
-            return (
-              <label
-                key={field.key}
-                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
-              >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={() => onToggle(field.key)}
-                />
-                <span className="flex-1 text-sm text-foreground">{field.label}</span>
-                <span className="flex gap-0.5">
-                  {field.programs.map((p) => (
-                    <Badge
-                      key={p}
-                      variant="outline"
-                      className={`px-1 py-0 text-[10px] capitalize ${PROGRAM_BADGE_CLASS[p] ?? ""}`}
-                    >
-                      {p.slice(0, 4)}
-                    </Badge>
+          {showSearch ? (
+            <>
+              {searchResults.length === 0 ? (
+                <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+                  No matching fields
+                </p>
+              ) : (
+                searchResults.map((field) => (
+                  <FieldRow
+                    key={field.key}
+                    field={field}
+                    checked={selectedKeys.has(field.key)}
+                    onToggle={onToggle}
+                  />
+                ))
+              )}
+            </>
+          ) : (
+            <>
+              {activeFields.length > 0 && (
+                <>
+                  <p className="mb-1 px-2 text-xs font-semibold text-muted-foreground">
+                    Active
+                  </p>
+                  {activeFields.map((field) => (
+                    <FieldRow
+                      key={field.key}
+                      field={field}
+                      checked
+                      onToggle={onToggle}
+                    />
                   ))}
-                </span>
-              </label>
-            );
-          })}
+                </>
+              )}
+              {suggestedFields.length > 0 && (
+                <>
+                  <p
+                    className={`mb-1 px-2 text-xs font-semibold text-muted-foreground ${
+                      activeFields.length > 0 ? "mt-3" : ""
+                    }`}
+                  >
+                    Suggested
+                  </p>
+                  {suggestedFields.map((field) => (
+                    <FieldRow
+                      key={field.key}
+                      field={field}
+                      checked={false}
+                      onToggle={onToggle}
+                    />
+                  ))}
+                </>
+              )}
+            </>
+          )}
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function FieldRow({
+  field,
+  checked,
+  onToggle,
+}: {
+  field: FieldRegistryEntry;
+  checked: boolean;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
+      <Checkbox checked={checked} onCheckedChange={() => onToggle(field.key)} />
+      <span className="flex-1 text-sm text-foreground">{field.label}</span>
+      <span className="flex gap-0.5">
+        {field.programs.map((p) => (
+          <Badge
+            key={p}
+            variant="outline"
+            className={`px-1 py-0 text-[10px] capitalize ${
+              PROGRAM_BADGE_CLASS[p] ?? ""
+            }`}
+          >
+            {p.slice(0, 4)}
+          </Badge>
+        ))}
+      </span>
+    </label>
   );
 }
