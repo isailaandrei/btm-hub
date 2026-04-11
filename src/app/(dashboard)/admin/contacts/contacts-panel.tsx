@@ -97,15 +97,16 @@ export function ContactsPanel() {
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
-  // Columns the user has ever selected that aren't in CURATED_FIELDS —
-  // these stick around in the ColumnPicker's Suggested section forever
-  // so the user doesn't have to re-search for them next time.
-  const [promotedColumns, setPromotedColumns] = useState<string[]>([]);
+  // The user's personal Suggested list. Defaults to CURATED_FIELDS on
+  // first load; grows when the user enables a new column via search
+  // and shrinks when they click the × button on any suggested row.
+  // Ordered most-recently-touched first.
+  const [suggestedColumns, setSuggestedColumns] = useState<string[]>([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [sortBy, setSortBy] = useState<SortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
-  const promotedColumnsRef = useRef<string[]>([]);
+  const suggestedColumnsRef = useRef<string[]>([]);
   const initializedRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -124,18 +125,21 @@ export function ContactsPanel() {
     const pref = preferences as {
       contacts_table?: {
         visible_columns?: string[];
-        promoted_columns?: string[];
+        suggested_columns?: string[];
       };
     };
     const savedVisible = pref?.contacts_table?.visible_columns;
-    const savedPromoted = pref?.contacts_table?.promoted_columns;
+    const savedSuggested = pref?.contacts_table?.suggested_columns;
     if (Array.isArray(savedVisible)) {
       setVisibleColumns(savedVisible);
       visibleColumnsRef.current = savedVisible;
-      if (Array.isArray(savedPromoted)) {
-        setPromotedColumns(savedPromoted);
-        promotedColumnsRef.current = savedPromoted;
-      }
+      // First time the user touches the picker → seed Suggested with the
+      // curated defaults. After that, whatever the user customized wins.
+      const initialSuggested = Array.isArray(savedSuggested)
+        ? savedSuggested
+        : CURATED_FIELDS.map((f) => f.key);
+      setSuggestedColumns(initialSuggested);
+      suggestedColumnsRef.current = initialSuggested;
       initializedRef.current = true;
     }
   }, [preferences]);
@@ -268,12 +272,12 @@ export function ContactsPanel() {
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const columns = visibleColumnsRef.current;
-      const promoted = promotedColumnsRef.current;
+      const suggested = suggestedColumnsRef.current;
       try {
         await updatePreferences({
           contacts_table: {
             visible_columns: columns,
-            promoted_columns: promoted,
+            suggested_columns: suggested,
           },
         });
         // Update provider state so tab remounts get the latest value
@@ -281,7 +285,7 @@ export function ContactsPanel() {
           ...prev,
           contacts_table: {
             visible_columns: columns,
-            promoted_columns: promoted,
+            suggested_columns: suggested,
           },
         }));
       } catch {
@@ -300,33 +304,26 @@ export function ContactsPanel() {
     visibleColumnsRef.current = nextVisible;
     setVisibleColumns(nextVisible);
 
-    // Non-curated columns: every toggle (ON or OFF) is an "interaction"
-    // that should move this column to the front of promotedColumns so
-    // the Suggested list shows most-recently-touched entries first.
-    // Curated columns don't participate — they stay in CURATED_FIELDS
-    // order at the bottom of the Suggested section.
-    const isCurated = CURATED_FIELDS.some((f) => f.key === key);
-    if (!isCurated) {
-      const nextPromoted = [
-        key,
-        ...promotedColumnsRef.current.filter((k) => k !== key),
-      ];
-      promotedColumnsRef.current = nextPromoted;
-      setPromotedColumns(nextPromoted);
-    }
+    // Every toggle (on or off) counts as an interaction — move the key
+    // to the front of suggestedColumns so the Suggested section shows
+    // most-recently-touched entries first.
+    const nextSuggested = [
+      key,
+      ...suggestedColumnsRef.current.filter((k) => k !== key),
+    ];
+    suggestedColumnsRef.current = nextSuggested;
+    setSuggestedColumns(nextSuggested);
 
     persistColumnPreferences();
   }
 
-  function handleColumnUnpromote(key: string) {
-    // Remove the key from promotedColumns entirely. Does NOT touch
-    // visibleColumns — unpromoting is orthogonal to visibility, though
-    // in practice the button only appears for columns that aren't
-    // currently active.
-    const nextPromoted = promotedColumnsRef.current.filter((k) => k !== key);
-    if (nextPromoted.length === promotedColumnsRef.current.length) return;
-    promotedColumnsRef.current = nextPromoted;
-    setPromotedColumns(nextPromoted);
+  function handleColumnDismiss(key: string) {
+    // Remove the key from suggestedColumns entirely. Does NOT touch
+    // visibleColumns — dismissing is orthogonal to visibility.
+    const nextSuggested = suggestedColumnsRef.current.filter((k) => k !== key);
+    if (nextSuggested.length === suggestedColumnsRef.current.length) return;
+    suggestedColumnsRef.current = nextSuggested;
+    setSuggestedColumns(nextSuggested);
     persistColumnPreferences();
   }
 
@@ -458,13 +455,13 @@ export function ContactsPanel() {
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
           visibleColumns={visibleColumns}
-          promotedColumns={promotedColumns}
+          suggestedColumns={suggestedColumns}
           onSearchChange={onFilterChange(setSearch)}
           onProgramChange={onFilterChange(setSelectedProgram)}
           onTagToggle={handleTagToggle}
           onClearTags={handleClearTags}
           onColumnToggle={handleColumnToggle}
-          onColumnUnpromote={handleColumnUnpromote}
+          onColumnDismiss={handleColumnDismiss}
         />
       </div>
 

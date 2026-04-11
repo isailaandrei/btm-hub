@@ -21,13 +21,13 @@ interface ContactsFiltersProps {
   tagCategories: TagCategory[];
   tags: Tag[];
   visibleColumns: string[];
-  promotedColumns: string[];
+  suggestedColumns: string[];
   onSearchChange: (value: string) => void;
   onProgramChange: (value: ProgramSlug | undefined) => void;
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
-  onColumnUnpromote: (key: string) => void;
+  onColumnDismiss: (key: string) => void;
 }
 
 export function ContactsFilters({
@@ -37,13 +37,13 @@ export function ContactsFilters({
   tagCategories,
   tags,
   visibleColumns,
-  promotedColumns,
+  suggestedColumns,
   onSearchChange,
   onProgramChange,
   onTagToggle,
   onClearTags,
   onColumnToggle,
-  onColumnUnpromote,
+  onColumnDismiss,
 }: ContactsFiltersProps) {
   const [searchInput, setSearchInput] = useState(search);
 
@@ -93,9 +93,9 @@ export function ContactsFilters({
 
         <ColumnPicker
           visibleColumns={visibleColumns}
-          promotedColumns={promotedColumns}
+          suggestedColumns={suggestedColumns}
           onToggle={onColumnToggle}
-          onUnpromote={onColumnUnpromote}
+          onDismiss={onColumnDismiss}
         />
       </div>
 
