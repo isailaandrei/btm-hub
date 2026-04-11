@@ -161,21 +161,3 @@ export const filmmakingFormDefinition: FormDefinition = {
 
 // Auto-register
 registerForm(filmmakingFormDefinition);
-
-// ---------------------------------------------------------------------------
-// TEMPORARY LEGACY RE-EXPORTS — removed in the Phase 4 cleanup task.
-// These exist solely so field-registry.ts compiles during the incremental
-// Phase 2 rewrite. Do NOT add new usages.
-// ---------------------------------------------------------------------------
-
-export {
-  FILMMAKING_EQUIPMENT as FILMMAKING_EQUIPMENT_OWNED,
-  FILMMAKING_CONTENT_CREATED,
-  ONLINE_PRESENCE as FILMMAKING_ONLINE_PRESENCE,
-  MEDIA_INCOME as INCOME_FROM_FILMING,
-  FILMMAKING_GOALS as FILMMAKING_PRIMARY_GOALS,
-  FILMMAKING_LEARNING_ASPECTS,
-  FILMMAKING_CONTENT_TO_CREATE,
-  LEARNING_APPROACHES as FILMMAKING_LEARNING_APPROACHES,
-  MARINE_SUBJECTS_MEDIA as FILMMAKING_MARINE_SUBJECTS,
-} from "./common/options";

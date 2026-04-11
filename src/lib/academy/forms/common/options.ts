@@ -484,30 +484,3 @@ export const INTERNSHIP_DIVING_ENVIRONMENTS = [
   "Night diving",
   "Cave/Wreck diving",
 ] as const;
-
-// ===========================================================================
-// TEMPORARY LEGACY ALIASES — deleted in the Phase 4 cleanup task.
-// These exist solely so the program files and field-registry continue to
-// compile during the incremental Phase 2 rewrite. Do NOT add new usages.
-// ===========================================================================
-
-/** @deprecated use CERTIFICATION_LEVELS_SCUBA */
-export const CERTIFICATION_LEVELS = CERTIFICATION_LEVELS_SCUBA;
-/** @deprecated use DIVING_ENVIRONMENTS_SCUBA */
-export const DIVING_ENVIRONMENTS = DIVING_ENVIRONMENTS_SCUBA;
-/** @deprecated use BTM_CATEGORIES_MEDIA */
-export const BTM_CATEGORIES = BTM_CATEGORIES_MEDIA;
-/** @deprecated use PHOTOGRAPHY_EQUIPMENT */
-export const EQUIPMENT_OWNED = PHOTOGRAPHY_EQUIPMENT;
-/** @deprecated use PHOTOGRAPHY_CONTENT_CREATED */
-export const CONTENT_CREATED = PHOTOGRAPHY_CONTENT_CREATED;
-/** @deprecated use MEDIA_INCOME */
-export const INCOME_FROM_PHOTOGRAPHY = MEDIA_INCOME;
-/** @deprecated use PHOTOGRAPHY_GOALS */
-export const PRIMARY_GOALS = PHOTOGRAPHY_GOALS;
-/** @deprecated use PHOTOGRAPHY_LEARNING_ASPECTS */
-export const LEARNING_ASPECTS = PHOTOGRAPHY_LEARNING_ASPECTS;
-/** @deprecated use PHOTOGRAPHY_CONTENT_TO_CREATE */
-export const CONTENT_TO_CREATE = PHOTOGRAPHY_CONTENT_TO_CREATE;
-/** @deprecated use MARINE_SUBJECTS_MEDIA */
-export const MARINE_SUBJECTS = MARINE_SUBJECTS_MEDIA;

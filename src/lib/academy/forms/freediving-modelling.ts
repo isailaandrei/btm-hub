@@ -175,23 +175,3 @@ const freedivingModellingFormDefinition: FormDefinition = {
 };
 
 registerForm(freedivingModellingFormDefinition);
-
-// ---------------------------------------------------------------------------
-// TEMPORARY LEGACY RE-EXPORTS — removed in the Phase 4 cleanup task.
-// These exist solely so field-registry.ts compiles during the incremental
-// Phase 2 rewrite. Do NOT add new usages.
-// ---------------------------------------------------------------------------
-
-export {
-  FREEDIVING_CERTIFICATION_LEVELS,
-  NUMBER_OF_SESSIONS,
-  PRACTICE_DURATION,
-  FREEDIVING_ENVIRONMENTS,
-  PERFORMANCE_EXPERIENCE,
-  CHOREOGRAPHY_EXPERIENCE,
-  FILMED_UNDERWATER,
-  BTM_CATEGORIES_FREEDIVING as FREEDIVING_BTM_CATEGORIES,
-  ONLINE_PRESENCE as FREEDIVING_ONLINE_PRESENCE,
-  FREEDIVING_LEARNING_ASPECTS,
-  LEARNING_APPROACHES as FREEDIVING_LEARNING_APPROACHES,
-} from "./common/options";

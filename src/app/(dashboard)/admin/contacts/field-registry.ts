@@ -290,7 +290,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "content_to_create",
     label: "Content to Create",
     type: "multiselect",
-    options: union(FILMMAKING_CONTENT_TO_CREATE),
+    options: union(FILMMAKING_CONTENT_TO_CREATE, PHOTOGRAPHY_CONTENT_TO_CREATE),
     programs: ["filmmaking", "photography"],
     curated: false,
   },
