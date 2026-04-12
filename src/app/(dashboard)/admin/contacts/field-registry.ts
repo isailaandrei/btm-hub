@@ -10,7 +10,6 @@ import {
   // Shared — diving
   DIVING_TYPES,
   CERTIFICATION_LEVELS_SCUBA,
-  CERTIFICATION_LEVELS_SCUBA_INTERNSHIP,
   NUMBER_OF_DIVES,
   DIVING_ENVIRONMENTS_SCUBA,
   INTERNSHIP_DIVING_ENVIRONMENTS,
@@ -153,7 +152,6 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     type: "multiselect",
     options: union(
       CERTIFICATION_LEVELS_SCUBA,
-      CERTIFICATION_LEVELS_SCUBA_INTERNSHIP,
       FREEDIVING_CERTIFICATION_LEVELS,
     ),
     programs: ["filmmaking", "photography", "freediving", "internship"],

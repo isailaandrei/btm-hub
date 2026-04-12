@@ -17,7 +17,7 @@ import {
 import { registerForm } from "./registry";
 import {
   DIVING_TYPES,
-  CERTIFICATION_LEVELS_SCUBA_INTERNSHIP,
+  CERTIFICATION_LEVELS_SCUBA,
   NUMBER_OF_DIVES,
   INTERNSHIP_DIVING_ENVIRONMENTS,
   REFERRAL_SOURCES,
@@ -34,8 +34,8 @@ import {
 //   - current_occupation is REQUIRED (optional on the other 3 forms)
 //   - 3 field names differ from the old code: hoped_gains→internship_hopes,
 //     azores_ties→accommodation_ties, why_good_candidate→candidacy_reason
-//   - certification_level uses a slightly different freediver sub-label
-//     (CERTIFICATION_LEVELS_SCUBA_INTERNSHIP — no "please", no colon)
+//   - certification_level uses CERTIFICATION_LEVELS_SCUBA (shared with
+//     filmmaking/photography); discrepancies handled via allowOther
 //   - no btm_category / budget / time_availability / start_timeline /
 //     travel_willingness / primary_goal / learning_aspects etc. (the
 //     Google Form doesn't ask any of those for internship applicants)
@@ -98,7 +98,7 @@ const healthDivingFields: FieldDefinition[] = [
   { type: "select", name: "health_conditions", label: "Do you have any specific health conditions that might affect diving?", options: HEALTH_CONDITIONS, required: true, columns: 1 },
   { type: "text", multiline: true, name: "health_details", label: "Health Details (optional)", placeholder: "If you have any conditions, please provide details...", required: false, visibleWhen: { field: "health_conditions", operator: "neq", value: "No health conditions affecting diving" } },
   { type: "multiselect", name: "diving_types", label: "What type of diving do you practice?", options: DIVING_TYPES, required: true, allowOther: true },
-  { type: "multiselect", name: "certification_level", label: "Current diving certification level", options: CERTIFICATION_LEVELS_SCUBA_INTERNSHIP, required: true, allowOther: true },
+  { type: "multiselect", name: "certification_level", label: "Current diving certification level", options: CERTIFICATION_LEVELS_SCUBA, required: true, allowOther: true },
   { type: "select", name: "number_of_dives", label: "Number of dives", options: NUMBER_OF_DIVES, required: true },
   { type: "date", name: "last_dive_date", label: "Last diving activity date", required: true },
   { type: "multiselect", name: "diving_environments", label: "Diving environments experience", options: INTERNSHIP_DIVING_ENVIRONMENTS, required: true, allowOther: true },
