@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdminData } from "../admin-data-provider";
@@ -94,6 +95,8 @@ export function ContactsPanel() {
     setPreferences,
     ensurePreferences,
   } = useAdminData();
+
+  const router = useRouter();
 
   const [search, setSearch] = useState("");
   const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>();
@@ -229,6 +232,7 @@ export function ContactsPanel() {
         );
         return {
           fieldKey,
+          fieldType: field?.type,
           normalize: field?.canonical?.normalize,
           canonicalOptions,
           otherSelected: values.includes("Other"),
@@ -239,11 +243,15 @@ export function ContactsPanel() {
       result = result.filter((c) => {
         const contactApps = appsByContact.get(c.id) ?? [];
         return precomputed.every(
-          ({ fieldKey, normalize, canonicalOptions, otherSelected, canonicalSelected }) =>
+          ({ fieldKey, fieldType, normalize, canonicalOptions, otherSelected, canonicalSelected }) =>
             contactApps.some((app) => {
               const raw = app.answers[fieldKey];
               if (raw == null) return false;
-              const rawValues = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+              const rawValues = Array.isArray(raw)
+                ? raw.map(String)
+                : fieldType === "multiselect"
+                  ? String(raw).split(", ").map((s) => s.trim()).filter(Boolean)
+                  : [String(raw)];
               const matched = rawValues.map((v) =>
                 normalize ? normalize(v) ?? v : v,
               );
@@ -599,8 +607,12 @@ export function ContactsPanel() {
               );
 
               return (
-                <TableRow key={contact.id}>
-                  <TableCell className="w-10">
+                <TableRow
+                  key={contact.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => router.push(`/admin/contacts/${contact.id}`)}
+                >
+                  <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={selectedIds.has(contact.id)}
                       onCheckedChange={() => handleSelectOne(contact.id)}
@@ -611,6 +623,7 @@ export function ContactsPanel() {
                     <Link
                       href={`/admin/contacts/${contact.id}`}
                       className="font-medium text-foreground hover:text-primary"
+                      onClick={(e) => e.stopPropagation()}
                     >
                       {contact.name}
                     </Link>
@@ -635,12 +648,12 @@ export function ContactsPanel() {
                     {contact.phone || "—"}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-col gap-1">
                       {uniquePrograms.map((program) => (
                         <Badge
                           key={program}
                           variant="outline"
-                          className={`capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
+                          className={`w-fit capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
                         >
                           {program}
                         </Badge>
