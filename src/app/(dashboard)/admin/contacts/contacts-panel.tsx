@@ -46,14 +46,16 @@ function formatDate(iso: string): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function getFieldEntries(
+function renderFieldValue(
   contactApps: Application[],
   field: FieldRegistryEntry,
-): { program: string; value: string }[] {
+): React.ReactNode {
   const entries: { program: string; value: string }[] = [];
+
   for (const app of contactApps) {
     const raw = app.answers[field.key];
     if (raw == null) continue;
+
     let display: string;
     if (field.type === "date") {
       display = formatDate(String(raw));
@@ -64,24 +66,7 @@ function getFieldEntries(
     }
     entries.push({ program: app.program, value: display });
   }
-  return entries;
-}
 
-function getFieldPlainText(
-  contactApps: Application[],
-  field: FieldRegistryEntry,
-): string {
-  const entries = getFieldEntries(contactApps, field);
-  if (entries.length === 0) return "—";
-  if (entries.length === 1) return entries[0].value;
-  return entries.map((e) => `${e.program}: ${e.value}`).join("\n");
-}
-
-function renderFieldValue(
-  contactApps: Application[],
-  field: FieldRegistryEntry,
-): React.ReactNode {
-  const entries = getFieldEntries(contactApps, field);
   if (entries.length === 0) return "—";
   if (entries.length === 1) return entries[0].value;
   return (
@@ -111,7 +96,6 @@ export function ContactsPanel() {
   } = useAdminData();
 
   const [search, setSearch] = useState("");
-  const [cellModal, setCellModal] = useState<{ label: string; value: string } | null>(null);
   const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>();
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState<PageSize>(25);
@@ -700,21 +684,16 @@ export function ContactsPanel() {
                       })}
                     </div>
                   </TableCell>
-                  {activeFields.map((field) => {
-                    const plainText = getFieldPlainText(contactApps, field);
-                    const expandable = plainText !== "—";
-                    return (
-                      <TableCell key={field.key} className="max-w-xs text-sm text-muted-foreground">
-                        <div
-                          className={`truncate ${expandable ? "cursor-pointer hover:text-foreground" : ""}`}
-                          onClick={expandable ? () => setCellModal({ label: field.label, value: plainText }) : undefined}
-                          title={expandable ? "Click to expand" : undefined}
-                        >
-                          {renderFieldValue(contactApps, field)}
-                        </div>
-                      </TableCell>
-                    );
-                  })}
+                  {activeFields.map((field) => (
+                    <TableCell
+                      key={field.key}
+                      className="whitespace-normal text-sm text-muted-foreground"
+                    >
+                      <div className="line-clamp-7 break-words">
+                        {renderFieldValue(contactApps, field)}
+                      </div>
+                    </TableCell>
+                  ))}
                 </TableRow>
               );
             })
@@ -756,34 +735,6 @@ export function ContactsPanel() {
               Next
             </button>
           )}
-        </div>
-      )}
-
-      {cellModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setCellModal(null)}
-        >
-          <div
-            className="mx-4 max-h-[80vh] w-full max-w-xl overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                {cellModal.label}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setCellModal(null)}
-                className="text-muted-foreground transition-colors hover:text-foreground"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="whitespace-pre-wrap break-words text-sm text-foreground">
-              {cellModal.value}
-            </p>
-          </div>
         </div>
       )}
     </div>
