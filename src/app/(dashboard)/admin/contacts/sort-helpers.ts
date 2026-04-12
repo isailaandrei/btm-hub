@@ -38,7 +38,7 @@ export function getSortValue(
   if (!field) return null;
   const firstApp = appsByContact.get(contact.id)?.[0];
   if (!firstApp) return null;
-  const raw = firstApp.answers[key];
+  const raw = firstApp.answers?.[key];
   if (raw == null) return null;
 
   if (field.type === "rating") {

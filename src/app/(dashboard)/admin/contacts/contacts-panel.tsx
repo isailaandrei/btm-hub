@@ -53,7 +53,7 @@ function renderFieldValue(
   const entries: { program: string; value: string }[] = [];
 
   for (const app of contactApps) {
-    const raw = app.answers[field.key];
+    const raw = app.answers?.[field.key];
     if (raw == null) continue;
 
     let display: string;
@@ -277,7 +277,7 @@ export function ContactsPanel() {
         return precomputed.every(
           ({ fieldKey, fieldType, normalize, canonicalOptions, otherSelected, canonicalSelected }) =>
             contactApps.some((app) => {
-              const raw = app.answers[fieldKey];
+              const raw = app.answers?.[fieldKey];
               if (raw == null || raw === "") {
                 return otherSelected;
               }
