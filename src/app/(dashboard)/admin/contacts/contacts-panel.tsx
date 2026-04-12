@@ -95,22 +95,44 @@ export function ContactsPanel() {
     ensurePreferences,
   } = useAdminData();
 
-  const [search, setSearch] = useState("");
-  const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>();
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [pageSize, setPageSize] = useState<PageSize>(25);
-  const [page, setPage] = useState(1);
+  // Read saved filter/sort state from localStorage on the very first render.
+  // Uses the ref lazy-init pattern (if ref.current == null) so the lint rule
+  // react-hooks/refs is satisfied. The component renders a skeleton until
+  // contacts data loads, so there's no SSR hydration mismatch to worry about.
+  const FILTERS_STORAGE_KEY = "btm-admin-contacts-filters";
+  const filtersLoadedRef = useRef<true | null>(null);
+  let savedFilters: {
+    search?: string;
+    selectedProgram?: ProgramSlug;
+    selectedTagIds?: string[];
+    columnFilters?: Record<string, string[]>;
+    sortBy?: SortState | null;
+    pageSize?: PageSize;
+    page?: number;
+  } | null = null;
+  if (filtersLoadedRef.current == null) {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
+        savedFilters = raw ? JSON.parse(raw) : null;
+      } catch {
+        /* ignore corrupt localStorage */
+      }
+    }
+    filtersLoadedRef.current = true;
+  }
+
+  const [search, setSearch] = useState(savedFilters?.search ?? "");
+  const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>(savedFilters?.selectedProgram);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(savedFilters?.selectedTagIds ?? []);
+  const [pageSize, setPageSize] = useState<PageSize>(savedFilters?.pageSize ?? 25);
+  const [page, setPage] = useState(savedFilters?.page ?? 1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
-  // Every column the user has ever toggled on (including ones they later
-  // deselected). Used to populate the ColumnPicker's "Previously selected"
-  // section so the user sees their working set above the full alphabetical
-  // list of every available column. Write-once per column — we never
-  // remove from this set.
   const [previouslySelectedColumns, setPreviouslySelectedColumns] = useState<
     string[]
   >([]);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
-  const [sortBy, setSortBy] = useState<SortState | null>(null);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(savedFilters?.columnFilters ?? {});
+  const [sortBy, setSortBy] = useState<SortState | null>(savedFilters?.sortBy ?? null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
   const previouslySelectedColumnsRef = useRef<string[]>([]);
@@ -128,6 +150,19 @@ export function ContactsPanel() {
   useEffect(() => {
     ensurePreferences();
   }, [ensurePreferences]);
+
+  // Persist filter/sort state to localStorage so it survives navigation
+  // and page reloads. Only writes — no setState, so no lint issues.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        FILTERS_STORAGE_KEY,
+        JSON.stringify({ search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page }),
+      );
+    } catch {
+      /* localStorage full or unavailable — silently skip */
+    }
+  }, [search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page]);
 
   // Prevent a stale debounced save from firing after the component unmounts.
   useEffect(() => {
