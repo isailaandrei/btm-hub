@@ -13,7 +13,6 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
 import { ContactNoteForm } from "./contact-note-form";
-import { DeleteContactButton } from "./delete-buttons";
 
 export default async function ContactDetailPage({
   params,
@@ -130,11 +129,6 @@ export default async function ContactDetailPage({
             </CardContent>
           </Card>
 
-          <DeleteContactButton
-            contactId={contact.id}
-            contactName={contact.name}
-            applicationCount={applications.length}
-          />
         </div>
       </div>
     </div>
