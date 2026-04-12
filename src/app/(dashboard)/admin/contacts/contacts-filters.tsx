@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import type { ProgramSlug, TagCategory, Tag } from "@/types/database";
 import {
   Select,
@@ -42,14 +43,26 @@ export function ContactsFilters({
   onClearTags,
   onColumnToggle,
 }: ContactsFiltersProps) {
+  // Local input state + debounce so the table doesn't re-filter (and
+  // potentially shift rows) on every keystroke. The parent's `search`
+  // state only updates after a 200ms pause in typing.
+  const [localSearch, setLocalSearch] = useState(search);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function handleSearchChange(value: string) {
+    setLocalSearch(value);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onSearchChange(value), 200);
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="text"
           placeholder="Search by name or email..."
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
+          value={localSearch}
+          onChange={(e) => handleSearchChange(e.target.value)}
           className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
         />
 
