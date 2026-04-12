@@ -246,7 +246,9 @@ export function ContactsPanel() {
           ({ fieldKey, fieldType, normalize, canonicalOptions, otherSelected, canonicalSelected }) =>
             contactApps.some((app) => {
               const raw = app.answers[fieldKey];
-              if (raw == null) return false;
+              if (raw == null || raw === "") {
+                return otherSelected;
+              }
               const rawValues = Array.isArray(raw)
                 ? raw.map(String)
                 : fieldType === "multiselect"
@@ -258,7 +260,7 @@ export function ContactsPanel() {
               if (canonicalSelected.some((v) => matched.includes(v))) return true;
               if (
                 otherSelected &&
-                matched.some((v) => v !== "" && !canonicalOptions.has(v))
+                matched.some((v) => !canonicalOptions.has(v))
               ) {
                 return true;
               }
