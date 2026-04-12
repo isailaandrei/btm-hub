@@ -536,7 +536,7 @@ export function ContactsPanel() {
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border">
-        <Table className="table-fixed">
+        <Table>
           <TableHeader>
             <TableRow className="bg-card text-muted-foreground">
               <TableHead className="w-10">
@@ -682,10 +682,8 @@ export function ContactsPanel() {
                     </div>
                   </TableCell>
                   {activeFields.map((field) => (
-                    <TableCell key={field.key} className="text-sm text-muted-foreground">
-                      <div className="max-w-sm">
-                        {renderFieldValue(contactApps, field)}
-                      </div>
+                    <TableCell key={field.key} className="max-w-72 truncate text-sm text-muted-foreground">
+                      {renderFieldValue(contactApps, field)}
                     </TableCell>
                   ))}
                 </TableRow>
