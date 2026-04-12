@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ProgramSlug, TagCategory, Tag } from "@/types/database";
 import {
   Select,
@@ -21,6 +21,7 @@ interface ContactsFiltersProps {
   tagCategories: TagCategory[];
   tags: Tag[];
   visibleColumns: string[];
+  previouslySelectedColumns: string[];
   onSearchChange: (value: string) => void;
   onProgramChange: (value: ProgramSlug | undefined) => void;
   onTagToggle: (tagId: string) => void;
@@ -35,38 +36,35 @@ export function ContactsFilters({
   tagCategories,
   tags,
   visibleColumns,
+  previouslySelectedColumns,
   onSearchChange,
   onProgramChange,
   onTagToggle,
   onClearTags,
   onColumnToggle,
 }: ContactsFiltersProps) {
-  const [searchInput, setSearchInput] = useState(search);
+  // Local input state + debounce so the table doesn't re-filter (and
+  // potentially shift rows) on every keystroke. The parent's `search`
+  // state only updates after a 200ms pause in typing.
+  const [localSearch, setLocalSearch] = useState(search);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function handleSearchChange(value: string) {
+    setLocalSearch(value);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onSearchChange(value), 200);
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <form
-          className="flex items-center gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSearchChange(searchInput);
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Search by name or email..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
-          />
-          <button
-            type="submit"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-          >
-            Search
-          </button>
-        </form>
+        <input
+          type="text"
+          placeholder="Search by name or email..."
+          value={localSearch}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
+        />
 
         <Select
           value={selectedProgram ?? "all"}
@@ -87,7 +85,11 @@ export function ContactsFilters({
           </SelectContent>
         </Select>
 
-        <ColumnPicker visibleColumns={visibleColumns} onToggle={onColumnToggle} />
+        <ColumnPicker
+          visibleColumns={visibleColumns}
+          previouslySelectedColumns={previouslySelectedColumns}
+          onToggle={onColumnToggle}
+        />
       </div>
 
       {tagCategories.length > 0 && (

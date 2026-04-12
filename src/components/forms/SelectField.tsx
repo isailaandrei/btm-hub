@@ -9,6 +9,7 @@ interface SelectFieldProps {
   error?: string;
   columns?: 1 | 2 | 3;
   required?: boolean;
+  allowOther?: boolean;
 }
 
 const gridCols: Record<number, string> = {
@@ -26,7 +27,11 @@ export function SelectField({
   error,
   columns = 1,
   required,
+  allowOther,
 }: SelectFieldProps) {
+  const isOtherValue =
+    allowOther && value != null && value !== "" && !options.includes(value);
+
   return (
     <div className="flex flex-col gap-2">
       <label className="text-sm font-medium text-muted-foreground">
@@ -34,7 +39,11 @@ export function SelectField({
         {required && <span className="ml-1 text-primary">*</span>}
       </label>
       <input type="hidden" name={name} value={value ?? ""} />
-      <div className={`grid gap-2 ${gridCols[columns]} ${error ? "rounded-lg ring-1 ring-red-400 p-1" : ""}`}>
+      <div
+        className={`grid gap-2 ${gridCols[columns]} ${
+          error ? "rounded-lg ring-1 ring-red-400 p-1" : ""
+        }`}
+      >
         {options.map((option) => (
           <button
             key={option}
@@ -50,6 +59,17 @@ export function SelectField({
           </button>
         ))}
       </div>
+      {allowOther && (
+        <input
+          type="text"
+          placeholder="Other (please specify)"
+          value={isOtherValue ? value : ""}
+          onChange={(e) => onChange(e.target.value)}
+          className={`mt-1 rounded-lg border bg-card px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary ${
+            isOtherValue ? "border-primary" : "border-border"
+          }`}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdminData } from "../admin-data-provider";
@@ -17,13 +18,29 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import type { Application, ProgramSlug } from "@/types/database";
-import { getFieldEntry, type FieldRegistryEntry } from "./field-registry";
+import {
+  getFieldEntry,
+  type FieldRegistryEntry,
+} from "./field-registry";
 import { updatePreferences } from "./actions";
 import { ColumnFilterPopover } from "./column-filter-popover";
+import { ColumnSortToggle } from "./column-sort-toggle";
+import {
+  compareContacts,
+  BUILTIN_COLUMN,
+  type SortState,
+} from "./sort-helpers";
 import { BulkActionBar } from "./bulk-action-bar";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
+
+const BUILTIN_SORTABLE_COLUMNS: { key: string; label: string }[] = [
+  { key: BUILTIN_COLUMN.name, label: "Name" },
+  { key: BUILTIN_COLUMN.submittedAt, label: "Submitted" },
+  { key: BUILTIN_COLUMN.email, label: "Email" },
+  { key: BUILTIN_COLUMN.phone, label: "Phone" },
+];
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -37,10 +54,7 @@ function renderFieldValue(
   const entries: { program: string; value: string }[] = [];
 
   for (const app of contactApps) {
-    // Top-level application fields (e.g., submitted_at) vs answers
-    const raw = field.key === "submitted_at"
-      ? app.submitted_at
-      : app.answers[field.key];
+    const raw = app.answers[field.key];
     if (raw == null) continue;
 
     let display: string;
@@ -82,16 +96,31 @@ export function ContactsPanel() {
     ensurePreferences,
   } = useAdminData();
 
+  const router = useRouter();
+
   const [search, setSearch] = useState("");
   const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>();
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  // Every column the user has ever toggled on (including ones they later
+  // deselected). Used to populate the ColumnPicker's "Previously selected"
+  // section so the user sees their working set above the full alphabetical
+  // list of every available column. Write-once per column — we never
+  // remove from this set.
+  const [previouslySelectedColumns, setPreviouslySelectedColumns] = useState<
+    string[]
+  >([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [sortBy, setSortBy] = useState<SortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
-  const initializedRef = useRef(false);
+  const previouslySelectedColumnsRef = useRef<string[]>([]);
+  // `null` until the one-time preferences sync has run; `true` afterwards.
+  // React 19's react-hooks/refs rule allows render-time ref writes only
+  // via this `if (ref.current == null)` lazy-init pattern.
+  const initializedRef = useRef<true | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -103,49 +132,65 @@ export function ContactsPanel() {
     ensurePreferences();
   }, [ensurePreferences]);
 
-  // Sync preferences to local state once (one-time initialization)
+  // Prevent a stale debounced save from firing after the component unmounts.
   useEffect(() => {
-    if (initializedRef.current) return;
-    const saved = (preferences as { contacts_table?: { visible_columns?: string[] } })
-      ?.contacts_table?.visible_columns;
-    if (Array.isArray(saved)) {
-      setVisibleColumns(saved);
+    return () => clearTimeout(saveTimeoutRef.current);
+  }, []);
+
+  // One-time sync from preferences context into local state as soon as
+  // the context value has settable data. Uses React 19's ref lazy-init
+  // pattern (`if (ref.current == null)`) to satisfy react-hooks/refs
+  // while allowing the setState calls to run during render. The check
+  // re-runs on every render until preferences is populated, at which
+  // point initializedRef flips and subsequent renders skip the block.
+  if (initializedRef.current == null) {
+    const pref = preferences as {
+      contacts_table?: {
+        visible_columns?: string[];
+        previously_selected_columns?: string[];
+      };
+    };
+    const savedVisible = pref?.contacts_table?.visible_columns;
+    if (Array.isArray(savedVisible)) {
+      const savedPrev = pref?.contacts_table?.previously_selected_columns;
+      // Fall back to `visible_columns` so the Previously-selected section
+      // isn't empty on existing users' first post-upgrade picker open.
+      const initialPrev = Array.isArray(savedPrev) ? savedPrev : savedVisible;
+      setVisibleColumns(savedVisible);
+      setPreviouslySelectedColumns(initialPrev);
       initializedRef.current = true;
     }
-  }, [preferences]);
+  }
 
-  const { filtered, appsByContact, dataOptions } = useMemo(() => {
-    const items = contacts ?? [];
-    const apps = applications ?? [];
-    const ctags = contactTags ?? [];
+  // Mirror state → refs after commit, so the debounced save in
+  // persistColumnPreferences (which fires from a setTimeout 1s later)
+  // always reads committed values. Event handlers still write the refs
+  // synchronously before calling setState so that subsequent reads
+  // within the same handler see the updated value without waiting for
+  // the effect to flush.
+  useEffect(() => {
+    visibleColumnsRef.current = visibleColumns;
+  }, [visibleColumns]);
+  useEffect(() => {
+    previouslySelectedColumnsRef.current = previouslySelectedColumns;
+  }, [previouslySelectedColumns]);
 
-    // Precompute apps by contact
-    const appsByContact = new Map<string, typeof apps>();
-    for (const app of apps) {
+  // Rebuilt only when the applications list itself changes — not on
+  // search/filter/sort, which don't affect this grouping.
+  const appsByContact = useMemo(() => {
+    const map = new Map<string, Application[]>();
+    for (const app of applications ?? []) {
       if (!app.contact_id) continue;
-      const list = appsByContact.get(app.contact_id);
+      const list = map.get(app.contact_id);
       if (list) list.push(app);
-      else appsByContact.set(app.contact_id, [app]);
+      else map.set(app.contact_id, [app]);
     }
+    return map;
+  }, [applications]);
 
-    // TODO: This derives filter options from actual DB values as a workaround
-    // because form definition options don't yet match the stored data.
-    // Once options in forms/common/options.ts match the DB, switch back to
-    // using field.options from the registry and remove this computation.
-    const dataOptions = new Map<string, Set<string>>();
-    for (const app of apps) {
-      for (const [key, raw] of Object.entries(app.answers)) {
-        if (raw == null) continue;
-        let set = dataOptions.get(key);
-        if (!set) { set = new Set(); dataOptions.set(key, set); }
-        if (Array.isArray(raw)) {
-          for (const v of raw) { const s = String(v).trim(); if (s) set.add(s); }
-        } else {
-          const s = String(raw).trim();
-          if (s) set.add(s);
-        }
-      }
-    }
+  const filtered = useMemo(() => {
+    const items = contacts ?? [];
+    const ctags = contactTags ?? [];
 
     let result = items;
 
@@ -172,26 +217,66 @@ export function ContactsPanel() {
       );
     }
 
-    // Column filters (application-derived fields)
+    // Column filters: precompute per-filter metadata (field entry, normalizer,
+    // canonical option set, selected-value partitions) ONCE per active filter,
+    // not per contact. Previously this ran inside the contact loop — O(contacts
+    // × active_filters) field lookups and Set allocations — now it's O(filters).
     const activeColumnFilters = Object.entries(columnFilters);
     if (activeColumnFilters.length > 0) {
+      const precomputed = activeColumnFilters.map(([fieldKey, values]) => {
+        const field = getFieldEntry(fieldKey);
+        const canonicalOptions = new Set<string>(
+          (field?.canonical?.options ??
+            (field?.options as readonly string[] | undefined) ??
+            []) as readonly string[],
+        );
+        return {
+          fieldKey,
+          fieldType: field?.type,
+          normalize: field?.canonical?.normalize,
+          canonicalOptions,
+          otherSelected: values.includes("Other"),
+          canonicalSelected: values.filter((v) => v !== "Other"),
+        };
+      });
+
       result = result.filter((c) => {
         const contactApps = appsByContact.get(c.id) ?? [];
-        return activeColumnFilters.every(([fieldKey, values]) =>
-          contactApps.some((app) => {
-            const raw = app.answers[fieldKey];
-            if (raw == null) return false;
-            if (Array.isArray(raw)) {
-              return raw.some((v) => values.includes(String(v)));
-            }
-            return values.includes(String(raw));
-          }),
+        return precomputed.every(
+          ({ fieldKey, fieldType, normalize, canonicalOptions, otherSelected, canonicalSelected }) =>
+            contactApps.some((app) => {
+              const raw = app.answers[fieldKey];
+              if (raw == null) return false;
+              const rawValues = Array.isArray(raw)
+                ? raw.map(String)
+                : fieldType === "multiselect"
+                  ? String(raw).split(", ").map((s) => s.trim()).filter(Boolean)
+                  : [String(raw)];
+              const matched = rawValues.map((v) =>
+                normalize ? normalize(v) ?? v : v,
+              );
+              if (canonicalSelected.some((v) => matched.includes(v))) return true;
+              if (
+                otherSelected &&
+                matched.some((v) => v !== "" && !canonicalOptions.has(v))
+              ) {
+                return true;
+              }
+              return false;
+            }),
         );
       });
     }
 
-    return { filtered: result, appsByContact, dataOptions };
-  }, [contacts, applications, contactTags, search, selectedProgram, selectedTagIds, columnFilters]);
+    if (sortBy) {
+      const field = getFieldEntry(sortBy.key);
+      result = [...result].sort((a, b) =>
+        compareContacts(a, b, sortBy, appsByContact, field),
+      );
+    }
+
+    return result;
+  }, [contacts, contactTags, search, selectedProgram, selectedTagIds, columnFilters, sortBy, appsByContact]);
 
   const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
 
@@ -228,24 +313,55 @@ export function ContactsPanel() {
     clearSelection();
   }
 
-  function handleColumnToggle(key: string) {
-    setVisibleColumns((prev) => {
-      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-      visibleColumnsRef.current = next;
-      return next;
-    });
-
+  function persistColumnPreferences() {
     clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const columns = visibleColumnsRef.current;
+      const prev = previouslySelectedColumnsRef.current;
       try {
-        await updatePreferences({ contacts_table: { visible_columns: columns } });
+        await updatePreferences({
+          contacts_table: {
+            visible_columns: columns,
+            previously_selected_columns: prev,
+          },
+        });
         // Update provider state so tab remounts get the latest value
-        setPreferences((prev) => ({ ...prev, contacts_table: { visible_columns: columns } }));
+        setPreferences((prior) => ({
+          ...prior,
+          contacts_table: {
+            visible_columns: columns,
+            previously_selected_columns: prev,
+          },
+        }));
       } catch {
         toast.error("Failed to save column preferences.");
       }
     }, 1000);
+  }
+
+  function handleColumnToggle(key: string) {
+    // Compute next visible state from the ref (source of truth for the
+    // debounced save) and mirror it to React state for rendering.
+    const wasVisible = visibleColumnsRef.current.includes(key);
+    const nextVisible = wasVisible
+      ? visibleColumnsRef.current.filter((k) => k !== key)
+      : [...visibleColumnsRef.current, key];
+    visibleColumnsRef.current = nextVisible;
+    setVisibleColumns(nextVisible);
+
+    // Write-once: the first time the user selects a column, add it to
+    // the Previously selected set. Never remove — the whole point is
+    // that the user keeps seeing columns they've touched before.
+    if (
+      !wasVisible &&
+      !previouslySelectedColumnsRef.current.includes(key)
+    ) {
+      const nextPrev = [...previouslySelectedColumnsRef.current, key];
+      previouslySelectedColumnsRef.current = nextPrev;
+      setPreviouslySelectedColumns(nextPrev);
+    }
+
+    persistColumnPreferences();
   }
 
   function handleColumnFilterToggle(fieldKey: string, value: string) {
@@ -255,7 +371,8 @@ export function ContactsPanel() {
         ? current.filter((v) => v !== value)
         : [...current, value];
       if (next.length === 0) {
-        const { [fieldKey]: _, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[fieldKey];
         return rest;
       }
       return { ...prev, [fieldKey]: next };
@@ -266,8 +383,19 @@ export function ContactsPanel() {
 
   function handleColumnFilterClear(fieldKey: string) {
     setColumnFilters((prev) => {
-      const { [fieldKey]: _, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[fieldKey];
       return rest;
+    });
+    setPage(1);
+    clearSelection();
+  }
+
+  function toggleSort(key: string) {
+    setSortBy((prev) => {
+      if (!prev || prev.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      return null;
     });
     setPage(1);
     clearSelection();
@@ -278,6 +406,7 @@ export function ContactsPanel() {
     setSelectedProgram(undefined);
     setSelectedTagIds([]);
     setColumnFilters({});
+    setSortBy(null);
     setPage(1);
     clearSelection();
   }
@@ -366,6 +495,7 @@ export function ContactsPanel() {
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
           visibleColumns={visibleColumns}
+          previouslySelectedColumns={previouslySelectedColumns}
           onSearchChange={onFilterChange(setSearch)}
           onProgramChange={onFilterChange(setSelectedProgram)}
           onTagToggle={handleTagToggle}
@@ -406,144 +536,164 @@ export function ContactsPanel() {
         </div>
       </div>
 
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-card text-muted-foreground">
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allOnPageSelected}
-                    onCheckedChange={handleSelectAll}
-                    aria-label="Select all on page"
-                  />
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-card text-muted-foreground">
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allOnPageSelected}
+                  onCheckedChange={handleSelectAll}
+                  aria-label="Select all on page"
+                />
+              </TableHead>
+              {BUILTIN_SORTABLE_COLUMNS.map(({ key, label }) => (
+                <TableHead key={key}>
+                  <span className="inline-flex items-center">
+                    {label}
+                    <ColumnSortToggle
+                      active={sortBy?.key === key}
+                      direction={sortBy?.key === key ? sortBy.direction : null}
+                      onClick={() => toggleSort(key)}
+                      label={label}
+                    />
+                  </span>
                 </TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Submitted</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Programs</TableHead>
-                <TableHead>Tags</TableHead>
-                {activeFields.map((field) => (
-                  <TableHead key={field.key}>
-                    <span className="inline-flex items-center">
-                      {field.label}
-                      {field.type !== "date" && (
-                        <ColumnFilterPopover
-                          field={field}
-                          options={[...(dataOptions.get(field.key) ?? [])].sort()}
-                          selected={columnFilters[field.key] ?? []}
-                          onToggle={(v) => handleColumnFilterToggle(field.key, v)}
-                          onClear={() => handleColumnFilterClear(field.key)}
-                        />
-                      )}
-                    </span>
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginated.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={7 + activeFields.length}
-                    className="py-8 text-center text-muted-foreground"
-                  >
-                    No contacts match your filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-              paginated.map((contact) => {
-                const contactApps = appsByContact.get(contact.id) ?? [];
-                const uniquePrograms = [
-                  ...new Set(contactApps.map((a) => a.program)),
-                ];
-
-                const contactTagEntries = (contactTags ?? []).filter(
-                  (ct) => ct.contact_id === contact.id,
-                );
-
-                return (
-                  <TableRow key={contact.id}>
-                    <TableCell className="w-10">
-                      <Checkbox
-                        checked={selectedIds.has(contact.id)}
-                        onCheckedChange={() => handleSelectOne(contact.id)}
-                        aria-label={`Select ${contact.name}`}
+              ))}
+              <TableHead>Programs</TableHead>
+              <TableHead>Tags</TableHead>
+              {activeFields.map((field) => (
+                <TableHead key={field.key}>
+                  <span className="inline-flex items-center">
+                    {field.label}
+                    {field.type !== "date" && (
+                      <ColumnFilterPopover
+                        field={field}
+                        options={[...(field.canonical?.options ?? field.options), "Other"]}
+                        selected={columnFilters[field.key] ?? []}
+                        onToggle={(v) => handleColumnFilterToggle(field.key, v)}
+                        onClear={() => handleColumnFilterClear(field.key)}
                       />
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/admin/contacts/${contact.id}`}
-                        className="font-medium text-foreground hover:text-primary"
-                      >
-                        {contact.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {contactApps.length === 1
-                        ? formatDate(contactApps[0].submitted_at)
-                        : contactApps.length > 1
-                          ? (<div className="flex flex-col gap-0.5">
-                              {contactApps.map((a) => (
-                                <div key={a.id}>
-                                  <span className="text-muted-foreground/60">{a.program}:</span> {formatDate(a.submitted_at)}
-                                </div>
-                              ))}
-                            </div>)
-                          : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {contact.email}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {contact.phone || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {uniquePrograms.map((program) => (
+                    )}
+                    <ColumnSortToggle
+                      active={sortBy?.key === field.key}
+                      direction={sortBy?.key === field.key ? sortBy.direction : null}
+                      onClick={() => toggleSort(field.key)}
+                      label={field.label}
+                    />
+                  </span>
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginated.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={7 + activeFields.length}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  No contacts match your filters.
+                </TableCell>
+              </TableRow>
+            ) : (
+            paginated.map((contact) => {
+              const contactApps = appsByContact.get(contact.id) ?? [];
+              const uniquePrograms = [
+                ...new Set(contactApps.map((a) => a.program)),
+              ];
+
+              const contactTagEntries = (contactTags ?? []).filter(
+                (ct) => ct.contact_id === contact.id,
+              );
+
+              return (
+                <TableRow
+                  key={contact.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => router.push(`/admin/contacts/${contact.id}`)}
+                >
+                  <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selectedIds.has(contact.id)}
+                      onCheckedChange={() => handleSelectOne(contact.id)}
+                      aria-label={`Select ${contact.name}`}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Link
+                      href={`/admin/contacts/${contact.id}`}
+                      className="font-medium text-foreground hover:text-primary"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {contact.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    {contactApps.length === 1
+                      ? formatDate(contactApps[0].submitted_at)
+                      : contactApps.length > 1
+                        ? (<div className="flex flex-col gap-0.5">
+                            {contactApps.map((a) => (
+                              <div key={a.id}>
+                                <span className="text-muted-foreground/60">{a.program}:</span> {formatDate(a.submitted_at)}
+                              </div>
+                            ))}
+                          </div>)
+                        : "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {contact.email}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {contact.phone || "—"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      {uniquePrograms.map((program) => (
+                        <Badge
+                          key={program}
+                          variant="outline"
+                          className={`w-fit capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
+                        >
+                          {program}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {contactTagEntries.map((ct) => {
+                        const tag = (tags ?? []).find((t) => t.id === ct.tag_id);
+                        if (!tag) return null;
+                        const category = (tagCategories ?? []).find(
+                          (c) => c.id === tag.category_id,
+                        );
+                        const color = category?.color ?? "blue";
+                        return (
                           <Badge
-                            key={program}
+                            key={ct.tag_id}
                             variant="outline"
-                            className={`capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
+                            className={TAG_COLOR_CLASSES[color] ?? ""}
                           >
-                            {program}
+                            {category?.name}: {tag.name}
                           </Badge>
-                        ))}
-                      </div>
+                        );
+                      })}
+                    </div>
+                  </TableCell>
+                  {activeFields.map((field) => (
+                    <TableCell key={field.key} className="max-w-72 truncate text-sm text-muted-foreground">
+                      {renderFieldValue(contactApps, field)}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {contactTagEntries.map((ct) => {
-                          const tag = (tags ?? []).find((t) => t.id === ct.tag_id);
-                          if (!tag) return null;
-                          const category = (tagCategories ?? []).find(
-                            (c) => c.id === tag.category_id,
-                          );
-                          const color = category?.color ?? "blue";
-                          return (
-                            <Badge
-                              key={ct.tag_id}
-                              variant="outline"
-                              className={TAG_COLOR_CLASSES[color] ?? ""}
-                            >
-                              {category?.name}: {tag.name}
-                            </Badge>
-                          );
-                        })}
-                      </div>
-                    </TableCell>
-                    {activeFields.map((field) => (
-                      <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
-                        {renderFieldValue(contactApps, field)}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                  ))}
+                </TableRow>
+              );
+            })
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       {selectedIds.size > 0 && (
         <BulkActionBar

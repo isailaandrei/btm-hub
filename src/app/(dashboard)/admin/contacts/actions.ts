@@ -9,6 +9,7 @@ import {
   unassignTag,
   addContactNote,
   bulkAssignTags,
+  bulkUnassignTags,
 } from "@/lib/data/contacts";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 
@@ -74,5 +75,17 @@ export async function bulkAssignTag(contactIds: string[], tagId: string) {
   validateUUID(tagId, "tag");
   await requireAdmin();
   await bulkAssignTags(contactIds, tagId);
+  revalidatePath("/admin");
+}
+
+export async function bulkUnassignTag(contactIds: string[], tagId: string) {
+  if (contactIds.length === 0) return;
+  if (contactIds.length > MAX_BULK_ASSIGN) {
+    throw new Error(`Cannot unassign from more than ${MAX_BULK_ASSIGN} contacts at once`);
+  }
+  for (const id of contactIds) validateUUID(id, "contact");
+  validateUUID(tagId, "tag");
+  await requireAdmin();
+  await bulkUnassignTags(contactIds, tagId);
   revalidatePath("/admin");
 }

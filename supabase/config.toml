@@ -62,7 +62,11 @@ schema_paths = []
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-sql_paths = ["./seed.sql"]
+# The glob picks up any gitignored `./seed.*.local.sql` files that local
+# contributors have generated via one of the `supabase/scripts/` importers
+# (e.g., `npm run db:import-applications`). If no such files exist, only
+# seed.sql loads — CI and fresh checkouts work unchanged.
+sql_paths = ["./seed.sql", "./seed.*.local.sql"]
 
 [db.network_restrictions]
 # Enable management of network restrictions.

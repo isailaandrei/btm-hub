@@ -2,8 +2,8 @@ import type { FieldDefinition, FormStepDefinition } from "../types";
 import { FITNESS_LEVELS, HEALTH_CONDITIONS } from "./options";
 
 export const healthFields: FieldDefinition[] = [
-  { type: "select", name: "physical_fitness", label: "Physical Fitness Level", options: FITNESS_LEVELS, required: true, columns: 1 },
-  { type: "select", name: "health_conditions", label: "Health Conditions", options: HEALTH_CONDITIONS, required: true },
+  { type: "select", name: "physical_fitness", label: "Physical Fitness Level", options: FITNESS_LEVELS, required: true, columns: 2, allowOther: true },
+  { type: "select", name: "health_conditions", label: "Health Conditions", options: HEALTH_CONDITIONS, required: true, columns: 2 },
   {
     type: "text",
     multiline: true,

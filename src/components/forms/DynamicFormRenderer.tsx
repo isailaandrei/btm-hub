@@ -100,6 +100,7 @@ function renderField(
           name={field.name}
           options={field.options}
           required={field.required}
+          allowOther={field.allowOther}
           value={answers[field.name] as string}
           onChange={(v) => onChange(field.name, v)}
           columns={field.columns ?? inferColumns(field.options.length)}
@@ -114,6 +115,7 @@ function renderField(
           name={field.name}
           options={field.options}
           required={field.required}
+          allowOther={field.allowOther}
           values={answers[field.name] as string[]}
           onChange={(v) => onChange(field.name, v)}
           columns={field.columns ?? inferColumns(field.options.length)}

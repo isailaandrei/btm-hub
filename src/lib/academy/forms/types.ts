@@ -25,12 +25,25 @@ export interface SelectFieldDef extends FieldBase {
   type: "select";
   options: readonly string[];
   columns?: 1 | 2 | 3;
+  /**
+   * When true, the field accepts any string value (not just one of `options`).
+   * The renderer shows an "Other (please specify)" text input; the user's
+   * custom text is stored directly in `answers[name]`, matching how Google
+   * Forms stores "Other" responses in existing DB rows.
+   */
+  allowOther?: boolean;
 }
 
 export interface MultiSelectFieldDef extends FieldBase {
   type: "multiselect";
   options: readonly string[];
   columns?: 1 | 2 | 3;
+  /**
+   * When true, the stored array can contain arbitrary strings alongside the
+   * canonical options. The renderer shows an extra "Other" text input whose
+   * value is appended to the array on change.
+   */
+  allowOther?: boolean;
 }
 
 export interface RatingFieldDef extends FieldBase {

@@ -22,6 +22,7 @@ const mockAssignTag = vi.fn();
 const mockUnassignTag = vi.fn();
 const mockAddContactNote = vi.fn();
 const mockBulkAssignTags = vi.fn();
+const mockBulkUnassignTags = vi.fn();
 
 vi.mock("@/lib/data/contacts", () => ({
   updateContact: mockUpdateContact,
@@ -29,6 +30,7 @@ vi.mock("@/lib/data/contacts", () => ({
   unassignTag: mockUnassignTag,
   addContactNote: mockAddContactNote,
   bulkAssignTags: mockBulkAssignTags,
+  bulkUnassignTags: mockBulkUnassignTags,
 }));
 
 const mockUpdateProfilePreferences = vi.fn();
@@ -41,7 +43,9 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
-const { updatePreferences, bulkAssignTag } = await import("./actions");
+const { updatePreferences, bulkAssignTag, bulkUnassignTag } = await import(
+  "./actions"
+);
 
 describe("updatePreferences", () => {
   beforeEach(() => {
@@ -85,5 +89,36 @@ describe("bulkAssignTag", () => {
   it("does nothing for empty array", async () => {
     await bulkAssignTag([], VALID_UUID);
     expect(mockBulkAssignTags).not.toHaveBeenCalled();
+  });
+});
+
+describe("bulkUnassignTag", () => {
+  beforeEach(() => {
+    mockBulkUnassignTags.mockResolvedValue({});
+  });
+
+  it("throws for invalid contact UUID", async () => {
+    await expect(bulkUnassignTag(["not-a-uuid"], VALID_UUID)).rejects.toThrow(
+      "Invalid contact ID",
+    );
+    expect(mockBulkUnassignTags).not.toHaveBeenCalled();
+  });
+
+  it("throws for invalid tag UUID", async () => {
+    await expect(bulkUnassignTag([VALID_UUID], "bad")).rejects.toThrow(
+      "Invalid tag ID",
+    );
+    expect(mockBulkUnassignTags).not.toHaveBeenCalled();
+  });
+
+  it("calls bulkUnassignTags with valid input", async () => {
+    const ids = [VALID_UUID, "660e8400-e29b-41d4-a716-446655440001"];
+    await bulkUnassignTag(ids, VALID_UUID);
+    expect(mockBulkUnassignTags).toHaveBeenCalledWith(ids, VALID_UUID);
+  });
+
+  it("does nothing for empty array", async () => {
+    await bulkUnassignTag([], VALID_UUID);
+    expect(mockBulkUnassignTags).not.toHaveBeenCalled();
   });
 });

@@ -1,62 +1,58 @@
 import type { ProgramSlug } from "@/types/database";
 
-// Shared options (all programs or filmmaking+photography)
 import {
-  CERTIFICATION_LEVELS,
-  NUMBER_OF_DIVES,
+  // Shared — personal/background
+  AGE_RANGES,
+  GENDERS,
+  // Shared — health
+  FITNESS_LEVELS,
+  HEALTH_CONDITIONS,
+  HEALTH_CONDITIONS_FREEDIVING,
+  // Shared — diving
   DIVING_TYPES,
-  DIVING_ENVIRONMENTS,
-  BTM_CATEGORIES,
+  CERTIFICATION_LEVELS_SCUBA,
+  NUMBER_OF_DIVES,
+  DIVING_ENVIRONMENTS_SCUBA,
+  INTERNSHIP_DIVING_ENVIRONMENTS,
+  // Shared — logistics
   TIME_AVAILABILITY,
   TRAVEL_WILLINGNESS,
   BUDGETS,
   START_TIMELINES,
   PLANNING_TO_INVEST,
-  YEARS_EXPERIENCE,
-  INVOLVEMENT_LEVELS,
   REFERRAL_SOURCES,
-  EQUIPMENT_OWNED,
-  CONTENT_CREATED,
+  // Shared — BTM
+  BTM_CATEGORIES_MEDIA,
+  BTM_CATEGORIES_FREEDIVING,
+  INVOLVEMENT_LEVELS,
   ONLINE_PRESENCE,
-  INCOME_FROM_PHOTOGRAPHY,
-  PRIMARY_GOALS,
-  LEARNING_ASPECTS,
-  CONTENT_TO_CREATE,
   LEARNING_APPROACHES,
-  MARINE_SUBJECTS,
-  AGE_RANGES,
-  GENDERS,
-  FITNESS_LEVELS,
-  HEALTH_CONDITIONS
-} from "@/lib/academy/forms/common/options";
-
-// Filmmaking-specific options
-import {
-  FILMMAKING_EQUIPMENT_OWNED,
+  MEDIA_INCOME,
+  YEARS_EXPERIENCE,
+  // Filmmaking-specific
+  FILMMAKING_EQUIPMENT,
   FILMMAKING_CONTENT_CREATED,
-  FILMMAKING_ONLINE_PRESENCE,
-  INCOME_FROM_FILMING,
-  FILMMAKING_PRIMARY_GOALS,
+  FILMMAKING_GOALS,
   FILMMAKING_LEARNING_ASPECTS,
   FILMMAKING_CONTENT_TO_CREATE,
-  FILMMAKING_LEARNING_APPROACHES,
-  FILMMAKING_MARINE_SUBJECTS,
-} from "@/lib/academy/forms/filmmaking";
-
-// Freediving-specific options
-import {
+  MARINE_SUBJECTS_MEDIA,
+  // Photography-specific
+  PHOTOGRAPHY_EQUIPMENT,
+  PHOTOGRAPHY_CONTENT_CREATED,
+  PHOTOGRAPHY_GOALS,
+  PHOTOGRAPHY_LEARNING_ASPECTS,
+  PHOTOGRAPHY_CONTENT_TO_CREATE,
+  // Freediving-specific
   FREEDIVING_CERTIFICATION_LEVELS,
   NUMBER_OF_SESSIONS,
   PRACTICE_DURATION,
-  FREEDIVING_ENVIRONMENTS,
   PERFORMANCE_EXPERIENCE,
+  FREEDIVING_ENVIRONMENTS,
   CHOREOGRAPHY_EXPERIENCE,
   FILMED_UNDERWATER,
-  FREEDIVING_BTM_CATEGORIES,
-  FREEDIVING_ONLINE_PRESENCE,
   FREEDIVING_LEARNING_ASPECTS,
-  FREEDIVING_LEARNING_APPROACHES,
-} from "@/lib/academy/forms/freediving-modelling";
+  FREEDIVING_GOALS,
+} from "@/lib/academy/forms/common/options";
 
 export interface FieldRegistryEntry {
   key: string;
@@ -65,11 +61,54 @@ export interface FieldRegistryEntry {
   options: readonly string[] | string[];
   programs: ProgramSlug[];
   curated: boolean;
+  /**
+   * Optional canonical bucket mapping. When set:
+   * - The column filter dropdown shows `canonical.options` instead of
+   *   the raw `options` list.
+   * - The filter predicate runs each stored answer through `normalize(raw)`
+   *   before comparing against the selected filter values, so values that
+   *   share a canonical bucket (e.g., internship numeric "21" and
+   *   filmmaking "18-24") match the same filter entry.
+   * - The sort comparator uses the same normalization, keeping cross-
+   *   program sort order stable.
+   * Values for which `normalize` returns null fall through to the
+   * synthetic "Other" filter bucket.
+   */
+  canonical?: {
+    options: readonly string[];
+    normalize: (raw: unknown) => string | null;
+  };
+}
+
+/**
+ * Maps a raw `answers.age` value to its canonical AGE_RANGES bucket.
+ * Handles the three shapes partner A's Google Forms emit today:
+ *   - Canonical range string ("18-24", "25-34", …) → passthrough
+ *   - Numeric internship text ("21", "30", …)     → bucketed
+ *   - Free-text variants ("24 years old", "30 year old") → bucketed
+ * Returns null for anything that can't be mapped to a canonical bucket
+ * (empty, non-string, non-numeric, or below the curated range ≥18).
+ */
+export function normalizeAgeToRange(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  if ((AGE_RANGES as readonly string[]).includes(trimmed)) return trimmed;
+  const match = trimmed.match(/^(\d{1,3})(?:\s+years?\s+old)?$/i);
+  if (!match) return null;
+  const n = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n < 18) return null;
+  if (n <= 24) return "18-24";
+  if (n <= 34) return "25-34";
+  if (n <= 44) return "35-44";
+  if (n <= 54) return "45-54";
+  return "55+";
 }
 
 const RATING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
-/** Deduplicated union of multiple option arrays. */
+/** Deduplicated union of multiple option arrays (first-seen ordering). */
 function union(...arrays: (readonly string[])[]): string[] {
   return [...new Set(arrays.flat())];
 }
@@ -104,16 +143,19 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "btm_category",
     label: "Professional Status",
     type: "select",
-    options: union(BTM_CATEGORIES, FREEDIVING_BTM_CATEGORIES),
+    options: union(BTM_CATEGORIES_MEDIA, BTM_CATEGORIES_FREEDIVING),
     programs: ["filmmaking", "photography", "freediving"],
     curated: true,
   },
   {
     key: "certification_level",
     label: "Certification Level",
-    type: "select",
-    options: union(CERTIFICATION_LEVELS, FREEDIVING_CERTIFICATION_LEVELS),
-    programs: ["filmmaking", "photography", "freediving"],
+    type: "multiselect",
+    options: union(
+      CERTIFICATION_LEVELS_SCUBA,
+      FREEDIVING_CERTIFICATION_LEVELS,
+    ),
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: true,
   },
   {
@@ -147,15 +189,23 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     label: "Age Range",
     type: "select",
     options: AGE_RANGES,
-    programs: ["filmmaking", "photography", "freediving"],
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
+    // Internship applications store age as raw numeric text ("21", "30",
+    // "24 years old") rather than a range string. Canonical normalization
+    // maps any shape to the AGE_RANGES buckets so a filter on "18-24"
+    // catches both "18-24" (f/p/fd) and "21" (internship) rows.
+    canonical: {
+      options: AGE_RANGES,
+      normalize: normalizeAgeToRange,
+    },
   },
   {
     key: "gender",
     label: "Gender",
     type: "select",
     options: GENDERS,
-    programs: ["filmmaking", "photography", "freediving"],
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
   },
   {
@@ -163,25 +213,25 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     label: "Physical Fitness",
     type: "select",
     options: FITNESS_LEVELS,
-    programs: ["filmmaking", "photography", "freediving"],
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
   },
   {
     key: "health_conditions",
     label: "Health Conditions",
     type: "select",
-    options: HEALTH_CONDITIONS,
-    programs: ["filmmaking", "photography", "freediving"],
+    options: union(HEALTH_CONDITIONS, HEALTH_CONDITIONS_FREEDIVING),
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
   },
 
-  // ---- Diving (filmmaking + photography) ----
+  // ---- Diving (filmmaking + photography + internship) ----
   {
     key: "diving_types",
     label: "Types of Diving",
     type: "multiselect",
     options: DIVING_TYPES,
-    programs: ["filmmaking", "photography"],
+    programs: ["filmmaking", "photography", "internship"],
     curated: false,
   },
   {
@@ -189,15 +239,19 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     label: "Number of Dives",
     type: "select",
     options: NUMBER_OF_DIVES,
-    programs: ["filmmaking", "photography"],
+    programs: ["filmmaking", "photography", "internship"],
     curated: false,
   },
   {
     key: "diving_environments",
     label: "Diving Environments",
     type: "multiselect",
-    options: union(DIVING_ENVIRONMENTS, FREEDIVING_ENVIRONMENTS),
-    programs: ["filmmaking", "photography", "freediving"],
+    options: union(
+      DIVING_ENVIRONMENTS_SCUBA,
+      INTERNSHIP_DIVING_ENVIRONMENTS,
+      FREEDIVING_ENVIRONMENTS,
+    ),
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
   },
 
@@ -214,7 +268,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "equipment_owned",
     label: "Equipment Owned",
     type: "multiselect",
-    options: union(FILMMAKING_EQUIPMENT_OWNED, EQUIPMENT_OWNED),
+    options: union(FILMMAKING_EQUIPMENT, PHOTOGRAPHY_EQUIPMENT),
     programs: ["filmmaking", "photography"],
     curated: false,
   },
@@ -224,15 +278,15 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "content_created",
     label: "Content Created",
     type: "multiselect",
-    options: union(FILMMAKING_CONTENT_CREATED, CONTENT_CREATED),
-    programs: ["filmmaking", "photography"],
+    options: union(FILMMAKING_CONTENT_CREATED, PHOTOGRAPHY_CONTENT_CREATED),
+    programs: ["filmmaking", "photography", "internship"],
     curated: false,
   },
   {
     key: "online_presence",
     label: "Online Presence",
-    type: "select",
-    options: union(FILMMAKING_ONLINE_PRESENCE, ONLINE_PRESENCE, FREEDIVING_ONLINE_PRESENCE),
+    type: "multiselect",
+    options: ONLINE_PRESENCE,
     programs: ["filmmaking", "photography", "freediving"],
     curated: false,
   },
@@ -240,7 +294,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "income_from_filming",
     label: "Income from Filming",
     type: "select",
-    options: INCOME_FROM_FILMING,
+    options: MEDIA_INCOME,
     programs: ["filmmaking"],
     curated: false,
   },
@@ -248,7 +302,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "income_from_photography",
     label: "Income from Photography",
     type: "select",
-    options: INCOME_FROM_PHOTOGRAPHY,
+    options: MEDIA_INCOME,
     programs: ["photography"],
     curated: false,
   },
@@ -258,15 +312,19 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "primary_goal",
     label: "Primary Goal",
     type: "select",
-    options: union(FILMMAKING_PRIMARY_GOALS, PRIMARY_GOALS),
-    programs: ["filmmaking", "photography"],
+    options: union(FILMMAKING_GOALS, PHOTOGRAPHY_GOALS, FREEDIVING_GOALS),
+    programs: ["filmmaking", "photography", "freediving"],
     curated: false,
   },
   {
     key: "learning_aspects",
     label: "Learning Aspects",
     type: "multiselect",
-    options: union(FILMMAKING_LEARNING_ASPECTS, LEARNING_ASPECTS, FREEDIVING_LEARNING_ASPECTS),
+    options: union(
+      FILMMAKING_LEARNING_ASPECTS,
+      PHOTOGRAPHY_LEARNING_ASPECTS,
+      FREEDIVING_LEARNING_ASPECTS,
+    ),
     programs: ["filmmaking", "photography", "freediving"],
     curated: false,
   },
@@ -274,7 +332,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "content_to_create",
     label: "Content to Create",
     type: "multiselect",
-    options: union(FILMMAKING_CONTENT_TO_CREATE, CONTENT_TO_CREATE),
+    options: union(FILMMAKING_CONTENT_TO_CREATE, PHOTOGRAPHY_CONTENT_TO_CREATE),
     programs: ["filmmaking", "photography"],
     curated: false,
   },
@@ -282,7 +340,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "learning_approach",
     label: "Learning Approach",
     type: "multiselect",
-    options: union(FILMMAKING_LEARNING_APPROACHES, LEARNING_APPROACHES, FREEDIVING_LEARNING_APPROACHES),
+    options: LEARNING_APPROACHES,
     programs: ["filmmaking", "photography", "freediving"],
     curated: false,
   },
@@ -290,7 +348,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "marine_subjects",
     label: "Marine Subjects",
     type: "multiselect",
-    options: union(FILMMAKING_MARINE_SUBJECTS, MARINE_SUBJECTS),
+    options: MARINE_SUBJECTS_MEDIA,
     programs: ["filmmaking", "photography"],
     curated: false,
   },
@@ -299,7 +357,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     label: "Referral Source",
     type: "multiselect",
     options: REFERRAL_SOURCES,
-    programs: ["filmmaking", "photography", "freediving"],
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
   },
 
@@ -351,7 +409,7 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     label: "Buoyancy Skill",
     type: "rating",
     options: RATING_OPTIONS,
-    programs: ["filmmaking", "photography"],
+    programs: ["filmmaking", "photography", "internship"],
     curated: false,
   },
   {
