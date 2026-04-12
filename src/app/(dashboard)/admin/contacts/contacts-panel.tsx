@@ -519,7 +519,7 @@ export function ContactsPanel() {
             <button
               type="button"
               onClick={handleClearAllFilters}
-              className="ml-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="ml-3 rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
             >
               Clear all filters
             </button>
