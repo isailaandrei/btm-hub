@@ -536,7 +536,7 @@ export function ContactsPanel() {
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow className="bg-card text-muted-foreground">
               <TableHead className="w-10">
