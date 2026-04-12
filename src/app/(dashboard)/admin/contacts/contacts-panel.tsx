@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdminData } from "../admin-data-provider";
@@ -95,8 +94,6 @@ export function ContactsPanel() {
     setPreferences,
     ensurePreferences,
   } = useAdminData();
-
-  const router = useRouter();
 
   const [search, setSearch] = useState("");
   const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>();
@@ -618,12 +615,8 @@ export function ContactsPanel() {
               );
 
               return (
-                <TableRow
-                  key={contact.id}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => router.push(`/admin/contacts/${contact.id}`)}
-                >
-                  <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                <TableRow key={contact.id}>
+                  <TableCell className="w-10">
                     <Checkbox
                       checked={selectedIds.has(contact.id)}
                       onCheckedChange={() => handleSelectOne(contact.id)}
@@ -634,7 +627,6 @@ export function ContactsPanel() {
                     <Link
                       href={`/admin/contacts/${contact.id}`}
                       className="font-medium text-foreground hover:text-primary"
-                      onClick={(e) => e.stopPropagation()}
                     >
                       {contact.name}
                     </Link>
@@ -693,8 +685,10 @@ export function ContactsPanel() {
                     </div>
                   </TableCell>
                   {activeFields.map((field) => (
-                    <TableCell key={field.key} className="max-w-72 truncate text-sm text-muted-foreground">
-                      {renderFieldValue(contactApps, field)}
+                    <TableCell key={field.key} className="text-sm text-muted-foreground">
+                      <div className="line-clamp-7">
+                        {renderFieldValue(contactApps, field)}
+                      </div>
                     </TableCell>
                   ))}
                 </TableRow>
