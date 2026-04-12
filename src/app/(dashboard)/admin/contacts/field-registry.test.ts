@@ -102,3 +102,16 @@ describe("FIELD_REGISTRY age entry", () => {
     expect(age?.programs).toContain("internship");
   });
 });
+
+describe("FIELD_REGISTRY health_conditions entry", () => {
+  it("includes freediving in its programs list", () => {
+    const hc = getFieldEntry("health_conditions");
+    expect(hc?.programs).toContain("freediving");
+  });
+
+  it("includes both diving and freediving health-condition phrasings", () => {
+    const hc = getFieldEntry("health_conditions");
+    expect(hc?.options).toContain("No health conditions affecting diving");
+    expect(hc?.options).toContain("No health conditions affecting freediving");
+  });
+});

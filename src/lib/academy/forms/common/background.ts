@@ -38,7 +38,6 @@ export function currentOccupationField(required: boolean): FieldDefinition {
     name: "current_occupation",
     label: "Current occupation",
     required,
-    half: true,
   };
 }
 

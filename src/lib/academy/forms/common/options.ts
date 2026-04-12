@@ -45,7 +45,6 @@ export const LANGUAGES = [
   "Spanish",
   "French",
   "German",
-  "Other"
 ] as const;
 
 // ===========================================================================
@@ -58,7 +57,6 @@ export const FITNESS_LEVELS = [
   "Average - Some physical activity, manageable health conditions",
   "Need improvement - Limited physical activity or health concerns",
   "Prefer to discuss privately",
-  "Other"
 ] as const;
 
 // Filmmaking / Photography / Internship use the "diving" phrasing.
@@ -89,12 +87,10 @@ export const DIVING_TYPES = [
   "Freediving",
   "Snorkeling",
   "Neither, but interested in learning",
-  "Other"
 ] as const;
 
-// Scuba certification levels shared by filmmaking, photography, and
-// internship. The "Certified Freediver" sub-label differed slightly
-// between forms — unified under the "Other" allowOther mechanism.
+// Filmmaking / Photography Google Forms use "please specify level below:"
+// with the word "please" and a trailing colon.
 export const CERTIFICATION_LEVELS_SCUBA = [
   "No certification yet",
   "Open Water",
@@ -103,7 +99,6 @@ export const CERTIFICATION_LEVELS_SCUBA = [
   "Divemaster",
   "Instructor",
   "Technical Diving certification",
-  "Other"
 ] as const;
 
 export const NUMBER_OF_DIVES = ["0-50", "51-250", "250+"] as const;

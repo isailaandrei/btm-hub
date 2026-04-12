@@ -7,6 +7,7 @@ import {
   // Shared — health
   FITNESS_LEVELS,
   HEALTH_CONDITIONS,
+  HEALTH_CONDITIONS_FREEDIVING,
   // Shared — diving
   DIVING_TYPES,
   CERTIFICATION_LEVELS_SCUBA,
@@ -219,8 +220,8 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     key: "health_conditions",
     label: "Health Conditions",
     type: "select",
-    options: HEALTH_CONDITIONS,
-    programs: ["filmmaking", "photography", "internship"],
+    options: union(HEALTH_CONDITIONS, HEALTH_CONDITIONS_FREEDIVING),
+    programs: ["filmmaking", "photography", "freediving", "internship"],
     curated: false,
   },
 

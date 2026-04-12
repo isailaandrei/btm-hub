@@ -113,7 +113,7 @@ const healthDivingStep: FormStepDefinition = {
 };
 
 const openQuestionsFields: FieldDefinition[] = [
-  { type: "select", name: "referral_source", label: "How did you hear about BTM Academy?", options: REFERRAL_SOURCES, required: true, allowOther: true },
+  { type: "multiselect", name: "referral_source", label: "How did you hear about BTM Academy?", options: REFERRAL_SOURCES, required: true, allowOther: true },
   { type: "text", multiline: true, name: "questions_or_concerns", label: "Do you have any specific questions or concerns?", placeholder: "Anything you'd like to ask or flag before submitting?", required: false },
   { type: "text", multiline: true, name: "anything_else", label: "Is there anything else you'd like to share with us?", placeholder: "Share anything else you'd like us to know...", required: false },
 ];

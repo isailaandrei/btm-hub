@@ -19,11 +19,11 @@
  *
  * Schema notes:
  * - applications.answers is JSONB. Multi-select checkbox fields are
- *   stored as JSON arrays (split on ", ") EXCEPT certification_level and
- *   languages, which mirror the existing DB shape of comma-joined strings.
+ *   stored as JSON arrays (split on ", ").
  * - Timestamps in the CSVs are German format (DD.MM.YYYY HH:mm:ss);
  *   converted to ISO for submitted_at.
- * - Contacts are deduplicated by lowercased email across all 4 programs.
+ * - Contacts are deduplicated by lowercased email across all 4 programs;
+ *   all application rows are kept (no deduplication of submissions).
  * - The normalization migration (20260411000001_normalize_application_
  *   answers.sql) runs at migrate-time, BEFORE this seed loads. To keep
  *   local dev in the same normalized state as production, the same 4
@@ -145,12 +145,12 @@ const MAPPINGS = {
     ["gender", STRING],
     ["nationality", STRING],
     ["country_of_residence", STRING],
-    ["languages", STRING_MULTI],
+    ["languages", ARRAY_MULTI],
     ["current_occupation", STRING],
     ["physical_fitness", STRING],
     ["health_conditions", STRING],
     ["diving_types", ARRAY_MULTI],
-    ["certification_level", STRING_MULTI],
+    ["certification_level", ARRAY_MULTI],
     ["number_of_dives", STRING],
     ["last_dive_date", DATE],
     ["diving_environments", ARRAY_MULTI],
@@ -203,12 +203,12 @@ const MAPPINGS = {
     ["gender", STRING],
     ["nationality", STRING],
     ["country_of_residence", STRING],
-    ["languages", STRING_MULTI],
+    ["languages", ARRAY_MULTI],
     ["current_occupation", STRING],
     ["physical_fitness", STRING],
     ["health_conditions", STRING],
     ["diving_types", ARRAY_MULTI],
-    ["certification_level", STRING_MULTI],
+    ["certification_level", ARRAY_MULTI],
     ["number_of_dives", STRING],
     ["last_dive_date", DATE],
     ["diving_environments", ARRAY_MULTI],
@@ -255,11 +255,11 @@ const MAPPINGS = {
     ["gender", STRING],
     ["nationality", STRING],
     ["country_of_residence", STRING],
-    ["languages", STRING_MULTI],
+    ["languages", ARRAY_MULTI],
     ["current_occupation", STRING],
     ["physical_fitness", STRING],
     ["health_conditions", STRING],
-    ["certification_level", STRING_MULTI],
+    ["certification_level", ARRAY_MULTI],
     ["number_of_sessions", STRING],
     ["practice_duration", STRING],
     ["last_session_date", DATE],
@@ -304,7 +304,7 @@ const MAPPINGS = {
     ["gender", STRING],
     ["nationality", STRING],
     ["country_of_residence", STRING],
-    ["languages", STRING_MULTI],
+    ["languages", ARRAY_MULTI],
     ["online_links", STRING],
     ["accommodation_ties", STRING],
     ["current_occupation", STRING],
@@ -321,7 +321,7 @@ const MAPPINGS = {
     ["physical_fitness", STRING],
     ["health_conditions", STRING],
     ["diving_types", ARRAY_MULTI],
-    ["certification_level", STRING_MULTI],
+    ["certification_level", ARRAY_MULTI],
     ["number_of_dives", STRING],
     ["last_dive_date", DATE],
     ["diving_environments", ARRAY_MULTI],
@@ -335,8 +335,7 @@ const MAPPINGS = {
   // significantly: a junk "Column 53" at index 0, nickname is spelled
   // "Nikname", several personal fields are reordered, and Last Name is
   // at the END of the form. Rows are merged into the `filmmaking` program
-  // after parsing; duplicates across the two files (and within either
-  // file) are deduped by email keeping the latest submission.
+  // after parsing; all rows are kept (no deduplication).
   filmmaking_old: [
     [null, SKIP], // "Column 53" CSV export artifact
     [null, "timestamp"],
@@ -350,12 +349,12 @@ const MAPPINGS = {
     ["gender", STRING],
     ["nationality", STRING],
     ["country_of_residence", STRING],
-    ["languages", STRING_MULTI],
+    ["languages", ARRAY_MULTI],
     ["current_occupation", STRING],
     ["physical_fitness", STRING],
     ["health_conditions", STRING],
     ["diving_types", ARRAY_MULTI],
-    ["certification_level", STRING_MULTI],
+    ["certification_level", ARRAY_MULTI],
     ["number_of_dives", STRING],
     ["last_dive_date", DATE],
     ["diving_environments", ARRAY_MULTI],
@@ -533,38 +532,17 @@ async function main() {
     perProgram.get(program).push(...rows);
   }
 
-  // 2. Dedupe within each program by email — keep the latest submission.
-  //    Sorting is done lexicographically on the ISO timestamp (`null`
-  //    treated as a very old date so real submissions beat it).
+  // 2. Build contacts (deduped by email across all programs) and
+  //    application rows with stable IDs. All applications are kept —
+  //    the same person may have submitted multiple times per program.
   const stats = {};
-  const dedupedByProgram = new Map();
-  for (const [program, rows] of perProgram) {
-    const byEmail = new Map();
-    for (const row of rows) {
-      const existing = byEmail.get(row.email);
-      const rowTs = row.submittedAt ?? "0000-01-01 00:00:00";
-      const existingTs = existing?.submittedAt ?? "0000-01-01 00:00:00";
-      if (!existing || rowTs > existingTs) {
-        byEmail.set(row.email, row);
-      }
-    }
-    const deduped = [...byEmail.values()];
-    dedupedByProgram.set(program, deduped);
-    stats[program] = {
-      raw: rows.length,
-      deduped: deduped.length,
-      dropped: rows.length - deduped.length,
-    };
-  }
-
-  // 3. Build contacts (deduped by email across all programs) and
-  //    application rows with stable IDs.
   const contacts = new Map(); // email → contact
   const applications = [];
   let contactCounter = 0;
   let appCounter = 0;
 
-  for (const [program, rows] of dedupedByProgram) {
+  for (const [program, rows] of perProgram) {
+    stats[program] = { count: rows.length };
     for (const { email, answers, submittedAt } of rows) {
       let contact = contacts.get(email);
       if (!contact) {
@@ -605,14 +583,11 @@ async function main() {
     `-- Input: 4 Google Forms CSVs in the repo root (all gitignored).`,
   );
   out.push("");
-  out.push("-- Row counts per program (deduped by email, latest-wins):");
+  out.push("-- Row counts per program:");
   for (const [p, s] of Object.entries(stats)) {
-    out.push(
-      `--   ${p}: ${s.deduped}` +
-        (s.dropped > 0 ? ` (${s.raw} raw → dropped ${s.dropped} duplicate${s.dropped === 1 ? "" : "s"})` : ""),
-    );
+    out.push(`--   ${p}: ${s.count}`);
   }
-  out.push(`--   contacts (deduped by email across all programs): ${contacts.size}`);
+  out.push(`--   contacts (unique by email): ${contacts.size}`);
   out.push("");
 
   out.push("INSERT INTO public.contacts (id, email, name, phone) VALUES");
@@ -703,6 +678,35 @@ async function main() {
   );
   out.push("");
 
+  // Mirrors supabase/migrations/20260412000001_normalize_multiselect_strings.sql
+  // (certification_level and languages: comma-joined string → JSON array)
+  out.push(
+    "-- Mirrors supabase/migrations/20260412000001_normalize_multiselect_strings.sql",
+  );
+  out.push("");
+  out.push("UPDATE public.applications");
+  out.push("SET answers = jsonb_set(");
+  out.push("  answers, '{certification_level}',");
+  out.push("  (SELECT jsonb_agg(trim(x))");
+  out.push("   FROM regexp_split_to_table(answers->>'certification_level', ', ') AS x");
+  out.push("   WHERE trim(x) <> '')");
+  out.push(")");
+  out.push(
+    "WHERE jsonb_typeof(answers->'certification_level') = 'string' AND answers->>'certification_level' <> '';",
+  );
+  out.push("");
+  out.push("UPDATE public.applications");
+  out.push("SET answers = jsonb_set(");
+  out.push("  answers, '{languages}',");
+  out.push("  (SELECT jsonb_agg(trim(x))");
+  out.push("   FROM regexp_split_to_table(answers->>'languages', ', ') AS x");
+  out.push("   WHERE trim(x) <> '')");
+  out.push(")");
+  out.push(
+    "WHERE jsonb_typeof(answers->'languages') = 'string' AND answers->>'languages' <> '';",
+  );
+  out.push("");
+
   // -----------------------------------------------------------------------
   // Write to disk
   // -----------------------------------------------------------------------
@@ -710,13 +714,9 @@ async function main() {
   await writeFile(OUTPUT_PATH, out.join("\n") + "\n", "utf8");
 
   console.log(`✓ Wrote ${OUTPUT_PATH}`);
-  console.log(`  contacts (deduped by email across all programs): ${contacts.size}`);
+  console.log(`  contacts (unique by email): ${contacts.size}`);
   for (const [p, s] of Object.entries(stats)) {
-    const note =
-      s.dropped > 0
-        ? ` (${s.raw} raw, dropped ${s.dropped} duplicate${s.dropped === 1 ? "" : "s"})`
-        : "";
-    console.log(`  ${p}: ${s.deduped}${note}`);
+    console.log(`  ${p}: ${s.count}`);
   }
 }
 
