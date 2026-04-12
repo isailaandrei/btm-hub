@@ -51,6 +51,11 @@ export function getSortValue(
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  if (field.type === "text") {
+    const s = Array.isArray(raw) ? raw.join(", ") : String(raw);
+    return s === "" ? null : s.toLocaleLowerCase();
+  }
+
   // select / multiselect — pick the first value, optionally normalize,
   // then sort by canonical option index (values outside the list sort last).
   // For multiselect, only the first element contributes to ordering; later

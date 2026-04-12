@@ -576,7 +576,7 @@ export function ContactsPanel() {
                 <TableHead key={field.key}>
                   <span className="inline-flex items-center">
                     {field.label}
-                    {field.type !== "date" && (
+                    {field.type !== "date" && field.type !== "text" && (
                       <ColumnFilterPopover
                         field={field}
                         options={[...(field.canonical?.options ?? field.options), "Other"]}
