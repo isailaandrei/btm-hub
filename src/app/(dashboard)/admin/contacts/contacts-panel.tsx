@@ -349,6 +349,14 @@ export function ContactsPanel() {
     visibleColumnsRef.current = nextVisible;
     setVisibleColumns(nextVisible);
 
+    if (wasVisible) {
+      setColumnFilters((prev) => {
+        if (!(key in prev)) return prev;
+        const { [key]: _, ...rest } = prev;
+        return rest;
+      });
+    }
+
     // Write-once: the first time the user selects a column, add it to
     // the Previously selected set. Never remove — the whole point is
     // that the user keeps seeing columns they've touched before.
