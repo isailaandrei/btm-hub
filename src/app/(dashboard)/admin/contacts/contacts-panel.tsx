@@ -605,7 +605,7 @@ export function ContactsPanel() {
               <TableHead>Programs</TableHead>
               <TableHead>Tags</TableHead>
               {activeFields.map((field) => (
-                <TableHead key={field.key}>
+                <TableHead key={field.key} className={field.key === "age" ? "min-w-40" : "min-w-80"}>
                   <span className="inline-flex items-center">
                     {field.label}
                     {field.type !== "date" && field.type !== "text" && (
