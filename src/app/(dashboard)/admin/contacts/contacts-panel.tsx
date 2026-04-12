@@ -682,7 +682,7 @@ export function ContactsPanel() {
                     </div>
                   </TableCell>
                   {activeFields.map((field) => (
-                    <TableCell key={field.key} className="whitespace-nowrap text-sm text-muted-foreground">
+                    <TableCell key={field.key} className="max-w-64 text-sm text-muted-foreground">
                       {renderFieldValue(contactApps, field)}
                     </TableCell>
                   ))}
