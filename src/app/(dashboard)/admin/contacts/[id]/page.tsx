@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
 import { ContactNoteForm } from "./contact-note-form";
+import { DeleteContactButton } from "./delete-buttons";
 
 export default async function ContactDetailPage({
   params,
@@ -47,10 +48,19 @@ export default async function ContactDetailPage({
         >
           &larr; Back to contacts
         </Link>
-        <h1 className="text-[length:var(--font-size-h2)] font-medium text-foreground">
-          {contact.name}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{contact.email}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[length:var(--font-size-h2)] font-medium text-foreground">
+              {contact.name}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">{contact.email}</p>
+          </div>
+          <DeleteContactButton
+            contactId={contact.id}
+            contactName={contact.name}
+            applicationCount={applications.length}
+          />
+        </div>
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { STATUS_BADGE_CLASS } from "../../applications/constants";
 import { StatusSelector } from "../../applications/[id]/StatusSelector";
+import { DeleteApplicationButton } from "./delete-buttons";
 
 function formatValue(value: unknown): string {
   if (value == null || value === "") return "—";
@@ -69,10 +70,14 @@ export function ApplicationCard({ application, defaultOpen }: ApplicationCardPro
 
       {open && (
         <CardContent className="border-t border-border pt-4">
-          <div className="mb-6">
+          <div className="mb-6 flex items-center justify-between">
             <StatusSelector
               applicationId={application.id}
               currentStatus={application.status}
+            />
+            <DeleteApplicationButton
+              applicationId={application.id}
+              program={application.program}
             />
           </div>
 

@@ -227,6 +227,34 @@ export async function bulkAssignTags(contactIds: string[], tagId: string) {
   if (error) throw new Error(`Failed to bulk assign tags: ${error.message}`);
 }
 
+export async function deleteContact(contactId: string) {
+  await requireAdmin();
+  const supabase = await createClient();
+  // applications.contact_id has no ON DELETE CASCADE, so remove linked
+  // applications first. contact_tags and contact_notes DO cascade.
+  const { error: appErr } = await supabase
+    .from("applications")
+    .delete()
+    .eq("contact_id", contactId);
+  if (appErr) throw new Error(`Failed to delete contact applications: ${appErr.message}`);
+
+  const { error } = await supabase
+    .from("contacts")
+    .delete()
+    .eq("id", contactId);
+  if (error) throw new Error(`Failed to delete contact: ${error.message}`);
+}
+
+export async function deleteApplication(applicationId: string) {
+  await requireAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("applications")
+    .delete()
+    .eq("id", applicationId);
+  if (error) throw new Error(`Failed to delete application: ${error.message}`);
+}
+
 export async function bulkUnassignTags(contactIds: string[], tagId: string) {
   await requireAdmin();
   const supabase = await createClient();

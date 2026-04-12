@@ -10,6 +10,8 @@ import {
   addContactNote,
   bulkAssignTags,
   bulkUnassignTags,
+  deleteContact as deleteContactData,
+  deleteApplication as deleteApplicationData,
 } from "@/lib/data/contacts";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 
@@ -87,5 +89,19 @@ export async function bulkUnassignTag(contactIds: string[], tagId: string) {
   validateUUID(tagId, "tag");
   await requireAdmin();
   await bulkUnassignTags(contactIds, tagId);
+  revalidatePath("/admin");
+}
+
+export async function deleteContact(contactId: string) {
+  validateUUID(contactId, "contact");
+  await requireAdmin();
+  await deleteContactData(contactId);
+  revalidatePath("/admin");
+}
+
+export async function deleteApplication(applicationId: string) {
+  validateUUID(applicationId, "application");
+  await requireAdmin();
+  await deleteApplicationData(applicationId);
   revalidatePath("/admin");
 }
