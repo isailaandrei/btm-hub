@@ -70,14 +70,10 @@ export function ApplicationCard({ application, defaultOpen }: ApplicationCardPro
 
       {open && (
         <CardContent className="border-t border-border pt-4">
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-6">
             <StatusSelector
               applicationId={application.id}
               currentStatus={application.status}
-            />
-            <DeleteApplicationButton
-              applicationId={application.id}
-              program={application.program}
             />
           </div>
 
@@ -108,6 +104,13 @@ export function ApplicationCard({ application, defaultOpen }: ApplicationCardPro
                 ))}
               </dl>
             )}
+          </div>
+
+          <div className="mt-6 border-t border-border pt-4">
+            <DeleteApplicationButton
+              applicationId={application.id}
+              program={application.program}
+            />
           </div>
         </CardContent>
       )}

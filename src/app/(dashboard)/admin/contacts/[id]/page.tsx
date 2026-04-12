@@ -48,19 +48,10 @@ export default async function ContactDetailPage({
         >
           &larr; Back to contacts
         </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-[length:var(--font-size-h2)] font-medium text-foreground">
-              {contact.name}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">{contact.email}</p>
-          </div>
-          <DeleteContactButton
-            contactId={contact.id}
-            contactName={contact.name}
-            applicationCount={applications.length}
-          />
-        </div>
+        <h1 className="text-[length:var(--font-size-h2)] font-medium text-foreground">
+          {contact.name}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">{contact.email}</p>
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
@@ -138,6 +129,12 @@ export default async function ContactDetailPage({
               <ContactNoteForm contactId={contact.id} />
             </CardContent>
           </Card>
+
+          <DeleteContactButton
+            contactId={contact.id}
+            contactName={contact.name}
+            applicationCount={applications.length}
+          />
         </div>
       </div>
     </div>

@@ -88,9 +88,9 @@ export function DeleteApplicationButton({
       type="button"
       onClick={handleDelete}
       disabled={isPending}
-      className="text-xs font-medium text-destructive/70 transition-colors hover:text-destructive disabled:opacity-50"
+      className="rounded-lg border border-destructive/60 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
     >
-      {isPending ? "Deleting..." : "Delete"}
+      {isPending ? "Deleting..." : "Delete Application"}
     </button>
   );
 }
