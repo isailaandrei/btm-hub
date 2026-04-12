@@ -406,6 +406,7 @@ export function ContactsPanel() {
     setSelectedProgram(undefined);
     setSelectedTagIds([]);
     setColumnFilters({});
+    setSortBy(null);
     setPage(1);
     clearSelection();
   }
