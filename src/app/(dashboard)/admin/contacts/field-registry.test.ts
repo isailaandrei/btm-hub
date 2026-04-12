@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeAgeToRange, getFieldEntry } from "./field-registry";
+import { normalizeAgeToRange, normalizeBtmCategory, getFieldEntry } from "./field-registry";
 
 describe("normalizeAgeToRange", () => {
   describe("canonical range passthrough", () => {
@@ -113,5 +113,47 @@ describe("FIELD_REGISTRY health_conditions entry", () => {
     const hc = getFieldEntry("health_conditions");
     expect(hc?.options).toContain("No health conditions affecting diving");
     expect(hc?.options).toContain("No health conditions affecting freediving");
+  });
+});
+
+describe("normalizeBtmCategory", () => {
+  it("strips parenthetical from filmmaking/photography categories", () => {
+    expect(normalizeBtmCategory("ASPIRING PROFESSIONAL (Part-time professional aiming for full-time career)")).toBe("ASPIRING PROFESSIONAL");
+    expect(normalizeBtmCategory("BEGINNER - Creative Explorer (Just starting, hobby-focused, seeking basic skills)")).toBe("BEGINNER - Creative Explorer");
+    expect(normalizeBtmCategory("DEDICATED ACHIEVER (Business-focused, seeking intensive mentorship)")).toBe("DEDICATED ACHIEVER");
+  });
+
+  it("strips parenthetical from freediving categories", () => {
+    expect(normalizeBtmCategory("ASPIRING PROFESSIONAL (Actor/model aiming to expand skill-set)")).toBe("ASPIRING PROFESSIONAL");
+    expect(normalizeBtmCategory("INDEPENDENT CREATOR (Experienced hobbyist/influencer seeking improvement)")).toBe("INDEPENDENT CREATOR");
+  });
+
+  it("both freediving and non-freediving ASPIRING PROFESSIONAL normalize to the same value", () => {
+    const filmmaking = normalizeBtmCategory("ASPIRING PROFESSIONAL (Part-time professional aiming for full-time career)");
+    const freediving = normalizeBtmCategory("ASPIRING PROFESSIONAL (Actor/model aiming to expand skill-set)");
+    expect(filmmaking).toBe(freediving);
+    expect(filmmaking).toBe("ASPIRING PROFESSIONAL");
+  });
+
+  it("returns null for empty/invalid input", () => {
+    expect(normalizeBtmCategory("")).toBeNull();
+    expect(normalizeBtmCategory(null)).toBeNull();
+    expect(normalizeBtmCategory("Unknown category")).toBeNull();
+  });
+});
+
+describe("FIELD_REGISTRY btm_category entry", () => {
+  it("has canonical normalization attached", () => {
+    const btm = getFieldEntry("btm_category");
+    expect(btm?.canonical).toBeDefined();
+    expect(btm?.canonical?.normalize).toBe(normalizeBtmCategory);
+  });
+
+  it("canonical options are the short labels without parentheticals", () => {
+    const btm = getFieldEntry("btm_category");
+    expect(btm?.canonical?.options).toContain("ASPIRING PROFESSIONAL");
+    expect(btm?.canonical?.options).not.toContain(
+      "ASPIRING PROFESSIONAL (Part-time professional aiming for full-time career)",
+    );
   });
 });

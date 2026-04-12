@@ -106,6 +106,30 @@ export function normalizeAgeToRange(raw: unknown): string | null {
   return "55+";
 }
 
+/**
+ * Canonical labels for btm_category — the part before the parenthetical.
+ * Filtering by e.g. "ASPIRING PROFESSIONAL" matches both the filmmaking/
+ * photography variant "(Part-time professional…)" and the freediving
+ * variant "(Actor/model…)" since both normalize to the same prefix.
+ */
+export const BTM_CATEGORY_LABELS = [
+  "BEGINNER - Creative Explorer",
+  "INDEPENDENT CREATOR",
+  "ASPIRING PROFESSIONAL",
+  "DEDICATED ACHIEVER",
+  "OCEAN STEWARD",
+] as const;
+
+export function normalizeBtmCategory(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const parenIdx = trimmed.indexOf("(");
+  const prefix = (parenIdx >= 0 ? trimmed.substring(0, parenIdx) : trimmed).trim();
+  if ((BTM_CATEGORY_LABELS as readonly string[]).includes(prefix)) return prefix;
+  return null;
+}
+
 const RATING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
 /** Deduplicated union of multiple option arrays (first-seen ordering). */
@@ -146,6 +170,10 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     options: union(BTM_CATEGORIES_MEDIA, BTM_CATEGORIES_FREEDIVING),
     programs: ["filmmaking", "photography", "freediving"],
     curated: true,
+    canonical: {
+      options: BTM_CATEGORY_LABELS,
+      normalize: normalizeBtmCategory,
+    },
   },
   {
     key: "certification_level",
