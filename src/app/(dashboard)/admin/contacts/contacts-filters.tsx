@@ -10,6 +10,8 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PROGRAMS } from "../applications/constants";
 import { TAG_COLOR_CLASSES } from "../constants";
 import { ColumnPicker } from "./column-picker";
@@ -93,33 +95,52 @@ export function ContactsFilters({
       </div>
 
       {tagCategories.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {tagCategories.map((category) => {
             const categoryTags = tags.filter((t) => t.category_id === category.id);
             if (categoryTags.length === 0) return null;
             const color = category.color ?? "blue";
             const colorClass = TAG_COLOR_CLASSES[color] ?? "";
+            const activeCount = categoryTags.filter((t) => selectedTagIds.includes(t.id)).length;
             return (
-              <div key={category.id} className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">{category.name}:</span>
-                {categoryTags.map((tag) => {
-                  const isActive = selectedTagIds.includes(tag.id);
-                  return (
-                    <Badge
-                      key={tag.id}
-                      variant="outline"
-                      className={`cursor-pointer select-none transition-opacity ${
-                        isActive
-                          ? colorClass
-                          : "opacity-50 hover:opacity-80"
-                      }`}
-                      onClick={() => onTagToggle(tag.id)}
-                    >
-                      {tag.name}
-                    </Badge>
-                  );
-                })}
-              </div>
+              <Popover key={category.id}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={`inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted ${
+                      activeCount > 0 ? "text-foreground" : "text-muted-foreground"
+                    }`}
+                  >
+                    {category.name}
+                    {activeCount > 0 && (
+                      <span className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium ${colorClass}`}>
+                        {activeCount}
+                      </span>
+                    )}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-0" align="start">
+                  <div className="max-h-56 overflow-y-auto p-2">
+                    {categoryTags.map((tag) => {
+                      const isActive = selectedTagIds.includes(tag.id);
+                      return (
+                        <label
+                          key={tag.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
+                        >
+                          <Checkbox checked={isActive} onCheckedChange={() => onTagToggle(tag.id)} />
+                          <Badge variant="outline" className={`pointer-events-none ${colorClass}`}>
+                            {tag.name}
+                          </Badge>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
             );
           })}
 
@@ -129,7 +150,7 @@ export function ContactsFilters({
               onClick={onClearTags}
               className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
-              Clear
+              Clear tags
             </button>
           )}
         </div>

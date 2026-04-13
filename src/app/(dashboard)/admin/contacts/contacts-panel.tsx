@@ -34,6 +34,17 @@ import { BulkActionBar } from "./bulk-action-bar";
 const PAGE_SIZES = [25, 50, 150] as const;
 type PageSize = (typeof PAGE_SIZES)[number];
 
+const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
+  [BUILTIN_COLUMN.name]: 180,
+  [BUILTIN_COLUMN.submittedAt]: 140,
+  [BUILTIN_COLUMN.email]: 220,
+  [BUILTIN_COLUMN.phone]: 140,
+  _programs: 120,
+  _tags: 200,
+};
+const DEFAULT_FIELD_WIDTH = 320;
+const DEFAULT_AGE_WIDTH = 160;
+
 const BUILTIN_SORTABLE_COLUMNS: { key: string; label: string }[] = [
   { key: BUILTIN_COLUMN.name, label: "Name" },
   { key: BUILTIN_COLUMN.submittedAt, label: "Submitted" },
@@ -109,6 +120,7 @@ export function ContactsPanel() {
     sortBy?: SortState | null;
     pageSize?: PageSize;
     page?: number;
+    columnWidths?: Record<string, number>;
   } | null = null;
   if (filtersLoadedRef.current == null) {
     if (typeof window !== "undefined") {
@@ -133,6 +145,7 @@ export function ContactsPanel() {
   >([]);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(savedFilters?.columnFilters ?? {});
   const [sortBy, setSortBy] = useState<SortState | null>(savedFilters?.sortBy ?? null);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedFilters?.columnWidths ?? {});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const visibleColumnsRef = useRef<string[]>([]);
   const previouslySelectedColumnsRef = useRef<string[]>([]);
@@ -157,12 +170,12 @@ export function ContactsPanel() {
     try {
       localStorage.setItem(
         FILTERS_STORAGE_KEY,
-        JSON.stringify({ search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page }),
+        JSON.stringify({ search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page, columnWidths }),
       );
     } catch {
       /* localStorage full or unavailable — silently skip */
     }
-  }, [search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page]);
+  }, [search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page, columnWidths]);
 
   // Prevent a stale debounced save from firing after the component unmounts.
   useEffect(() => {
@@ -453,6 +466,31 @@ export function ContactsPanel() {
     clearSelection();
   }
 
+  function handleResizeStart(columnKey: string, e: React.MouseEvent) {
+    e.preventDefault();
+    const th = (e.target as HTMLElement).closest("th");
+    if (!th) return;
+    const startX = e.clientX;
+    const startWidth = th.offsetWidth;
+
+    function onMouseMove(ev: MouseEvent) {
+      const newWidth = Math.max(80, startWidth + ev.clientX - startX);
+      setColumnWidths((prev) => ({ ...prev, [columnKey]: newWidth }));
+    }
+
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+
   const allOnPageSelected = paginated.length > 0 && paginated.every((c) => selectedIds.has(c.id));
 
   function handleSelectAll() {
@@ -579,7 +617,7 @@ export function ContactsPanel() {
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow className="bg-card text-muted-foreground">
               <TableHead className="w-10">
@@ -589,8 +627,14 @@ export function ContactsPanel() {
                   aria-label="Select all on page"
                 />
               </TableHead>
-              {BUILTIN_SORTABLE_COLUMNS.map(({ key, label }) => (
-                <TableHead key={key}>
+              {BUILTIN_SORTABLE_COLUMNS.map(({ key, label }) => {
+                const w = columnWidths[key] ?? DEFAULT_COLUMN_WIDTHS[key] ?? 160;
+                return (
+                <TableHead
+                  key={key}
+                  className="relative overflow-hidden"
+                  style={{ width: w }}
+                >
                   <span className="inline-flex items-center">
                     {label}
                     <ColumnSortToggle
@@ -600,12 +644,51 @@ export function ContactsPanel() {
                       label={label}
                     />
                   </span>
+                  <div
+                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                    onMouseDown={(e) => handleResizeStart(key, e)}
+                  />
                 </TableHead>
-              ))}
-              <TableHead>Programs</TableHead>
-              <TableHead>Tags</TableHead>
-              {activeFields.map((field) => (
-                <TableHead key={field.key} className={field.key === "age" ? "min-w-40" : "min-w-80"}>
+                );
+              })}
+              {(() => {
+                const pw = columnWidths._programs ?? DEFAULT_COLUMN_WIDTHS._programs ?? 120;
+                return (
+                <TableHead
+                  className="relative overflow-hidden"
+                  style={{ width: pw }}
+                >
+                  Programs
+                  <div
+                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                    onMouseDown={(e) => handleResizeStart("_programs", e)}
+                  />
+                </TableHead>
+                );
+              })()}
+              {(() => {
+                const tw = columnWidths._tags ?? DEFAULT_COLUMN_WIDTHS._tags ?? 200;
+                return (
+                <TableHead
+                  className="relative overflow-hidden"
+                  style={{ width: tw }}
+                >
+                  Tags
+                  <div
+                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                    onMouseDown={(e) => handleResizeStart("_tags", e)}
+                  />
+                </TableHead>
+                );
+              })()}
+              {activeFields.map((field) => {
+                const fw = columnWidths[field.key] ?? (field.key === "age" ? DEFAULT_AGE_WIDTH : DEFAULT_FIELD_WIDTH);
+                return (
+                <TableHead
+                  key={field.key}
+                  className="relative overflow-hidden"
+                  style={{ width: fw }}
+                >
                   <span className="inline-flex items-center">
                     {field.label}
                     {field.type !== "date" && field.type !== "text" && (
@@ -624,8 +707,13 @@ export function ContactsPanel() {
                       label={field.label}
                     />
                   </span>
+                  <div
+                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                    onMouseDown={(e) => handleResizeStart(field.key, e)}
+                  />
                 </TableHead>
-              ))}
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -722,7 +810,7 @@ export function ContactsPanel() {
                   {activeFields.map((field) => (
                     <TableCell
                       key={field.key}
-                      className="whitespace-normal text-sm text-muted-foreground"
+                      className="overflow-hidden whitespace-normal text-sm text-muted-foreground"
                     >
                       <div className="line-clamp-7 break-words">
                         {renderFieldValue(contactApps, field)}
