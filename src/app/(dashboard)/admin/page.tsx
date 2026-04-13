@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useAdminData } from "./admin-data-provider";
+import { useState } from "react";
 import { ContactsPanel } from "./contacts/contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
 
@@ -14,17 +13,6 @@ const TABS: { key: Tab; label: string }[] = [
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
-  const { ensureContacts, ensureApplications } = useAdminData();
-
-  useEffect(() => {
-    // Contacts tab needs both contacts and applications data
-    if (activeTab === "contacts") {
-      ensureContacts();
-      ensureApplications();
-    } else {
-      ensureContacts(); // Tags tab also needs tag data from ensureContacts
-    }
-  }, [activeTab, ensureContacts, ensureApplications]);
 
   return (
     <div>

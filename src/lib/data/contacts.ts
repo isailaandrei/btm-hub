@@ -1,6 +1,8 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
+import { isValidISODate } from "@/lib/validation-helpers";
+import { VersionConflictError } from "@/lib/optimistic-concurrency";
 import type {
   Contact,
   TagCategory,
@@ -42,15 +44,31 @@ export const getContactById = cache(async function getContactById(id: string) {
 export async function updateContact(
   id: string,
   fields: { name?: string; email?: string; phone?: string | null },
+  options?: { expectedUpdatedAt?: string },
 ) {
   await requireAdmin();
+  if (options?.expectedUpdatedAt && !isValidISODate(options.expectedUpdatedAt)) {
+    throw new Error("Invalid contact version");
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase
+  let query = supabase
     .from("contacts")
     .update({ ...fields, updated_at: new Date().toISOString() })
     .eq("id", id);
 
+  if (options?.expectedUpdatedAt) {
+    query = query.eq("updated_at", options.expectedUpdatedAt);
+  }
+
+  const { data, error } = await query.select("id").maybeSingle();
   if (error) throw new Error(`Failed to update contact: ${error.message}`);
+  if (!data) {
+    if (options?.expectedUpdatedAt) {
+      throw new VersionConflictError("contact");
+    }
+    throw new Error("Contact not found");
+  }
 }
 
 /**
@@ -106,15 +124,31 @@ export async function createTagCategory(name: string, color: string | null) {
 export async function updateTagCategory(
   id: string,
   fields: { name?: string; color?: string | null },
+  options?: { expectedUpdatedAt?: string },
 ) {
   await requireAdmin();
+  if (options?.expectedUpdatedAt && !isValidISODate(options.expectedUpdatedAt)) {
+    throw new Error("Invalid tag category version");
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase
+  let query = supabase
     .from("tag_categories")
-    .update(fields)
+    .update({ ...fields, updated_at: new Date().toISOString() })
     .eq("id", id);
 
+  if (options?.expectedUpdatedAt) {
+    query = query.eq("updated_at", options.expectedUpdatedAt);
+  }
+
+  const { data, error } = await query.select("id").maybeSingle();
   if (error) throw new Error(`Failed to update category: ${error.message}`);
+  if (!data) {
+    if (options?.expectedUpdatedAt) {
+      throw new VersionConflictError("tag category");
+    }
+    throw new Error("Tag category not found");
+  }
 }
 
 export async function deleteTagCategory(id: string) {
@@ -157,15 +191,42 @@ export async function createTag(categoryId: string, name: string) {
   return data as Tag;
 }
 
-export async function updateTag(id: string, name: string) {
+export async function updateTag(
+  id: string,
+  name: string,
+  options?: { expectedUpdatedAt?: string },
+) {
   await requireAdmin();
+  if (options?.expectedUpdatedAt && !isValidISODate(options.expectedUpdatedAt)) {
+    throw new Error("Invalid tag version");
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase
+  let query = supabase
     .from("tags")
-    .update({ name })
+    .update({ name, updated_at: new Date().toISOString() })
     .eq("id", id);
 
+  if (options?.expectedUpdatedAt) {
+    query = query.eq("updated_at", options.expectedUpdatedAt);
+  }
+
+  const { data, error } = await query.select("id").maybeSingle();
   if (error) throw new Error(`Failed to update tag: ${error.message}`);
+  if (!data) {
+    if (options?.expectedUpdatedAt) {
+      throw new VersionConflictError("tag");
+    }
+    throw new Error("Tag not found");
+  }
+}
+
+export interface BulkAssignTagsResult {
+  requested: number;
+  existing: number;
+  inserted: number;
+  alreadyAssigned: number;
+  skippedMissing: number;
 }
 
 export async function deleteTag(id: string) {
@@ -216,25 +277,40 @@ export async function unassignTag(contactId: string, tagId: string) {
   if (error) throw new Error(`Failed to remove tag: ${error.message}`);
 }
 
-export async function bulkAssignTags(contactIds: string[], tagId: string) {
+export async function bulkAssignTags(
+  contactIds: string[],
+  tagId: string,
+): Promise<BulkAssignTagsResult> {
   await requireAdmin();
   const supabase = await createClient();
-  const rows = contactIds.map((contactId) => ({ contact_id: contactId, tag_id: tagId }));
-  const { error } = await supabase
-    .from("contact_tags")
-    .upsert(rows, { onConflict: "contact_id,tag_id" });
+  const { data, error } = await supabase.rpc("bulk_assign_contact_tags", {
+    p_contact_ids: contactIds,
+    p_tag_id: tagId,
+  });
 
   if (error) throw new Error(`Failed to bulk assign tags: ${error.message}`);
+  const result = (data ?? {}) as Record<string, unknown>;
+  return {
+    requested: Number(result.requested ?? contactIds.length),
+    existing: Number(result.existing ?? 0),
+    inserted: Number(result.inserted ?? 0),
+    alreadyAssigned: Number(result.already_assigned ?? 0),
+    skippedMissing: Number(result.skipped_missing ?? 0),
+  };
 }
 
 export async function deleteApplication(applicationId: string) {
   await requireAdmin();
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("applications")
     .delete()
-    .eq("id", applicationId);
+    .eq("id", applicationId)
+    .select("id, contact_id")
+    .maybeSingle();
   if (error) throw new Error(`Failed to delete application: ${error.message}`);
+  if (!data) throw new Error("Application not found");
+  return data as { id: string; contact_id: string | null };
 }
 
 export async function bulkUnassignTags(contactIds: string[], tagId: string) {

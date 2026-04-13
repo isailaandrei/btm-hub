@@ -339,7 +339,7 @@ export async function deleteThread(threadId: string): Promise<void> {
 
   const { data: thread, error: fetchError } = await supabase
     .from("forum_threads")
-    .select("author_id")
+    .select("author_id, slug")
     .eq("id", threadId)
     .single();
 
@@ -356,6 +356,7 @@ export async function deleteThread(threadId: string): Promise<void> {
 
   if (error) throw new Error(`Failed to delete thread: ${error.message}`);
 
+  revalidatePath(`/community/${thread.slug}`);
   revalidatePath("/community");
   redirect("/community");
 }

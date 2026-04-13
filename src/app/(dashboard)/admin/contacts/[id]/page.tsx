@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
 import { ContactNoteForm } from "./contact-note-form";
+import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh";
 
 export default async function ContactDetailPage({
   params,
@@ -39,6 +40,8 @@ export default async function ContactDetailPage({
 
   return (
     <div className="mx-auto max-w-5xl">
+      <ContactDetailRealtimeRefresh contactId={contact.id} />
+
       {/* Header */}
       <div className="mb-8">
         <Link

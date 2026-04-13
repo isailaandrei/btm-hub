@@ -59,6 +59,7 @@ export interface TagCategory {
   color: string | null;
   sort_order: number;
   created_at: string;
+  updated_at: string;
 }
 
 export interface Tag {
@@ -66,6 +67,7 @@ export interface Tag {
   category_id: string;
   name: string;
   sort_order: number;
+  updated_at: string;
 }
 
 export interface TagWithCategory extends Tag {

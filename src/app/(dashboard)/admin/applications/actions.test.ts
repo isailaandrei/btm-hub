@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Profile } from "@/types/database";
+import { VersionConflictError } from "@/lib/optimistic-concurrency";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -25,6 +26,7 @@ const mockUpdateStatus = vi.fn();
 const mockAddTag = vi.fn();
 const mockRemoveTag = vi.fn();
 const mockAddNote = vi.fn();
+const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/data/applications", () => ({
   updateApplicationStatus: mockUpdateStatus,
@@ -34,7 +36,7 @@ vi.mock("@/lib/data/applications", () => ({
 }));
 
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: mockRevalidatePath,
 }));
 
 const { changeStatus, addTag, removeTag, addNote } = await import("./actions");
@@ -47,19 +49,62 @@ const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("changeStatus", () => {
   beforeEach(() => {
-    mockUpdateStatus.mockResolvedValue({});
+    mockUpdateStatus.mockReset();
+    mockRevalidatePath.mockReset();
+    mockUpdateStatus.mockResolvedValue({ id: VALID_UUID, contact_id: VALID_UUID });
   });
 
   it("throws for invalid UUID", async () => {
-    await expect(changeStatus("not-a-uuid", "accepted")).rejects.toThrow(
+    await expect(
+      changeStatus("not-a-uuid", "accepted", "2024-01-01T00:00:00Z"),
+    ).rejects.toThrow(
       "Invalid application ID",
     );
     expect(mockUpdateStatus).not.toHaveBeenCalled();
   });
 
-  it("calls updateApplicationStatus with valid input", async () => {
-    await changeStatus(VALID_UUID, "accepted");
-    expect(mockUpdateStatus).toHaveBeenCalledWith(VALID_UUID, "accepted");
+  it("returns success and passes the expected version to updateApplicationStatus", async () => {
+    await expect(
+      changeStatus(VALID_UUID, "accepted", "2024-01-01T00:00:00Z"),
+    ).resolves.toEqual({ ok: true });
+    expect(mockUpdateStatus).toHaveBeenCalledWith(VALID_UUID, "accepted", {
+      expectedUpdatedAt: "2024-01-01T00:00:00Z",
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${VALID_UUID}`);
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/profile/applications");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+  });
+
+  it("returns a validation result for invalid statuses", async () => {
+    await expect(
+      changeStatus(VALID_UUID, "pending", "2024-01-01T00:00:00Z"),
+    ).resolves.toEqual({
+      ok: false,
+      reason: "invalid_status",
+      message: "Invalid application status.",
+    });
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it("returns a validation result for invalid version timestamps", async () => {
+    await expect(changeStatus(VALID_UUID, "accepted", "not-a-date")).resolves.toEqual({
+      ok: false,
+      reason: "invalid_version",
+      message: "This application version is invalid. Refresh and try again.",
+    });
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it("returns a conflict result when another admin updated the application first", async () => {
+    mockUpdateStatus.mockRejectedValueOnce(new VersionConflictError("application"));
+
+    await expect(
+      changeStatus(VALID_UUID, "accepted", "2024-01-01T00:00:00Z"),
+    ).resolves.toEqual({
+      ok: false,
+      reason: "conflict",
+      message: "Another admin updated this application first. Refresh and try again.",
+    });
   });
 });
 

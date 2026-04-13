@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { memo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { TagCategory, Tag } from "@/types/database";
 import { TAG_COLOR_CLASSES } from "../constants";
@@ -14,7 +14,7 @@ interface BulkActionBarProps {
   onClearSelection: () => void;
 }
 
-export function BulkActionBar({
+export const BulkActionBar = memo(function BulkActionBar({
   selectedCount,
   selectedIds,
   tagCategories,
@@ -39,8 +39,20 @@ export function BulkActionBar({
     if (!tagId) return;
     startAssignTransition(async () => {
       try {
-        await bulkAssignTag(selectedIds, tagId);
-        toast.success(`Tag assigned to ${contactLabel}`);
+        const result = await bulkAssignTag(selectedIds, tagId);
+        if (!result) return;
+
+        if (result.skippedMissing > 0) {
+          toast.success(
+            `Tag assigned to ${result.inserted + result.alreadyAssigned} of ${result.requested} contacts. ${result.skippedMissing} no longer existed.`,
+          );
+        } else if (result.alreadyAssigned > 0) {
+          toast.success(
+            `Tag assigned to ${contactLabel}. ${result.alreadyAssigned} already had it.`,
+          );
+        } else {
+          toast.success(`Tag assigned to ${contactLabel}`);
+        }
         setCategoryId("");
         setTagId("");
       } catch {
@@ -123,4 +135,4 @@ export function BulkActionBar({
       </button>
     </div>
   );
-}
+});

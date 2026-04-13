@@ -1,22 +1,16 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useTransition } from "react";
 import { toast } from "sonner";
-import { useAdminData } from "../admin-data-provider";
-import { addCategory, removeCategory, addTagToCategory, removeTag } from "./actions";
+import { useAdminContactsData } from "../admin-data-provider";
+import { editTag, removeCategory, removeTag } from "./actions";
+import { AddCategoryForm } from "./add-category-form";
+import { AddTagForm } from "./add-tag-form";
+import { EditCategoryForm } from "./edit-category-form";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TAG_COLOR_CLASSES } from "../constants";
-
-const COLOR_PRESETS = [
-  { label: "Red", value: "red" },
-  { label: "Orange", value: "orange" },
-  { label: "Yellow", value: "yellow" },
-  { label: "Green", value: "green" },
-  { label: "Blue", value: "blue" },
-  { label: "Purple", value: "purple" },
-  { label: "Pink", value: "pink" },
-] as const;
+import type { Tag } from "@/types/database";
 
 const DOT_COLOR_CLASSES: Record<string, string> = {
   red: "bg-red-400",
@@ -28,16 +22,151 @@ const DOT_COLOR_CLASSES: Record<string, string> = {
   pink: "bg-pink-400",
 };
 
-export function TagsPanel() {
-  const { tagCategories, tags, contactsError, ensureContacts } = useAdminData();
+function getMutationErrorMessage(
+  error: unknown,
+  fallbackMessage: string,
+) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallbackMessage;
+}
+
+function DeleteCategoryButton({
+  categoryId,
+  categoryName,
+}: {
+  categoryId: string;
+  categoryName: string;
+}) {
   const [isPending, startTransition] = useTransition();
 
-  // Add category form state
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [newCategoryColor, setNewCategoryColor] = useState<string>("blue");
+  function handleDelete() {
+    if (
+      !window.confirm(
+        `Delete category "${categoryName}" and all its tags? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
 
-  // Per-category add-tag input state
-  const [newTagNames, setNewTagNames] = useState<Record<string, string>>({});
+    startTransition(async () => {
+      try {
+        await removeCategory(categoryId);
+        toast.success(`Category "${categoryName}" deleted.`);
+      } catch {
+        toast.error("Failed to delete category. Please try again.");
+      }
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleDelete}
+      disabled={isPending}
+      className="rounded px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+    >
+      {isPending ? "Deleting..." : "Delete category"}
+    </button>
+  );
+}
+
+function EditTagButton({ tag }: { tag: Tag }) {
+  const [isPending, startTransition] = useTransition();
+
+  function handleEdit() {
+    const nextName = window.prompt("Tag name", tag.name)?.trim();
+    if (nextName == null) return;
+    if (!nextName) {
+      toast.error("Tag name is required.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        await editTag(tag.id, nextName, {
+          expectedUpdatedAt: tag.updated_at,
+        });
+        toast.success(`Tag "${nextName}" updated.`);
+      } catch (error) {
+        toast.error(
+          getMutationErrorMessage(
+            error,
+            "Failed to update tag. Please try again.",
+          ),
+        );
+      }
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleEdit}
+      disabled={isPending}
+      className="ml-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+    >
+      {isPending ? "..." : "Edit"}
+    </button>
+  );
+}
+
+function DeleteTagButton({
+  tagId,
+  tagName,
+}: {
+  tagId: string;
+  tagName: string;
+}) {
+  const [isPending, startTransition] = useTransition();
+
+  function handleDelete() {
+    if (
+      !window.confirm(
+        `Delete tag "${tagName}" from all contacts? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        await removeTag(tagId);
+        toast.success(`Tag "${tagName}" deleted.`);
+      } catch {
+        toast.error("Failed to delete tag. Please try again.");
+      }
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleDelete}
+      disabled={isPending}
+      className="ml-0.5 transition-colors hover:text-red-400 disabled:opacity-50"
+    >
+      &times;
+    </button>
+  );
+}
+
+export function TagsPanel() {
+  const { tagCategories, tags, contactsError, ensureContacts } =
+    useAdminContactsData();
+  const tagsByCategoryId = useMemo(() => {
+    const map = new Map<string, Tag[]>();
+    for (const tag of tags ?? []) {
+      const existing = map.get(tag.category_id);
+      if (existing) {
+        existing.push(tag);
+      } else {
+        map.set(tag.category_id, [tag]);
+      }
+    }
+    return map;
+  }, [tags]);
 
   useEffect(() => {
     ensureContacts();
@@ -70,60 +199,6 @@ export function TagsPanel() {
     );
   }
 
-  function handleAddCategory(e: React.FormEvent) {
-    e.preventDefault();
-    const name = newCategoryName.trim();
-    if (!name) return;
-    startTransition(async () => {
-      try {
-        await addCategory(name, newCategoryColor);
-        setNewCategoryName("");
-        setNewCategoryColor("blue");
-        toast.success(`Category "${name}" created.`);
-      } catch {
-        toast.error("Failed to create category. Please try again.");
-      }
-    });
-  }
-
-  function handleDeleteCategory(id: string, name: string) {
-    if (!window.confirm(`Delete category "${name}" and all its tags? This cannot be undone.`)) return;
-    startTransition(async () => {
-      try {
-        await removeCategory(id);
-        toast.success(`Category "${name}" deleted.`);
-      } catch {
-        toast.error("Failed to delete category. Please try again.");
-      }
-    });
-  }
-
-  function handleAddTag(categoryId: string, e: React.FormEvent) {
-    e.preventDefault();
-    const name = (newTagNames[categoryId] ?? "").trim();
-    if (!name) return;
-    startTransition(async () => {
-      try {
-        await addTagToCategory(categoryId, name);
-        setNewTagNames((prev) => ({ ...prev, [categoryId]: "" }));
-        toast.success(`Tag "${name}" added.`);
-      } catch {
-        toast.error("Failed to add tag. Please try again.");
-      }
-    });
-  }
-
-  function handleDeleteTag(tagId: string, tagName: string) {
-    startTransition(async () => {
-      try {
-        await removeTag(tagId);
-        toast.success(`Tag "${tagName}" deleted.`);
-      } catch {
-        toast.error("Failed to delete tag. Please try again.");
-      }
-    });
-  }
-
   return (
     <div>
       <h1 className="mb-6 text-[length:var(--font-size-h2)] font-medium text-foreground">
@@ -136,44 +211,7 @@ export function TagsPanel() {
           <CardTitle className="text-base">Add Category</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAddCategory} className="flex flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-40">
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Name
-              </label>
-              <input
-                type="text"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="e.g. Program Interest"
-                maxLength={100}
-                className="w-full rounded-lg border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Color
-              </label>
-              <select
-                value={newCategoryColor}
-                onChange={(e) => setNewCategoryColor(e.target.value)}
-                className="rounded-lg border border-border bg-muted px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary"
-              >
-                {COLOR_PRESETS.map((preset) => (
-                  <option key={preset.value} value={preset.value}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="submit"
-              disabled={isPending || !newCategoryName.trim()}
-              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Add Category
-            </button>
-          </form>
+          <AddCategoryForm />
         </CardContent>
       </Card>
 
@@ -185,7 +223,7 @@ export function TagsPanel() {
       ) : (
         <div className="space-y-4">
           {tagCategories.map((category) => {
-            const categoryTags = (tags ?? []).filter((t) => t.category_id === category.id);
+            const categoryTags = tagsByCategoryId.get(category.id) ?? [];
             const color = category.color ?? "blue";
             const dotClass = DOT_COLOR_CLASSES[color] ?? "bg-muted-foreground";
 
@@ -201,16 +239,18 @@ export function TagsPanel() {
                       ({categoryTags.length})
                     </span>
                   </CardTitle>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteCategory(category.id, category.name)}
-                    disabled={isPending}
-                    className="rounded px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-                  >
-                    Delete category
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <DeleteCategoryButton
+                      categoryId={category.id}
+                      categoryName={category.name}
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent>
+                  <div className="mb-3">
+                    <EditCategoryForm category={category} />
+                  </div>
+
                   {/* Tags list */}
                   {categoryTags.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-1.5">
@@ -221,42 +261,15 @@ export function TagsPanel() {
                           className={`flex items-center gap-1 ${TAG_COLOR_CLASSES[color] ?? ""}`}
                         >
                           {tag.name}
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTag(tag.id, tag.name)}
-                            disabled={isPending}
-                            className="ml-0.5 transition-colors hover:text-red-400 disabled:opacity-50"
-                          >
-                            &times;
-                          </button>
+                          <EditTagButton tag={tag} />
+                          <DeleteTagButton tagId={tag.id} tagName={tag.name} />
                         </Badge>
                       ))}
                     </div>
                   )}
 
                   {/* Add tag form */}
-                  <form
-                    onSubmit={(e) => handleAddTag(category.id, e)}
-                    className="flex gap-2"
-                  >
-                    <input
-                      type="text"
-                      value={newTagNames[category.id] ?? ""}
-                      onChange={(e) =>
-                        setNewTagNames((prev) => ({ ...prev, [category.id]: e.target.value }))
-                      }
-                      placeholder="Add tag..."
-                      maxLength={100}
-                      className="flex-1 rounded-lg border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isPending || !(newTagNames[category.id] ?? "").trim()}
-                      className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                    >
-                      Add
-                    </button>
-                  </form>
+                  <AddTagForm categoryId={category.id} />
                 </CardContent>
               </Card>
             );

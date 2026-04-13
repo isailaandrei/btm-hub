@@ -8,9 +8,9 @@
 // Supabase Realtime subscriptions are set up per-table only after the initial
 // fetch completes, so Realtime events never race with the first load.
 
-// TODO: The applications fetch uses select("*") with no server-side pagination.
-// This will degrade as the applications table grows. Consider adding server-side
-// pagination or cursor-based fetching once the table exceeds ~500 rows.
+// The applications fetch is bounded and uses an explicit column list, but the
+// admin dashboard still keeps the most recent slice client-side. If the table
+// grows far beyond the current limit, move this to server-driven pagination.
 
 // TODO: Filter/search state for the contacts tab (name, email, tag filters)
 // lives inside the ContactsPanel component and resets when switching tabs.
@@ -24,7 +24,10 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useMemo,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -33,29 +36,108 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 type FetchState = "idle" | "loading" | "done";
 
-interface AdminDataContextValue {
+interface AdminApplicationsContextValue {
   applications: Application[] | null;
-  profiles: Profile[] | null;
   appsError: string | null;
-  profilesError: string | null;
   ensureApplications: () => void;
+}
+
+interface AdminProfilesContextValue {
+  profiles: Profile[] | null;
+  profilesError: string | null;
   ensureProfiles: () => void;
+}
+
+interface AdminContactsContextValue {
   contacts: Contact[] | null;
   tagCategories: TagCategory[] | null;
   tags: Tag[] | null;
   contactTags: ContactTag[] | null;
   contactsError: string | null;
   ensureContacts: () => void;
+}
+
+interface AdminPreferencesContextValue {
   preferences: Record<string, unknown>;
-  setPreferences: React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
+  setPreferences: Dispatch<SetStateAction<Record<string, unknown>>>;
   ensurePreferences: () => void;
 }
 
-const AdminDataContext = createContext<AdminDataContextValue | null>(null);
+const AdminApplicationsContext =
+  createContext<AdminApplicationsContextValue | null>(null);
+const AdminProfilesContext =
+  createContext<AdminProfilesContextValue | null>(null);
+const AdminContactsContext =
+  createContext<AdminContactsContextValue | null>(null);
+const AdminPreferencesContext =
+  createContext<AdminPreferencesContextValue | null>(null);
 
-export function useAdminData() {
-  const ctx = useContext(AdminDataContext);
-  if (!ctx) throw new Error("useAdminData must be used within AdminDataProvider");
+const MAX_ADMIN_APPLICATIONS = 1000;
+const APPLICATION_SELECT =
+  "id, user_id, contact_id, program, status, answers, tags, admin_notes, submitted_at, updated_at";
+const CONTACT_SELECT =
+  "id, email, name, phone, profile_id, created_at, updated_at";
+const TAG_CATEGORY_SELECT =
+  "id, name, color, sort_order, created_at, updated_at";
+const TAG_SELECT =
+  "id, category_id, name, sort_order, updated_at";
+const TAGS_REFETCH_DEBOUNCE_MS = 200;
+
+function sortContactsByName(items: Contact[]): Contact[] {
+  return [...items].sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, {
+      sensitivity: "base",
+    }),
+  );
+}
+
+function upsertSortedContact(
+  items: Contact[] | null,
+  nextContact: Contact,
+): Contact[] {
+  const withoutCurrent = (items ?? []).filter(
+    (contact) => contact.id !== nextContact.id,
+  );
+  return sortContactsByName([...withoutCurrent, nextContact]);
+}
+
+export function useAdminApplicationsData() {
+  const ctx = useContext(AdminApplicationsContext);
+  if (!ctx) {
+    throw new Error(
+      "useAdminApplicationsData must be used within AdminDataProvider",
+    );
+  }
+  return ctx;
+}
+
+export function useAdminProfilesData() {
+  const ctx = useContext(AdminProfilesContext);
+  if (!ctx) {
+    throw new Error(
+      "useAdminProfilesData must be used within AdminDataProvider",
+    );
+  }
+  return ctx;
+}
+
+export function useAdminContactsData() {
+  const ctx = useContext(AdminContactsContext);
+  if (!ctx) {
+    throw new Error(
+      "useAdminContactsData must be used within AdminDataProvider",
+    );
+  }
+  return ctx;
+}
+
+export function useAdminPreferencesData() {
+  const ctx = useContext(AdminPreferencesContext);
+  if (!ctx) {
+    throw new Error(
+      "useAdminPreferencesData must be used within AdminDataProvider",
+    );
+  }
   return ctx;
 }
 
@@ -79,6 +161,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const preferencesFetchState = useRef<FetchState>("idle");
   const channelsRef = useRef<RealtimeChannel[]>([]);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+  const tagCategoriesRefetchTimeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tagsRefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const applicationsTruncatedNoticeShownRef = useRef(false);
 
   function getSupabase() {
     if (!supabaseRef.current) supabaseRef.current = createClient();
@@ -92,10 +180,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabase();
 
     async function fetchApplications() {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("applications")
-        .select("*")
-        .order("submitted_at", { ascending: false });
+        .select(APPLICATION_SELECT, { count: "exact" })
+        .order("submitted_at", { ascending: false })
+        .range(0, MAX_ADMIN_APPLICATIONS - 1);
 
       if (error) {
         // Reset to idle so the next ensure call retries the fetch.
@@ -107,6 +196,15 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
       setAppsError(null);
       setApplications(data ?? []);
+      if (
+        (count ?? 0) > MAX_ADMIN_APPLICATIONS &&
+        !applicationsTruncatedNoticeShownRef.current
+      ) {
+        applicationsTruncatedNoticeShownRef.current = true;
+        toast.warning(
+          `Showing the most recent ${MAX_ADMIN_APPLICATIONS} applications in the admin dashboard.`,
+        );
+      }
       appsFetchState.current = "done";
 
       // Subscribe to Realtime only after the initial fetch succeeds
@@ -220,9 +318,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         { data: tagsData, error: tagsErr },
         { data: contactTagsData, error: contactTagsErr },
       ] = await Promise.all([
-        supabase.from("contacts").select("*").order("name"),
-        supabase.from("tag_categories").select("*").order("sort_order"),
-        supabase.from("tags").select("*").order("sort_order"),
+        supabase.from("contacts").select(CONTACT_SELECT).order("name"),
+        supabase
+          .from("tag_categories")
+          .select(TAG_CATEGORY_SELECT)
+          .order("sort_order"),
+        supabase.from("tags").select(TAG_SELECT).order("sort_order"),
         supabase.from("contact_tags").select("*"),
       ]);
 
@@ -248,7 +349,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "contacts" },
           (payload) => {
-            setContacts((prev) => [payload.new as Contact, ...(prev ?? [])]);
+            setContacts((prev) =>
+              upsertSortedContact(prev, payload.new as Contact),
+            );
           },
         )
         .on(
@@ -256,9 +359,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           { event: "UPDATE", schema: "public", table: "contacts" },
           (payload) => {
             setContacts((prev) =>
-              (prev ?? []).map((c) =>
-                c.id === (payload.new as Contact).id ? (payload.new as Contact) : c
-              )
+              upsertSortedContact(prev, payload.new as Contact),
             );
           },
         )
@@ -302,8 +403,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "*", schema: "public", table: "tag_categories" },
           async () => {
-            const { data } = await supabase.from("tag_categories").select("*").order("sort_order");
-            if (data) setTagCategories(data);
+            clearTimeout(tagCategoriesRefetchTimeoutRef.current ?? undefined);
+            tagCategoriesRefetchTimeoutRef.current = setTimeout(async () => {
+              const { data } = await supabase
+                .from("tag_categories")
+                .select(TAG_CATEGORY_SELECT)
+                .order("sort_order");
+              if (data) setTagCategories(data);
+            }, TAGS_REFETCH_DEBOUNCE_MS);
           },
         )
         .subscribe();
@@ -314,8 +421,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "*", schema: "public", table: "tags" },
           async () => {
-            const { data } = await supabase.from("tags").select("*").order("sort_order");
-            if (data) setTags(data);
+            clearTimeout(tagsRefetchTimeoutRef.current ?? undefined);
+            tagsRefetchTimeoutRef.current = setTimeout(async () => {
+              const { data } = await supabase
+                .from("tags")
+                .select(TAG_SELECT)
+                .order("sort_order");
+              if (data) setTags(data);
+            }, TAGS_REFETCH_DEBOUNCE_MS);
           },
         )
         .subscribe();
@@ -363,6 +476,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     return () => {
       const supabase = supabaseRef.current;
       if (!supabase) return;
+      clearTimeout(tagCategoriesRefetchTimeoutRef.current ?? undefined);
+      clearTimeout(tagsRefetchTimeoutRef.current ?? undefined);
       // eslint-disable-next-line react-hooks/exhaustive-deps -- channelsRef is intentionally read at cleanup time to get the latest channels
       for (const channel of channelsRef.current) {
         supabase.removeChannel(channel);
@@ -370,27 +485,65 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const applicationsValue = useMemo(
+    () => ({
+      applications,
+      appsError,
+      ensureApplications,
+    }),
+    [applications, appsError, ensureApplications],
+  );
+
+  const profilesValue = useMemo(
+    () => ({
+      profiles,
+      profilesError,
+      ensureProfiles,
+    }),
+    [profiles, profilesError, ensureProfiles],
+  );
+
+  const contactsValue = useMemo(
+    () => ({
+      contacts,
+      tagCategories,
+      tags,
+      contactTags,
+      contactsError,
+      ensureContacts,
+    }),
+    [
+      contacts,
+      tagCategories,
+      tags,
+      contactTags,
+      contactsError,
+      ensureContacts,
+    ],
+  );
+
+  const preferencesValue = useMemo(
+    () => ({
+      preferences,
+      setPreferences,
+      ensurePreferences,
+    }),
+    [
+      preferences,
+      setPreferences,
+      ensurePreferences,
+    ],
+  );
+
   return (
-    <AdminDataContext.Provider
-      value={{
-          applications,
-          profiles,
-          appsError,
-          profilesError,
-          ensureApplications,
-          ensureProfiles,
-          contacts,
-          tagCategories,
-          tags,
-          contactTags,
-          contactsError,
-          ensureContacts,
-          preferences,
-          setPreferences,
-          ensurePreferences,
-        }}
-    >
-      {children}
-    </AdminDataContext.Provider>
+    <AdminApplicationsContext.Provider value={applicationsValue}>
+      <AdminProfilesContext.Provider value={profilesValue}>
+        <AdminContactsContext.Provider value={contactsValue}>
+          <AdminPreferencesContext.Provider value={preferencesValue}>
+            {children}
+          </AdminPreferencesContext.Provider>
+        </AdminContactsContext.Provider>
+      </AdminProfilesContext.Provider>
+    </AdminApplicationsContext.Provider>
   );
 }

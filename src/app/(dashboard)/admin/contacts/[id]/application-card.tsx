@@ -74,6 +74,7 @@ export function ApplicationCard({ application, defaultOpen }: ApplicationCardPro
             <StatusSelector
               applicationId={application.id}
               currentStatus={application.status}
+              currentUpdatedAt={application.updated_at}
             />
           </div>
 

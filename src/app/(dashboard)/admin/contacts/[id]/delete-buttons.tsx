@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { deleteApplication } from "../actions";
 
@@ -14,6 +15,7 @@ export function DeleteApplicationButton({
   program,
 }: DeleteApplicationButtonProps) {
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   function handleDelete() {
     if (
@@ -26,6 +28,7 @@ export function DeleteApplicationButton({
     startTransition(async () => {
       try {
         await deleteApplication(applicationId);
+        router.refresh();
         toast.success(`${program} application deleted.`);
       } catch {
         toast.error("Failed to delete application.");

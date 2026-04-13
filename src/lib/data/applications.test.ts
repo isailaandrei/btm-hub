@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getApplicantName, escapeSearchTerm } from "./applications";
 import { createMockSupabaseClient } from "@/test/mocks/supabase";
+import { VersionConflictError } from "@/lib/optimistic-concurrency";
 
 // Mock modules
 vi.mock("@/lib/supabase/server", () => ({
@@ -194,5 +195,65 @@ describe("addAdminNote", () => {
     await expect(addAdminNote("app-1", "u1", "Admin", "note")).rejects.toThrow(
       "Failed to add admin note: DB error",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateApplicationStatus
+// ---------------------------------------------------------------------------
+
+describe("updateApplicationStatus", () => {
+  let mockSupabase: ReturnType<typeof createMockSupabaseClient>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    mockSupabase = createMockSupabaseClient();
+    const { createClient } = await import("@/lib/supabase/server");
+    vi.mocked(createClient).mockResolvedValue(mockSupabase.client as never);
+  });
+
+  it("updates the status using the caller's expected row version", async () => {
+    mockSupabase.mockQueryResult({
+      id: "app-1",
+      status: "accepted",
+      updated_at: "2026-04-13T12:00:00Z",
+    });
+
+    const { updateApplicationStatus } = await import("./applications");
+    const result = await updateApplicationStatus("app-1", "accepted", {
+      expectedUpdatedAt: "2026-04-13T11:59:00Z",
+    });
+
+    expect(mockSupabase.query.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "accepted",
+        updated_at: expect.any(String),
+      }),
+    );
+    expect(mockSupabase.query.eq).toHaveBeenNthCalledWith(1, "id", "app-1");
+    expect(mockSupabase.query.eq).toHaveBeenNthCalledWith(
+      2,
+      "updated_at",
+      "2026-04-13T11:59:00Z",
+    );
+    expect(result).toEqual({
+      id: "app-1",
+      status: "accepted",
+      updated_at: "2026-04-13T12:00:00Z",
+    });
+  });
+
+  it("throws a version conflict when the expected row version no longer matches", async () => {
+    mockSupabase.mockQueryResult(null);
+
+    const { updateApplicationStatus } = await import("./applications");
+    await expect(
+      updateApplicationStatus("app-1", "accepted", {
+        expectedUpdatedAt: "2026-04-13T11:59:00Z",
+      }),
+    ).rejects.toMatchObject({
+      name: VersionConflictError.name,
+      code: "version_conflict",
+    });
   });
 });

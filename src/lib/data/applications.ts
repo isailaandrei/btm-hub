@@ -2,7 +2,8 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/data/auth";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { escapeSearchTerm } from "@/lib/validation-helpers";
+import { escapeSearchTerm, isValidISODate } from "@/lib/validation-helpers";
+import { VersionConflictError } from "@/lib/optimistic-concurrency";
 import type {
   Application,
   ApplicationStatus,
@@ -142,20 +143,34 @@ export async function submitApplication(
 export async function updateApplicationStatus(
   id: string,
   status: ApplicationStatus,
+  options?: { expectedUpdatedAt?: string },
 ): Promise<Application> {
   await requireAdmin();
+  if (options?.expectedUpdatedAt && !isValidISODate(options.expectedUpdatedAt)) {
+    throw new Error("Invalid application version");
+  }
+
   const supabase = await createClient();
-
-  const { data, error } = await supabase
+  const nextUpdatedAt = new Date().toISOString();
+  let query = supabase
     .from("applications")
-    .update({ status })
-    .eq("id", id)
-    .select()
-    .single();
+    .update({ status, updated_at: nextUpdatedAt })
+    .eq("id", id);
 
+  if (options?.expectedUpdatedAt) {
+    query = query.eq("updated_at", options.expectedUpdatedAt);
+  }
+
+  const { data, error } = await query.select().maybeSingle();
   if (error) throw new Error(`Failed to update application status: ${error.message}`);
+  if (!data) {
+    if (options?.expectedUpdatedAt) {
+      throw new VersionConflictError("application");
+    }
+    throw new Error("Application not found");
+  }
 
-  return data;
+  return data as Application;
 }
 
 // ---------------------------------------------------------------------------

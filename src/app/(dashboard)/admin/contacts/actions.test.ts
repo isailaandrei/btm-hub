@@ -23,6 +23,8 @@ const mockUnassignTag = vi.fn();
 const mockAddContactNote = vi.fn();
 const mockBulkAssignTags = vi.fn();
 const mockBulkUnassignTags = vi.fn();
+const mockDeleteApplication = vi.fn();
+const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/data/contacts", () => ({
   updateContact: mockUpdateContact,
@@ -31,6 +33,7 @@ vi.mock("@/lib/data/contacts", () => ({
   addContactNote: mockAddContactNote,
   bulkAssignTags: mockBulkAssignTags,
   bulkUnassignTags: mockBulkUnassignTags,
+  deleteApplication: mockDeleteApplication,
 }));
 
 const mockUpdateProfilePreferences = vi.fn();
@@ -40,10 +43,17 @@ vi.mock("@/lib/data/profiles", () => ({
 }));
 
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: mockRevalidatePath,
 }));
 
-const { updatePreferences, bulkAssignTag, bulkUnassignTag } = await import(
+const {
+  updatePreferences,
+  bulkAssignTag,
+  bulkUnassignTag,
+  editContact,
+  submitContactNote,
+  deleteApplication,
+} = await import(
   "./actions"
 );
 
@@ -63,7 +73,14 @@ const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("bulkAssignTag", () => {
   beforeEach(() => {
-    mockBulkAssignTags.mockResolvedValue({});
+    mockRevalidatePath.mockReset();
+    mockBulkAssignTags.mockResolvedValue({
+      requested: 2,
+      existing: 2,
+      inserted: 2,
+      alreadyAssigned: 0,
+      skippedMissing: 0,
+    });
   });
 
   it("throws for invalid contact UUID", async () => {
@@ -82,7 +99,13 @@ describe("bulkAssignTag", () => {
 
   it("calls bulkAssignTags with valid input", async () => {
     const ids = [VALID_UUID, "660e8400-e29b-41d4-a716-446655440001"];
-    await bulkAssignTag(ids, VALID_UUID);
+    await expect(bulkAssignTag(ids, VALID_UUID)).resolves.toEqual({
+      requested: 2,
+      existing: 2,
+      inserted: 2,
+      alreadyAssigned: 0,
+      skippedMissing: 0,
+    });
     expect(mockBulkAssignTags).toHaveBeenCalledWith(ids, VALID_UUID);
   });
 
@@ -92,8 +115,99 @@ describe("bulkAssignTag", () => {
   });
 });
 
+describe("editContact", () => {
+  beforeEach(() => {
+    mockUpdateContact.mockResolvedValue(undefined);
+  });
+
+  it("rejects invalid email addresses before touching the data layer", async () => {
+    await expect(
+      editContact(VALID_UUID, { email: "not-an-email" }),
+    ).rejects.toThrow("Please enter a valid email address");
+    expect(mockUpdateContact).not.toHaveBeenCalled();
+  });
+
+  it("passes the expectedUpdatedAt option through for conflict checks", async () => {
+    await editContact(
+      VALID_UUID,
+      { email: "ADMIN@TEST.COM " },
+      { expectedUpdatedAt: "2024-01-01T00:00:00Z" },
+    );
+
+    expect(mockUpdateContact).toHaveBeenCalledWith(
+      VALID_UUID,
+      { email: "admin@test.com" },
+      { expectedUpdatedAt: "2024-01-01T00:00:00Z" },
+    );
+  });
+});
+
+describe("submitContactNote", () => {
+  beforeEach(() => {
+    mockAddContactNote.mockResolvedValue(undefined);
+  });
+
+  it("returns field errors for a blank note", async () => {
+    const formData = new FormData();
+    formData.set("contactId", VALID_UUID);
+    formData.set("text", "   ");
+
+    await expect(
+      submitContactNote(
+        { errors: null, message: null, success: false, resetKey: 0 },
+        formData,
+      ),
+    ).resolves.toEqual({
+      errors: { text: ["Note text is required"] },
+      message: null,
+      success: false,
+      resetKey: 0,
+    });
+  });
+
+  it("increments resetKey after a successful note submission", async () => {
+    const formData = new FormData();
+    formData.set("contactId", VALID_UUID);
+    formData.set("text", "Followed up");
+
+    await expect(
+      submitContactNote(
+        { errors: null, message: null, success: false, resetKey: 3 },
+        formData,
+      ),
+    ).resolves.toEqual({
+      errors: null,
+      message: "Note added.",
+      success: true,
+      resetKey: 4,
+    });
+    expect(mockAddContactNote).toHaveBeenCalled();
+  });
+});
+
+describe("deleteApplication", () => {
+  beforeEach(() => {
+    mockRevalidatePath.mockReset();
+    mockDeleteApplication.mockResolvedValue({
+      id: VALID_UUID,
+      contact_id: "660e8400-e29b-41d4-a716-446655440001",
+    });
+  });
+
+  it("revalidates the deleted application's contact detail path and /admin", async () => {
+    await deleteApplication(VALID_UUID);
+
+    expect(mockDeleteApplication).toHaveBeenCalledWith(VALID_UUID);
+    expect(mockRevalidatePath).toHaveBeenCalledWith(
+      "/admin/contacts/660e8400-e29b-41d4-a716-446655440001",
+    );
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+  });
+});
+
 describe("bulkUnassignTag", () => {
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockBulkUnassignTags.mockResolvedValue({});
   });
 
