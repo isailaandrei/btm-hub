@@ -38,6 +38,12 @@ export default async function ContactDetailPage({
 
   if (!contact) return notFound();
 
+  const latestApplication = applications[0] ?? null;
+  const latestApplicationPhone =
+    latestApplication && typeof latestApplication.answers.phone === "string"
+      ? latestApplication.answers.phone
+      : null;
+
   return (
     <div className="mx-auto max-w-5xl">
       <ContactDetailRealtimeRefresh contactId={contact.id} />
@@ -85,7 +91,7 @@ export default async function ContactDetailPage({
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">Phone</dt>
-                  <dd>{contact.phone || "—"}</dd>
+                  <dd>{latestApplicationPhone || contact.phone || "—"}</dd>
                 </div>
               </dl>
             </CardContent>

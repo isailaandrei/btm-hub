@@ -481,7 +481,7 @@ export function ContactsPanel() {
                       {contact.email}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {contact.phone || "—"}
+                      {contactApplications.find((a) => a.answers?.phone)?.answers?.phone || contact.phone || "—"}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">

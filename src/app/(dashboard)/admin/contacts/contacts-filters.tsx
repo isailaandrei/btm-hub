@@ -76,7 +76,7 @@ export const ContactsFilters = memo(function ContactsFilters({
             onProgramChange(v === "all" ? undefined : (v as ProgramSlug))
           }
         >
-          <SelectTrigger className="w-full sm:w-[180px]">
+          <SelectTrigger className="w-full capitalize sm:w-[180px]">
             <SelectValue placeholder="All Programs" />
           </SelectTrigger>
           <SelectContent>

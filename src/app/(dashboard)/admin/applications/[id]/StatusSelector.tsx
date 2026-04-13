@@ -49,7 +49,7 @@ export function StatusSelector({
 
   return (
     <Select value={currentStatus} onValueChange={handleChange} disabled={isPending}>
-      <SelectTrigger className="w-full">
+      <SelectTrigger className="w-full capitalize">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
