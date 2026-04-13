@@ -236,6 +236,7 @@ export function ContactsPanel() {
   const filtered = useMemo(() => {
     const items = contacts ?? [];
     const ctags = contactTags ?? [];
+    const allTags = tags ?? [];
 
     let result = items;
 
@@ -255,11 +256,29 @@ export function ContactsPanel() {
     }
 
     if (selectedTagIds.length > 0) {
-      result = result.filter((c) =>
-        selectedTagIds.every((tagId) =>
-          ctags.some((ct) => ct.contact_id === c.id && ct.tag_id === tagId),
-        ),
-      );
+      // Group selected tags by category: OR within a category, AND across categories.
+      // e.g. selecting "interested" + "undecided" in Trip Status shows contacts with
+      // either tag, but adding a tag from a second category narrows the results further.
+      const selectedSet = new Set(selectedTagIds);
+      const tagIdsByCategory = new Map<string, string[]>();
+      for (const t of allTags) {
+        if (!selectedSet.has(t.id)) continue;
+        const list = tagIdsByCategory.get(t.category_id);
+        if (list) list.push(t.id);
+        else tagIdsByCategory.set(t.category_id, [t.id]);
+      }
+
+      result = result.filter((c) => {
+        const contactTagSet = new Set(
+          ctags.filter((ct) => ct.contact_id === c.id).map((ct) => ct.tag_id),
+        );
+        // Every category group must have at least one match (AND across categories)
+        for (const [, categoryTagIds] of tagIdsByCategory) {
+          // At least one tag in this category must be assigned (OR within category)
+          if (!categoryTagIds.some((tagId) => contactTagSet.has(tagId))) return false;
+        }
+        return true;
+      });
     }
 
     // Column filters: precompute per-filter metadata (field entry, normalizer,
@@ -323,7 +342,7 @@ export function ContactsPanel() {
     }
 
     return result;
-  }, [contacts, contactTags, search, selectedProgram, selectedTagIds, columnFilters, sortBy, appsByContact]);
+  }, [contacts, contactTags, tags, search, selectedProgram, selectedTagIds, columnFilters, sortBy, appsByContact]);
 
   const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
 
