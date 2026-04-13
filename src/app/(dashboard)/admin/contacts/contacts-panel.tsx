@@ -442,92 +442,102 @@ export function ContactsPanel() {
                   contactApplications,
                   uniquePrograms,
                   contactTagEntries,
-                }) => (
-                  <TableRow key={contact.id}>
-                    <TableCell className="w-10">
-                      <Checkbox
-                        checked={state.selectedIds.has(contact.id)}
-                        onCheckedChange={() => handleSelectOne(contact.id)}
-                        aria-label={`Select ${contact.name}`}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/admin/contacts/${contact.id}`}
-                        className="font-medium text-foreground hover:text-primary"
-                      >
-                        {contact.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {contactApplications.length === 1
-                        ? formatDate(contactApplications[0].submitted_at)
-                        : contactApplications.length > 1
-                          ? (
-                              <div className="flex flex-col gap-0.5">
-                                {contactApplications.map((application) => (
-                                  <div key={application.id}>
-                                    <span className="text-muted-foreground/60">
-                                      {application.program}:
-                                    </span>{" "}
-                                    {formatDate(application.submitted_at)}
-                                  </div>
-                                ))}
-                              </div>
-                            )
-                          : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {contact.email}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {contactApplications.find((a) => a.answers?.phone)?.answers?.phone || contact.phone || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        {uniquePrograms.map((program) => (
-                          <Badge
-                            key={program}
-                            variant="outline"
-                            className={`w-fit capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
-                          >
-                            {program}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {contactTagEntries.map((contactTag) => {
-                          const tag = tagsById.get(contactTag.tag_id);
-                          if (!tag) return null;
+                }) => {
+                  const latestApplicationPhone = contactApplications.find(
+                    (application) => typeof application.answers.phone === "string",
+                  )?.answers.phone;
+                  const displayPhone =
+                    typeof latestApplicationPhone === "string"
+                      ? latestApplicationPhone
+                      : contact.phone;
 
-                          const category = categoriesById.get(tag.category_id);
-                          const color = category?.color ?? "blue";
-                          return (
+                  return (
+                    <TableRow key={contact.id}>
+                      <TableCell className="w-10">
+                        <Checkbox
+                          checked={state.selectedIds.has(contact.id)}
+                          onCheckedChange={() => handleSelectOne(contact.id)}
+                          aria-label={`Select ${contact.name}`}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Link
+                          href={`/admin/contacts/${contact.id}`}
+                          className="font-medium text-foreground hover:text-primary"
+                        >
+                          {contact.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                        {contactApplications.length === 1
+                          ? formatDate(contactApplications[0].submitted_at)
+                          : contactApplications.length > 1
+                            ? (
+                                <div className="flex flex-col gap-0.5">
+                                  {contactApplications.map((application) => (
+                                    <div key={application.id}>
+                                      <span className="text-muted-foreground/60">
+                                        {application.program}:
+                                      </span>{" "}
+                                      {formatDate(application.submitted_at)}
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            : "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {contact.email}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {displayPhone || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          {uniquePrograms.map((program) => (
                             <Badge
-                              key={contactTag.tag_id}
+                              key={program}
                               variant="outline"
-                              className={TAG_COLOR_CLASSES[color] ?? ""}
+                              className={`w-fit capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
                             >
-                              {category?.name}: {tag.name}
+                              {program}
                             </Badge>
-                          );
-                        })}
-                      </div>
-                    </TableCell>
-                    {activeFields.map((field) => (
-                      <TableCell
-                        key={field.key}
-                        className="overflow-hidden whitespace-normal text-sm text-muted-foreground"
-                      >
-                        <div className="line-clamp-7 break-words">
-                          {renderFieldValue(contactApplications, field)}
+                          ))}
                         </div>
                       </TableCell>
-                    ))}
-                  </TableRow>
-                ),
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {contactTagEntries.map((contactTag) => {
+                            const tag = tagsById.get(contactTag.tag_id);
+                            if (!tag) return null;
+
+                            const category = categoriesById.get(tag.category_id);
+                            const color = category?.color ?? "blue";
+                            return (
+                              <Badge
+                                key={contactTag.tag_id}
+                                variant="outline"
+                                className={TAG_COLOR_CLASSES[color] ?? ""}
+                              >
+                                {category?.name}: {tag.name}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      </TableCell>
+                      {activeFields.map((field) => (
+                        <TableCell
+                          key={field.key}
+                          className="overflow-hidden whitespace-normal text-sm text-muted-foreground"
+                        >
+                          <div className="line-clamp-7 break-words">
+                            {renderFieldValue(contactApplications, field)}
+                          </div>
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                },
               )
             )}
           </TableBody>
