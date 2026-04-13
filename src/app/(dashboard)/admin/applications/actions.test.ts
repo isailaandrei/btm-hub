@@ -71,6 +71,7 @@ describe("changeStatus", () => {
       expectedUpdatedAt: "2024-01-01T00:00:00Z",
     });
     expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${VALID_UUID}`);
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/profile/applications");
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
   });
 

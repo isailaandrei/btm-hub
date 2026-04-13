@@ -43,6 +43,11 @@ export type TagFormState = {
   resetKey: number;
 };
 
+function revalidateAdminTagViews() {
+  revalidatePath("/admin");
+  revalidatePath("/admin/contacts/[id]", "page");
+}
+
 function normalizeTagColor(color: string | null): string | null {
   if (color == null) return null;
   if (!TAG_COLOR_VALUES.includes(color)) {
@@ -67,7 +72,7 @@ export async function addCategory(name: string, color: string | null) {
   const trimmed = name.trim().slice(0, 100);
   if (!trimmed) throw new Error("Category name is required");
   await createTagCategory(trimmed, normalizeTagColor(color));
-  revalidatePath("/admin");
+  revalidateAdminTagViews();
 }
 
 export async function submitCategoryForm(
@@ -126,7 +131,7 @@ export async function editCategory(
     fields.color = normalizeTagColor(fields.color);
   }
   await updateTagCategory(id, fields, options);
-  revalidatePath("/admin");
+  revalidateAdminTagViews();
 }
 
 export async function submitCategoryEditForm(
@@ -200,7 +205,7 @@ export async function submitCategoryEditForm(
 export async function removeCategory(id: string) {
   validateUUID(id);
   await deleteTagCategory(id);
-  revalidatePath("/admin");
+  revalidateAdminTagViews();
 }
 
 export async function addTagToCategory(categoryId: string, name: string) {
@@ -208,7 +213,7 @@ export async function addTagToCategory(categoryId: string, name: string) {
   const trimmed = name.trim().slice(0, 100);
   if (!trimmed) throw new Error("Tag name is required");
   await createTag(categoryId, trimmed);
-  revalidatePath("/admin");
+  revalidateAdminTagViews();
 }
 
 export async function submitTagForm(
@@ -272,11 +277,11 @@ export async function editTag(
   const trimmed = name.trim().slice(0, 100);
   if (!trimmed) throw new Error("Tag name is required");
   await updateTag(tagId, trimmed, options);
-  revalidatePath("/admin");
+  revalidateAdminTagViews();
 }
 
 export async function removeTag(tagId: string) {
   validateUUID(tagId);
   await deleteTag(tagId);
-  revalidatePath("/admin");
+  revalidateAdminTagViews();
 }

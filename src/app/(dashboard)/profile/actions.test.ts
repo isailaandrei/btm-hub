@@ -6,13 +6,14 @@ import { createMockSupabaseClient } from "@/test/mocks/supabase";
 // ---------------------------------------------------------------------------
 
 const mockSupabase = createMockSupabaseClient();
+const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn().mockResolvedValue(mockSupabase.client),
 }));
 
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: mockRevalidatePath,
 }));
 
 const { updateProfile, uploadAvatar } = await import("./actions");
@@ -27,6 +28,7 @@ describe("updateProfile", () => {
   const prevState = { errors: null, message: null, success: false };
 
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockSupabase.auth.getUser.mockResolvedValue({
       data: { user: TEST_USER },
       error: null,
@@ -67,6 +69,8 @@ describe("updateProfile", () => {
     const result = await updateProfile(prevState, formData);
     expect(result.success).toBe(true);
     expect(result.message).toContain("updated");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/profile", "layout");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/community/members/user-123");
   });
 
   it("returns error on DB failure", async () => {
@@ -88,6 +92,7 @@ describe("updateProfile", () => {
 
 describe("uploadAvatar", () => {
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockSupabase.auth.getUser.mockResolvedValue({
       data: { user: TEST_USER },
       error: null,
@@ -155,5 +160,7 @@ describe("uploadAvatar", () => {
     const result = await uploadAvatar(formData);
     expect(result.url).toContain("http://test/avatar.jpg");
     expect(result.error).toBeNull();
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/profile", "layout");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/community/members/user-123");
   });
 });

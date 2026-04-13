@@ -6,6 +6,7 @@ const mockDeleteTagCategory = vi.fn();
 const mockCreateTag = vi.fn();
 const mockUpdateTag = vi.fn();
 const mockDeleteTag = vi.fn();
+const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/data/contacts", () => ({
   createTagCategory: mockCreateTagCategory,
@@ -17,7 +18,7 @@ vi.mock("@/lib/data/contacts", () => ({
 }));
 
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: mockRevalidatePath,
 }));
 
 const {
@@ -33,12 +34,15 @@ const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("addCategory", () => {
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockCreateTagCategory.mockResolvedValue({});
   });
 
   it("trims the name and passes through valid colors", async () => {
     await addCategory("  Program Interest  ", "blue");
     expect(mockCreateTagCategory).toHaveBeenCalledWith("Program Interest", "blue");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin/contacts/[id]", "page");
   });
 
   it("rejects unknown colors", async () => {
@@ -51,6 +55,7 @@ describe("addCategory", () => {
 
 describe("editCategory", () => {
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockUpdateTagCategory.mockResolvedValue({});
   });
 
@@ -88,6 +93,7 @@ describe("editCategory", () => {
 
 describe("editTag", () => {
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockUpdateTag.mockResolvedValue({});
   });
 

@@ -54,6 +54,7 @@ export async function changeStatus(
     if (application.contact_id) {
       revalidatePath(`/admin/contacts/${application.contact_id}`);
     }
+    revalidatePath("/profile/applications");
   } catch (error) {
     if (error instanceof VersionConflictError) {
       return {

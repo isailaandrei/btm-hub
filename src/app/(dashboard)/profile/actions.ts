@@ -54,6 +54,7 @@ export async function updateProfile(
   }
 
   revalidatePath("/profile", "layout");
+  revalidatePath(`/community/members/${user.id}`);
   return { errors: null, message: "Profile updated!", success: true };
 }
 
@@ -119,5 +120,6 @@ export async function uploadAvatar(
   }
 
   revalidatePath("/profile", "layout");
+  revalidatePath(`/community/members/${user.id}`);
   return { url: cacheBustedUrl, error: null };
 }
