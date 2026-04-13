@@ -22,6 +22,11 @@ const tagCategorySchema = z.object({
   color: z.enum(TAG_COLOR_VALUES).nullable(),
 });
 
+const tagCategoryEditSchema = tagCategorySchema.extend({
+  categoryId: z.string().min(1, "Category is required"),
+  expectedUpdatedAt: z.string().min(1, "Category version is required"),
+});
+
 const tagSchema = z.object({
   categoryId: z.string().min(1, "Category is required"),
   name: z
@@ -122,6 +127,74 @@ export async function editCategory(
   }
   await updateTagCategory(id, fields, options);
   revalidatePath("/admin");
+}
+
+export async function submitCategoryEditForm(
+  prevState: TagFormState,
+  formData: FormData,
+): Promise<TagFormState> {
+  const rawColor = String(formData.get("color") ?? "");
+  const parsed = tagCategoryEditSchema.safeParse({
+    categoryId: formData.get("categoryId") ?? "",
+    expectedUpdatedAt: formData.get("expectedUpdatedAt") ?? "",
+    name: formData.get("name") ?? "",
+    color: rawColor === "" ? null : rawColor,
+  });
+  if (!parsed.success) {
+    return {
+      errors: parsed.error.flatten().fieldErrors,
+      message: null,
+      success: false,
+      resetKey: prevState.resetKey,
+    };
+  }
+
+  try {
+    validateUUID(parsed.data.categoryId);
+  } catch {
+    return {
+      errors: { categoryId: ["Invalid category."] },
+      message: null,
+      success: false,
+      resetKey: prevState.resetKey,
+    };
+  }
+
+  if (!isValidISODate(parsed.data.expectedUpdatedAt)) {
+    return {
+      errors: null,
+      message: "This category version is invalid. Refresh and try again.",
+      success: false,
+      resetKey: prevState.resetKey,
+    };
+  }
+
+  try {
+    await editCategory(
+      parsed.data.categoryId,
+      {
+        name: parsed.data.name,
+        color: parsed.data.color,
+      },
+      { expectedUpdatedAt: parsed.data.expectedUpdatedAt },
+    );
+    return {
+      errors: null,
+      message: `Category "${parsed.data.name}" updated.`,
+      success: true,
+      resetKey: prevState.resetKey + 1,
+    };
+  } catch (error) {
+    return {
+      errors: null,
+      message: mapTagMutationError(
+        error,
+        "A category with that name already exists.",
+      ),
+      success: false,
+      resetKey: prevState.resetKey,
+    };
+  }
 }
 
 export async function removeCategory(id: string) {

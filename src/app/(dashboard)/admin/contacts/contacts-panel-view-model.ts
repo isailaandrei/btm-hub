@@ -251,12 +251,20 @@ export function useContactsPanelViewModel({
     selectedTagIds.length > 0 ||
     Object.keys(columnFilters).length > 0;
 
-  const totalPages = Math.ceil(filtered.length / pageSize);
-  const currentPage = Math.min(page, Math.max(totalPages, 1));
-  const paginated = filtered.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
+  const { currentPage, paginated, totalPages } = useMemo(() => {
+    const nextTotalPages = Math.ceil(filtered.length / pageSize);
+    const nextCurrentPage = Math.min(page, Math.max(nextTotalPages, 1));
+    const nextPaginated = filtered.slice(
+      (nextCurrentPage - 1) * pageSize,
+      nextCurrentPage * pageSize,
+    );
+
+    return {
+      currentPage: nextCurrentPage,
+      paginated: nextPaginated,
+      totalPages: nextTotalPages,
+    };
+  }, [filtered, page, pageSize]);
 
   const paginatedRows = useMemo(
     () =>

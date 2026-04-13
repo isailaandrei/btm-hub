@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useTransition } from "react";
 import { toast } from "sonner";
 import { useAdminContactsData } from "../admin-data-provider";
-import { editCategory, editTag, removeCategory, removeTag } from "./actions";
+import { editTag, removeCategory, removeTag } from "./actions";
 import { AddCategoryForm } from "./add-category-form";
 import { AddTagForm } from "./add-tag-form";
+import { EditCategoryForm } from "./edit-category-form";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TAG_COLOR_CLASSES, TAG_COLOR_PRESETS } from "../constants";
-import type { Tag, TagCategory } from "@/types/database";
+import { TAG_COLOR_CLASSES } from "../constants";
+import type { Tag } from "@/types/database";
 
 const DOT_COLOR_CLASSES: Record<string, string> = {
   red: "bg-red-400",
@@ -29,61 +30,6 @@ function getMutationErrorMessage(
     return error.message;
   }
   return fallbackMessage;
-}
-
-function EditCategoryButton({ category }: { category: TagCategory }) {
-  const [isPending, startTransition] = useTransition();
-
-  function handleEdit() {
-    const nextName = window.prompt("Category name", category.name)?.trim();
-    if (nextName == null) return;
-    if (!nextName) {
-      toast.error("Category name is required.");
-      return;
-    }
-
-    const availableColors = TAG_COLOR_PRESETS.map((preset) => preset.value).join(", ");
-    const nextColor =
-      window
-        .prompt(
-          `Category color (${availableColors})`,
-          category.color ?? "blue",
-        )
-        ?.trim() ?? null;
-    if (nextColor == null) return;
-
-    startTransition(async () => {
-      try {
-        await editCategory(
-          category.id,
-          {
-            name: nextName,
-            color: nextColor === "" ? null : nextColor,
-          },
-          { expectedUpdatedAt: category.updated_at },
-        );
-        toast.success(`Category "${nextName}" updated.`);
-      } catch (error) {
-        toast.error(
-          getMutationErrorMessage(
-            error,
-            "Failed to update category. Please try again.",
-          ),
-        );
-      }
-    });
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleEdit}
-      disabled={isPending}
-      className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-    >
-      {isPending ? "Saving..." : "Edit"}
-    </button>
-  );
 }
 
 function DeleteCategoryButton({
@@ -176,6 +122,14 @@ function DeleteTagButton({
   const [isPending, startTransition] = useTransition();
 
   function handleDelete() {
+    if (
+      !window.confirm(
+        `Delete tag "${tagName}" from all contacts? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
     startTransition(async () => {
       try {
         await removeTag(tagId);
@@ -286,7 +240,6 @@ export function TagsPanel() {
                     </span>
                   </CardTitle>
                   <div className="flex items-center gap-1">
-                    <EditCategoryButton category={category} />
                     <DeleteCategoryButton
                       categoryId={category.id}
                       categoryName={category.name}
@@ -294,6 +247,10 @@ export function TagsPanel() {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  <div className="mb-3">
+                    <EditCategoryForm category={category} />
+                  </div>
+
                   {/* Tags list */}
                   {categoryTags.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-1.5">

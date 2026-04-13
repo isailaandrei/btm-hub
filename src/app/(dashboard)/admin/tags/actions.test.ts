@@ -24,6 +24,7 @@ const {
   addCategory,
   editCategory,
   editTag,
+  submitCategoryEditForm,
   submitCategoryForm,
   submitTagForm,
 } = await import("./actions");
@@ -143,6 +144,37 @@ describe("submitCategoryForm", () => {
       success: true,
       resetKey: 3,
     });
+  });
+});
+
+describe("submitCategoryEditForm", () => {
+  beforeEach(() => {
+    mockUpdateTagCategory.mockResolvedValue({});
+  });
+
+  it("increments resetKey after a successful category edit", async () => {
+    const formData = new FormData();
+    formData.set("categoryId", VALID_UUID);
+    formData.set("expectedUpdatedAt", "2024-01-01T00:00:00Z");
+    formData.set("name", "Program Interest");
+    formData.set("color", "pink");
+
+    await expect(
+      submitCategoryEditForm(
+        { errors: null, message: null, success: false, resetKey: 4 },
+        formData,
+      ),
+    ).resolves.toEqual({
+      errors: null,
+      message: 'Category "Program Interest" updated.',
+      success: true,
+      resetKey: 5,
+    });
+    expect(mockUpdateTagCategory).toHaveBeenCalledWith(
+      VALID_UUID,
+      { color: "pink", name: "Program Interest" },
+      { expectedUpdatedAt: "2024-01-01T00:00:00Z" },
+    );
   });
 });
 
