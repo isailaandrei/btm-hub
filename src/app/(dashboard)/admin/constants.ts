@@ -8,6 +8,20 @@ export const TAG_COLOR_CLASSES: Record<string, string> = {
   pink: "border-pink-500/40 bg-pink-500/10 text-pink-400",
 };
 
+export const TAG_COLOR_VALUES = Object.freeze(
+  Object.keys(TAG_COLOR_CLASSES),
+) as readonly string[];
+
+export const TAG_COLOR_PRESETS = [
+  { label: "Red", value: "red" },
+  { label: "Orange", value: "orange" },
+  { label: "Yellow", value: "yellow" },
+  { label: "Green", value: "green" },
+  { label: "Blue", value: "blue" },
+  { label: "Purple", value: "purple" },
+  { label: "Pink", value: "pink" },
+] as const;
+
 export const PROGRAM_BADGE_CLASS: Record<string, string> = {
   filmmaking: "border-blue-500/40 bg-blue-500/10 text-blue-400",
   photography: "border-amber-500/40 bg-amber-500/10 text-amber-400",

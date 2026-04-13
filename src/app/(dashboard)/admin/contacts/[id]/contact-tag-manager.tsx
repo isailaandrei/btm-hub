@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { TAG_COLOR_CLASSES } from "../../constants";
 import { assignContactTag, unassignContactTag } from "../actions";
-import { addTagToCategory } from "../../tags/actions";
+import { AddTagForm } from "../../tags/add-tag-form";
 
 interface TagRow {
   id: string;
@@ -50,6 +51,7 @@ export function ContactTagManager({
   allTags,
 }: ContactTagManagerProps) {
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Per-category dropdown open state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -64,8 +66,6 @@ export function ContactTagManager({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [openDropdown]);
-  // Per-category quick-create input state
-  const [newTagNames, setNewTagNames] = useState<Record<string, string>>({});
 
   function resolveTag(row: { tags: TagRow | TagRow[] }): TagRow | null {
     const t = row.tags;
@@ -79,6 +79,7 @@ export function ContactTagManager({
     startTransition(async () => {
       try {
         await unassignContactTag(contactId, tagId);
+        router.refresh();
       } catch {
         toast.error("Failed to remove tag. Please try again.");
       }
@@ -89,6 +90,7 @@ export function ContactTagManager({
     startTransition(async () => {
       try {
         await assignContactTag(contactId, tagId);
+        router.refresh();
         // Close dropdown if no more available tags in this category after assignment
         const remaining = allTags.filter(
           (t) => t.category_id === categoryId && !assignedTagIds.has(t.id) && t.id !== tagId,
@@ -96,24 +98,6 @@ export function ContactTagManager({
         if (remaining.length === 0) setOpenDropdown(null);
       } catch {
         toast.error("Failed to assign tag. Please try again.");
-      }
-    });
-  }
-
-  function handleCreateAndAssign(categoryId: string, e: React.FormEvent) {
-    e.preventDefault();
-    const name = (newTagNames[categoryId] ?? "").trim();
-    if (!name) return;
-    startTransition(async () => {
-      try {
-        // addTagToCategory creates the tag and revalidates /admin.
-        // The page re-renders with the new tag in allTags so the user
-        // can assign it from the dropdown on the next interaction.
-        await addTagToCategory(categoryId, name);
-        setNewTagNames((prev) => ({ ...prev, [categoryId]: "" }));
-        toast.success(`Tag "${name}" created. Click it to assign.`);
-      } catch {
-        toast.error("Failed to create tag. Please try again.");
       }
     });
   }
@@ -138,7 +122,6 @@ export function ContactTagManager({
           (t) => t.category_id === category.id && !assignedTagIds.has(t.id),
         );
         const isOpen = openDropdown === category.id;
-        const newTagName = newTagNames[category.id] ?? "";
 
         return (
           <div key={category.id}>
@@ -198,31 +181,14 @@ export function ContactTagManager({
                     )}
 
                     {/* Quick-create input */}
-                    <form
-                      onSubmit={(e) => handleCreateAndAssign(category.id, e)}
-                      className="flex items-center gap-1 p-2"
-                    >
-                      <input
-                        type="text"
-                        value={newTagName}
-                        onChange={(e) =>
-                          setNewTagNames((prev) => ({
-                            ...prev,
-                            [category.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Create new..."
-                        maxLength={100}
-                        className="flex-1 rounded border border-border bg-muted px-2 py-1 text-xs text-foreground placeholder-muted-foreground outline-none focus:border-primary"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isPending || !newTagName.trim()}
-                        className="rounded bg-primary px-2 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                      >
-                        Add
-                      </button>
-                    </form>
+                    <AddTagForm
+                      categoryId={category.id}
+                      placeholder="Create new..."
+                      compact
+                      onSuccess={() => {
+                        router.refresh();
+                      }}
+                    />
                   </div>
                 )}
               </div>

@@ -1,9 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { useAdminData } from "../admin-data-provider";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
+import {
+  useAdminApplicationsData,
+  useAdminContactsData,
+  useAdminPreferencesData,
+} from "../admin-data-provider";
 import { ContactsFilters } from "./contacts-filters";
 import { TAG_COLOR_CLASSES, PROGRAM_BADGE_CLASS } from "../constants";
 import { Badge } from "@/components/ui/badge";
@@ -16,23 +25,17 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import type { Application, ProgramSlug } from "@/types/database";
-import {
-  getFieldEntry,
-  type FieldRegistryEntry,
-} from "./field-registry";
-import { updatePreferences } from "./actions";
+import type { Application } from "@/types/database";
+import { type FieldRegistryEntry } from "./field-registry";
 import { ColumnFilterPopover } from "./column-filter-popover";
 import { ColumnSortToggle } from "./column-sort-toggle";
-import {
-  compareContacts,
-  BUILTIN_COLUMN,
-  type SortState,
-} from "./sort-helpers";
+import { BUILTIN_COLUMN } from "./sort-helpers";
 import { BulkActionBar } from "./bulk-action-bar";
+import { useContactsPanelState } from "./contacts-panel-state";
+import { useContactsPanelViewModel } from "./contacts-panel-view-model";
+import { useDebouncedValue } from "./use-debounced-value";
 
 const PAGE_SIZES = [25, 50, 150] as const;
-type PageSize = (typeof PAGE_SIZES)[number];
 
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   [BUILTIN_COLUMN.name]: 180,
@@ -60,7 +63,7 @@ function formatDate(iso: string): string {
 function renderFieldValue(
   contactApps: Application[],
   field: FieldRegistryEntry,
-): React.ReactNode {
+): ReactNode {
   const entries: { program: string; value: string }[] = [];
 
   for (const app of contactApps) {
@@ -97,395 +100,63 @@ export function ContactsPanel() {
     tagCategories,
     tags,
     contactTags,
-    applications,
     contactsError,
     ensureContacts,
+  } = useAdminContactsData();
+  const { applications, ensureApplications } = useAdminApplicationsData();
+  const { preferences, setPreferences, ensurePreferences } =
+    useAdminPreferencesData();
+
+  const state = useContactsPanelState({
+    contacts,
     ensureApplications,
+    ensureContacts,
+    ensurePreferences,
     preferences,
     setPreferences,
-    ensurePreferences,
-  } = useAdminData();
+  });
+  const debouncedSearch = useDebouncedValue(state.search, 200);
+  const {
+    activeFields,
+    categoriesById,
+    currentPage,
+    filtered,
+    hasAnyFilter,
+    paginatedRows,
+    tagsById,
+    totalPages,
+  } = useContactsPanelViewModel({
+    applications,
+    contacts,
+    contactTags,
+    tags,
+    tagCategories,
+    visibleColumns: state.visibleColumns,
+    search: debouncedSearch,
+    selectedProgram: state.selectedProgram,
+    selectedTagIds: state.selectedTagIds,
+    columnFilters: state.columnFilters,
+    sortBy: state.sortBy,
+    page: state.page,
+    pageSize: state.pageSize,
+  });
 
-  // Read saved filter/sort state from localStorage on the very first render.
-  // Uses the ref lazy-init pattern (if ref.current == null) so the lint rule
-  // react-hooks/refs is satisfied. The component renders a skeleton until
-  // contacts data loads, so there's no SSR hydration mismatch to worry about.
-  const FILTERS_STORAGE_KEY = "btm-admin-contacts-filters";
-  const filtersLoadedRef = useRef<true | null>(null);
-  let savedFilters: {
-    search?: string;
-    selectedProgram?: ProgramSlug;
-    selectedTagIds?: string[];
-    columnFilters?: Record<string, string[]>;
-    sortBy?: SortState | null;
-    pageSize?: PageSize;
-    page?: number;
-    columnWidths?: Record<string, number>;
-  } | null = null;
-  if (filtersLoadedRef.current == null) {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
-        savedFilters = raw ? JSON.parse(raw) : null;
-      } catch {
-        /* ignore corrupt localStorage */
-      }
-    }
-    filtersLoadedRef.current = true;
-  }
-
-  const [search, setSearch] = useState(savedFilters?.search ?? "");
-  const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>(savedFilters?.selectedProgram);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(savedFilters?.selectedTagIds ?? []);
-  const [pageSize, setPageSize] = useState<PageSize>(savedFilters?.pageSize ?? 25);
-  const [page, setPage] = useState(savedFilters?.page ?? 1);
-  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
-  const [previouslySelectedColumns, setPreviouslySelectedColumns] = useState<
-    string[]
-  >([]);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(savedFilters?.columnFilters ?? {});
-  const [sortBy, setSortBy] = useState<SortState | null>(savedFilters?.sortBy ?? null);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(savedFilters?.columnWidths ?? {});
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const visibleColumnsRef = useRef<string[]>([]);
-  const previouslySelectedColumnsRef = useRef<string[]>([]);
-  // `null` until the one-time preferences sync has run; `true` afterwards.
-  // React 19's react-hooks/refs rule allows render-time ref writes only
-  // via this `if (ref.current == null)` lazy-init pattern.
-  const initializedRef = useRef<true | null>(null);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const allOnPageSelected =
+    paginatedRows.length > 0 &&
+    paginatedRows.every(({ contact }) => state.selectedIds.has(contact.id));
+  const selectedIdsList = useMemo(
+    () => [...state.selectedIds],
+    [state.selectedIds],
+  );
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    ensureContacts();
-    ensureApplications();
-  }, [ensureContacts, ensureApplications]);
-
-  useEffect(() => {
-    ensurePreferences();
-  }, [ensurePreferences]);
-
-  // Persist filter/sort state to localStorage so it survives navigation
-  // and page reloads. Only writes — no setState, so no lint issues.
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        FILTERS_STORAGE_KEY,
-        JSON.stringify({ search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page, columnWidths }),
-      );
-    } catch {
-      /* localStorage full or unavailable — silently skip */
-    }
-  }, [search, selectedProgram, selectedTagIds, columnFilters, sortBy, pageSize, page, columnWidths]);
-
-  // Prevent a stale debounced save from firing after the component unmounts.
-  useEffect(() => {
-    return () => clearTimeout(saveTimeoutRef.current);
+    return () => {
+      dragCleanupRef.current?.();
+    };
   }, []);
 
-  // One-time sync from preferences context into local state as soon as
-  // the context value has settable data. Uses React 19's ref lazy-init
-  // pattern (`if (ref.current == null)`) to satisfy react-hooks/refs
-  // while allowing the setState calls to run during render. The check
-  // re-runs on every render until preferences is populated, at which
-  // point initializedRef flips and subsequent renders skip the block.
-  if (initializedRef.current == null) {
-    const pref = preferences as {
-      contacts_table?: {
-        visible_columns?: string[];
-        previously_selected_columns?: string[];
-      };
-    };
-    const savedVisible = pref?.contacts_table?.visible_columns;
-    if (Array.isArray(savedVisible)) {
-      const savedPrev = pref?.contacts_table?.previously_selected_columns;
-      // Fall back to `visible_columns` so the Previously-selected section
-      // isn't empty on existing users' first post-upgrade picker open.
-      const initialPrev = Array.isArray(savedPrev) ? savedPrev : savedVisible;
-      setVisibleColumns(savedVisible);
-      setPreviouslySelectedColumns(initialPrev);
-      initializedRef.current = true;
-    }
-  }
-
-  // Mirror state → refs after commit, so the debounced save in
-  // persistColumnPreferences (which fires from a setTimeout 1s later)
-  // always reads committed values. Event handlers still write the refs
-  // synchronously before calling setState so that subsequent reads
-  // within the same handler see the updated value without waiting for
-  // the effect to flush.
-  useEffect(() => {
-    visibleColumnsRef.current = visibleColumns;
-  }, [visibleColumns]);
-  useEffect(() => {
-    previouslySelectedColumnsRef.current = previouslySelectedColumns;
-  }, [previouslySelectedColumns]);
-
-  // Rebuilt only when the applications list itself changes — not on
-  // search/filter/sort, which don't affect this grouping.
-  const appsByContact = useMemo(() => {
-    const map = new Map<string, Application[]>();
-    for (const app of applications ?? []) {
-      if (!app.contact_id) continue;
-      const list = map.get(app.contact_id);
-      if (list) list.push(app);
-      else map.set(app.contact_id, [app]);
-    }
-    return map;
-  }, [applications]);
-
-  const filtered = useMemo(() => {
-    const items = contacts ?? [];
-    const ctags = contactTags ?? [];
-    const allTags = tags ?? [];
-
-    let result = items;
-
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.email.toLowerCase().includes(q),
-      );
-    }
-
-    if (selectedProgram) {
-      result = result.filter((c) =>
-        (appsByContact.get(c.id) ?? []).some((a) => a.program === selectedProgram),
-      );
-    }
-
-    if (selectedTagIds.length > 0) {
-      // Group selected tags by category: OR within a category, AND across categories.
-      // e.g. selecting "interested" + "undecided" in Trip Status shows contacts with
-      // either tag, but adding a tag from a second category narrows the results further.
-      const selectedSet = new Set(selectedTagIds);
-      const tagIdsByCategory = new Map<string, string[]>();
-      for (const t of allTags) {
-        if (!selectedSet.has(t.id)) continue;
-        const list = tagIdsByCategory.get(t.category_id);
-        if (list) list.push(t.id);
-        else tagIdsByCategory.set(t.category_id, [t.id]);
-      }
-
-      result = result.filter((c) => {
-        const contactTagSet = new Set(
-          ctags.filter((ct) => ct.contact_id === c.id).map((ct) => ct.tag_id),
-        );
-        // Every category group must have at least one match (AND across categories)
-        for (const [, categoryTagIds] of tagIdsByCategory) {
-          // At least one tag in this category must be assigned (OR within category)
-          if (!categoryTagIds.some((tagId) => contactTagSet.has(tagId))) return false;
-        }
-        return true;
-      });
-    }
-
-    // Column filters: precompute per-filter metadata (field entry, normalizer,
-    // canonical option set, selected-value partitions) ONCE per active filter,
-    // not per contact. Previously this ran inside the contact loop — O(contacts
-    // × active_filters) field lookups and Set allocations — now it's O(filters).
-    const activeColumnFilters = Object.entries(columnFilters);
-    if (activeColumnFilters.length > 0) {
-      const precomputed = activeColumnFilters.map(([fieldKey, values]) => {
-        const field = getFieldEntry(fieldKey);
-        const canonicalOptions = new Set<string>(
-          (field?.canonical?.options ??
-            (field?.options as readonly string[] | undefined) ??
-            []) as readonly string[],
-        );
-        return {
-          fieldKey,
-          fieldType: field?.type,
-          normalize: field?.canonical?.normalize,
-          canonicalOptions,
-          otherSelected: values.includes("Other"),
-          canonicalSelected: values.filter((v) => v !== "Other"),
-        };
-      });
-
-      result = result.filter((c) => {
-        const contactApps = appsByContact.get(c.id) ?? [];
-        return precomputed.every(
-          ({ fieldKey, fieldType, normalize, canonicalOptions, otherSelected, canonicalSelected }) =>
-            contactApps.some((app) => {
-              const raw = app.answers?.[fieldKey];
-              if (raw == null || raw === "") {
-                return otherSelected;
-              }
-              const rawValues = Array.isArray(raw)
-                ? raw.map(String)
-                : fieldType === "multiselect"
-                  ? String(raw).split(", ").map((s) => s.trim()).filter(Boolean)
-                  : [String(raw)];
-              const matched = rawValues.map((v) =>
-                normalize ? normalize(v) ?? v : v,
-              );
-              if (canonicalSelected.some((v) => matched.includes(v))) return true;
-              if (
-                otherSelected &&
-                matched.some((v) => !canonicalOptions.has(v))
-              ) {
-                return true;
-              }
-              return false;
-            }),
-        );
-      });
-    }
-
-    if (sortBy) {
-      const field = getFieldEntry(sortBy.key);
-      result = [...result].sort((a, b) =>
-        compareContacts(a, b, sortBy, appsByContact, field),
-      );
-    }
-
-    return result;
-  }, [contacts, contactTags, tags, search, selectedProgram, selectedTagIds, columnFilters, sortBy, appsByContact]);
-
-  const hasAnyFilter = search || selectedProgram || selectedTagIds.length > 0 || Object.keys(columnFilters).length > 0;
-
-  const totalPages = Math.ceil(filtered.length / pageSize);
-  const currentPage = Math.min(page, Math.max(totalPages, 1));
-  const paginated = filtered.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
-
-  function clearSelection() {
-    setSelectedIds(new Set());
-  }
-
-  function onFilterChange<T>(setter: (v: T) => void) {
-    return (value: T) => {
-      setter(value);
-      setPage(1);
-      clearSelection();
-    };
-  }
-
-  function handleTagToggle(tagId: string) {
-    setSelectedTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
-    );
-    setPage(1);
-    clearSelection();
-  }
-
-  function handleClearTags() {
-    setSelectedTagIds([]);
-    setPage(1);
-    clearSelection();
-  }
-
-  function persistColumnPreferences() {
-    clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      const columns = visibleColumnsRef.current;
-      const prev = previouslySelectedColumnsRef.current;
-      try {
-        await updatePreferences({
-          contacts_table: {
-            visible_columns: columns,
-            previously_selected_columns: prev,
-          },
-        });
-        // Update provider state so tab remounts get the latest value
-        setPreferences((prior) => ({
-          ...prior,
-          contacts_table: {
-            visible_columns: columns,
-            previously_selected_columns: prev,
-          },
-        }));
-      } catch {
-        toast.error("Failed to save column preferences.");
-      }
-    }, 1000);
-  }
-
-  function handleColumnToggle(key: string) {
-    // Compute next visible state from the ref (source of truth for the
-    // debounced save) and mirror it to React state for rendering.
-    const wasVisible = visibleColumnsRef.current.includes(key);
-    const nextVisible = wasVisible
-      ? visibleColumnsRef.current.filter((k) => k !== key)
-      : [...visibleColumnsRef.current, key];
-    visibleColumnsRef.current = nextVisible;
-    setVisibleColumns(nextVisible);
-
-    if (wasVisible) {
-      setColumnFilters((prev) => {
-        if (!(key in prev)) return prev;
-        const { [key]: _, ...rest } = prev;
-        return rest;
-      });
-    }
-
-    // Write-once: the first time the user selects a column, add it to
-    // the Previously selected set. Never remove — the whole point is
-    // that the user keeps seeing columns they've touched before.
-    if (
-      !wasVisible &&
-      !previouslySelectedColumnsRef.current.includes(key)
-    ) {
-      const nextPrev = [...previouslySelectedColumnsRef.current, key];
-      previouslySelectedColumnsRef.current = nextPrev;
-      setPreviouslySelectedColumns(nextPrev);
-    }
-
-    persistColumnPreferences();
-  }
-
-  function handleColumnFilterToggle(fieldKey: string, value: string) {
-    setColumnFilters((prev) => {
-      const current = prev[fieldKey] ?? [];
-      const next = current.includes(value)
-        ? current.filter((v) => v !== value)
-        : [...current, value];
-      if (next.length === 0) {
-        const rest = { ...prev };
-        delete rest[fieldKey];
-        return rest;
-      }
-      return { ...prev, [fieldKey]: next };
-    });
-    setPage(1);
-    clearSelection();
-  }
-
-  function handleColumnFilterClear(fieldKey: string) {
-    setColumnFilters((prev) => {
-      const rest = { ...prev };
-      delete rest[fieldKey];
-      return rest;
-    });
-    setPage(1);
-    clearSelection();
-  }
-
-  function toggleSort(key: string) {
-    setSortBy((prev) => {
-      if (!prev || prev.key !== key) return { key, direction: "asc" };
-      if (prev.direction === "asc") return { key, direction: "desc" };
-      return null;
-    });
-    setPage(1);
-    clearSelection();
-  }
-
-  function handleClearAllFilters() {
-    setSearch("");
-    setSelectedProgram(undefined);
-    setSelectedTagIds([]);
-    setColumnFilters({});
-    setSortBy(null);
-    setPage(1);
-    clearSelection();
-  }
-
-  function handleResizeStart(columnKey: string, e: React.MouseEvent) {
+  function handleResizeStart(columnKey: string, e: ReactMouseEvent) {
     e.preventDefault();
     const th = (e.target as HTMLElement).closest("th");
     if (!th) return;
@@ -494,7 +165,7 @@ export function ContactsPanel() {
 
     function onMouseMove(ev: MouseEvent) {
       const newWidth = Math.max(80, startWidth + ev.clientX - startX);
-      setColumnWidths((prev) => ({ ...prev, [columnKey]: newWidth }));
+      state.setColumnWidths((prev) => ({ ...prev, [columnKey]: newWidth }));
     }
 
     function onMouseUp() {
@@ -502,41 +173,36 @@ export function ContactsPanel() {
       document.removeEventListener("mouseup", onMouseUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      dragCleanupRef.current = null;
     }
 
+    dragCleanupRef.current = onMouseUp;
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }
 
-  const allOnPageSelected = paginated.length > 0 && paginated.every((c) => selectedIds.has(c.id));
-
   function handleSelectAll() {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    state.setSelectedIds((previous) => {
+      const next = new Set(previous);
       if (allOnPageSelected) {
-        for (const c of paginated) next.delete(c.id);
+        for (const { contact } of paginatedRows) next.delete(contact.id);
       } else {
-        for (const c of paginated) next.add(c.id);
+        for (const { contact } of paginatedRows) next.add(contact.id);
       }
       return next;
     });
   }
 
   function handleSelectOne(contactId: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    state.setSelectedIds((previous) => {
+      const next = new Set(previous);
       if (next.has(contactId)) next.delete(contactId);
       else next.add(contactId);
       return next;
     });
   }
-
-  const activeFields = useMemo(
-    () => visibleColumns.map(getFieldEntry).filter((f): f is FieldRegistryEntry => f !== undefined),
-    [visibleColumns],
-  );
 
   if (contacts === null) {
     if (contactsError) {
@@ -588,18 +254,18 @@ export function ContactsPanel() {
 
       <div className="mb-6">
         <ContactsFilters
-          search={search}
-          selectedProgram={selectedProgram}
-          selectedTagIds={selectedTagIds}
+          search={state.search}
+          selectedProgram={state.selectedProgram}
+          selectedTagIds={state.selectedTagIds}
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
-          visibleColumns={visibleColumns}
-          previouslySelectedColumns={previouslySelectedColumns}
-          onSearchChange={onFilterChange(setSearch)}
-          onProgramChange={onFilterChange(setSelectedProgram)}
-          onTagToggle={handleTagToggle}
-          onClearTags={handleClearTags}
-          onColumnToggle={handleColumnToggle}
+          visibleColumns={state.visibleColumns}
+          previouslySelectedColumns={state.previouslySelectedColumns}
+          onSearchChange={state.handleSearchChange}
+          onProgramChange={state.handleProgramChange}
+          onTagToggle={state.handleTagToggle}
+          onClearTags={state.handleClearTags}
+          onColumnToggle={state.handleColumnToggle}
         />
       </div>
 
@@ -609,7 +275,7 @@ export function ContactsPanel() {
           {hasAnyFilter && (
             <button
               type="button"
-              onClick={handleClearAllFilters}
+              onClick={state.handleClearAllFilters}
               className="ml-3 rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
             >
               Clear all filters
@@ -622,9 +288,13 @@ export function ContactsPanel() {
             <button
               key={size}
               type="button"
-              onClick={() => { setPageSize(size); setPage(1); clearSelection(); }}
+              onClick={() => {
+                state.setPageSize(size);
+                state.setPage(1);
+                state.clearSelection();
+              }}
               className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
-                pageSize === size
+                state.pageSize === size
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
@@ -647,96 +317,116 @@ export function ContactsPanel() {
                 />
               </TableHead>
               {BUILTIN_SORTABLE_COLUMNS.map(({ key, label }) => {
-                const w = columnWidths[key] ?? DEFAULT_COLUMN_WIDTHS[key] ?? 160;
+                const width =
+                  state.columnWidths[key] ?? DEFAULT_COLUMN_WIDTHS[key] ?? 160;
                 return (
-                <TableHead
-                  key={key}
-                  className="relative overflow-hidden"
-                  style={{ width: w }}
-                >
-                  <span className="inline-flex items-center">
-                    {label}
-                    <ColumnSortToggle
-                      active={sortBy?.key === key}
-                      direction={sortBy?.key === key ? sortBy.direction : null}
-                      onClick={() => toggleSort(key)}
-                      label={label}
+                  <TableHead
+                    key={key}
+                    className="relative overflow-hidden"
+                    style={{ width }}
+                  >
+                    <span className="inline-flex items-center">
+                      {label}
+                      <ColumnSortToggle
+                        active={state.sortBy?.key === key}
+                        direction={
+                          state.sortBy?.key === key ? state.sortBy.direction : null
+                        }
+                        onClick={() => state.toggleSort(key)}
+                        label={label}
+                      />
+                    </span>
+                    <div
+                      className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                      onMouseDown={(e) => handleResizeStart(key, e)}
                     />
-                  </span>
-                  <div
-                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
-                    onMouseDown={(e) => handleResizeStart(key, e)}
-                  />
-                </TableHead>
+                  </TableHead>
                 );
               })}
               {(() => {
-                const pw = columnWidths._programs ?? DEFAULT_COLUMN_WIDTHS._programs ?? 120;
+                const width =
+                  state.columnWidths._programs ??
+                  DEFAULT_COLUMN_WIDTHS._programs ??
+                  120;
                 return (
-                <TableHead
-                  className="relative overflow-hidden"
-                  style={{ width: pw }}
-                >
-                  Programs
-                  <div
-                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
-                    onMouseDown={(e) => handleResizeStart("_programs", e)}
-                  />
-                </TableHead>
+                  <TableHead
+                    className="relative overflow-hidden"
+                    style={{ width }}
+                  >
+                    Programs
+                    <div
+                      className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                      onMouseDown={(e) => handleResizeStart("_programs", e)}
+                    />
+                  </TableHead>
                 );
               })()}
               {(() => {
-                const tw = columnWidths._tags ?? DEFAULT_COLUMN_WIDTHS._tags ?? 200;
+                const width =
+                  state.columnWidths._tags ?? DEFAULT_COLUMN_WIDTHS._tags ?? 200;
                 return (
-                <TableHead
-                  className="relative overflow-hidden"
-                  style={{ width: tw }}
-                >
-                  Tags
-                  <div
-                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
-                    onMouseDown={(e) => handleResizeStart("_tags", e)}
-                  />
-                </TableHead>
+                  <TableHead
+                    className="relative overflow-hidden"
+                    style={{ width }}
+                  >
+                    Tags
+                    <div
+                      className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                      onMouseDown={(e) => handleResizeStart("_tags", e)}
+                    />
+                  </TableHead>
                 );
               })()}
               {activeFields.map((field) => {
-                const fw = columnWidths[field.key] ?? (field.key === "age" ? DEFAULT_AGE_WIDTH : DEFAULT_FIELD_WIDTH);
+                const width =
+                  state.columnWidths[field.key] ??
+                  (field.key === "age" ? DEFAULT_AGE_WIDTH : DEFAULT_FIELD_WIDTH);
                 return (
-                <TableHead
-                  key={field.key}
-                  className="relative overflow-hidden"
-                  style={{ width: fw }}
-                >
-                  <span className="inline-flex items-center">
-                    {field.label}
-                    {field.type !== "date" && field.type !== "text" && (
-                      <ColumnFilterPopover
-                        field={field}
-                        options={[...(field.canonical?.options ?? field.options), "Other"]}
-                        selected={columnFilters[field.key] ?? []}
-                        onToggle={(v) => handleColumnFilterToggle(field.key, v)}
-                        onClear={() => handleColumnFilterClear(field.key)}
+                  <TableHead
+                    key={field.key}
+                    className="relative overflow-hidden"
+                    style={{ width }}
+                  >
+                    <span className="inline-flex items-center">
+                      {field.label}
+                      {field.type !== "date" && field.type !== "text" && (
+                        <ColumnFilterPopover
+                          field={field}
+                          options={[
+                            ...(field.canonical?.options ?? field.options),
+                            "Other",
+                          ]}
+                          selected={state.columnFilters[field.key] ?? []}
+                          onToggle={(value) =>
+                            state.handleColumnFilterToggle(field.key, value)
+                          }
+                          onClear={() =>
+                            state.handleColumnFilterClear(field.key)
+                          }
+                        />
+                      )}
+                      <ColumnSortToggle
+                        active={state.sortBy?.key === field.key}
+                        direction={
+                          state.sortBy?.key === field.key
+                            ? state.sortBy.direction
+                            : null
+                        }
+                        onClick={() => state.toggleSort(field.key)}
+                        label={field.label}
                       />
-                    )}
-                    <ColumnSortToggle
-                      active={sortBy?.key === field.key}
-                      direction={sortBy?.key === field.key ? sortBy.direction : null}
-                      onClick={() => toggleSort(field.key)}
-                      label={field.label}
+                    </span>
+                    <div
+                      className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
+                      onMouseDown={(e) => handleResizeStart(field.key, e)}
                     />
-                  </span>
-                  <div
-                    className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
-                    onMouseDown={(e) => handleResizeStart(field.key, e)}
-                  />
-                </TableHead>
+                  </TableHead>
                 );
               })}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginated.length === 0 ? (
+            {paginatedRows.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={7 + activeFields.length}
@@ -746,111 +436,111 @@ export function ContactsPanel() {
                 </TableCell>
               </TableRow>
             ) : (
-            paginated.map((contact) => {
-              const contactApps = appsByContact.get(contact.id) ?? [];
-              const uniquePrograms = [
-                ...new Set(contactApps.map((a) => a.program)),
-              ];
-
-              const contactTagEntries = (contactTags ?? []).filter(
-                (ct) => ct.contact_id === contact.id,
-              );
-
-              return (
-                <TableRow key={contact.id}>
-                  <TableCell className="w-10">
-                    <Checkbox
-                      checked={selectedIds.has(contact.id)}
-                      onCheckedChange={() => handleSelectOne(contact.id)}
-                      aria-label={`Select ${contact.name}`}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Link
-                      href={`/admin/contacts/${contact.id}`}
-                      className="font-medium text-foreground hover:text-primary"
-                    >
-                      {contact.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    {contactApps.length === 1
-                      ? formatDate(contactApps[0].submitted_at)
-                      : contactApps.length > 1
-                        ? (<div className="flex flex-col gap-0.5">
-                            {contactApps.map((a) => (
-                              <div key={a.id}>
-                                <span className="text-muted-foreground/60">{a.program}:</span> {formatDate(a.submitted_at)}
+              paginatedRows.map(
+                ({
+                  contact,
+                  contactApplications,
+                  uniquePrograms,
+                  contactTagEntries,
+                }) => (
+                  <TableRow key={contact.id}>
+                    <TableCell className="w-10">
+                      <Checkbox
+                        checked={state.selectedIds.has(contact.id)}
+                        onCheckedChange={() => handleSelectOne(contact.id)}
+                        aria-label={`Select ${contact.name}`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/admin/contacts/${contact.id}`}
+                        className="font-medium text-foreground hover:text-primary"
+                      >
+                        {contact.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {contactApplications.length === 1
+                        ? formatDate(contactApplications[0].submitted_at)
+                        : contactApplications.length > 1
+                          ? (
+                              <div className="flex flex-col gap-0.5">
+                                {contactApplications.map((application) => (
+                                  <div key={application.id}>
+                                    <span className="text-muted-foreground/60">
+                                      {application.program}:
+                                    </span>{" "}
+                                    {formatDate(application.submitted_at)}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>)
-                        : "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {contact.email}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {contact.phone || "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      {uniquePrograms.map((program) => (
-                        <Badge
-                          key={program}
-                          variant="outline"
-                          className={`w-fit capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
-                        >
-                          {program}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {contactTagEntries.map((ct) => {
-                        const tag = (tags ?? []).find((t) => t.id === ct.tag_id);
-                        if (!tag) return null;
-                        const category = (tagCategories ?? []).find(
-                          (c) => c.id === tag.category_id,
-                        );
-                        const color = category?.color ?? "blue";
-                        return (
+                            )
+                          : "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {contact.email}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {contact.phone || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        {uniquePrograms.map((program) => (
                           <Badge
-                            key={ct.tag_id}
+                            key={program}
                             variant="outline"
-                            className={TAG_COLOR_CLASSES[color] ?? ""}
+                            className={`w-fit capitalize ${PROGRAM_BADGE_CLASS[program] ?? ""}`}
                           >
-                            {category?.name}: {tag.name}
+                            {program}
                           </Badge>
-                        );
-                      })}
-                    </div>
-                  </TableCell>
-                  {activeFields.map((field) => (
-                    <TableCell
-                      key={field.key}
-                      className="overflow-hidden whitespace-normal text-sm text-muted-foreground"
-                    >
-                      <div className="line-clamp-7 break-words">
-                        {renderFieldValue(contactApps, field)}
+                        ))}
                       </div>
                     </TableCell>
-                  ))}
-                </TableRow>
-              );
-            })
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {contactTagEntries.map((contactTag) => {
+                          const tag = tagsById.get(contactTag.tag_id);
+                          if (!tag) return null;
+
+                          const category = categoriesById.get(tag.category_id);
+                          const color = category?.color ?? "blue";
+                          return (
+                            <Badge
+                              key={contactTag.tag_id}
+                              variant="outline"
+                              className={TAG_COLOR_CLASSES[color] ?? ""}
+                            >
+                              {category?.name}: {tag.name}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    </TableCell>
+                    {activeFields.map((field) => (
+                      <TableCell
+                        key={field.key}
+                        className="overflow-hidden whitespace-normal text-sm text-muted-foreground"
+                      >
+                        <div className="line-clamp-7 break-words">
+                          {renderFieldValue(contactApplications, field)}
+                        </div>
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ),
+              )
             )}
           </TableBody>
         </Table>
       </div>
 
-      {selectedIds.size > 0 && (
+      {state.selectedIds.size > 0 && (
         <BulkActionBar
-          selectedCount={selectedIds.size}
-          selectedIds={[...selectedIds]}
+          selectedCount={state.selectedIds.size}
+          selectedIds={selectedIdsList}
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
-          onClearSelection={clearSelection}
+          onClearSelection={state.clearSelection}
         />
       )}
 
@@ -859,7 +549,10 @@ export function ContactsPanel() {
           {currentPage > 1 && (
             <button
               type="button"
-              onClick={() => { setPage(currentPage - 1); clearSelection(); }}
+              onClick={() => {
+                state.setPage(currentPage - 1);
+                state.clearSelection();
+              }}
               className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Previous
@@ -871,7 +564,10 @@ export function ContactsPanel() {
           {currentPage < totalPages && (
             <button
               type="button"
-              onClick={() => { setPage(currentPage + 1); clearSelection(); }}
+              onClick={() => {
+                state.setPage(currentPage + 1);
+                state.clearSelection();
+              }}
               className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Next

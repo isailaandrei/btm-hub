@@ -725,7 +725,11 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
 /** Curated fields shown upfront in the column picker. */
 export const CURATED_FIELDS = FIELD_REGISTRY.filter((f) => f.curated);
 
+const FIELD_REGISTRY_MAP = new Map(
+  FIELD_REGISTRY.map((field) => [field.key, field] as const),
+);
+
 /** Lookup a registry entry by key. */
 export function getFieldEntry(key: string): FieldRegistryEntry | undefined {
-  return FIELD_REGISTRY.find((f) => f.key === key);
+  return FIELD_REGISTRY_MAP.get(key);
 }

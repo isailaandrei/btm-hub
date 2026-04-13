@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { memo, useMemo } from "react";
 import type { ProgramSlug, TagCategory, Tag } from "@/types/database";
 import {
   Select,
@@ -31,7 +31,7 @@ interface ContactsFiltersProps {
   onColumnToggle: (key: string) => void;
 }
 
-export function ContactsFilters({
+export const ContactsFilters = memo(function ContactsFilters({
   search,
   selectedProgram,
   selectedTagIds,
@@ -45,17 +45,19 @@ export function ContactsFilters({
   onClearTags,
   onColumnToggle,
 }: ContactsFiltersProps) {
-  // Local input state + debounce so the table doesn't re-filter (and
-  // potentially shift rows) on every keystroke. The parent's `search`
-  // state only updates after a 200ms pause in typing.
-  const [localSearch, setLocalSearch] = useState(search);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  function handleSearchChange(value: string) {
-    setLocalSearch(value);
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onSearchChange(value), 200);
-  }
+  const selectedTagIdsSet = useMemo(
+    () => new Set(selectedTagIds),
+    [selectedTagIds],
+  );
+  const tagsByCategoryId = useMemo(() => {
+    const map = new Map<string, Tag[]>();
+    for (const tag of tags) {
+      const existing = map.get(tag.category_id);
+      if (existing) existing.push(tag);
+      else map.set(tag.category_id, [tag]);
+    }
+    return map;
+  }, [tags]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,8 +65,8 @@ export function ContactsFilters({
         <input
           type="text"
           placeholder="Search by name or email..."
-          value={localSearch}
-          onChange={(e) => handleSearchChange(e.target.value)}
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
           className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
         />
 
@@ -97,11 +99,13 @@ export function ContactsFilters({
       {tagCategories.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           {tagCategories.map((category) => {
-            const categoryTags = tags.filter((t) => t.category_id === category.id);
+            const categoryTags = tagsByCategoryId.get(category.id) ?? [];
             if (categoryTags.length === 0) return null;
             const color = category.color ?? "blue";
             const colorClass = TAG_COLOR_CLASSES[color] ?? "";
-            const activeCount = categoryTags.filter((t) => selectedTagIds.includes(t.id)).length;
+            const activeCount = categoryTags.filter((tag) =>
+              selectedTagIdsSet.has(tag.id),
+            ).length;
             return (
               <Popover key={category.id}>
                 <PopoverTrigger asChild>
@@ -125,7 +129,7 @@ export function ContactsFilters({
                 <PopoverContent className="w-56 p-0" align="start">
                   <div className="max-h-56 overflow-y-auto p-2">
                     {categoryTags.map((tag) => {
-                      const isActive = selectedTagIds.includes(tag.id);
+                      const isActive = selectedTagIdsSet.has(tag.id);
                       return (
                         <label
                           key={tag.id}
@@ -157,4 +161,4 @@ export function ContactsFilters({
       )}
     </div>
   );
-}
+});
