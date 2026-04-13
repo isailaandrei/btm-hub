@@ -24,6 +24,7 @@ const mockAddContactNote = vi.fn();
 const mockBulkAssignTags = vi.fn();
 const mockBulkUnassignTags = vi.fn();
 const mockDeleteApplication = vi.fn();
+const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/data/contacts", () => ({
   updateContact: mockUpdateContact,
@@ -42,7 +43,7 @@ vi.mock("@/lib/data/profiles", () => ({
 }));
 
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: mockRevalidatePath,
 }));
 
 const {
@@ -51,6 +52,7 @@ const {
   bulkUnassignTag,
   editContact,
   submitContactNote,
+  deleteApplication,
 } = await import(
   "./actions"
 );
@@ -71,6 +73,7 @@ const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("bulkAssignTag", () => {
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockBulkAssignTags.mockResolvedValue({
       requested: 2,
       existing: 2,
@@ -182,8 +185,29 @@ describe("submitContactNote", () => {
   });
 });
 
+describe("deleteApplication", () => {
+  beforeEach(() => {
+    mockRevalidatePath.mockReset();
+    mockDeleteApplication.mockResolvedValue({
+      id: VALID_UUID,
+      contact_id: "660e8400-e29b-41d4-a716-446655440001",
+    });
+  });
+
+  it("revalidates the deleted application's contact detail path and /admin", async () => {
+    await deleteApplication(VALID_UUID);
+
+    expect(mockDeleteApplication).toHaveBeenCalledWith(VALID_UUID);
+    expect(mockRevalidatePath).toHaveBeenCalledWith(
+      "/admin/contacts/660e8400-e29b-41d4-a716-446655440001",
+    );
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+  });
+});
+
 describe("bulkUnassignTag", () => {
   beforeEach(() => {
+    mockRevalidatePath.mockReset();
     mockBulkUnassignTags.mockResolvedValue({});
   });
 

@@ -302,11 +302,15 @@ export async function bulkAssignTags(
 export async function deleteApplication(applicationId: string) {
   await requireAdmin();
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("applications")
     .delete()
-    .eq("id", applicationId);
+    .eq("id", applicationId)
+    .select("id, contact_id")
+    .maybeSingle();
   if (error) throw new Error(`Failed to delete application: ${error.message}`);
+  if (!data) throw new Error("Application not found");
+  return data as { id: string; contact_id: string | null };
 }
 
 export async function bulkUnassignTags(contactIds: string[], tagId: string) {

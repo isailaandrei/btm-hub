@@ -43,9 +43,17 @@ export async function changeStatus(
   }
 
   try {
-    await updateApplicationStatus(applicationId, status as ApplicationStatus, {
-      expectedUpdatedAt,
-    });
+    const application = await updateApplicationStatus(
+      applicationId,
+      status as ApplicationStatus,
+      {
+        expectedUpdatedAt,
+      },
+    );
+
+    if (application.contact_id) {
+      revalidatePath(`/admin/contacts/${application.contact_id}`);
+    }
   } catch (error) {
     if (error instanceof VersionConflictError) {
       return {
@@ -57,7 +65,6 @@ export async function changeStatus(
     }
     throw error;
   }
-
   revalidatePath("/admin");
   return { ok: true };
 }

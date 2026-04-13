@@ -26,6 +26,7 @@ const mockUpdateStatus = vi.fn();
 const mockAddTag = vi.fn();
 const mockRemoveTag = vi.fn();
 const mockAddNote = vi.fn();
+const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/data/applications", () => ({
   updateApplicationStatus: mockUpdateStatus,
@@ -35,7 +36,7 @@ vi.mock("@/lib/data/applications", () => ({
 }));
 
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: mockRevalidatePath,
 }));
 
 const { changeStatus, addTag, removeTag, addNote } = await import("./actions");
@@ -48,7 +49,9 @@ const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("changeStatus", () => {
   beforeEach(() => {
-    mockUpdateStatus.mockResolvedValue({});
+    mockUpdateStatus.mockReset();
+    mockRevalidatePath.mockReset();
+    mockUpdateStatus.mockResolvedValue({ id: VALID_UUID, contact_id: VALID_UUID });
   });
 
   it("throws for invalid UUID", async () => {
@@ -67,6 +70,8 @@ describe("changeStatus", () => {
     expect(mockUpdateStatus).toHaveBeenCalledWith(VALID_UUID, "accepted", {
       expectedUpdatedAt: "2024-01-01T00:00:00Z",
     });
+    expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${VALID_UUID}`);
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
   });
 
   it("returns a validation result for invalid statuses", async () => {

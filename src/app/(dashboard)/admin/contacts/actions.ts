@@ -160,6 +160,9 @@ export async function bulkUnassignTag(contactIds: string[], tagId: string) {
 
 export async function deleteApplication(applicationId: string) {
   validateUUID(applicationId, "application");
-  await deleteApplicationData(applicationId);
+  const deletedApplication = await deleteApplicationData(applicationId);
+  if (deletedApplication.contact_id) {
+    revalidatePath(`/admin/contacts/${deletedApplication.contact_id}`);
+  }
   revalidatePath("/admin");
 }
