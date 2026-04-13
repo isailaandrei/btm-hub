@@ -47,6 +47,8 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
 };
 const DEFAULT_FIELD_WIDTH = 320;
 const DEFAULT_AGE_WIDTH = 160;
+const WRAPPING_CELL_CLASS =
+  "overflow-hidden whitespace-normal break-words text-sm text-muted-foreground";
 
 const BUILTIN_SORTABLE_COLUMNS: { key: string; label: string }[] = [
   { key: BUILTIN_COLUMN.name, label: "Name" },
@@ -460,7 +462,7 @@ export function ContactsPanel() {
                           aria-label={`Select ${contact.name}`}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="overflow-hidden whitespace-normal break-words">
                         <Link
                           href={`/admin/contacts/${contact.id}`}
                           className="font-medium text-foreground hover:text-primary"
@@ -468,7 +470,7 @@ export function ContactsPanel() {
                           {contact.name}
                         </Link>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      <TableCell className={WRAPPING_CELL_CLASS}>
                         {contactApplications.length === 1
                           ? formatDate(contactApplications[0].submitted_at)
                           : contactApplications.length > 1
@@ -486,10 +488,10 @@ export function ContactsPanel() {
                               )
                             : "—"}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className={WRAPPING_CELL_CLASS}>
                         {contact.email}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className={WRAPPING_CELL_CLASS}>
                         {displayPhone || "—"}
                       </TableCell>
                       <TableCell>
