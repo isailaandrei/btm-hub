@@ -9,6 +9,8 @@
 
 import { describe, it, expect } from "vitest";
 
+import type { AdminAiStructuredFilter } from "@/types/admin-ai";
+
 import { buildAdminAiQueryPlan } from "./query-plan";
 
 const CONTACT_ID = "00000000-0000-0000-0000-000000000001";
@@ -36,14 +38,14 @@ describe("buildAdminAiQueryPlan", () => {
 
     // btm_category IS in the structured allowlist — should be extracted.
     const hasBtmCategoryFilter = plan.structuredFilters.some(
-      (f) => f.field === "btm_category",
+      (f: AdminAiStructuredFilter) => f.field === "btm_category",
     );
     expect(hasBtmCategoryFilter).toBe(true);
 
     // country_of_residence is a text field (NOT in structured allowlist).
     // It must not appear as a structured filter.
     const hasCountryFilter = plan.structuredFilters.some(
-      (f) => f.field === "country_of_residence",
+      (f: AdminAiStructuredFilter) => f.field === "country_of_residence",
     );
     expect(hasCountryFilter).toBe(false);
 

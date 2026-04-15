@@ -15,6 +15,14 @@ export type AdminAiScope = "global" | "contact";
 
 export type AdminAiMode = "global_search" | "contact_synthesis" | "hybrid";
 
+/**
+ * Phase 1 filter operators. The approved spec (2026-04-15) defines
+ * `"eq" | "in" | "contains" | "exists" | "range"`; Phase 1 narrows this
+ * to the three listed operators per the implementation plan. Range and
+ * existence checks will be routed through textFocus for now and can
+ * be re-introduced in a later phase by widening this union and the
+ * matching SQL helpers.
+ */
 export type AdminAiStructuredFilterOp = "eq" | "in" | "contains";
 
 export type AdminAiStructuredFilter = {

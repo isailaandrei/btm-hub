@@ -17,7 +17,7 @@ import {
 // Primitive helpers
 // ---------------------------------------------------------------------------
 
-const uuidSchema = z.string().uuid();
+const uuidSchema = z.uuid();
 
 const adminAiScopeSchema = z.enum(["global", "contact"]);
 
