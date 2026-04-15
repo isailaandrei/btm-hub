@@ -6,7 +6,7 @@
  * TypeScript types in `src/types/admin-ai.ts` — keep them in sync.
  */
 
-import { z } from "zod";
+import { z } from "zod/v4";
 
 import {
   ADMIN_AI_STRUCTURED_FIELDS,
