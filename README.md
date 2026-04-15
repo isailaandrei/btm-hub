@@ -1,36 +1,84 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BTM Hub
+
+Internal/admin and public-facing Next.js 16 application for BTM Hub, backed by Supabase.
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies and start the dev server:
+
+```bash
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+## Common Commands
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npm run lint
+npm run test:unit
+npm run test:e2e
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Required Environment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Local development and tests expect:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+```
 
-## Learn More
+Some routes/features also use existing Sanity / email secrets when enabled:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+NEXT_PUBLIC_SANITY_PROJECT_ID=...
+NEXT_PUBLIC_SANITY_DATASET=...
+SANITY_API_READ_TOKEN=...
+RESEND_API_KEY=...
+EMAIL_FROM=...
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Admin AI Analyst
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Phase 1 of the admin AI feature lives inside the existing admin surfaces:
 
-## Deploy on Vercel
+- global panel in `/admin`
+- contact-scoped panel in `/admin/contacts/[id]`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+It does **not** create a separate `/admin/ai` route.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### AI provider env vars
+
+The current hosted provider adapter uses OpenAI via server-side `fetch`:
+
+```bash
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+`OPENAI_MODEL` is optional. If omitted, the app defaults to `gpt-4.1-mini`.
+
+### Missing AI config behavior
+
+If `OPENAI_API_KEY` is missing:
+
+- the admin AI panels still render
+- submitting a question returns a safe failure state
+- the app does not crash at import/build time
+
+### Phase 1 guardrails
+
+This first version intentionally excludes:
+
+- `/admin/ai`
+- token streaming / SSE
+- tool-calling agent loops
+- embeddings / vector search
+- WhatsApp / Instagram / Zoom ingestion
+- AI-driven writes back into CRM data
+
+The feature is read-only, evidence-backed, and citation-first.

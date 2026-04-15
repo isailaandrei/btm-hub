@@ -5,9 +5,9 @@
 -- non-text fields, and Task 4's planner relies on curated fields like
 -- `btm_category`. The original view omitted that column, which meant the
 -- planner could emit a valid-looking filter that the facts query would route
--- to a non-existent SQL column at runtime. Replacing the view keeps the
--- read-model aligned with the curated structured fields we actually support
--- in Phase 1.
+-- to a non-existent SQL column at runtime. We append the new column at the
+-- end of the view because PostgreSQL `CREATE OR REPLACE VIEW` cannot insert a
+-- column into the middle of an existing view definition.
 
 CREATE OR REPLACE VIEW admin_ai_contact_facts
 WITH (security_invoker = true) AS
@@ -25,13 +25,13 @@ SELECT
   a.answers ->> 'budget' AS budget,
   a.answers ->> 'time_availability' AS time_availability,
   a.answers ->> 'start_timeline' AS start_timeline,
-  a.answers ->> 'btm_category' AS btm_category,
   a.answers ->> 'travel_willingness' AS travel_willingness,
   a.answers ->> 'languages' AS languages,
   a.answers ->> 'country_of_residence' AS country_of_residence,
   a.answers ->> 'certification_level' AS certification_level,
   a.answers ->> 'years_experience' AS years_experience,
-  a.answers ->> 'involvement_level' AS involvement_level
+  a.answers ->> 'involvement_level' AS involvement_level,
+  a.answers ->> 'btm_category' AS btm_category
 FROM contacts c
 LEFT JOIN applications a ON a.contact_id = c.id
 LEFT JOIN LATERAL (

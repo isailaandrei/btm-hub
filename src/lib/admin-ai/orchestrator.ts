@@ -9,7 +9,6 @@ import {
 } from "@/lib/data/admin-ai";
 import type {
   AdminAiCitationDraft,
-  AdminAiCitationRow,
   AdminAiQueryPlan,
   AdminAiResponse,
   AdminAiScope,

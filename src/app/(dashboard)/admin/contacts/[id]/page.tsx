@@ -9,7 +9,9 @@ import {
   getTagCategories,
   getTags,
 } from "@/lib/data/contacts";
+import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { AdminAiPanel } from "../../admin-ai/panel";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
 import { ContactNoteForm } from "./contact-note-form";
@@ -26,7 +28,15 @@ export default async function ContactDetailPage({
   } catch {
     return notFound();
   }
-  const [contact, applications, contactTagRows, notes, categories, allTags] =
+  const [
+    contact,
+    applications,
+    contactTagRows,
+    notes,
+    categories,
+    allTags,
+    initialContactThreads,
+  ] =
     await Promise.all([
       getContactById(id),
       getApplicationsByContactId(id),
@@ -34,6 +44,7 @@ export default async function ContactDetailPage({
       getContactNotes(id),
       getTagCategories(),
       getTags(),
+      listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
     ]);
 
   if (!contact) return notFound();
@@ -94,6 +105,20 @@ export default async function ContactDetailPage({
                   <dd>{latestApplicationPhone || contact.phone || "—"}</dd>
                 </div>
               </dl>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">AI Analyst</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AdminAiPanel
+                scope="contact"
+                contactId={contact.id}
+                contactName={contact.name}
+                initialThreads={initialContactThreads}
+              />
             </CardContent>
           </Card>
 

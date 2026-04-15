@@ -1,0 +1,69 @@
+"use client";
+
+import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { AdminAiThreadSummary } from "@/types/admin-ai";
+import { ContactsPanel } from "./contacts/contacts-panel";
+import { TagsPanel } from "./tags/tags-panel";
+import { AdminAiPanel } from "./admin-ai/panel";
+
+type Tab = "contacts" | "tags";
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: "contacts", label: "Contacts" },
+  { key: "tags", label: "Tags" },
+];
+
+export function AdminDashboard({
+  initialGlobalThreads,
+}: {
+  initialGlobalThreads: AdminAiThreadSummary[];
+}) {
+  const [activeTab, setActiveTab] = useState<Tab>("contacts");
+
+  return (
+    <div>
+      <nav className="mb-8 flex gap-1 border-b border-border pb-4">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === tab.key
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {activeTab === "contacts" ? (
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="min-w-0">
+            <ContactsPanel />
+          </div>
+
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle>AI Analyst</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Ask grounded questions about contacts, applications, and notes.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <AdminAiPanel
+                scope="global"
+                initialThreads={initialGlobalThreads}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <TagsPanel />
+      )}
+    </div>
+  );
+}
