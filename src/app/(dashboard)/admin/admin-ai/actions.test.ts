@@ -7,6 +7,7 @@ import type {
 
 const THREAD_ID = "33333333-3333-4333-8333-333333333333";
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
+const SEEDED_CONTACT_ID = "11111111-1111-1111-1111-000000000001";
 const USER_MESSAGE_ID = "44444444-4444-4444-8444-444444444444";
 const ASSISTANT_MESSAGE_ID = "55555555-5555-4555-8555-555555555555";
 
@@ -17,6 +18,7 @@ const mockRenameAdminAiThread = vi.fn();
 const mockDeleteAdminAiThread = vi.fn();
 const mockRunAdminAiAnalysis = vi.fn();
 const mockRevalidatePath = vi.fn();
+const mockGetAdminAiProviderAvailability = vi.fn();
 
 vi.mock("@/lib/data/admin-ai", () => ({
   createAdminAiThread: mockCreateAdminAiThread,
@@ -28,6 +30,10 @@ vi.mock("@/lib/data/admin-ai", () => ({
 
 vi.mock("@/lib/admin-ai/orchestrator", () => ({
   runAdminAiAnalysis: mockRunAdminAiAnalysis,
+}));
+
+vi.mock("@/lib/admin-ai/provider", () => ({
+  getAdminAiProviderAvailability: mockGetAdminAiProviderAvailability,
 }));
 
 vi.mock("next/cache", () => ({
@@ -124,6 +130,42 @@ describe("askAdminAiQuestion", () => {
     mockCreateAdminAiMessage.mockReset();
     mockRunAdminAiAnalysis.mockReset();
     mockRevalidatePath.mockReset();
+    mockGetAdminAiProviderAvailability.mockReset();
+    mockGetAdminAiProviderAvailability.mockReturnValue({
+      isConfigured: true,
+      unavailableReason: null,
+      model: "gpt-4.1-mini",
+    });
+  });
+
+  it("short-circuits without creating a thread or message when the provider is unavailable", async () => {
+    mockGetAdminAiProviderAvailability.mockReturnValue({
+      isConfigured: false,
+      unavailableReason: "Admin AI is not configured yet.",
+      model: null,
+    });
+
+    const { askAdminAiQuestion } = await import("./actions");
+    const formData = new FormData();
+    formData.set("scope", "global");
+    formData.set("question", "Find strong candidates");
+
+    const result = await askAdminAiQuestion(
+      {
+        errors: null,
+        message: null,
+        success: false,
+        thread: null,
+        messages: null,
+      },
+      formData,
+    );
+
+    expect(mockCreateAdminAiThread).not.toHaveBeenCalled();
+    expect(mockCreateAdminAiMessage).not.toHaveBeenCalled();
+    expect(mockRunAdminAiAnalysis).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/not configured/i);
   });
 
   it("creates a new thread when no threadId is provided", async () => {
@@ -176,6 +218,67 @@ describe("askAdminAiQuestion", () => {
     expect(result.success).toBe(true);
     expect(result.thread?.id).toBe(THREAD_ID);
     expect(result.messages).toHaveLength(2);
+  });
+
+  it("accepts contact-scoped seeded UUIDs that match the app-wide validator", async () => {
+    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
+    mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
+    mockRunAdminAiAnalysis.mockResolvedValue({
+      status: "complete",
+      assistantMessageId: ASSISTANT_MESSAGE_ID,
+      queryPlan: {
+        mode: "contact_synthesis",
+        contactId: SEEDED_CONTACT_ID,
+        structuredFilters: [],
+        textFocus: ["motivation"],
+        requestedLimit: 1,
+      },
+      response: {
+        summary: "Grounded contact synthesis.",
+        keyFindings: [],
+        contactAssessment: {
+          facts: ["Has active filmmaking application."],
+          inferredQualities: ["Appears motivated."],
+          concerns: [],
+          citations: [],
+        },
+        uncertainty: [],
+      },
+      citations: [],
+      modelMetadata: null,
+      error: null,
+    });
+
+    const { askAdminAiQuestion } = await import("./actions");
+    const formData = new FormData();
+    formData.set("scope", "contact");
+    formData.set("contactId", SEEDED_CONTACT_ID);
+    formData.set("question", "Summarize this contact");
+
+    const result = await askAdminAiQuestion(
+      {
+        errors: null,
+        message: null,
+        success: false,
+        thread: null,
+        messages: null,
+      },
+      formData,
+    );
+
+    expect(result.errors).toBeNull();
+    expect(mockCreateAdminAiThread).toHaveBeenCalledWith({
+      scope: "contact",
+      contactId: SEEDED_CONTACT_ID,
+      title: "Summarize this contact",
+    });
+    expect(mockRunAdminAiAnalysis).toHaveBeenCalledWith({
+      scope: "contact",
+      threadId: THREAD_ID,
+      question: "Summarize this contact",
+      contactId: SEEDED_CONTACT_ID,
+    });
+    expect(result.success).toBe(true);
   });
 
   it("appends to an existing owned thread when threadId is provided", async () => {
@@ -305,8 +408,8 @@ describe("renameAdminAiThread", () => {
       threadId: THREAD_ID,
       title: "New AI thread title",
     });
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
     expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${CONTACT_ID}`);
+    expect(mockRevalidatePath).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -326,7 +429,7 @@ describe("deleteAdminAiThread", () => {
     });
 
     expect(mockDeleteAdminAiThread).toHaveBeenCalledWith({ threadId: THREAD_ID });
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
     expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${CONTACT_ID}`);
+    expect(mockRevalidatePath).toHaveBeenCalledTimes(1);
   });
 });

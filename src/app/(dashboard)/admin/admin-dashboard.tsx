@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiThreadSummary } from "@/types/admin-ai";
 import { ContactsPanel } from "./contacts/contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
@@ -16,8 +17,10 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function AdminDashboard({
   initialGlobalThreads,
+  adminAiAvailability,
 }: {
   initialGlobalThreads: AdminAiThreadSummary[];
+  adminAiAvailability: AdminAiProviderAvailability;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
 
@@ -57,6 +60,7 @@ export function AdminDashboard({
               <AdminAiPanel
                 scope="global"
                 initialThreads={initialGlobalThreads}
+                providerAvailability={adminAiAvailability}
               />
             </CardContent>
           </Card>

@@ -9,6 +9,7 @@ import {
   getTagCategories,
   getTags,
 } from "@/lib/data/contacts";
+import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { AdminAiPanel } from "../../admin-ai/panel";
@@ -36,6 +37,7 @@ export default async function ContactDetailPage({
     categories,
     allTags,
     initialContactThreads,
+    adminAiAvailability,
   ] =
     await Promise.all([
       getContactById(id),
@@ -45,6 +47,7 @@ export default async function ContactDetailPage({
       getTagCategories(),
       getTags(),
       listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
+      getAdminAiProviderAvailability(),
     ]);
 
   if (!contact) return notFound();
@@ -118,6 +121,7 @@ export default async function ContactDetailPage({
                 contactId={contact.id}
                 contactName={contact.name}
                 initialThreads={initialContactThreads}
+                providerAvailability={adminAiAvailability}
               />
             </CardContent>
           </Card>

@@ -8,6 +8,7 @@
 
 import { z } from "zod/v4";
 
+import { isUUID } from "@/lib/validation-helpers";
 import {
   ADMIN_AI_STRUCTURED_FIELDS,
   isAdminAiStructuredField,
@@ -17,7 +18,12 @@ import {
 // Primitive helpers
 // ---------------------------------------------------------------------------
 
-const uuidSchema = z.uuid();
+// Use the repo-wide UUID helper instead of `z.uuid()`. Zod v4 only accepts
+// canonical RFC variant UUIDs, while our local/dev seed data uses stable
+// UUID-shaped identifiers that are accepted across the rest of the app.
+const uuidSchema = z.string().refine(isUUID, {
+  message: "Invalid UUID",
+});
 
 const adminAiScopeSchema = z.enum(["global", "contact"]);
 

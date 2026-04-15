@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useMemo, useState } from "react";
+import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type {
   AdminAiMessageSummary,
   AdminAiThreadSummary,
@@ -33,11 +34,13 @@ export function AdminAiPanel({
   contactId,
   contactName,
   initialThreads,
+  providerAvailability,
 }: {
   scope: "global" | "contact";
   contactId?: string;
   contactName?: string;
   initialThreads: AdminAiThreadSummary[];
+  providerAvailability: AdminAiProviderAvailability;
 }) {
   const [threads, setThreads] = useState(initialThreads);
   const [selectedThread, setSelectedThread] = useState<AdminAiThreadSummary | null>(
@@ -126,6 +129,7 @@ export function AdminAiPanel({
         threadTitle={selectedThread?.title}
         threadCreatedAt={selectedThread?.createdAt}
         contactId={contactId}
+        providerAvailability={providerAvailability}
         onResolved={handleAskResolved}
       />
 

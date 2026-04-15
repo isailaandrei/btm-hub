@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
+import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiAskFormState } from "./actions";
 import { askAdminAiQuestion } from "./actions";
 
@@ -18,6 +19,7 @@ export function QuestionForm({
   threadTitle,
   threadCreatedAt,
   contactId,
+  providerAvailability,
   onResolved,
 }: {
   scope: "global" | "contact";
@@ -25,6 +27,7 @@ export function QuestionForm({
   threadTitle?: string;
   threadCreatedAt?: string;
   contactId?: string;
+  providerAvailability: AdminAiProviderAvailability;
   onResolved: (state: AdminAiAskFormState) => void;
 }) {
   const [state, formAction, isPending] = useActionState(
@@ -32,6 +35,10 @@ export function QuestionForm({
     INITIAL_STATE,
   );
   const handledRef = useRef<string | null>(null);
+  const isUnavailable = !providerAvailability.isConfigured;
+  const disabled = isPending || isUnavailable;
+  const unavailableReason =
+    providerAvailability.unavailableReason ?? "Admin AI is not configured yet.";
 
   useEffect(() => {
     if (!state.thread || !state.messages) return;
@@ -58,6 +65,12 @@ export function QuestionForm({
       )}
       {contactId && <input type="hidden" name="contactId" value={contactId} />}
 
+      {isUnavailable && (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {unavailableReason} Add `OPENAI_API_KEY` on the server, then restart the app.
+        </p>
+      )}
+
       <div>
         <textarea
           name="question"
@@ -68,7 +81,7 @@ export function QuestionForm({
               ? "Ask about this contact's fit, signals, and concerns..."
               : "Ask for a shortlist, synthesis, or grounded contact insight..."
           }
-          disabled={isPending}
+          disabled={disabled}
           className="w-full resize-none rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary disabled:opacity-60"
         />
         {state.errors?.question && (
@@ -96,7 +109,7 @@ export function QuestionForm({
       <div className="flex justify-end">
         <button
           type="submit"
-          disabled={isPending}
+          disabled={disabled}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {isPending ? "Thinking…" : "Ask AI"}

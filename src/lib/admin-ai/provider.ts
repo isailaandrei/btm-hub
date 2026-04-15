@@ -13,7 +13,7 @@ import type {
 } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
 const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 
 type ProviderGenerateInput = {
@@ -32,6 +32,12 @@ export interface AdminAiProvider {
     modelMetadata: Record<string, unknown>;
   }>;
 }
+
+export type AdminAiProviderAvailability = {
+  isConfigured: boolean;
+  unavailableReason: string | null;
+  model: string | null;
+};
 
 type OpenAiResponseItem = {
   type?: string;
@@ -165,4 +171,15 @@ const openAiAdminAiProvider: AdminAiProvider = {
 
 export function getAdminAiProvider(): AdminAiProvider {
   return openAiAdminAiProvider;
+}
+
+export function getAdminAiProviderAvailability(): AdminAiProviderAvailability {
+  const provider = getAdminAiProvider();
+  const isConfigured = provider.isConfigured();
+
+  return {
+    isConfigured,
+    unavailableReason: provider.getUnavailableReason(),
+    model: isConfigured ? getModel() : null,
+  };
 }

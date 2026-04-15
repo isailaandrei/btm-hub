@@ -6,6 +6,7 @@ import {
   adminAiThreadLoadSchema,
   adminAiThreadMutationSchema,
 } from "@/lib/admin-ai/schemas";
+import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import { runAdminAiAnalysis } from "@/lib/admin-ai/orchestrator";
 import {
   createAdminAiMessage,
@@ -38,8 +39,12 @@ function buildThreadTitle(question: string): string {
 }
 
 function revalidateAdminAiViews(scope: "global" | "contact", contactId?: string) {
-  revalidatePath("/admin");
-  if (scope === "contact" && contactId) {
+  if (scope === "global") {
+    revalidatePath("/admin");
+    return;
+  }
+
+  if (contactId) {
     revalidatePath(`/admin/contacts/${contactId}`);
   }
 }
@@ -158,6 +163,18 @@ export async function askAdminAiQuestion(
   const now = new Date().toISOString();
   const threadTitle = buildThreadTitle(parsed.data.question);
   const existingThreadMetadata = getExistingThreadMetadata(formData);
+  const providerAvailability = getAdminAiProviderAvailability();
+
+  if (!providerAvailability.isConfigured) {
+    return {
+      errors: null,
+      message:
+        providerAvailability.unavailableReason ?? "Admin AI is not configured yet.",
+      success: false,
+      thread: prevState.thread,
+      messages: prevState.messages,
+    };
+  }
 
   let threadId = parsed.data.threadId;
   if (!threadId) {
