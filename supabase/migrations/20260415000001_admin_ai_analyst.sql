@@ -503,14 +503,12 @@ BEGIN
     FROM admin_ai_evidence_items ei
     WHERE to_tsvector('english', ei.text) @@ v_tsquery
       AND (
-        p_contact_id IS NOT NULL
-          AND ei.contact_id = p_contact_id
-        OR p_contact_id IS NULL
-           AND (
-             p_contact_ids IS NULL
-             OR array_length(p_contact_ids, 1) IS NULL
-             OR ei.contact_id = ANY(p_contact_ids)
-           )
+        (p_contact_id IS NOT NULL AND ei.contact_id = p_contact_id)
+        OR (p_contact_id IS NULL AND (
+              p_contact_ids IS NULL
+              OR array_length(p_contact_ids, 1) IS NULL
+              OR ei.contact_id = ANY(p_contact_ids)
+            ))
       )
     ORDER BY
       ts_rank_cd(to_tsvector('english', ei.text), v_tsquery) DESC,
@@ -532,14 +530,12 @@ BEGIN
     FROM admin_ai_evidence_items ei
     WHERE ei.text ILIKE '%' || p_query || '%'
       AND (
-        p_contact_id IS NOT NULL
-          AND ei.contact_id = p_contact_id
-        OR p_contact_id IS NULL
-           AND (
-             p_contact_ids IS NULL
-             OR array_length(p_contact_ids, 1) IS NULL
-             OR ei.contact_id = ANY(p_contact_ids)
-           )
+        (p_contact_id IS NOT NULL AND ei.contact_id = p_contact_id)
+        OR (p_contact_id IS NULL AND (
+              p_contact_ids IS NULL
+              OR array_length(p_contact_ids, 1) IS NULL
+              OR ei.contact_id = ANY(p_contact_ids)
+            ))
       )
     ORDER BY ei.source_timestamp DESC
     LIMIT v_effective_limit;
@@ -558,14 +554,12 @@ BEGIN
       ei.text
     FROM admin_ai_evidence_items ei
     WHERE (
-      p_contact_id IS NOT NULL
-        AND ei.contact_id = p_contact_id
-      OR p_contact_id IS NULL
-         AND (
-           p_contact_ids IS NULL
-           OR array_length(p_contact_ids, 1) IS NULL
-           OR ei.contact_id = ANY(p_contact_ids)
-         )
+      (p_contact_id IS NOT NULL AND ei.contact_id = p_contact_id)
+      OR (p_contact_id IS NULL AND (
+            p_contact_ids IS NULL
+            OR array_length(p_contact_ids, 1) IS NULL
+            OR ei.contact_id = ANY(p_contact_ids)
+          ))
     )
     ORDER BY ei.source_timestamp DESC
     LIMIT v_effective_limit;
