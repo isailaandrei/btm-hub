@@ -1,0 +1,160 @@
+/**
+ * Shared contracts for the admin AI analyst feature.
+ *
+ * These types are consumed across the server action, query planner,
+ * provider adapter, persistence layer, and UI. Keep field names aligned
+ * with the DB columns defined in
+ * `supabase/migrations/20260415000001_admin_ai_analyst.sql`.
+ */
+
+// ---------------------------------------------------------------------------
+// Scope, mode, and query plan
+// ---------------------------------------------------------------------------
+
+export type AdminAiScope = "global" | "contact";
+
+export type AdminAiMode = "global_search" | "contact_synthesis" | "hybrid";
+
+export type AdminAiStructuredFilterOp = "eq" | "in" | "contains";
+
+export type AdminAiStructuredFilter = {
+  field: string;
+  op: AdminAiStructuredFilterOp;
+  value: string | string[];
+};
+
+export type AdminAiQueryPlan = {
+  mode: AdminAiMode;
+  contactId?: string;
+  structuredFilters: AdminAiStructuredFilter[];
+  textFocus: string[];
+  requestedLimit: number;
+};
+
+// ---------------------------------------------------------------------------
+// Evidence retrieval
+// ---------------------------------------------------------------------------
+
+export type EvidenceSourceType =
+  | "application_answer"
+  | "contact_note"
+  | "application_admin_note";
+
+export type EvidenceItem = {
+  evidenceId: string;
+  contactId: string;
+  applicationId: string | null;
+  sourceType: EvidenceSourceType;
+  sourceId: string;
+  sourceLabel: string;
+  sourceTimestamp: string | null;
+  program: string | null;
+  text: string;
+};
+
+// ---------------------------------------------------------------------------
+// Model response shape
+// ---------------------------------------------------------------------------
+
+export type AdminAiCitation = {
+  evidenceId: string;
+  claimKey: string;
+};
+
+export type AdminAiShortlistEntry = {
+  contactId: string;
+  contactName: string;
+  whyFit: string[];
+  concerns: string[];
+  citations: AdminAiCitation[];
+};
+
+export type AdminAiContactAssessment = {
+  facts: string[];
+  inferredQualities: string[];
+  concerns: string[];
+  citations: AdminAiCitation[];
+};
+
+export type AdminAiResponse = {
+  summary: string;
+  keyFindings: string[];
+  shortlist?: AdminAiShortlistEntry[];
+  contactAssessment?: AdminAiContactAssessment;
+  uncertainty: string[];
+};
+
+// ---------------------------------------------------------------------------
+// DB row mirrors (match migration 20260415000001_admin_ai_analyst.sql)
+// ---------------------------------------------------------------------------
+
+/** Row shape of `admin_ai_threads`. */
+export type AdminAiThread = {
+  id: string;
+  author_id: string;
+  scope: AdminAiScope;
+  contact_id: string | null;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminAiMessageRole = "user" | "assistant";
+export type AdminAiMessageStatus = "complete" | "failed";
+
+/** Row shape of `admin_ai_messages`. */
+export type AdminAiMessage = {
+  id: string;
+  thread_id: string;
+  role: AdminAiMessageRole;
+  content: string;
+  status: AdminAiMessageStatus;
+  /** Stored as jsonb; logically an `AdminAiQueryPlan` for assistant rows. */
+  query_plan: AdminAiQueryPlan | null;
+  /** Stored as jsonb; logically an `AdminAiResponse` for assistant rows. */
+  response_json: AdminAiResponse | null;
+  /** Provider metadata (model id, latency, token counts, etc.). */
+  model_metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+/** Row shape of `admin_ai_message_citations`. */
+export type AdminAiCitationRow = {
+  id: string;
+  message_id: string;
+  claim_key: string;
+  source_type: EvidenceSourceType;
+  source_id: string;
+  contact_id: string;
+  application_id: string | null;
+  source_label: string;
+  snippet: string;
+  created_at: string;
+};
+
+// ---------------------------------------------------------------------------
+// UI-facing summaries
+// ---------------------------------------------------------------------------
+
+/** Summary used by the thread list UI. */
+export type AdminAiThreadSummary = {
+  id: string;
+  scope: AdminAiScope;
+  contactId: string | null;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Summary used when rendering a conversation's messages. */
+export type AdminAiMessageSummary = {
+  id: string;
+  threadId: string;
+  role: AdminAiMessageRole;
+  status: AdminAiMessageStatus;
+  content: string;
+  createdAt: string;
+  queryPlan: AdminAiQueryPlan | null;
+  response: AdminAiResponse | null;
+  citations: AdminAiCitationRow[];
+};

@@ -378,6 +378,11 @@ LEFT JOIN LATERAL (
 CREATE VIEW admin_ai_evidence_items
 WITH (security_invoker = true) AS
 -- Application free-text answers (allowlisted keys)
+--
+-- IMPORTANT: This allowlist MUST stay in sync with `ADMIN_AI_TEXT_FIELDS` in
+-- `src/lib/admin-ai/field-config.ts`. Adding a key here requires adding it
+-- there (and vice-versa) — otherwise the planner may request keys this view
+-- does not expose, or SQL may surface keys the planner does not know about.
 SELECT
   a.id::text || ':' || answer_items.source_label AS evidence_id,
   a.contact_id,
