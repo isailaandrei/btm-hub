@@ -18,29 +18,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import {
-  ADMIN_AI_STRUCTURED_FIELDS,
+  isAdminAiArrayFactField,
   isAdminAiStructuredField,
 } from "@/lib/admin-ai/field-config";
+import { escapeSearchTerm } from "@/lib/data/applications";
 import type {
   AdminAiStructuredFilter,
   ContactFactRow,
   EvidenceItem,
   EvidenceSourceType,
 } from "@/types/admin-ai";
-
-// ---------------------------------------------------------------------------
-// Columns known to be array-typed on the facts view. For these, `contains`
-// must use `.contains(...)` (JSON-array containment) rather than `.ilike(...)`.
-// ---------------------------------------------------------------------------
-
-const ARRAY_FACT_FIELDS: ReadonlySet<string> = new Set([
-  "tag_ids",
-  "tag_names",
-]);
-
-function isArrayFactField(field: string): boolean {
-  return ARRAY_FACT_FIELDS.has(field);
-}
 
 // Shape returned by `admin_ai_contact_facts`. Listed explicitly so we can
 // call `.select(FACTS_SELECT)` without relying on `*` (stable over schema
@@ -97,7 +84,7 @@ export async function queryAdminAiContactFacts(input: {
         break;
       }
       case "in": {
-        if (isArrayFactField(filter.field)) {
+        if (isAdminAiArrayFactField(filter.field)) {
           // Array-typed columns (tag_ids, tag_names): "in" semantically
           // means "row's array contains any/all of these values". Postgres
           // array containment via `.contains(...)` is the correct operator
@@ -115,17 +102,21 @@ export async function queryAdminAiContactFacts(input: {
         break;
       }
       case "contains": {
-        if (isArrayFactField(filter.field)) {
+        if (isAdminAiArrayFactField(filter.field)) {
           const arr = Array.isArray(filter.value)
             ? filter.value
             : [filter.value];
           query = query.contains(filter.field, arr);
         } else if (typeof filter.value === "string") {
-          // Text column: use ILIKE for substring search. We intentionally do
-          // NOT escape % / _ here — the planner produces these values from an
-          // allowlisted enum or sanitized user text, and the filter column is
-          // server-chosen from the allowlist.
-          query = query.ilike(filter.field, `%${filter.value}%`);
+          // Text column: use ILIKE for substring search. Escape % / _ as
+          // defense-in-depth — the planner is expected to pass allowlisted /
+          // sanitized values, but the filter column comes from a planner-
+          // chosen allowlist and we do not want an unexpectedly wildcarded
+          // value to broaden the match set silently.
+          query = query.ilike(
+            filter.field,
+            `%${escapeSearchTerm(filter.value)}%`,
+          );
         }
         break;
       }
@@ -145,10 +136,6 @@ export async function queryAdminAiContactFacts(input: {
 
   return (data ?? []) as unknown as ContactFactRow[];
 }
-
-// Exposed so callers (e.g. query-plan normalization, tests) can reason about
-// the allowlist without importing field-config directly.
-export { ADMIN_AI_STRUCTURED_FIELDS };
 
 // ---------------------------------------------------------------------------
 // Evidence search

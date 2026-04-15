@@ -74,6 +74,26 @@ export const ADMIN_AI_STRUCTURED_FIELDS: readonly string[] = Object.freeze(
   ),
 );
 
+/**
+ * Array-typed columns in admin_ai_contact_facts. Kept in sync manually with
+ * the view definition in supabase/migrations/20260415000001_admin_ai_analyst.sql
+ * (look for `tag_ids uuid[]`, `tag_names text[]` in the view body).
+ *
+ * Used by queryAdminAiContactFacts to route `in`/`contains` filters on these
+ * fields through Supabase's `.contains(...)` (array containment) rather than
+ * `.in(...)` (scalar list match) or `.ilike(...)` (substring).
+ */
+export const ADMIN_AI_ARRAY_FACT_FIELDS = Object.freeze([
+  "tag_ids",
+  "tag_names",
+] as const);
+
+export type AdminAiArrayFactField = (typeof ADMIN_AI_ARRAY_FACT_FIELDS)[number];
+
+export function isAdminAiArrayFactField(key: string): key is AdminAiArrayFactField {
+  return (ADMIN_AI_ARRAY_FACT_FIELDS as readonly string[]).includes(key);
+}
+
 // ---------------------------------------------------------------------------
 // Text (evidence) fields
 // ---------------------------------------------------------------------------

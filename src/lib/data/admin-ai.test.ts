@@ -529,6 +529,36 @@ describe("queryAdminAiContactFacts", () => {
     await queryAdminAiContactFacts({ filters: [], limit: 5 });
     expect(vi.mocked(requireAdmin)).toHaveBeenCalledTimes(1);
   });
+
+  it("routes `contains` filter on tag_names to .contains()", async () => {
+    mock.mockQueryResult([]);
+    const { queryAdminAiContactFacts } = await import("./admin-ai-retrieval");
+    await queryAdminAiContactFacts({
+      filters: [
+        { field: "tag_names", op: "contains", value: ["experienced"] },
+      ],
+      limit: 10,
+    });
+    expect(mock.client.from).toHaveBeenCalledWith("admin_ai_contact_facts");
+    expect(mock.query.contains).toHaveBeenCalledWith("tag_names", [
+      "experienced",
+    ]);
+    expect(mock.query.ilike).not.toHaveBeenCalled();
+  });
+
+  it("routes `contains` filter on a text column to .ilike() with escaped wildcards", async () => {
+    mock.mockQueryResult([]);
+    const { queryAdminAiContactFacts } = await import("./admin-ai-retrieval");
+    await queryAdminAiContactFacts({
+      filters: [{ field: "budget", op: "contains", value: "50% off" }],
+      limit: 10,
+    });
+    expect(mock.query.ilike).toHaveBeenCalledWith(
+      "budget",
+      expect.stringContaining("50\\%"),
+    );
+    expect(mock.query.contains).not.toHaveBeenCalled();
+  });
 });
 
 // ===========================================================================
