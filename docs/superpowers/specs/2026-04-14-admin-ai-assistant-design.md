@@ -1,6 +1,8 @@
-# Admin AI Assistant — Design (v4)
+# Admin AI Assistant — Design (v4) — SUPERSEDED
 
-**Status:** v4 (2026-04-14) — three rounds of staff-engineer review incorporated. v2 addressed the initial must-fix/should-fix items; v3 resolved the second-pass findings (audit-table FK, RLS fail-loud, trigger ambiguity, service-role gap, stream reconciliation, observability sink); v4 resolves the third-pass findings (trigger-convention correction, full `log_ai_tool_invocation` signature with `auth.uid()`-sourced `author_id`, `AI_MODEL` eager-validation at boot, iteration-cap logging target, request-context sharing, transaction boundaries). Verdict: approved for implementation plan.
+> **⚠️ SUPERSEDED 2026-04-15.** This spec is kept for history only. The canonical, approved design is **`docs/superpowers/specs/2026-04-15-ai-admin-analyst-design.md`**. Differences: the newer spec uses a global slider panel in `/admin` plus a contact-scoped slider in `/admin/contacts/[id]` (not a dedicated `/admin/ai` route), request/response (not streaming) in Phase 1, a structured `AiResponse` + first-class citations table, and a retrieval-first architecture with a structured contact-facts read model + a text-evidence read model backed by Postgres FTS. Do not implement from this file.
+
+**Status:** v4 (2026-04-14) — three rounds of staff-engineer review incorporated. v2 addressed the initial must-fix/should-fix items; v3 resolved the second-pass findings (audit-table FK, RLS fail-loud, trigger ambiguity, service-role gap, stream reconciliation, observability sink); v4 resolves the third-pass findings (trigger-convention correction, full `log_ai_tool_invocation` signature with `auth.uid()`-sourced `author_id`, `AI_MODEL` eager-validation at boot, iteration-cap logging target, request-context sharing, transaction boundaries).
 **Date:** 2026-04-14
 **Owner:** Andrei
 

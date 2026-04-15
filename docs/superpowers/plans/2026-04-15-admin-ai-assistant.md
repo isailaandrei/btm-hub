@@ -1,4 +1,8 @@
-# Admin AI Assistant Implementation Plan
+# Admin AI Assistant Implementation Plan — SUPERSEDED
+
+> **⚠️ SUPERSEDED 2026-04-15.** This plan was written against `docs/superpowers/specs/2026-04-14-admin-ai-assistant-design.md`, which has itself been superseded. The canonical plan is **`docs/superpowers/plans/2026-04-15-ai-admin-analyst.md`** (against the April 15 analyst spec). Do not execute this one.
+>
+> Known issues in this plan, documented for the record (found in a codex review): (1) targets the wrong product — a streamed `/admin/ai` route, not the approved slider panels; (2) the tool-loop at Task 17 ignores `input_json_delta` events, so tool calls would execute with empty/partial input; (3) `searchText` misses `applications.admin_notes` and uses ad-hoc `ILIKE` rather than the agreed `EvidenceItem` + FTS contract; (4) `list_contacts_enriched` does 4 round-trips with in-memory joins instead of using a denormalized read model; (5) `bio` was put in the answer-field whitelist but it's a `Profile` field; (6) weakened a failing test to commit an empty registry; (7) E2E fixture assumptions don't match the existing `e2e/admin.spec.ts` pattern; (8) no citations table despite the newer spec making citations first-class. Useful only as a negative example.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
