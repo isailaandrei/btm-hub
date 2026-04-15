@@ -166,3 +166,51 @@ export type AdminAiMessageSummary = {
   response: AdminAiResponse | null;
   citations: AdminAiCitationRow[];
 };
+
+// ---------------------------------------------------------------------------
+// Data-layer row shapes
+// ---------------------------------------------------------------------------
+
+/**
+ * One row from the `admin_ai_contact_facts` view.
+ *
+ * Column names mirror the SQL view exactly (snake_case) so the data-layer
+ * query helper can hand the rows back to callers without renaming keys.
+ */
+export type ContactFactRow = {
+  contact_id: string;
+  application_id: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  program: string | null;
+  status: string | null;
+  submitted_at: string | null;
+  tag_ids: string[];
+  tag_names: string[];
+  budget: string | null;
+  time_availability: string | null;
+  start_timeline: string | null;
+  travel_willingness: string | null;
+  languages: string | null;
+  country_of_residence: string | null;
+  certification_level: string | null;
+  years_experience: string | null;
+  involvement_level: string | null;
+};
+
+/**
+ * Draft shape for inserting into `admin_ai_message_citations`. Mirrors the
+ * row shape but omits DB-generated columns (`id`, `message_id`, `created_at`).
+ * The `message_id` is passed separately by the batch insert helper so callers
+ * cannot accidentally mix citations across messages.
+ */
+export type AdminAiCitationDraft = {
+  claim_key: string;
+  source_type: EvidenceSourceType;
+  source_id: string;
+  contact_id: string;
+  application_id: string | null;
+  source_label: string;
+  snippet: string;
+};
