@@ -8,11 +8,12 @@ import { ContactsPanel } from "./contacts/contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
 import { AdminAiPanel } from "./admin-ai/panel";
 
-type Tab = "contacts" | "tags";
+type Tab = "contacts" | "tags" | "ai";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
+  { key: "ai", label: "AI" },
 ];
 
 export function AdminDashboard({
@@ -43,30 +44,26 @@ export function AdminDashboard({
         ))}
       </nav>
 
-      {activeTab === "contacts" ? (
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="min-w-0">
-            <ContactsPanel />
-          </div>
+      {activeTab === "contacts" && <ContactsPanel />}
 
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle>AI Analyst</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Ask grounded questions about contacts, applications, and notes.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <AdminAiPanel
-                scope="global"
-                initialThreads={initialGlobalThreads}
-                providerAvailability={adminAiAvailability}
-              />
-            </CardContent>
-          </Card>
-        </div>
-      ) : (
-        <TagsPanel />
+      {activeTab === "tags" && <TagsPanel />}
+
+      {activeTab === "ai" && (
+        <Card className="max-w-5xl">
+          <CardHeader>
+            <CardTitle>AI Analyst</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Ask grounded questions about contacts, applications, and notes.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <AdminAiPanel
+              scope="global"
+              initialThreads={initialGlobalThreads}
+              providerAvailability={adminAiAvailability}
+            />
+          </CardContent>
+        </Card>
       )}
     </div>
   );

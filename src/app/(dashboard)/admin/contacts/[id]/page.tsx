@@ -88,6 +88,21 @@ export default async function ContactDetailPage({
               <ApplicationCard key={app.id} application={app} defaultOpen={false} />
             ))
           )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">AI Analyst</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AdminAiPanel
+                scope="contact"
+                contactId={contact.id}
+                contactName={contact.name}
+                initialThreads={initialContactThreads}
+                providerAvailability={adminAiAvailability}
+              />
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right sidebar */}
@@ -108,21 +123,6 @@ export default async function ContactDetailPage({
                   <dd>{latestApplicationPhone || contact.phone || "—"}</dd>
                 </div>
               </dl>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">AI Analyst</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AdminAiPanel
-                scope="contact"
-                contactId={contact.id}
-                contactName={contact.name}
-                initialThreads={initialContactThreads}
-                providerAvailability={adminAiAvailability}
-              />
             </CardContent>
           </Card>
 
