@@ -87,4 +87,17 @@ describe("buildAdminAiQueryPlan", () => {
     expect(plan.requestedLimit).toBeGreaterThan(0);
     expect(plan.requestedLimit).toBeLessThanOrEqual(200);
   });
+
+  it("does not emit filters for structured registry fields that Phase 1 facts retrieval does not materialize", () => {
+    const plan = buildAdminAiQueryPlan({
+      scope: "global",
+      question: "show me applicants aged 18-24",
+      availableTags: [],
+    });
+
+    const hasAgeFilter = plan.structuredFilters.some(
+      (f: AdminAiStructuredFilter) => f.field === "age",
+    );
+    expect(hasAgeFilter).toBe(false);
+  });
 });

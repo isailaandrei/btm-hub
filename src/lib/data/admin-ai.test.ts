@@ -508,6 +508,40 @@ describe("queryAdminAiContactFacts", () => {
     );
   });
 
+  it("includes curated facts columns like btm_category in the SELECT list", async () => {
+    mock.mockQueryResult([]);
+    const { queryAdminAiContactFacts } = await import("./admin-ai-retrieval");
+    await queryAdminAiContactFacts({
+      filters: [
+        {
+          field: "btm_category",
+          op: "eq",
+          value: "ASPIRING PROFESSIONAL",
+        },
+      ],
+      limit: 10,
+    });
+
+    expect(mock.query.select).toHaveBeenCalledWith(
+      expect.stringContaining("btm_category"),
+    );
+    expect(mock.query.eq).toHaveBeenCalledWith(
+      "btm_category",
+      "ASPIRING PROFESSIONAL",
+    );
+  });
+
+  it("skips structured allowlist fields that are not materialized on the facts view", async () => {
+    mock.mockQueryResult([]);
+    const { queryAdminAiContactFacts } = await import("./admin-ai-retrieval");
+    await queryAdminAiContactFacts({
+      filters: [{ field: "age", op: "eq", value: "18-24" }],
+      limit: 10,
+    });
+
+    expect(mock.query.eq).not.toHaveBeenCalledWith("age", "18-24");
+  });
+
   it("scopes to a specific contact when contactId is provided", async () => {
     mock.mockQueryResult([]);
     const { queryAdminAiContactFacts } = await import("./admin-ai-retrieval");

@@ -18,8 +18,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import {
+  ADMIN_AI_FACT_FILTER_FIELDS,
   isAdminAiArrayFactField,
-  isAdminAiStructuredField,
 } from "@/lib/admin-ai/field-config";
 import { escapeSearchTerm } from "@/lib/data/applications";
 import type {
@@ -46,6 +46,7 @@ const FACTS_SELECT = [
   "budget",
   "time_availability",
   "start_timeline",
+  "btm_category",
   "travel_willingness",
   "languages",
   "country_of_residence",
@@ -53,6 +54,17 @@ const FACTS_SELECT = [
   "years_experience",
   "involvement_level",
 ].join(", ");
+
+/**
+ * Structured fields that are actually materialized on `admin_ai_contact_facts`.
+ *
+ * This is intentionally narrower than `ADMIN_AI_STRUCTURED_FIELDS`, which
+ * includes the broader registry-derived planner allowlist. The data layer must
+ * only emit filters against columns that exist on the SQL view; anything else
+ * is skipped as defense-in-depth so a planner mismatch cannot become a runtime
+ * SQL error.
+ */
+const FACT_FILTER_FIELDS = new Set<string>(ADMIN_AI_FACT_FILTER_FIELDS);
 
 // ---------------------------------------------------------------------------
 // Facts query
@@ -71,7 +83,7 @@ export async function queryAdminAiContactFacts(input: {
     .select(FACTS_SELECT);
 
   for (const filter of input.filters) {
-    if (!isAdminAiStructuredField(filter.field)) {
+    if (!FACT_FILTER_FIELDS.has(filter.field)) {
       // Defense-in-depth. The Zod layer should already reject this.
       continue;
     }

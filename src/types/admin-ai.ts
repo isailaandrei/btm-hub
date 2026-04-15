@@ -191,6 +191,7 @@ export type ContactFactRow = {
   budget: string | null;
   time_availability: string | null;
   start_timeline: string | null;
+  btm_category: string | null;
   travel_willingness: string | null;
   languages: string | null;
   country_of_residence: string | null;

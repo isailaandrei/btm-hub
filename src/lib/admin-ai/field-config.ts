@@ -57,6 +57,15 @@ const REGISTRY_STRUCTURED_FIELDS = FIELD_REGISTRY.filter(
 ).map((entry) => entry.key);
 
 /**
+ * Structured registry fields that are intentionally materialized on the Phase
+ * 1 facts view. Keep this aligned with the SQL view definition in
+ * `20260415000001_admin_ai_analyst.sql` plus follow-up migrations.
+ */
+const REGISTRY_FACT_FILTER_FIELDS = FIELD_REGISTRY.filter(
+  (entry) => entry.type !== "text" && entry.curated,
+).map((entry) => entry.key);
+
+/**
  * Union of facts-view meta columns and registry-derived non-text fields.
  *
  * Exposed as a readonly array of strings for Zod enum derivation; the
@@ -70,6 +79,19 @@ export const ADMIN_AI_STRUCTURED_FIELDS: readonly string[] = Object.freeze(
     new Set<string>([
       ...META_STRUCTURED_FIELDS,
       ...REGISTRY_STRUCTURED_FIELDS,
+    ]),
+  ),
+);
+
+/**
+ * Structured fields that the Phase 1 facts view actually materializes and the
+ * planner is allowed to emit as exact filters.
+ */
+export const ADMIN_AI_FACT_FILTER_FIELDS: readonly string[] = Object.freeze(
+  Array.from(
+    new Set<string>([
+      ...META_STRUCTURED_FIELDS,
+      ...REGISTRY_FACT_FILTER_FIELDS,
     ]),
   ),
 );
@@ -129,6 +151,9 @@ const ADMIN_AI_TEXT_FIELDS_SET: ReadonlySet<string> = new Set(
 const ADMIN_AI_STRUCTURED_FIELDS_SET: ReadonlySet<string> = new Set(
   ADMIN_AI_STRUCTURED_FIELDS,
 );
+const ADMIN_AI_FACT_FILTER_FIELDS_SET: ReadonlySet<string> = new Set(
+  ADMIN_AI_FACT_FILTER_FIELDS,
+);
 
 // ---------------------------------------------------------------------------
 // Type guards
@@ -136,6 +161,10 @@ const ADMIN_AI_STRUCTURED_FIELDS_SET: ReadonlySet<string> = new Set(
 
 export function isAdminAiStructuredField(key: string): boolean {
   return ADMIN_AI_STRUCTURED_FIELDS_SET.has(key);
+}
+
+export function isAdminAiFactFilterField(key: string): boolean {
+  return ADMIN_AI_FACT_FILTER_FIELDS_SET.has(key);
 }
 
 export function isAdminAiTextField(key: string): key is AdminAiTextField {
