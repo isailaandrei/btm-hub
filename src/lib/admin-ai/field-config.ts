@@ -27,17 +27,50 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
+ * Facts-view meta columns that exist on `admin_ai_contact_facts` but are NOT
+ * part of `FIELD_REGISTRY` (the registry only describes per-application
+ * curated answers, not the joined contact/application envelope).
+ *
+ * These columns are first-class structured filter targets per the spec
+ * (§Structured read model, §Internal query plan) and are materialized by
+ * the view defined in
+ * `supabase/migrations/20260415000001_admin_ai_analyst.sql`.
+ *
+ * They must be included in the allowlist so filters like
+ * `{ field: "program", op: "eq", value: "freediving" }` survive the
+ * defense-in-depth check in `queryAdminAiContactFacts`.
+ */
+const META_STRUCTURED_FIELDS = [
+  "program",
+  "status",
+  "tag_ids",
+  "tag_names",
+] as const;
+
+/**
  * Keys from `FIELD_REGISTRY` whose type is something the planner can express
  * as a structured filter (`select`, `multiselect`, `rating`, `date`). Text
  * fields are excluded — they are searched via evidence instead.
+ */
+const REGISTRY_STRUCTURED_FIELDS = FIELD_REGISTRY.filter(
+  (entry) => entry.type !== "text",
+).map((entry) => entry.key);
+
+/**
+ * Union of facts-view meta columns and registry-derived non-text fields.
  *
  * Exposed as a readonly array of strings for Zod enum derivation; the
- * underlying values come straight from the registry so adding a new curated
- * column upstream automatically widens this allowlist.
+ * registry-derived portion comes straight from the registry so adding a new
+ * curated column upstream automatically widens this allowlist. The meta
+ * portion is hard-coded because those columns live on the view envelope,
+ * not in the per-answer registry.
  */
 export const ADMIN_AI_STRUCTURED_FIELDS: readonly string[] = Object.freeze(
-  FIELD_REGISTRY.filter((entry) => entry.type !== "text").map(
-    (entry) => entry.key,
+  Array.from(
+    new Set<string>([
+      ...META_STRUCTURED_FIELDS,
+      ...REGISTRY_STRUCTURED_FIELDS,
+    ]),
   ),
 );
 

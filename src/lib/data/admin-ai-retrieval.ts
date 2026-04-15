@@ -97,7 +97,16 @@ export async function queryAdminAiContactFacts(input: {
         break;
       }
       case "in": {
-        if (Array.isArray(filter.value)) {
+        if (isArrayFactField(filter.field)) {
+          // Array-typed columns (tag_ids, tag_names): "in" semantically
+          // means "row's array contains any/all of these values". Postgres
+          // array containment via `.contains(...)` is the correct operator
+          // — `.in(...)` would compare the whole array to a list of scalars.
+          const arr = Array.isArray(filter.value)
+            ? filter.value
+            : [filter.value];
+          query = query.contains(filter.field, arr);
+        } else if (Array.isArray(filter.value)) {
           query = query.in(filter.field, filter.value);
         } else if (typeof filter.value === "string") {
           // Tolerate a single-value "in" — degrade to eq.
