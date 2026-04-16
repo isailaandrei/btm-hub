@@ -16,6 +16,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import type {
+  Application,
+  Contact,
+  ContactNote,
+} from "@/types/database";
+import type {
   CrmAiContactDossier,
   CrmAiContactDossierInput,
   CrmAiContactRankingCard,
@@ -253,6 +258,93 @@ export async function listRankingCards(input: {
     throw new Error(`Failed to list ranking cards: ${error.message}`);
   }
   return (data ?? []) as unknown as CrmAiContactRankingCard[];
+}
+
+// ---------------------------------------------------------------------------
+// Source loaders for memory generation
+//
+// One contact-scoped fetch graph (contact + applications + notes) so the
+// chunk builder never reaches through `AdminDataProvider`. Each helper here
+// is admin-gated and uses the server-side Supabase client.
+// ---------------------------------------------------------------------------
+
+export type ContactCrmSources = {
+  contact: Contact;
+  applications: Application[];
+  contactNotes: ContactNote[];
+};
+
+export async function loadContactCrmSources(input: {
+  contactId: string;
+}): Promise<ContactCrmSources | null> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { data: contactData, error: contactError } = await supabase
+    .from("contacts")
+    .select("*")
+    .eq("id", input.contactId)
+    .maybeSingle();
+
+  if (contactError) {
+    throw new Error(`Failed to load contact: ${contactError.message}`);
+  }
+  if (!contactData) return null;
+
+  const [
+    { data: applicationData, error: applicationError },
+    { data: noteData, error: noteError },
+  ] = await Promise.all([
+    supabase
+      .from("applications")
+      .select("*")
+      .eq("contact_id", input.contactId)
+      .order("submitted_at", { ascending: false }),
+    supabase
+      .from("contact_notes")
+      .select("*")
+      .eq("contact_id", input.contactId)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  if (applicationError) {
+    throw new Error(
+      `Failed to load applications for contact: ${applicationError.message}`,
+    );
+  }
+  if (noteError) {
+    throw new Error(
+      `Failed to load notes for contact: ${noteError.message}`,
+    );
+  }
+
+  return {
+    contact: contactData as Contact,
+    applications: (applicationData ?? []) as Application[],
+    contactNotes: (noteData ?? []) as ContactNote[],
+  };
+}
+
+export async function listContactIdsForMemory(input: {
+  limit?: number;
+}): Promise<string[]> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("contacts")
+    .select("id")
+    .order("created_at", { ascending: true });
+
+  if (typeof input.limit === "number") {
+    query = query.limit(input.limit);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`Failed to list contacts for memory: ${error.message}`);
+  }
+  return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
 }
 
 // ---------------------------------------------------------------------------
