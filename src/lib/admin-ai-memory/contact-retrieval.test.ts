@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type {
-  CrmAiContactDossier,
-  CrmAiEvidenceChunk,
-} from "@/types/admin-ai-memory";
+import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
 
 vi.mock("@/lib/data/admin-ai-memory", () => ({
   getContactDossier: vi.fn(),
@@ -45,23 +42,6 @@ function makeDossier(): CrmAiContactDossier {
     confidence_json: {},
     last_built_at: "2026-04-15T00:00:00Z",
     stale_at: null,
-    created_at: "2026-04-15T00:00:00Z",
-    updated_at: "2026-04-15T00:00:00Z",
-  };
-}
-
-function makeChunk(): CrmAiEvidenceChunk {
-  return {
-    id: "chunk-1",
-    contact_id: CONTACT_ID,
-    application_id: null,
-    source_type: "contact_note",
-    source_id: "note-1",
-    source_timestamp: null,
-    text: "great person",
-    metadata_json: { sourceLabel: "Contact note (Andrei)" },
-    content_hash: "h",
-    chunk_version: 1,
     created_at: "2026-04-15T00:00:00Z",
     updated_at: "2026-04-15T00:00:00Z",
   };

@@ -53,14 +53,56 @@ It does **not** create a separate `/admin/ai` route.
 
 ### AI provider env vars
 
-The current hosted provider adapter uses OpenAI via server-side `fetch`:
+The hosted provider adapters use OpenAI via server-side `fetch`:
 
 ```bash
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-5.4-nano
+OPENAI_DOSSIER_MODEL=gpt-5.4-nano   # optional — falls back to OPENAI_MODEL
+OPENAI_RANKING_MODEL=gpt-5.4-nano   # optional — falls back to OPENAI_MODEL
 ```
 
-`OPENAI_MODEL` is optional. If omitted, the app defaults to `gpt-5.4-nano` to keep simple test queries inexpensive.
+`OPENAI_MODEL` is optional. If omitted, the app defaults to `gpt-5.4-nano` to keep simple test queries inexpensive. Dossier generation and the cohort ranking pass each pick up their own override env so the three roles (synthesis, dossier-writing, ranking) can be tuned independently.
+
+### Memory architecture
+
+Phase 2 added a five-layer external memory system around the existing
+thread/message/citation flow:
+
+1. **Raw sources** — applications, contact notes, application admin notes (and later WhatsApp / Instagram / Zoom).
+2. **Normalized evidence chunks** — `crm_ai_evidence_chunks`, source-agnostic.
+3. **Per-contact dossiers** — `crm_ai_contact_dossiers`, persistent AI memory with structured signals + evidence anchors.
+4. **Embeddings** — `crm_ai_embeddings` (schema only — retrieval is FTS + memory-first for the current CRM).
+5. **Answer-time synthesis** — global queries run a ranking pass over compact ranking cards, then a grounded synthesis pass over finalist dossiers + raw evidence. Contact queries load the dossier and contact-scoped raw evidence, then synthesize once. Final answers always cite raw evidence chunks.
+
+### Memory backfill
+
+Memory artifacts are populated by a CLI backfill that uses a service-role Supabase client:
+
+```bash
+# Required env (local supabase: see `supabase status`)
+export SUPABASE_SERVICE_ROLE_KEY=...
+
+# Rebuild memory for all contacts
+node --experimental-strip-types scripts/admin-ai-memory/backfill.ts
+
+# Limit to N contacts
+node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --limit=5
+
+# Specific contact ids
+node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --contact=<uuid>,<uuid>
+
+# Force-rebuild even when memory is fresh
+node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --force
+```
+
+### Dossier evaluation
+
+Score dossiers against the seven-category rubric using a JSON gold-set file (see `docs/superpowers/evals/admin-ai-memory-gold-set.md`):
+
+```bash
+node --experimental-strip-types scripts/admin-ai-memory/eval.ts gold-set.json
+```
 
 ### Missing AI config behavior
 
@@ -70,15 +112,13 @@ If `OPENAI_API_KEY` is missing:
 - submitting a question returns a safe failure state
 - the app does not crash at import/build time
 
-### Phase 1 guardrails
+### Phase 2 guardrails
 
-This first version intentionally excludes:
+This memory-architecture phase intentionally excludes:
 
-- `/admin/ai`
-- token streaming / SSE
-- tool-calling agent loops
-- embeddings / vector search
-- WhatsApp / Instagram / Zoom ingestion
-- AI-driven writes back into CRM data
+- WhatsApp / Instagram / Zoom ingestion (schema-ready, connectors not built)
+- vector retrieval — `crm_ai_embeddings` exists but the live retrieval path stays FTS + memory-first
+- production job infrastructure — backfill is a CLI, not a queue
+- agent loops, SSE, streaming, autonomous actions
 
-The feature is read-only, evidence-backed, and citation-first.
+The feature remains read-only, evidence-backed, and citation-first.

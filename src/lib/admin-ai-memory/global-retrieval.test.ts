@@ -6,7 +6,6 @@ import type {
 import type {
   CrmAiContactDossier,
   CrmAiContactRankingCard,
-  CrmAiEvidenceChunk,
 } from "@/types/admin-ai-memory";
 
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
