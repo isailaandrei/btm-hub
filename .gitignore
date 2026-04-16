@@ -48,6 +48,9 @@ next-env.d.ts
 CLAUDE.md
 .claude
 
+#Codex
+AGENTS.md
+
 #gitignore
 .gitignore
 
@@ -59,7 +62,13 @@ e2e/screenshots
 
 
 #Scripts (top-level user scratchpad only; supabase/scripts/ stays tracked)
-/scripts
+/scripts/*
+!/scripts/admin-ai-memory/
+!/scripts/admin-ai-memory/**
+
+#wiki
+/wiki
+.wiki-compiler.json
 
 # superpowers brainstorming
 .superpowers/
