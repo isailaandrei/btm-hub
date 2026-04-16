@@ -4,6 +4,8 @@ import { dossierResultSchema } from "./dossier-schema";
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
 const CHUNK_ID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CHUNK_ID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const PROMPT_CHUNK_ID_A = "chunk_1";
+const PROMPT_CHUNK_ID_B = "chunk_2";
 
 function makeRawDossier(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -141,7 +143,17 @@ describe("generateContactDossier", () => {
             content: [
               {
                 type: "output_text",
-                text: JSON.stringify(makeRawDossier()),
+                text: JSON.stringify(
+                  makeRawDossier({
+                    evidenceAnchors: [
+                      {
+                        claim: "Passionate about ocean conservation",
+                        chunkIds: [PROMPT_CHUNK_ID_A],
+                        confidence: "high",
+                      },
+                    ],
+                  }),
+                ),
               },
             ],
           },
@@ -169,6 +181,16 @@ describe("generateContactDossier", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.dossier.summary.short).toContain("Passionate");
     expect(result.modelMetadata.model).toBe("gpt-test");
+    expect(result.dossier.evidenceAnchors[0]?.chunkIds).toEqual([CHUNK_ID_A]);
+
+    const requestBody = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+    ) as {
+      input?: Array<{ role?: string; content?: string }>;
+    };
+    const userMessage = requestBody.input?.find((item) => item.role === "user");
+    expect(userMessage?.content).toContain(PROMPT_CHUNK_ID_A);
+    expect(userMessage?.content).not.toContain(CHUNK_ID_A);
   });
 
   it("rejects dossiers whose evidence anchors point to unknown chunk ids", async () => {
@@ -178,7 +200,7 @@ describe("generateContactDossier", () => {
       evidenceAnchors: [
         {
           claim: "Has reef monitoring experience",
-          chunkIds: ["chunk-not-in-prompt"],
+          chunkIds: ["chunk_99"],
           confidence: "medium",
         },
       ],
@@ -223,5 +245,62 @@ describe("generateContactDossier", () => {
         ],
       }),
     ).rejects.toThrow(/unknown chunk/i);
+  });
+
+  it("maps multiple prompt-local chunk ids back to stable chunk ids", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    process.env.OPENAI_DOSSIER_MODEL = "gpt-test";
+    const raw = makeRawDossier({
+      evidenceAnchors: [
+        {
+          claim: "Has both motivation and context",
+          chunkIds: [PROMPT_CHUNK_ID_A, PROMPT_CHUNK_ID_B],
+          confidence: "medium",
+        },
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "resp-3",
+        model: "gpt-test",
+        output: [
+          {
+            type: "message",
+            content: [
+              { type: "output_text", text: JSON.stringify(raw) },
+            ],
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { generateContactDossier } = await import("./dossier-generator");
+    const result = await generateContactDossier({
+      contactId: CONTACT_ID,
+      contactFacts: makeRawDossier().facts as Record<string, unknown>,
+      chunks: [
+        {
+          chunkId: CHUNK_ID_A,
+          sourceType: "application_answer",
+          sourceLabel: "ultimate_vision",
+          sourceTimestamp: null,
+          text: "I want to be the voice of the ocean.",
+        },
+        {
+          chunkId: CHUNK_ID_B,
+          sourceType: "contact_note",
+          sourceLabel: "Contact note (Andrei)",
+          sourceTimestamp: null,
+          text: "Met at the dock.",
+        },
+      ],
+    });
+
+    expect(result.dossier.evidenceAnchors[0]?.chunkIds).toEqual([
+      CHUNK_ID_A,
+      CHUNK_ID_B,
+    ]);
   });
 });

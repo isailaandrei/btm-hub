@@ -40,6 +40,10 @@ export type DossierGenerationResult = {
   };
 };
 
+type PromptChunkRef = DossierChunkInput & {
+  stableChunkId: string;
+};
+
 type OpenAiResponseItem = {
   type?: string;
   content?: Array<
@@ -101,6 +105,14 @@ async function parseErrorResponse(response: Response): Promise<string> {
   }
 }
 
+function buildPromptChunkRefs(chunks: DossierChunkInput[]): PromptChunkRef[] {
+  return chunks.map((chunk, index) => ({
+    ...chunk,
+    stableChunkId: chunk.chunkId,
+    chunkId: `chunk_${index + 1}`,
+  }));
+}
+
 export async function generateContactDossier(
   input: DossierGenerationInput,
 ): Promise<DossierGenerationResult> {
@@ -109,6 +121,7 @@ export async function generateContactDossier(
     throw new Error("Dossier generator is not configured (missing OPENAI_API_KEY).");
   }
   const model = getDossierModel();
+  const promptChunks = buildPromptChunkRefs(input.chunks);
 
   const response = await fetch(OPENAI_API_URL, {
     method: "POST",
@@ -120,7 +133,13 @@ export async function generateContactDossier(
       model,
       input: [
         { role: "system", content: buildDossierSystemPrompt() },
-        { role: "user", content: buildDossierUserPrompt(input) },
+        {
+          role: "user",
+          content: buildDossierUserPrompt({
+            ...input,
+            chunks: promptChunks,
+          }),
+        },
       ],
       text: {
         format: {
@@ -152,15 +171,19 @@ export async function generateContactDossier(
 
   // Defense-in-depth: anchors must point to known chunk ids. The schema
   // can't enforce this on its own (it doesn't see the input chunk ids).
-  const knownChunkIds = new Set(input.chunks.map((c) => c.chunkId));
+  const promptToStableChunkId = new Map(
+    promptChunks.map((chunk) => [chunk.chunkId, chunk.stableChunkId]),
+  );
   for (const anchor of dossier.evidenceAnchors) {
-    for (const id of anchor.chunkIds) {
-      if (!knownChunkIds.has(id)) {
+    anchor.chunkIds = anchor.chunkIds.map((id) => {
+      const stableId = promptToStableChunkId.get(id);
+      if (!stableId) {
         throw new Error(
           `Dossier referenced unknown chunkId in evidence anchor: ${id}`,
         );
       }
-    }
+      return stableId;
+    });
   }
 
   return {

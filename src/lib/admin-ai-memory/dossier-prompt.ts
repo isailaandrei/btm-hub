@@ -23,7 +23,7 @@ export function buildDossierSystemPrompt(): string {
     "Preserve fit signals, concerns, and motivation — these drive future ranking.",
     "Surface contradictions explicitly under `contradictions`.",
     "List things you do not know under `unknowns`.",
-    "Cite sources by chunkId in `evidenceAnchors`. Only use chunkIds that appear in the input chunks.",
+    "Cite sources by chunkId in `evidenceAnchors`. Only use the exact chunkId labels that appear in the input chunks.",
     "Do not invent personality types or speculate beyond the evidence.",
     "Do not produce marketing-style summaries — be concrete and auditable.",
     "Return valid JSON matching the response schema.",
@@ -57,7 +57,7 @@ export function buildDossierUserPrompt(input: DossierUserPromptInput): string {
           concerns: "Concrete reasons to slow down or ask follow-ups.",
         },
         evidenceAnchors:
-          "Each anchor must reference one or more chunkIds present in `chunks`.",
+          "Each anchor must reference one or more chunkIds present in `chunks`. Treat chunkIds as exact prompt-local labels such as `chunk_1` and copy them verbatim.",
         unknowns:
           "List specific gaps that would change the answer if filled.",
       },
