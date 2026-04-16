@@ -30,6 +30,7 @@ import {
   findContactsNeedingMemoryRefresh,
 } from "./freshness";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
+import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 import type {
   AdminAiQueryPlan,
   ContactFactRow,
@@ -80,6 +81,7 @@ export async function assembleGlobalCohortMemory(input: {
     dossiers: dossierStates,
     rankingCards,
     generatorVersion: DOSSIER_GENERATOR_VERSION,
+    dossierVersion: DOSSIER_SCHEMA_VERSION,
   });
 
   const unresolvedRefreshSet = new Set<string>();

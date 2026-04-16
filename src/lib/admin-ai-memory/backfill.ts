@@ -13,11 +13,12 @@
 
 import {
   buildCurrentCrmChunksForContact,
-  CHUNK_BUILDER_VERSION,
 } from "./chunk-builder";
+import { buildStableChunkId } from "./chunk-identity";
 import { buildDossierContactFacts } from "./contact-facts";
 import { generateContactDossier } from "./dossier-generator";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
+import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 import {
   computeChunkSourceFingerprint,
   needsContactMemoryRebuild,
@@ -35,7 +36,6 @@ import {
 import { queryAdminAiContactFacts } from "@/lib/data/admin-ai-retrieval";
 import type {
   CrmAiContactDossierInput,
-  CrmAiEvidenceChunkInput,
   DossierSourceCoverage,
 } from "@/types/admin-ai-memory";
 
@@ -90,13 +90,6 @@ function buildSourceCoverage(input: {
   };
 }
 
-function countChunksByType(
-  chunks: CrmAiEvidenceChunkInput[],
-  sourceType: CrmAiEvidenceChunkInput["sourceType"],
-): number {
-  return chunks.filter((c) => c.sourceType === sourceType).length;
-}
-
 export async function rebuildContactMemory(input: {
   contactId: string;
   force?: boolean;
@@ -141,6 +134,7 @@ export async function rebuildContactMemory(input: {
         rankingCard: existingRankingCard ?? null,
         chunks,
         generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
       })
     ) {
       return {
@@ -173,12 +167,10 @@ export async function rebuildContactMemory(input: {
     applicationCount: sources.applications.length,
   });
 
-  // Map chunks to deterministic stable references so the dossier model can
-  // anchor evidence by `chunkId`. We use `${sourceType}:${sourceId}` as the
-  // chunkId surfaced to the model — it is stable across rebuilds and unique
-  // per chunk row.
+  // Map chunks to deterministic stable ids so the dossier model can anchor
+  // evidence by the same `chunkId` that answer-time citations persist.
   const chunkPromptItems = chunks.map((c) => ({
-    chunkId: `${c.sourceType}:${c.sourceId}`,
+    chunkId: buildStableChunkId(c.sourceType, c.sourceId),
     sourceType: c.sourceType,
     sourceLabel: String(c.metadata.sourceLabel ?? c.sourceType),
     sourceTimestamp: c.sourceTimestamp,
@@ -193,7 +185,7 @@ export async function rebuildContactMemory(input: {
 
   const dossierInput: CrmAiContactDossierInput = {
     contactId: input.contactId,
-    dossierVersion: CHUNK_BUILDER_VERSION,
+    dossierVersion: DOSSIER_SCHEMA_VERSION,
     generatorVersion: generation.generatorVersion,
     sourceFingerprint: fingerprint,
     sourceCoverage,
@@ -231,10 +223,6 @@ export async function rebuildContactMemory(input: {
   };
 
   await upsertRankingCard(buildRankingCardFromDossier(dossierForCard));
-
-  // Reference for future telemetry — silences the unused-variable warning
-  // without losing the count.
-  void countChunksByType;
 
   return {
     contactId: input.contactId,

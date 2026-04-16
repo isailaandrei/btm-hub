@@ -7,6 +7,7 @@ import type {
   CrmAiContactDossier,
   CrmAiContactRankingCard,
 } from "@/types/admin-ai-memory";
+import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
   queryAdminAiContactFacts: vi.fn(),
@@ -18,7 +19,6 @@ vi.mock("@/lib/data/admin-ai-memory", () => ({
   listRankingCards: vi.fn(),
   listContactDossiers: vi.fn(),
   listContactDossierStates: vi.fn(),
-  listEvidenceChunksByContact: vi.fn(),
 }));
 
 vi.mock("./backfill", () => ({
@@ -66,7 +66,7 @@ function makeFactRow(contactId: string): ContactFactRow {
 function makeRankingCard(contactId: string): CrmAiContactRankingCard {
   return {
     contact_id: contactId,
-    dossier_version: 1,
+    dossier_version: DOSSIER_SCHEMA_VERSION,
     source_fingerprint: "fp",
     facts_json: { name: contactId },
     top_fit_signals_json: [{ value: "ocean focus", confidence: "high" }],
@@ -80,7 +80,7 @@ function makeRankingCard(contactId: string): CrmAiContactRankingCard {
 function makeDossier(contactId: string): CrmAiContactDossier {
   return {
     contact_id: contactId,
-    dossier_version: 1,
+    dossier_version: DOSSIER_SCHEMA_VERSION,
     generator_version: "dossier-prompt-v1",
     source_fingerprint: "fp",
     source_coverage: {
@@ -128,7 +128,7 @@ describe("assembleGlobalCohortMemory", () => {
     vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([
       {
         contact_id: CONTACT_A,
-        dossier_version: 1,
+        dossier_version: DOSSIER_SCHEMA_VERSION,
         generator_version: "dossier-prompt-v1",
         source_fingerprint: "fp",
         stale_at: null,
@@ -213,7 +213,7 @@ describe("assembleGlobalCohortMemory", () => {
     vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([
       {
         contact_id: CONTACT_A,
-        dossier_version: 1,
+        dossier_version: DOSSIER_SCHEMA_VERSION,
         generator_version: "dossier-prompt-v1",
         source_fingerprint: "fp",
         stale_at: "2026-04-15T00:00:00Z",

@@ -21,9 +21,21 @@ function makeDossier(
       zoomChunkCount: 0,
     },
     facts_json: {
-      name: "Joana",
-      country: "Portugal",
-      certification_level: "Open Water",
+      contact: {
+        contactName: "Joana",
+      },
+      applications: {
+        applicationCount: 1,
+        programHistory: ["filmmaking"],
+        statusHistory: ["reviewing"],
+      },
+      tags: {
+        tagNames: ["Strong fit"],
+      },
+      structuredFacts: {
+        countryOfResidenceValues: ["Portugal"],
+        certificationLevelValues: ["Open Water"],
+      },
     },
     signals_json: {
       motivation: [
@@ -71,9 +83,20 @@ describe("buildRankingCardFromDossier", () => {
   it("keeps key facts intact", () => {
     const card = buildRankingCardFromDossier(makeDossier());
     expect(card.facts).toMatchObject({
-      name: "Joana",
-      certification_level: "Open Water",
+      contactName: "Joana",
+      certificationLevelValues: ["Open Water"],
     });
+  });
+
+  it("drops unknown fact shapes instead of leaking raw fields", () => {
+    const card = buildRankingCardFromDossier(
+      makeDossier({
+        facts_json: {
+          privateNote: "should not leak",
+        },
+      }),
+    );
+    expect(card.facts).toEqual({});
   });
 
   it("caps top fit signals and top concerns to a small number", () => {

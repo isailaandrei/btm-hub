@@ -5,12 +5,12 @@
  *
  *   1. This TypeScript file (consumed by the query planner, server action,
  *      Zod schema validation, and UI).
- *   2. The SQL `admin_ai_evidence_items` view in
- *      `supabase/migrations/20260415000001_admin_ai_analyst.sql` (lines
- *      ~393–403 inside the CROSS JOIN LATERAL VALUES clause).
+ *   2. The chunk builder in `src/lib/admin-ai-memory/chunk-builder.ts`,
+ *      which materializes the current CRM text fields into
+ *      `crm_ai_evidence_chunks` for answer-time retrieval.
  *
  * These must stay in sync manually. If you change `ADMIN_AI_TEXT_FIELDS`
- * below, update the SQL `VALUES (...)` clause to match, and vice versa.
+ * below, update the chunk builder allowlist to match, and vice versa.
  * Any other field-level metadata (labels, options, canonicalization) comes
  * from the shared contacts `FIELD_REGISTRY` so there is no second source
  * of truth for those properties.
@@ -121,13 +121,13 @@ export function isAdminAiArrayFactField(key: string): key is AdminAiArrayFactFie
 // ---------------------------------------------------------------------------
 
 /**
- * Free-text answer keys searchable via the `admin_ai_evidence_items` view.
+ * Free-text answer keys eligible for chunking into `crm_ai_evidence_chunks`.
  *
- * MUST match the SQL allowlist in
- * `supabase/migrations/20260415000001_admin_ai_analyst.sql` ~lines 394–403.
- * Any change here requires a corresponding migration update (or a new
- * migration) — otherwise the planner can request keys the view does not
- * expose and retrieval will silently drop them.
+ * MUST match the allowlist consumed by
+ * `src/lib/admin-ai-memory/chunk-builder.ts`. Any change here requires the
+ * chunk builder to be updated too — otherwise the planner can request keys
+ * the memory layer does not materialize and retrieval will silently lose
+ * evidence.
  */
 export const ADMIN_AI_TEXT_FIELDS = [
   "ultimate_vision",

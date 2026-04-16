@@ -85,7 +85,7 @@ describe("upsertEvidenceChunks", () => {
       chunk_version: 1,
     });
     const opts = upsertCall[1] as { onConflict: string } | undefined;
-    expect(opts?.onConflict).toBe("id");
+    expect(opts?.onConflict).toBe("source_type,source_id");
   });
 
   it("is a no-op when chunks is empty", async () => {
@@ -114,51 +114,6 @@ describe("upsertEvidenceChunks", () => {
         ],
       }),
     ).rejects.toThrow(/boom/);
-  });
-});
-
-// ===========================================================================
-// listEvidenceChunksByContact
-// ===========================================================================
-
-describe("listEvidenceChunksByContact", () => {
-  let mock: Harness;
-  beforeEach(async () => {
-    mock = await freshHarness();
-  });
-
-  it("returns chunks for a contact ordered by source_timestamp desc", async () => {
-    mock.mockQueryResult([
-      {
-        id: "chunk-1",
-        contact_id: CONTACT_ID,
-        application_id: APP_ID,
-        source_type: "application_answer",
-        source_id: `${APP_ID}:ultimate_vision`,
-        source_timestamp: "2026-04-15T00:00:00Z",
-        text: "ocean voice",
-        metadata_json: { sourceLabel: "ultimate_vision" },
-        content_hash: "h1",
-        chunk_version: 1,
-        created_at: "2026-04-15T00:00:00Z",
-        updated_at: "2026-04-15T00:00:00Z",
-      },
-    ]);
-    const { listEvidenceChunksByContact } = await import("./admin-ai-memory");
-    const out = await listEvidenceChunksByContact({ contactId: CONTACT_ID });
-
-    expect(mock.client.from).toHaveBeenCalledWith("crm_ai_evidence_chunks");
-    expect(mock.query.eq).toHaveBeenCalledWith("contact_id", CONTACT_ID);
-    expect(mock.query.order).toHaveBeenCalledWith("source_timestamp", {
-      ascending: false,
-      nullsFirst: false,
-    });
-    expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({
-      id: "chunk-1",
-      contact_id: CONTACT_ID,
-      content_hash: "h1",
-    });
   });
 });
 

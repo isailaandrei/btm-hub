@@ -56,7 +56,7 @@ function compactFacts(facts: Record<string, unknown>): Record<string, unknown> {
     : null;
 
   if (!contact && !applications && !tags && !structuredFacts) {
-    return facts;
+    return {};
   }
 
   return {

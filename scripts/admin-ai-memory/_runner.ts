@@ -10,12 +10,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildCurrentCrmChunksForContact,
-  CHUNK_BUILDER_VERSION,
 } from "../../src/lib/admin-ai-memory/chunk-builder.ts";
 import { buildStableChunkId } from "../../src/lib/admin-ai-memory/chunk-identity.ts";
 import { buildDossierContactFacts } from "../../src/lib/admin-ai-memory/contact-facts.ts";
 import { generateContactDossier } from "../../src/lib/admin-ai-memory/dossier-generator.ts";
 import { DOSSIER_GENERATOR_VERSION } from "../../src/lib/admin-ai-memory/dossier-prompt.ts";
+import { DOSSIER_SCHEMA_VERSION } from "../../src/lib/admin-ai-memory/dossier-version.ts";
 import {
   computeChunkSourceFingerprint,
   needsContactMemoryRebuild,
@@ -176,7 +176,7 @@ async function upsertChunks(
       content_hash: c.contentHash,
       chunk_version: c.chunkVersion,
     })),
-    { onConflict: "id" },
+    { onConflict: "source_type,source_id" },
   );
   if (error) throw new Error(`upsert chunks: ${error.message}`);
 }
@@ -263,7 +263,7 @@ async function rebuildOne(input: {
     contactId: input.contactId,
     contactFacts: dossierFacts,
     chunks: chunks.map((c) => ({
-      chunkId: `${c.sourceType}:${c.sourceId}`,
+      chunkId: buildStableChunkId(c.sourceType, c.sourceId),
       sourceType: c.sourceType,
       sourceLabel: String(c.metadata.sourceLabel ?? c.sourceType),
       sourceTimestamp: c.sourceTimestamp,
@@ -276,7 +276,7 @@ async function rebuildOne(input: {
     .upsert(
       {
         contact_id: input.contactId,
-        dossier_version: CHUNK_BUILDER_VERSION,
+        dossier_version: DOSSIER_SCHEMA_VERSION,
         generator_version: generation.generatorVersion,
         source_fingerprint: fingerprint,
         source_coverage: sourceCoverage,
@@ -297,7 +297,7 @@ async function rebuildOne(input: {
 
   const dossierForCard: CrmAiContactDossier = {
     contact_id: input.contactId,
-    dossier_version: CHUNK_BUILDER_VERSION,
+    dossier_version: DOSSIER_SCHEMA_VERSION,
     generator_version: generation.generatorVersion,
     source_fingerprint: fingerprint,
     source_coverage: sourceCoverage,

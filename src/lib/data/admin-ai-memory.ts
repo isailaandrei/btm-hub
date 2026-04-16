@@ -27,28 +27,12 @@ import type {
   CrmAiContactDossierState,
   CrmAiContactRankingCard,
   CrmAiContactRankingCardInput,
-  CrmAiEvidenceChunk,
   CrmAiEvidenceChunkInput,
 } from "@/types/admin-ai-memory";
 
 // ---------------------------------------------------------------------------
 // Evidence chunks
 // ---------------------------------------------------------------------------
-
-const CHUNK_SELECT = [
-  "id",
-  "contact_id",
-  "application_id",
-  "source_type",
-  "source_id",
-  "source_timestamp",
-  "text",
-  "metadata_json",
-  "content_hash",
-  "chunk_version",
-  "created_at",
-  "updated_at",
-].join(", ");
 
 export async function upsertEvidenceChunks(input: {
   chunks: CrmAiEvidenceChunkInput[];
@@ -72,35 +56,11 @@ export async function upsertEvidenceChunks(input: {
 
   const { error } = await supabase
     .from("crm_ai_evidence_chunks")
-    .upsert(rows, { onConflict: "id" });
+    .upsert(rows, { onConflict: "source_type,source_id" });
 
   if (error) {
     throw new Error(`Failed to upsert evidence chunks: ${error.message}`);
   }
-}
-
-export async function listEvidenceChunksByContact(input: {
-  contactId: string;
-  limit?: number;
-}): Promise<CrmAiEvidenceChunk[]> {
-  await requireAdmin();
-  const supabase = await createClient();
-
-  let query = supabase
-    .from("crm_ai_evidence_chunks")
-    .select(CHUNK_SELECT)
-    .eq("contact_id", input.contactId)
-    .order("source_timestamp", { ascending: false, nullsFirst: false });
-
-  if (typeof input.limit === "number") {
-    query = query.limit(input.limit);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    throw new Error(`Failed to list evidence chunks: ${error.message}`);
-  }
-  return (data ?? []) as unknown as CrmAiEvidenceChunk[];
 }
 
 // ---------------------------------------------------------------------------

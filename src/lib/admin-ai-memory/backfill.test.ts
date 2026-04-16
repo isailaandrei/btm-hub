@@ -4,6 +4,8 @@ import type {
   CrmAiContactDossier,
   CrmAiContactRankingCard,
 } from "@/types/admin-ai-memory";
+import { buildStableChunkId } from "./chunk-identity";
+import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 
 vi.mock("@/lib/data/admin-ai-memory", () => ({
   loadContactCrmSources: vi.fn(),
@@ -74,7 +76,7 @@ function makeDossier(
 ): CrmAiContactDossier {
   return {
     contact_id: contactId,
-    dossier_version: 1,
+    dossier_version: DOSSIER_SCHEMA_VERSION,
     generator_version: "dossier-prompt-v1",
     source_fingerprint: "fp",
     source_coverage: {
@@ -199,6 +201,14 @@ describe("rebuildContactMemory", () => {
             languageValues: ["English, Portuguese"],
           }),
         }),
+        chunks: expect.arrayContaining([
+          expect.objectContaining({
+            chunkId: buildStableChunkId(
+              "application_answer",
+              `${APP_ID}:ultimate_vision`,
+            ),
+          }),
+        ]),
       }),
     );
     expect(result.status).toBe("rebuilt");
@@ -229,7 +239,7 @@ describe("rebuildContactMemory", () => {
     vi.mocked(dataMod.listRankingCards).mockResolvedValue([
       {
         contact_id: CONTACT_A,
-        dossier_version: 1,
+        dossier_version: DOSSIER_SCHEMA_VERSION,
         source_fingerprint: fingerprint,
         facts_json: {},
         top_fit_signals_json: [],

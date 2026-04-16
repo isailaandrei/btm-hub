@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   computeChunkSourceFingerprint,
   findContactsNeedingMemoryRefresh,
-  shouldRefreshDossierOnRead,
+  shouldForceDossierRefreshOnRead,
+  isDossierSoftStale,
   isDossierStale,
   isRankingCardStale,
   needsContactMemoryRebuild,
 } from "./freshness";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
+import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 import type {
   CrmAiContactDossier,
   CrmAiContactRankingCard,
@@ -39,7 +41,7 @@ function makeDossier(
 ): CrmAiContactDossier {
   return {
     contact_id: CONTACT_ID,
-    dossier_version: 1,
+    dossier_version: DOSSIER_SCHEMA_VERSION,
     generator_version: DOSSIER_GENERATOR_VERSION,
     source_fingerprint: "fp-existing",
     source_coverage: {
@@ -77,7 +79,7 @@ function makeRankingCard(
 ): CrmAiContactRankingCard {
   return {
     contact_id: CONTACT_ID,
-    dossier_version: 1,
+    dossier_version: DOSSIER_SCHEMA_VERSION,
     source_fingerprint: "fp-existing",
     facts_json: {},
     top_fit_signals_json: [],
@@ -117,6 +119,7 @@ describe("isDossierStale", () => {
       dossier: null,
       chunks: [makeChunkInput()],
       generatorVersion: DOSSIER_GENERATOR_VERSION,
+      dossierVersion: DOSSIER_SCHEMA_VERSION,
     });
     expect(result).toBe(true);
   });
@@ -126,6 +129,7 @@ describe("isDossierStale", () => {
       dossier: makeDossier({ source_fingerprint: "fp-old" }),
       chunks: [makeChunkInput()],
       generatorVersion: DOSSIER_GENERATOR_VERSION,
+      dossierVersion: DOSSIER_SCHEMA_VERSION,
     });
     expect(result).toBe(true);
   });
@@ -137,6 +141,21 @@ describe("isDossierStale", () => {
       dossier: { ...dossier, source_fingerprint: fingerprint },
       chunks: [makeChunkInput()],
       generatorVersion: DOSSIER_GENERATOR_VERSION,
+      dossierVersion: DOSSIER_SCHEMA_VERSION,
+    });
+    expect(result).toBe(true);
+  });
+
+  it("treats dossier version drift as stale", () => {
+    const fingerprint = computeChunkSourceFingerprint([makeChunkInput()]);
+    const result = isDossierStale({
+      dossier: makeDossier({
+        dossier_version: DOSSIER_SCHEMA_VERSION - 1,
+        source_fingerprint: fingerprint,
+      }),
+      chunks: [makeChunkInput()],
+      generatorVersion: DOSSIER_GENERATOR_VERSION,
+      dossierVersion: DOSSIER_SCHEMA_VERSION,
     });
     expect(result).toBe(true);
   });
@@ -147,6 +166,7 @@ describe("isDossierStale", () => {
       dossier: makeDossier({ source_fingerprint: fingerprint }),
       chunks: [makeChunkInput()],
       generatorVersion: DOSSIER_GENERATOR_VERSION,
+      dossierVersion: DOSSIER_SCHEMA_VERSION,
     });
     expect(result).toBe(false);
   });
@@ -195,6 +215,7 @@ describe("needsContactMemoryRebuild", () => {
         rankingCard: null,
         chunks: [makeChunkInput()],
         generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
       }),
     ).toBe(true);
     expect(
@@ -203,6 +224,7 @@ describe("needsContactMemoryRebuild", () => {
         rankingCard: null,
         chunks: [makeChunkInput()],
         generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
       }),
     ).toBe(true);
   });
@@ -217,39 +239,63 @@ describe("needsContactMemoryRebuild", () => {
         rankingCard,
         chunks: [makeChunkInput()],
         generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
       }),
     ).toBe(false);
   });
 });
 
-describe("shouldRefreshDossierOnRead", () => {
+describe("shouldForceDossierRefreshOnRead", () => {
   it("returns true when dossier is missing", () => {
     expect(
-      shouldRefreshDossierOnRead({
+      shouldForceDossierRefreshOnRead({
         dossier: null,
         generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
       }),
     ).toBe(true);
   });
 
+  it("returns true when dossier version drifts", () => {
+    expect(
+      shouldForceDossierRefreshOnRead({
+        dossier: makeDossier({
+          dossier_version: DOSSIER_SCHEMA_VERSION - 1,
+        }),
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for a matching dossier even when stale_at is set", () => {
+    expect(
+      shouldForceDossierRefreshOnRead({
+        dossier: makeDossier({
+          generator_version: DOSSIER_GENERATOR_VERSION,
+          stale_at: "2026-04-15T00:00:00Z",
+        }),
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isDossierSoftStale", () => {
   it("returns true when stale_at has passed", () => {
     expect(
-      shouldRefreshDossierOnRead({
+      isDossierSoftStale({
         dossier: makeDossier({ stale_at: "2026-04-15T00:00:00Z" }),
-        generatorVersion: DOSSIER_GENERATOR_VERSION,
         now: new Date("2026-04-15T01:00:00Z"),
       }),
     ).toBe(true);
   });
 
-  it("returns false for a fresh dossier with the current generator version", () => {
+  it("returns false when stale_at is null", () => {
     expect(
-      shouldRefreshDossierOnRead({
-        dossier: makeDossier({
-          stale_at: null,
-          generator_version: DOSSIER_GENERATOR_VERSION,
-        }),
-        generatorVersion: DOSSIER_GENERATOR_VERSION,
+      isDossierSoftStale({
+        dossier: makeDossier({ stale_at: null }),
         now: new Date("2026-04-15T01:00:00Z"),
       }),
     ).toBe(false);
@@ -272,6 +318,7 @@ describe("findContactsNeedingMemoryRefresh", () => {
         makeRankingCard({ contact_id: "d" }),
       ],
       generatorVersion: DOSSIER_GENERATOR_VERSION,
+      dossierVersion: DOSSIER_SCHEMA_VERSION,
       now: new Date("2026-04-15T01:00:00Z"),
     });
 
