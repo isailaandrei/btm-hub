@@ -5,25 +5,30 @@
  * to raw evidence chunks (the existing FTS path) and flag `fallbackUsed`
  * so the caller can decide whether to surface the degraded mode.
  *
- * The leak assertion mirrors the one in `src/lib/admin-ai/retrieval.ts`:
- * any evidence row whose `contactId` does not match the requested contact
- * is treated as a critical invariant violation.
+ * Sync-rebuild posture is narrow on purpose — we only pay an OpenAI
+ * dossier call on the hot read path when:
+ *   - no dossier exists yet, or
+ *   - the dossier's generator / schema version is behind the current
+ *     code's contract.
+ * Soft-staleness (`stale_at` set by the source-mutation triggers) does
+ * NOT trigger a sync rebuild. It's a backfill signal — the async
+ * `find_stale_admin_ai_contact_memory` RPC + explicit backfill command
+ * pick those up without blocking the user's question.
+ *
+ * The leak assertion mirrors the one in `global-retrieval.ts`: any
+ * evidence row whose `contactId` does not match the requested contact is
+ * treated as a critical invariant violation.
  */
 
 import {
   listRecentAdminAiEvidence,
   searchAdminAiEvidence,
 } from "@/lib/data/admin-ai-retrieval";
-import { getContactDossier, loadContactCrmSources } from "@/lib/data/admin-ai-memory";
-import { buildCurrentCrmChunksForContact } from "./chunk-builder";
+import { getContactDossier } from "@/lib/data/admin-ai-memory";
 import { rebuildContactMemory } from "./backfill";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
-import {
-  computeChunkSourceFingerprint,
-  isDossierSoftStale,
-  shouldForceDossierRefreshOnRead,
-} from "./freshness";
+import { shouldForceDossierRefreshOnRead } from "./freshness";
 import type { EvidenceItem } from "@/types/admin-ai";
 import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
 
@@ -35,28 +40,6 @@ export type ContactScopedMemory = {
   fallbackUsed: boolean;
 };
 
-async function hasSilentSourceFingerprintDrift(input: {
-  contactId: string;
-  dossier: CrmAiContactDossier;
-}): Promise<boolean> {
-  try {
-    const sources = await loadContactCrmSources({ contactId: input.contactId });
-    if (!sources) return false;
-
-    const chunks = buildCurrentCrmChunksForContact({
-      contact: sources.contact,
-      applications: sources.applications,
-      contactNotes: sources.contactNotes,
-    });
-    const currentFingerprint = computeChunkSourceFingerprint(chunks);
-    return currentFingerprint !== input.dossier.source_fingerprint;
-  } catch {
-    // This check is defense-in-depth. If it cannot run, prefer serving the
-    // current dossier + raw evidence rather than failing the whole answer path.
-    return false;
-  }
-}
-
 export async function assembleContactScopedMemory(input: {
   contactId: string;
   question: string;
@@ -64,24 +47,13 @@ export async function assembleContactScopedMemory(input: {
 }): Promise<ContactScopedMemory> {
   let dossier = await getContactDossier({ contactId: input.contactId });
 
-  const shouldForceRefresh = shouldForceDossierRefreshOnRead({
+  const shouldRefresh = shouldForceDossierRefreshOnRead({
     dossier,
     generatorVersion: DOSSIER_GENERATOR_VERSION,
     dossierVersion: DOSSIER_SCHEMA_VERSION,
   });
-  const activeDossier = dossier;
-  const shouldCheckSilentDrift =
-    activeDossier !== null &&
-    !shouldForceRefresh &&
-    !isDossierSoftStale({ dossier: activeDossier });
-  const shouldRefreshForSilentDrift = shouldCheckSilentDrift && activeDossier
-    ? await hasSilentSourceFingerprintDrift({
-        contactId: input.contactId,
-        dossier: activeDossier,
-      })
-    : false;
 
-  if (shouldForceRefresh || shouldRefreshForSilentDrift) {
+  if (shouldRefresh) {
     try {
       await rebuildContactMemory({ contactId: input.contactId });
       dossier = await getContactDossier({ contactId: input.contactId });

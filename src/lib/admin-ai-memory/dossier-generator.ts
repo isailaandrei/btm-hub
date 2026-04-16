@@ -21,7 +21,8 @@ import {
 import type { DossierChunkInput } from "./chunk-schemas";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const OPENAI_REQUEST_TIMEOUT_MS = 60_000;
 
 export type DossierGenerationInput = {
   contactId: string;
@@ -123,34 +124,45 @@ export async function generateContactDossier(
   const model = getDossierModel();
   const promptChunks = buildPromptChunkRefs(input.chunks);
 
-  const response = await fetch(OPENAI_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      input: [
-        { role: "system", content: buildDossierSystemPrompt() },
-        {
-          role: "user",
-          content: buildDossierUserPrompt({
-            ...input,
-            chunks: promptChunks,
-          }),
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "admin_ai_dossier",
-          strict: true,
-          schema: DOSSIER_RESPONSE_JSON_SCHEMA,
-        },
+  let response: Response;
+  try {
+    response = await fetch(OPENAI_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
-    }),
-  });
+      body: JSON.stringify({
+        model,
+        input: [
+          { role: "system", content: buildDossierSystemPrompt() },
+          {
+            role: "user",
+            content: buildDossierUserPrompt({
+              ...input,
+              chunks: promptChunks,
+            }),
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "admin_ai_dossier",
+            strict: true,
+            schema: DOSSIER_RESPONSE_JSON_SCHEMA,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(OPENAI_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(
+        `OpenAI dossier request timed out after ${OPENAI_REQUEST_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const message = await parseErrorResponse(response);

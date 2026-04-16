@@ -12,7 +12,8 @@ import {
 import type { AdminAiResponse } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const OPENAI_REQUEST_TIMEOUT_MS = 60_000;
 const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 
 export interface AdminAiProvider {
@@ -121,28 +122,39 @@ async function callOpenAi(input: {
   payload: OpenAiResponsesPayload;
   rawText: string;
 }> {
-  const response = await fetch(OPENAI_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${input.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: input.model,
-      input: [
-        { role: "system", content: input.systemPrompt },
-        { role: "user", content: input.userPrompt },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: input.schemaName,
-          strict: true,
-          schema: input.schema,
-        },
+  let response: Response;
+  try {
+    response = await fetch(OPENAI_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${input.apiKey}`,
       },
-    }),
-  });
+      body: JSON.stringify({
+        model: input.model,
+        input: [
+          { role: "system", content: input.systemPrompt },
+          { role: "user", content: input.userPrompt },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: input.schemaName,
+            strict: true,
+            schema: input.schema,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(OPENAI_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(
+        `OpenAI admin AI request timed out after ${OPENAI_REQUEST_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const message = await parseErrorResponse(response);

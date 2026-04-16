@@ -1,49 +1,13 @@
 -- Admin AI memory runtime hardening.
 --
--- Fixes four gaps in the initial memory foundation:
---   1. Canonical chunk identity is per logical source (`source_type`, `source_id`)
---      so mutable sources update in place instead of accumulating stale rows.
---   2. Answer-time evidence retrieval moves onto `crm_ai_evidence_chunks`
---      instead of the legacy `admin_ai_evidence_items` view.
---   3. Current CRM source mutations mark dossier memory stale so
+-- Builds on the tables + RLS from `20260416000001_admin_ai_memory_foundation.sql`:
+--   1. Answer-time evidence retrieval over `crm_ai_evidence_chunks` (the
+--      legacy `admin_ai_evidence_items` view stays for audit purposes but
+--      is no longer the AI-facing retrieval surface).
+--   2. Current CRM source mutations mark dossier memory stale so
 --      retrieval-time rebuild-on-read can refresh narrow subsets safely.
---   4. The stale-memory discovery RPC also includes contacts that have a
+--   3. The stale-memory discovery RPC also includes contacts that have a
 --      dossier but are missing a ranking card.
-
--- ---------------------------------------------------------------------------
--- Canonical chunk identity
--- ---------------------------------------------------------------------------
-
-WITH ranked AS (
-  SELECT
-    id,
-    row_number() OVER (
-      PARTITION BY source_type, source_id
-      ORDER BY updated_at DESC, created_at DESC, id DESC
-    ) AS rn
-  FROM crm_ai_evidence_chunks
-)
-DELETE FROM crm_ai_evidence_chunks chunks
-USING ranked
-WHERE chunks.id = ranked.id
-  AND ranked.rn > 1;
-
-ALTER TABLE crm_ai_evidence_chunks
-  DROP CONSTRAINT IF EXISTS crm_ai_evidence_chunks_unique_version;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'crm_ai_evidence_chunks_unique_source'
-  ) THEN
-    ALTER TABLE crm_ai_evidence_chunks
-      ADD CONSTRAINT crm_ai_evidence_chunks_unique_source
-      UNIQUE (source_type, source_id);
-  END IF;
-END;
-$$;
 
 -- ---------------------------------------------------------------------------
 -- Chunk-backed evidence retrieval

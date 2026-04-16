@@ -55,8 +55,11 @@ CREATE TABLE crm_ai_evidence_chunks (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT crm_ai_evidence_chunks_text_not_blank CHECK (btrim(text) <> ''),
-  CONSTRAINT crm_ai_evidence_chunks_unique_version
-    UNIQUE (source_type, source_id, content_hash)
+  -- One row per logical source. `content_hash` lives on the row so updates
+  -- can detect whether an in-place refresh changed the text without
+  -- generating a new row per revision.
+  CONSTRAINT crm_ai_evidence_chunks_unique_source
+    UNIQUE (source_type, source_id)
 );
 
 CREATE INDEX idx_crm_ai_evidence_chunks_contact_time

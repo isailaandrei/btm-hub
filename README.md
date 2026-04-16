@@ -57,12 +57,12 @@ The hosted provider adapters use OpenAI via server-side `fetch`:
 
 ```bash
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.4-nano
-OPENAI_DOSSIER_MODEL=gpt-5.4-nano   # optional — falls back to OPENAI_MODEL
-OPENAI_RANKING_MODEL=gpt-5.4-nano   # optional — falls back to OPENAI_MODEL
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_DOSSIER_MODEL=gpt-4o-mini   # optional — falls back to OPENAI_MODEL
+OPENAI_RANKING_MODEL=gpt-4o-mini   # optional — falls back to OPENAI_MODEL
 ```
 
-`OPENAI_MODEL` is optional. If omitted, the app defaults to `gpt-5.4-nano` to keep simple test queries inexpensive. Dossier generation and the cohort ranking pass each pick up their own override env so the three roles (synthesis, dossier-writing, ranking) can be tuned independently.
+`OPENAI_MODEL` is optional. If omitted, the app defaults to `gpt-4o-mini` to keep simple test queries inexpensive. Dossier generation and the cohort ranking pass each pick up their own override env so the three roles (synthesis, dossier-writing, ranking) can be tuned independently.
 
 ### Memory architecture
 

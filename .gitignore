@@ -72,6 +72,8 @@ e2e/screenshots
 
 # superpowers brainstorming
 .superpowers/
+/docs/superpowers/plans
+/docs/superpowers/specs
 
 # Data imports — CSV files with applicant PII
 *.csv

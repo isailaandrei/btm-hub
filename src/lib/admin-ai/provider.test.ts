@@ -34,7 +34,7 @@ function makeRankingCard(contactId: string): CrmAiContactRankingCard {
 describe("openAiAdminAiRankingProvider", () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-key";
-    process.env.OPENAI_MODEL = "gpt-5.4-nano";
+    process.env.OPENAI_MODEL = "gpt-4o-mini";
   });
 
   afterEach(() => {

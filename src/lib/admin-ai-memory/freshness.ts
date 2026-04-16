@@ -157,10 +157,10 @@ export function findContactsNeedingMemoryRefresh(input: {
       continue;
     }
 
-    if (!dossier) {
-      staleContactIds.push(contactId);
-      continue;
-    }
+    // `shouldForceDossierRefreshOnRead` already bails on null dossiers
+    // above, so `dossier` is non-null here. The type-narrow assertion
+    // keeps TypeScript happy without a redundant runtime branch.
+    if (!dossier) continue;
 
     if (
       !rankingCard ||
