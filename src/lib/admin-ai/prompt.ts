@@ -5,40 +5,56 @@ import type {
   ContactFactRow,
   EvidenceItem,
 } from "@/types/admin-ai";
+import type {
+  CrmAiContactDossier,
+  CrmAiContactRankingCard,
+} from "@/types/admin-ai-memory";
 
 export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
   const scopeInstruction =
     scope === "contact"
-      ? "This is a contact-scoped analysis. Do not compare or mention other contacts."
-      : "This is a global search across multiple contacts.";
+      ? "This is a contact-scoped synthesis. Do not compare or mention other contacts."
+      : "This is the grounded-synthesis pass over a pre-shortlisted set of contacts.";
 
   return [
     "You are the BTM Hub Admin AI Analyst.",
     scopeInstruction,
-    "Answer only from the supplied candidate facts and evidence.",
+    "Answer only from the supplied dossiers, candidate facts, and evidence.",
     "Separate grounded facts from inferences.",
     "Be conservative. If evidence is weak, say so.",
     "Never invent missing details or unsupported qualifications.",
-    "Use only supplied evidenceIds inside citations.",
+    "Use only supplied evidenceIds inside citations — never cite dossier prose alone.",
     "Return valid JSON matching the required schema.",
     "For global search, prefer shortlist output and leave contactAssessment null.",
     "For contact synthesis, prefer contactAssessment output and return an empty shortlist array.",
   ].join(" ");
 }
 
-export function buildAdminAiUserPrompt(input: {
+export type AdminAiSynthesisInput = {
   question: string;
   scope: AdminAiScope;
   queryPlan: AdminAiQueryPlan;
   candidates: ContactFactRow[];
+  dossiers: CrmAiContactDossier[];
   evidence: EvidenceItem[];
-}): string {
+};
+
+export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
   return JSON.stringify(
     {
       question: input.question,
       scope: input.scope,
       queryPlan: input.queryPlan,
       candidates: input.candidates,
+      dossiers: input.dossiers.map((d) => ({
+        contactId: d.contact_id,
+        facts: d.facts_json,
+        signals: d.signals_json,
+        contradictions: d.contradictions_json,
+        unknowns: d.unknowns_json,
+        summary: { short: d.short_summary, medium: d.medium_summary },
+        sourceCoverage: d.source_coverage,
+      })),
       evidence: input.evidence,
       responseContract: {
         summary: "string",
@@ -164,3 +180,82 @@ export function normalizeProviderResponse(payload: {
     uncertainty: payload.uncertainty,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Ranking pass
+// ---------------------------------------------------------------------------
+
+/**
+ * Ranking pass — internal-only. Output is NOT a user-visible answer; it is
+ * the shortlist of contact ids the synthesis pass will deeply evaluate.
+ */
+
+export function buildAdminAiRankingSystemPrompt(): string {
+  return [
+    "You are the BTM Hub Admin AI ranking pass.",
+    "Use the supplied ranking cards to shortlist the most plausible candidates for the question.",
+    "Do not invent contacts. Only use contactIds present in the input.",
+    "Be conservative — fewer high-fit picks beat noisy long lists.",
+    "If the cohort coverage looks insufficient, say so under `cohortNotes`.",
+    "Return valid JSON matching the required schema.",
+  ].join(" ");
+}
+
+export type AdminAiRankingInput = {
+  question: string;
+  queryPlan: AdminAiQueryPlan;
+  rankingCards: CrmAiContactRankingCard[];
+  candidatesMissingMemory: string[];
+};
+
+export function buildAdminAiRankingUserPrompt(
+  input: AdminAiRankingInput,
+): string {
+  return JSON.stringify(
+    {
+      question: input.question,
+      queryPlan: input.queryPlan,
+      rankingCards: input.rankingCards.map((card) => ({
+        contactId: card.contact_id,
+        facts: card.facts_json,
+        topFitSignals: card.top_fit_signals_json,
+        topConcerns: card.top_concerns_json,
+        confidenceNotes: card.confidence_notes_json,
+        shortSummary: card.short_summary,
+      })),
+      candidatesMissingMemory: input.candidatesMissingMemory,
+      responseContract: {
+        shortlistedContactIds: ["uuid"],
+        reasons: [{ contactId: "uuid", reason: "string" }],
+        cohortNotes: "string | null",
+      },
+    },
+    null,
+    2,
+  );
+}
+
+export const ADMIN_AI_RANKING_RESPONSE_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    shortlistedContactIds: {
+      type: "array",
+      items: { type: "string", format: "uuid" },
+    },
+    reasons: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          contactId: { type: "string", format: "uuid" },
+          reason: { type: "string" },
+        },
+        required: ["contactId", "reason"],
+      },
+    },
+    cohortNotes: { anyOf: [{ type: "string" }, { type: "null" }] },
+  },
+  required: ["shortlistedContactIds", "reasons", "cohortNotes"],
+} as const;

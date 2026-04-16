@@ -1,36 +1,40 @@
 import {
+  ADMIN_AI_RANKING_RESPONSE_JSON_SCHEMA,
   ADMIN_AI_RESPONSE_JSON_SCHEMA,
+  buildAdminAiRankingSystemPrompt,
+  buildAdminAiRankingUserPrompt,
   buildAdminAiSystemPrompt,
   buildAdminAiUserPrompt,
   normalizeProviderResponse,
+  type AdminAiRankingInput,
+  type AdminAiSynthesisInput,
 } from "./prompt";
-import type {
-  AdminAiQueryPlan,
-  AdminAiResponse,
-  AdminAiScope,
-  ContactFactRow,
-  EvidenceItem,
-} from "@/types/admin-ai";
+import type { AdminAiResponse } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
 const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 
-type ProviderGenerateInput = {
-  question: string;
-  scope: AdminAiScope;
-  queryPlan: AdminAiQueryPlan;
-  candidates: ContactFactRow[];
-  evidence: EvidenceItem[];
-};
-
 export interface AdminAiProvider {
   isConfigured(): boolean;
   getUnavailableReason(): string | null;
-  generate(input: ProviderGenerateInput): Promise<{
+  generate(input: AdminAiSynthesisInput): Promise<{
     response: AdminAiResponse;
     modelMetadata: Record<string, unknown>;
   }>;
+}
+
+export type AdminAiRankingResult = {
+  shortlistedContactIds: string[];
+  reasons: Array<{ contactId: string; reason: string }>;
+  cohortNotes: string | null;
+  modelMetadata: Record<string, unknown>;
+};
+
+export interface AdminAiRankingProvider {
+  isConfigured(): boolean;
+  getUnavailableReason(): string | null;
+  generateRanking(input: AdminAiRankingInput): Promise<AdminAiRankingResult>;
 }
 
 export type AdminAiProviderAvailability = {
@@ -58,8 +62,16 @@ function getApiKey(): string | null {
   return process.env.OPENAI_API_KEY?.trim() || null;
 }
 
-function getModel(): string {
+function getSynthesisModel(): string {
   return process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
+}
+
+function getRankingModel(): string {
+  return (
+    process.env.OPENAI_RANKING_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    DEFAULT_OPENAI_MODEL
+  );
 }
 
 function extractResponseText(payload: OpenAiResponsesPayload): string {
@@ -98,6 +110,48 @@ async function parseErrorResponse(response: Response): Promise<string> {
   }
 }
 
+async function callOpenAi(input: {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  schemaName: string;
+  schema: object;
+}): Promise<{
+  payload: OpenAiResponsesPayload;
+  rawText: string;
+}> {
+  const response = await fetch(OPENAI_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: input.model,
+      input: [
+        { role: "system", content: input.systemPrompt },
+        { role: "user", content: input.userPrompt },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: input.schemaName,
+          strict: true,
+          schema: input.schema,
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorResponse(response);
+    throw new Error(`OpenAI admin AI request failed: ${message}`);
+  }
+  const payload = (await response.json()) as OpenAiResponsesPayload;
+  return { payload, rawText: extractResponseText(payload) };
+}
+
 const openAiAdminAiProvider: AdminAiProvider = {
   isConfigured() {
     return Boolean(getApiKey());
@@ -112,43 +166,16 @@ const openAiAdminAiProvider: AdminAiProvider = {
     if (!apiKey) {
       throw new Error(PROVIDER_UNAVAILABLE_REASON);
     }
-
-    const response = await fetch(OPENAI_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: getModel(),
-        input: [
-          {
-            role: "system",
-            content: buildAdminAiSystemPrompt(input.scope),
-          },
-          {
-            role: "user",
-            content: buildAdminAiUserPrompt(input),
-          },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "admin_ai_response",
-            strict: true,
-            schema: ADMIN_AI_RESPONSE_JSON_SCHEMA,
-          },
-        },
-      }),
+    const model = getSynthesisModel();
+    const { payload, rawText } = await callOpenAi({
+      apiKey,
+      model,
+      systemPrompt: buildAdminAiSystemPrompt(input.scope),
+      userPrompt: buildAdminAiUserPrompt(input),
+      schemaName: "admin_ai_response",
+      schema: ADMIN_AI_RESPONSE_JSON_SCHEMA,
     });
 
-    if (!response.ok) {
-      const message = await parseErrorResponse(response);
-      throw new Error(`OpenAI admin AI request failed: ${message}`);
-    }
-
-    const payload = await response.json() as OpenAiResponsesPayload;
-    const rawText = extractResponseText(payload);
     const rawResponse = JSON.parse(rawText) as {
       summary: string;
       keyFindings: string[];
@@ -162,7 +189,61 @@ const openAiAdminAiProvider: AdminAiProvider = {
       modelMetadata: {
         provider: "openai",
         responseId: payload.id ?? null,
-        model: payload.model ?? getModel(),
+        model: payload.model ?? model,
+        usage: payload.usage ?? null,
+      },
+    };
+  },
+};
+
+const openAiAdminAiRankingProvider: AdminAiRankingProvider = {
+  isConfigured() {
+    return Boolean(getApiKey());
+  },
+
+  getUnavailableReason() {
+    return this.isConfigured() ? null : PROVIDER_UNAVAILABLE_REASON;
+  },
+
+  async generateRanking(input) {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      throw new Error(PROVIDER_UNAVAILABLE_REASON);
+    }
+    const model = getRankingModel();
+    const { payload, rawText } = await callOpenAi({
+      apiKey,
+      model,
+      systemPrompt: buildAdminAiRankingSystemPrompt(),
+      userPrompt: buildAdminAiRankingUserPrompt(input),
+      schemaName: "admin_ai_ranking_response",
+      schema: ADMIN_AI_RANKING_RESPONSE_JSON_SCHEMA,
+    });
+
+    const parsed = JSON.parse(rawText) as {
+      shortlistedContactIds: string[];
+      reasons: Array<{ contactId: string; reason: string }>;
+      cohortNotes: string | null;
+    };
+
+    // Defense-in-depth: shortlisted ids must come from the ranking-card pool.
+    const allowed = new Set(input.rankingCards.map((c) => c.contact_id));
+    for (const id of parsed.shortlistedContactIds) {
+      if (!allowed.has(id)) {
+        throw new Error(
+          `Ranking pass returned contactId not in cohort: ${id}`,
+        );
+      }
+    }
+
+    return {
+      shortlistedContactIds: parsed.shortlistedContactIds,
+      reasons: parsed.reasons,
+      cohortNotes: parsed.cohortNotes ?? null,
+      modelMetadata: {
+        provider: "openai",
+        responseId: payload.id ?? null,
+        model: payload.model ?? model,
         usage: payload.usage ?? null,
       },
     };
@@ -173,6 +254,10 @@ export function getAdminAiProvider(): AdminAiProvider {
   return openAiAdminAiProvider;
 }
 
+export function getAdminAiRankingProvider(): AdminAiRankingProvider {
+  return openAiAdminAiRankingProvider;
+}
+
 export function getAdminAiProviderAvailability(): AdminAiProviderAvailability {
   const provider = getAdminAiProvider();
   const isConfigured = provider.isConfigured();
@@ -180,6 +265,6 @@ export function getAdminAiProviderAvailability(): AdminAiProviderAvailability {
   return {
     isConfigured,
     unavailableReason: provider.getUnavailableReason(),
-    model: isConfigured ? getModel() : null,
+    model: isConfigured ? getSynthesisModel() : null,
   };
 }

@@ -123,9 +123,10 @@ const MAX_TEXT_FOCUS_TOKENS = 12;
 
 /**
  * Sensible global default for the planner — the evidence pipeline caps this
- * further (see `MAX_CANDIDATES` in `retrieval.ts`). We pick 25 because that
- * matches the downstream candidate cap; asking for more would just be wasted
- * work.
+ * further (see `MAX_RANKING_COHORT` in
+ * `src/lib/admin-ai-memory/global-retrieval.ts`). We pick 25 because that is
+ * the historical candidate cap; the cohort retrieval layer enforces a wider
+ * 250 cap and keeps ranking-card cost bounded on its own.
  */
 const GLOBAL_REQUESTED_LIMIT_DEFAULT = 25;
 
