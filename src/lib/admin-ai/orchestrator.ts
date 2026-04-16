@@ -352,6 +352,19 @@ async function runGlobalAnalysis(input: {
     textFocus: input.queryPlan.textFocus,
   });
 
+  if (finalists.evidence.length === 0) {
+    const response = buildInsufficientEvidenceResponse("global", {
+      extra:
+        "No raw evidence could be retrieved for the shortlisted contacts, so I can't produce a cited shortlist yet.",
+    });
+    return persistInsufficientResponse({
+      threadId: input.threadId,
+      queryPlan: input.queryPlan,
+      response,
+      reason: "missing_finalist_evidence",
+    });
+  }
+
   const finalistCandidates = cohort.candidates.filter(
     (c) => c.contact_id && shortlist.includes(c.contact_id),
   );
@@ -391,6 +404,19 @@ async function runContactAnalysis(input: {
       queryPlan: input.queryPlan,
       response,
       reason: "insufficient_contact_memory",
+    });
+  }
+
+  if (memory.evidence.length === 0) {
+    const response = buildInsufficientEvidenceResponse("contact", {
+      extra:
+        "No raw evidence could be retrieved for this contact, so I can't provide a cited assessment yet.",
+    });
+    return persistInsufficientResponse({
+      threadId: input.threadId,
+      queryPlan: input.queryPlan,
+      response,
+      reason: "missing_contact_evidence",
     });
   }
 

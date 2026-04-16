@@ -15,6 +15,10 @@ vi.mock("@/lib/data/admin-ai-memory", () => ({
   listRankingCards: vi.fn(),
 }));
 
+vi.mock("@/lib/data/admin-ai-retrieval", () => ({
+  queryAdminAiContactFacts: vi.fn(),
+}));
+
 vi.mock("./dossier-generator", () => ({
   generateContactDossier: vi.fn(),
 }));
@@ -111,6 +115,7 @@ describe("rebuildContactMemory", () => {
 
   it("loads sources, normalizes chunks, generates dossier, builds ranking card", async () => {
     const dataMod = await import("@/lib/data/admin-ai-memory");
+    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
     const generatorMod = await import("./dossier-generator");
 
     vi.mocked(dataMod.loadContactCrmSources).mockResolvedValue({
@@ -118,6 +123,30 @@ describe("rebuildContactMemory", () => {
       applications: [makeApplication(CONTACT_A)],
       contactNotes: [makeNote(CONTACT_A)],
     });
+    vi.mocked(retrievalMod.queryAdminAiContactFacts).mockResolvedValue([
+      {
+        contact_id: CONTACT_A,
+        application_id: APP_ID,
+        contact_name: "Joana",
+        contact_email: "joana@example.com",
+        contact_phone: null,
+        program: "filmmaking",
+        status: "reviewing",
+        submitted_at: "2026-04-14T00:00:00Z",
+        tag_ids: ["tag-1"],
+        tag_names: ["Strong fit"],
+        budget: "Medium",
+        time_availability: "2-4 weeks",
+        start_timeline: "Within 3 months",
+        btm_category: "filmmaker",
+        travel_willingness: "Yes",
+        languages: "English, Portuguese",
+        country_of_residence: "Portugal",
+        certification_level: "Advanced",
+        years_experience: "3-5",
+        involvement_level: "Full-time",
+      },
+    ]);
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
     vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
@@ -150,6 +179,28 @@ describe("rebuildContactMemory", () => {
     expect(dataMod.upsertEvidenceChunks).toHaveBeenCalledTimes(1);
     expect(dataMod.upsertContactDossier).toHaveBeenCalledTimes(1);
     expect(dataMod.upsertRankingCard).toHaveBeenCalledTimes(1);
+    expect(generatorMod.generateContactDossier).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactFacts: expect.objectContaining({
+          contact: expect.objectContaining({
+            contactId: CONTACT_A,
+            contactName: CONTACT_A,
+          }),
+          applications: expect.objectContaining({
+            programHistory: ["filmmaking"],
+            statusHistory: ["reviewing"],
+          }),
+          tags: expect.objectContaining({
+            tagNames: ["Strong fit"],
+          }),
+          structuredFacts: expect.objectContaining({
+            budgetValues: ["Medium"],
+            travelWillingnessValues: ["Yes"],
+            languageValues: ["English, Portuguese"],
+          }),
+        }),
+      }),
+    );
     expect(result.status).toBe("rebuilt");
     expect(result.chunkCount).toBeGreaterThan(0);
   });

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --experimental-strip-types
+#!/usr/bin/env -S node --import tsx
 /**
  * Local admin AI memory backfill CLI.
  *
@@ -8,10 +8,10 @@
  * should drive the same `rebuildContactMemory` flow from a server context.
  *
  * Usage:
- *   node --experimental-strip-types scripts/admin-ai-memory/backfill.ts
- *   node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --limit=5
- *   node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --contact=<uuid>
- *   node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --contact=<uuid>,<uuid> --force
+ *   node --import tsx scripts/admin-ai-memory/backfill.ts
+ *   node --import tsx scripts/admin-ai-memory/backfill.ts --limit=5
+ *   node --import tsx scripts/admin-ai-memory/backfill.ts --contact=<uuid>
+ *   node --import tsx scripts/admin-ai-memory/backfill.ts --contact=<uuid>,<uuid> --force
  *
  * Required env (read from .env.local or shell):
  *   NEXT_PUBLIC_SUPABASE_URL
@@ -101,7 +101,7 @@ function parseArgs(argv: string[]): CliArgs {
 function printHelp(): void {
   console.log(
     [
-      "Usage: node --experimental-strip-types scripts/admin-ai-memory/backfill.ts [options]",
+      "Usage: node --import tsx scripts/admin-ai-memory/backfill.ts [options]",
       "",
       "Options:",
       "  --limit=N           Process at most N contacts (default: all).",

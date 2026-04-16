@@ -16,13 +16,20 @@
  */
 
 import {
+  listRecentAdminAiEvidence,
   queryAdminAiContactFacts,
   searchAdminAiEvidence,
 } from "@/lib/data/admin-ai-retrieval";
 import {
+  listContactDossierStates,
   listContactDossiers,
   listRankingCards,
 } from "@/lib/data/admin-ai-memory";
+import { rebuildContactMemory } from "./backfill";
+import {
+  findContactsNeedingMemoryRefresh,
+} from "./freshness";
+import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import type {
   AdminAiQueryPlan,
   ContactFactRow,
@@ -35,6 +42,7 @@ import type {
 
 export const MAX_RANKING_COHORT = 250;
 export const MAX_FINALIST_EVIDENCE = 60;
+export const MAX_SYNC_MEMORY_REFRESHES = 5;
 
 export type GlobalCohortMemory = {
   candidates: ContactFactRow[];
@@ -46,14 +54,9 @@ export async function assembleGlobalCohortMemory(input: {
   plan: AdminAiQueryPlan;
 }): Promise<GlobalCohortMemory> {
   const { plan } = input;
-  const factsLimit = Math.min(
-    Math.max(plan.requestedLimit, 1),
-    MAX_RANKING_COHORT,
-  );
-
   const rawCandidates = await queryAdminAiContactFacts({
     filters: plan.structuredFilters,
-    limit: factsLimit,
+    limit: MAX_RANKING_COHORT,
   });
   const candidates = rawCandidates.slice(0, MAX_RANKING_COHORT);
 
@@ -61,19 +64,71 @@ export async function assembleGlobalCohortMemory(input: {
     new Set(candidates.map((c) => c.contact_id).filter(Boolean) as string[]),
   );
 
-  const rankingCards = contactIds.length
+  let rankingCards = contactIds.length
     ? await listRankingCards({
         contactIds,
         limit: MAX_RANKING_COHORT,
       })
     : [];
 
-  const cardContactIds = new Set(rankingCards.map((c) => c.contact_id));
+  const dossierStates = contactIds.length
+    ? await listContactDossierStates({ contactIds })
+    : [];
+
+  const contactsNeedingRefresh = findContactsNeedingMemoryRefresh({
+    contactIds,
+    dossiers: dossierStates,
+    rankingCards,
+    generatorVersion: DOSSIER_GENERATOR_VERSION,
+  });
+
+  const unresolvedRefreshSet = new Set<string>();
+  if (
+    contactsNeedingRefresh.length > 0 &&
+    contactsNeedingRefresh.length <= MAX_SYNC_MEMORY_REFRESHES
+  ) {
+    await Promise.all(
+      contactsNeedingRefresh.map(async (contactId) => {
+        try {
+          await rebuildContactMemory({ contactId });
+        } catch {
+          unresolvedRefreshSet.add(contactId);
+        }
+      }),
+    );
+
+    rankingCards = await listRankingCards({
+      contactIds,
+      limit: MAX_RANKING_COHORT,
+    });
+  } else {
+    for (const contactId of contactsNeedingRefresh) {
+      unresolvedRefreshSet.add(contactId);
+    }
+  }
+
+  const candidateOrder = new Map(
+    contactIds.map((contactId, index) => [contactId, index] as const),
+  );
+  const validRankingCards = rankingCards
+    .filter(
+      (card) => !unresolvedRefreshSet.has(card.contact_id),
+    )
+    .sort(
+      (a, b) =>
+        (candidateOrder.get(a.contact_id) ?? Number.MAX_SAFE_INTEGER) -
+        (candidateOrder.get(b.contact_id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  const cardContactIds = new Set(validRankingCards.map((c) => c.contact_id));
   const contactsMissingRankingCards = contactIds.filter(
-    (id) => !cardContactIds.has(id),
+    (id) => unresolvedRefreshSet.has(id) || !cardContactIds.has(id),
   );
 
-  return { candidates, rankingCards, contactsMissingRankingCards };
+  return {
+    candidates,
+    rankingCards: validRankingCards,
+    contactsMissingRankingCards,
+  };
 }
 
 export type FinalistEvidence = {
@@ -99,10 +154,17 @@ export async function expandFinalistEvidence(input: {
       limit: MAX_FINALIST_EVIDENCE,
     }),
   ]);
+  const resolvedEvidence =
+    evidence.length > 0
+      ? evidence
+      : await listRecentAdminAiEvidence({
+          contactIds: ids,
+          limit: MAX_FINALIST_EVIDENCE,
+        });
 
   // Defense-in-depth: any evidence row outside the shortlist is a leak.
   const shortlistSet = new Set(ids);
-  for (const item of evidence) {
+  for (const item of resolvedEvidence) {
     if (!shortlistSet.has(item.contactId)) {
       throw new Error(
         `admin-ai-memory: cohort-scope leak — evidenceId=${item.evidenceId} belongs to contact ${item.contactId} which is not in the shortlist`,
@@ -110,5 +172,5 @@ export async function expandFinalistEvidence(input: {
     }
   }
 
-  return { dossiers, evidence };
+  return { dossiers, evidence: resolvedEvidence };
 }

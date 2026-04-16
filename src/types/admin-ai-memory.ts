@@ -113,6 +113,16 @@ export type CrmAiContactDossier = {
   updated_at: string;
 };
 
+export type CrmAiContactDossierState = Pick<
+  CrmAiContactDossier,
+  | "contact_id"
+  | "dossier_version"
+  | "generator_version"
+  | "source_fingerprint"
+  | "stale_at"
+  | "last_built_at"
+>;
+
 /**
  * Camel-cased input used by callers that build dossiers before persisting.
  */

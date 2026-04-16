@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockSupabaseClient } from "@/test/mocks/supabase";
+import { buildStableChunkId } from "@/lib/admin-ai-memory/chunk-identity";
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
@@ -72,6 +73,10 @@ describe("upsertEvidenceChunks", () => {
     const rows = upsertCall[0] as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
+      id: buildStableChunkId(
+        "application_answer",
+        `${APP_ID}:ultimate_vision`,
+      ),
       contact_id: CONTACT_ID,
       application_id: APP_ID,
       source_type: "application_answer",
@@ -80,9 +85,7 @@ describe("upsertEvidenceChunks", () => {
       chunk_version: 1,
     });
     const opts = upsertCall[1] as { onConflict: string } | undefined;
-    expect(opts?.onConflict).toContain("source_type");
-    expect(opts?.onConflict).toContain("source_id");
-    expect(opts?.onConflict).toContain("content_hash");
+    expect(opts?.onConflict).toBe("id");
   });
 
   it("is a no-op when chunks is empty", async () => {
@@ -286,6 +289,34 @@ describe("listContactDossiers", () => {
   it("returns [] without query when contactIds is empty", async () => {
     const { listContactDossiers } = await import("./admin-ai-memory");
     const out = await listContactDossiers({ contactIds: [] });
+    expect(out).toEqual([]);
+    expect(mock.client.from).not.toHaveBeenCalled();
+  });
+});
+
+describe("listContactDossierStates", () => {
+  let mock: Harness;
+  beforeEach(async () => {
+    mock = await freshHarness();
+  });
+
+  it("loads only freshness-related fields for the provided contact ids", async () => {
+    mock.mockQueryResult([]);
+    const { listContactDossierStates } = await import("./admin-ai-memory");
+    await listContactDossierStates({ contactIds: ["c1", "c2"] });
+    expect(mock.client.from).toHaveBeenCalledWith("crm_ai_contact_dossiers");
+    expect(mock.query.in).toHaveBeenCalledWith("contact_id", ["c1", "c2"]);
+    expect(mock.query.select).toHaveBeenCalledWith(
+      expect.stringContaining("generator_version"),
+    );
+    expect(mock.query.select).toHaveBeenCalledWith(
+      expect.not.stringContaining("medium_summary"),
+    );
+  });
+
+  it("returns [] without querying when contactIds is empty", async () => {
+    const { listContactDossierStates } = await import("./admin-ai-memory");
+    const out = await listContactDossierStates({ contactIds: [] });
     expect(out).toEqual([]);
     expect(mock.client.from).not.toHaveBeenCalled();
   });

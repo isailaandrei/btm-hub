@@ -630,7 +630,7 @@ describe("searchAdminAiEvidence", () => {
     expect(mock.client.rpc).toHaveBeenCalledTimes(1);
     expect(mock.client.from).not.toHaveBeenCalled();
     expect(mock.client.rpc).toHaveBeenCalledWith(
-      "search_admin_ai_evidence",
+      "search_admin_ai_chunk_evidence",
       expect.objectContaining({
         p_query: "dolphins ocean",
         p_contact_ids: ["c1", "c2"],
@@ -662,7 +662,7 @@ describe("searchAdminAiEvidence", () => {
       limit: 5,
     });
     expect(mock.client.rpc).toHaveBeenCalledWith(
-      "search_admin_ai_evidence",
+      "search_admin_ai_chunk_evidence",
       expect.objectContaining({
         p_query: "",
         p_contact_id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
@@ -686,5 +686,61 @@ describe("searchAdminAiEvidence", () => {
     const { requireAdmin } = await import("@/lib/auth/require-admin");
     await searchAdminAiEvidence({ textFocus: [], limit: 5 });
     expect(vi.mocked(requireAdmin)).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ===========================================================================
+// listRecentAdminAiEvidence
+// ===========================================================================
+
+describe("listRecentAdminAiEvidence", () => {
+  let mock: Harness;
+  beforeEach(async () => {
+    mock = await freshHarness();
+  });
+
+  it("loads recent chunk-backed evidence for a single contact", async () => {
+    mock.mockQueryResult([
+      {
+        id: "chunk-1",
+        contact_id: "c1",
+        application_id: "a1",
+        source_type: "application_answer",
+        source_id: "a1:ultimate_vision",
+        source_timestamp: "2026-04-14T00:00:00Z",
+        text: "swimming with dolphins",
+        metadata_json: {
+          sourceLabel: "ultimate_vision",
+          program: "academy",
+        },
+      },
+    ]);
+
+    const { listRecentAdminAiEvidence } = await import("./admin-ai-retrieval");
+    const out = await listRecentAdminAiEvidence({
+      contactId: "c1",
+      limit: 10,
+    });
+
+    expect(mock.client.from).toHaveBeenCalledWith("crm_ai_evidence_chunks");
+    expect(mock.query.eq).toHaveBeenCalledWith("contact_id", "c1");
+    expect(mock.query.order).toHaveBeenCalledWith("source_timestamp", {
+      ascending: false,
+      nullsFirst: false,
+    });
+    expect(mock.query.limit).toHaveBeenCalledWith(10);
+    expect(out).toEqual([
+      {
+        evidenceId: "chunk-1",
+        contactId: "c1",
+        applicationId: "a1",
+        sourceType: "application_answer",
+        sourceId: "a1:ultimate_vision",
+        sourceLabel: "ultimate_vision",
+        sourceTimestamp: "2026-04-14T00:00:00Z",
+        program: "academy",
+        text: "swimming with dolphins",
+      },
+    ]);
   });
 });

@@ -15,6 +15,7 @@ import {
   buildCurrentCrmChunksForContact,
   CHUNK_BUILDER_VERSION,
 } from "./chunk-builder";
+import { buildDossierContactFacts } from "./contact-facts";
 import { generateContactDossier } from "./dossier-generator";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import {
@@ -31,6 +32,7 @@ import {
   upsertEvidenceChunks,
   upsertRankingCard,
 } from "@/lib/data/admin-ai-memory";
+import { queryAdminAiContactFacts } from "@/lib/data/admin-ai-retrieval";
 import type {
   CrmAiContactDossierInput,
   CrmAiEvidenceChunkInput,
@@ -160,21 +162,16 @@ export async function rebuildContactMemory(input: {
     ).length,
   });
 
-  // Provide a flat fact pack for the dossier prompt — keep it small so the
-  // model focuses on chunk-level reasoning, not re-encoding structured
-  // fields.
-  const flatFacts: Record<string, unknown> = {
-    contact_id: sources.contact.id,
-    contact_name: sources.contact.name,
-    contact_email: sources.contact.email,
-    application_count: sources.applications.length,
-    application_programs: Array.from(
-      new Set(sources.applications.map((a) => a.program)),
-    ),
-    application_statuses: Array.from(
-      new Set(sources.applications.map((a) => a.status)),
-    ),
-  };
+  const factRows = await queryAdminAiContactFacts({
+    filters: [],
+    contactId: input.contactId,
+    limit: 100,
+  });
+  const dossierFacts = buildDossierContactFacts({
+    contact: sources.contact,
+    factRows,
+    applicationCount: sources.applications.length,
+  });
 
   // Map chunks to deterministic stable references so the dossier model can
   // anchor evidence by `chunkId`. We use `${sourceType}:${sourceId}` as the
@@ -190,7 +187,7 @@ export async function rebuildContactMemory(input: {
 
   const generation = await generateContactDossier({
     contactId: input.contactId,
-    contactFacts: flatFacts,
+    contactFacts: dossierFacts,
     chunks: chunkPromptItems,
   });
 

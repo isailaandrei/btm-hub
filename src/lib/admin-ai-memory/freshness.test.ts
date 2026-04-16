@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   computeChunkSourceFingerprint,
+  findContactsNeedingMemoryRefresh,
+  shouldRefreshDossierOnRead,
   isDossierStale,
   isRankingCardStale,
   needsContactMemoryRebuild,
@@ -217,5 +219,62 @@ describe("needsContactMemoryRebuild", () => {
         generatorVersion: DOSSIER_GENERATOR_VERSION,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldRefreshDossierOnRead", () => {
+  it("returns true when dossier is missing", () => {
+    expect(
+      shouldRefreshDossierOnRead({
+        dossier: null,
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when stale_at has passed", () => {
+    expect(
+      shouldRefreshDossierOnRead({
+        dossier: makeDossier({ stale_at: "2026-04-15T00:00:00Z" }),
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
+        now: new Date("2026-04-15T01:00:00Z"),
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for a fresh dossier with the current generator version", () => {
+    expect(
+      shouldRefreshDossierOnRead({
+        dossier: makeDossier({
+          stale_at: null,
+          generator_version: DOSSIER_GENERATOR_VERSION,
+        }),
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
+        now: new Date("2026-04-15T01:00:00Z"),
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("findContactsNeedingMemoryRefresh", () => {
+  it("marks contacts stale when dossier is missing, stale, or card lags the dossier", () => {
+    const staleAt = "2026-04-15T00:00:00Z";
+    const result = findContactsNeedingMemoryRefresh({
+      contactIds: ["a", "b", "c", "d"],
+      dossiers: [
+        makeDossier({ contact_id: "a", stale_at: staleAt }),
+        makeDossier({ contact_id: "c" }),
+        makeDossier({ contact_id: "d" }),
+      ],
+      rankingCards: [
+        makeRankingCard({ contact_id: "a" }),
+        makeRankingCard({ contact_id: "c", dossier_version: 0 }),
+        makeRankingCard({ contact_id: "d" }),
+      ],
+      generatorVersion: DOSSIER_GENERATOR_VERSION,
+      now: new Date("2026-04-15T01:00:00Z"),
+    });
+
+    expect(result).toEqual(["a", "b", "c"]);
   });
 });

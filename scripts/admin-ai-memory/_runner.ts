@@ -12,6 +12,8 @@ import {
   buildCurrentCrmChunksForContact,
   CHUNK_BUILDER_VERSION,
 } from "../../src/lib/admin-ai-memory/chunk-builder.ts";
+import { buildStableChunkId } from "../../src/lib/admin-ai-memory/chunk-identity.ts";
+import { buildDossierContactFacts } from "../../src/lib/admin-ai-memory/contact-facts.ts";
 import { generateContactDossier } from "../../src/lib/admin-ai-memory/dossier-generator.ts";
 import { DOSSIER_GENERATOR_VERSION } from "../../src/lib/admin-ai-memory/dossier-prompt.ts";
 import {
@@ -24,6 +26,7 @@ import type {
   Contact,
   ContactNote,
 } from "../../src/types/database.ts";
+import type { ContactFactRow } from "../../src/types/admin-ai.ts";
 import type {
   CrmAiContactDossier,
   CrmAiContactRankingCard,
@@ -118,6 +121,43 @@ async function loadContactSources(
   };
 }
 
+async function loadContactFactRows(
+  supabase: SupabaseClient,
+  contactId: string,
+): Promise<ContactFactRow[]> {
+  const FACTS_SELECT = [
+    "contact_id",
+    "application_id",
+    "contact_name",
+    "contact_email",
+    "contact_phone",
+    "program",
+    "status",
+    "submitted_at",
+    "tag_ids",
+    "tag_names",
+    "budget",
+    "time_availability",
+    "start_timeline",
+    "btm_category",
+    "travel_willingness",
+    "languages",
+    "country_of_residence",
+    "certification_level",
+    "years_experience",
+    "involvement_level",
+  ].join(", ");
+
+  const { data, error } = await supabase
+    .from("admin_ai_contact_facts")
+    .select(FACTS_SELECT)
+    .eq("contact_id", contactId)
+    .limit(100);
+
+  if (error) throw new Error(`admin_ai_contact_facts: ${error.message}`);
+  return (data ?? []) as ContactFactRow[];
+}
+
 async function upsertChunks(
   supabase: SupabaseClient,
   chunks: CrmAiEvidenceChunkInput[],
@@ -125,6 +165,7 @@ async function upsertChunks(
   if (chunks.length === 0) return;
   const { error } = await supabase.from("crm_ai_evidence_chunks").upsert(
     chunks.map((c) => ({
+      id: buildStableChunkId(c.sourceType, c.sourceId),
       contact_id: c.contactId,
       application_id: c.applicationId,
       source_type: c.sourceType,
@@ -135,7 +176,7 @@ async function upsertChunks(
       content_hash: c.contentHash,
       chunk_version: c.chunkVersion,
     })),
-    { onConflict: "source_type,source_id,content_hash" },
+    { onConflict: "id" },
   );
   if (error) throw new Error(`upsert chunks: ${error.message}`);
 }
@@ -211,22 +252,16 @@ async function rebuildOne(input: {
     ).length,
   });
 
-  const flatFacts: Record<string, unknown> = {
-    contact_id: sources.contact.id,
-    contact_name: sources.contact.name,
-    contact_email: sources.contact.email,
-    application_count: sources.applications.length,
-    application_programs: Array.from(
-      new Set(sources.applications.map((a) => a.program)),
-    ),
-    application_statuses: Array.from(
-      new Set(sources.applications.map((a) => a.status)),
-    ),
-  };
+  const factRows = await loadContactFactRows(input.supabase, input.contactId);
+  const dossierFacts = buildDossierContactFacts({
+    contact: sources.contact,
+    factRows,
+    applicationCount: sources.applications.length,
+  });
 
   const generation = await generateContactDossier({
     contactId: input.contactId,
-    contactFacts: flatFacts,
+    contactFacts: dossierFacts,
     chunks: chunks.map((c) => ({
       chunkId: `${c.sourceType}:${c.sourceId}`,
       sourceType: c.sourceType,

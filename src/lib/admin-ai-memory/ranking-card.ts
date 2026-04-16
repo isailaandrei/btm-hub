@@ -43,6 +43,41 @@ function pickTopSignals(
   return indexed.slice(0, limit).map((wrapped) => wrapped.entry);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function compactFacts(facts: Record<string, unknown>): Record<string, unknown> {
+  const contact = isRecord(facts.contact) ? facts.contact : null;
+  const applications = isRecord(facts.applications) ? facts.applications : null;
+  const tags = isRecord(facts.tags) ? facts.tags : null;
+  const structuredFacts = isRecord(facts.structuredFacts)
+    ? facts.structuredFacts
+    : null;
+
+  if (!contact && !applications && !tags && !structuredFacts) {
+    return facts;
+  }
+
+  return {
+    contactName: contact?.contactName ?? null,
+    applicationCount: applications?.applicationCount ?? null,
+    programHistory: applications?.programHistory ?? [],
+    statusHistory: applications?.statusHistory ?? [],
+    tagNames: tags?.tagNames ?? [],
+    budgetValues: structuredFacts?.budgetValues ?? [],
+    timeAvailabilityValues: structuredFacts?.timeAvailabilityValues ?? [],
+    startTimelineValues: structuredFacts?.startTimelineValues ?? [],
+    btmCategoryValues: structuredFacts?.btmCategoryValues ?? [],
+    travelWillingnessValues: structuredFacts?.travelWillingnessValues ?? [],
+    languageValues: structuredFacts?.languageValues ?? [],
+    countryOfResidenceValues: structuredFacts?.countryOfResidenceValues ?? [],
+    certificationLevelValues: structuredFacts?.certificationLevelValues ?? [],
+    yearsExperienceValues: structuredFacts?.yearsExperienceValues ?? [],
+    involvementLevelValues: structuredFacts?.involvementLevelValues ?? [],
+  };
+}
+
 export function buildRankingCardFromDossier(
   dossier: CrmAiContactDossier,
 ): CrmAiContactRankingCardInput {
@@ -64,7 +99,7 @@ export function buildRankingCardFromDossier(
     contactId: dossier.contact_id,
     dossierVersion: dossier.dossier_version,
     sourceFingerprint: dossier.source_fingerprint,
-    facts: dossier.facts_json,
+    facts: compactFacts(dossier.facts_json),
     topFitSignals: fitSignals,
     topConcerns: concerns,
     confidenceNotes,

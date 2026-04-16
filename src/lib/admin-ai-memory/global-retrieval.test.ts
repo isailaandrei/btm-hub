@@ -11,12 +11,18 @@ import type {
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
   queryAdminAiContactFacts: vi.fn(),
   searchAdminAiEvidence: vi.fn(),
+  listRecentAdminAiEvidence: vi.fn(),
 }));
 
 vi.mock("@/lib/data/admin-ai-memory", () => ({
   listRankingCards: vi.fn(),
   listContactDossiers: vi.fn(),
+  listContactDossierStates: vi.fn(),
   listEvidenceChunksByContact: vi.fn(),
+}));
+
+vi.mock("./backfill", () => ({
+  rebuildContactMemory: vi.fn(),
 }));
 
 const CONTACT_A = "11111111-1111-4111-8111-111111111111";
@@ -118,7 +124,16 @@ describe("assembleGlobalCohortMemory", () => {
 
     vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([
       makeFactRow(CONTACT_A),
-      makeFactRow(CONTACT_B),
+    ]);
+    vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([
+      {
+        contact_id: CONTACT_A,
+        dossier_version: 1,
+        generator_version: "dossier-prompt-v1",
+        source_fingerprint: "fp",
+        stale_at: null,
+        last_built_at: "2026-04-15T00:00:00Z",
+      },
     ]);
     vi.mocked(memoryMod.listRankingCards).mockResolvedValue([
       makeRankingCard(CONTACT_A),
@@ -128,18 +143,19 @@ describe("assembleGlobalCohortMemory", () => {
     const result = await assembleGlobalCohortMemory({ plan: makePlan() });
 
     expect(factsMod.queryAdminAiContactFacts).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(factsMod.queryAdminAiContactFacts)).toHaveBeenCalledWith({
+      filters: [],
+      limit: 250,
+    });
     expect(memoryMod.listRankingCards).toHaveBeenCalledTimes(1);
     const cardsCall = vi.mocked(memoryMod.listRankingCards).mock.calls[0][0];
     expect(cardsCall.contactIds).toEqual(
-      expect.arrayContaining([CONTACT_A, CONTACT_B]),
+      expect.arrayContaining([CONTACT_A]),
     );
 
-    expect(result.candidates.map((c) => c.contact_id)).toEqual([
-      CONTACT_A,
-      CONTACT_B,
-    ]);
+    expect(result.candidates.map((c) => c.contact_id)).toEqual([CONTACT_A]);
     expect(result.rankingCards).toHaveLength(1);
-    expect(result.contactsMissingRankingCards).toEqual([CONTACT_B]);
+    expect(result.contactsMissingRankingCards).toEqual([]);
   });
 
   it("caps the cohort at the configured ranking-card cap", async () => {
@@ -150,6 +166,7 @@ describe("assembleGlobalCohortMemory", () => {
       makeFactRow(`contact-${i}`),
     );
     vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue(factRows);
+    vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([]);
     vi.mocked(memoryMod.listRankingCards).mockResolvedValue([]);
 
     const { assembleGlobalCohortMemory, MAX_RANKING_COHORT } = await import(
@@ -157,6 +174,81 @@ describe("assembleGlobalCohortMemory", () => {
     );
     const result = await assembleGlobalCohortMemory({ plan: makePlan() });
     expect(result.candidates.length).toBeLessThanOrEqual(MAX_RANKING_COHORT);
+  });
+
+  it("does not let requestedLimit shrink the ranking cohort read window", async () => {
+    const factsMod = await import("@/lib/data/admin-ai-retrieval");
+    const memoryMod = await import("@/lib/data/admin-ai-memory");
+
+    vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([
+      makeFactRow(CONTACT_A),
+    ]);
+    vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([]);
+    vi.mocked(memoryMod.listRankingCards).mockResolvedValue([
+      makeRankingCard(CONTACT_A),
+    ]);
+
+    const { assembleGlobalCohortMemory, MAX_RANKING_COHORT } = await import(
+      "./global-retrieval"
+    );
+    await assembleGlobalCohortMemory({
+      plan: makePlan({ requestedLimit: 3 }),
+    });
+
+    expect(vi.mocked(factsMod.queryAdminAiContactFacts)).toHaveBeenCalledWith({
+      filters: [],
+      limit: MAX_RANKING_COHORT,
+    });
+  });
+
+  it("rebuilds missing or stale ranking memory for a small stale subset", async () => {
+    const factsMod = await import("@/lib/data/admin-ai-retrieval");
+    const memoryMod = await import("@/lib/data/admin-ai-memory");
+    const backfillMod = await import("./backfill");
+
+    vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([
+      makeFactRow(CONTACT_A),
+      makeFactRow(CONTACT_B),
+    ]);
+    vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([
+      {
+        contact_id: CONTACT_A,
+        dossier_version: 1,
+        generator_version: "dossier-prompt-v1",
+        source_fingerprint: "fp",
+        stale_at: "2026-04-15T00:00:00Z",
+        last_built_at: "2026-04-15T00:00:00Z",
+      },
+    ]);
+    vi.mocked(memoryMod.listRankingCards)
+      .mockResolvedValueOnce([makeRankingCard(CONTACT_A)])
+      .mockResolvedValueOnce([
+        makeRankingCard(CONTACT_A),
+        makeRankingCard(CONTACT_B),
+      ]);
+    vi.mocked(backfillMod.rebuildContactMemory).mockResolvedValue({
+      contactId: CONTACT_B,
+      status: "rebuilt",
+      chunkCount: 3,
+      dossierUpserted: true,
+      rankingCardUpserted: true,
+    });
+
+    const { assembleGlobalCohortMemory } = await import("./global-retrieval");
+    const result = await assembleGlobalCohortMemory({ plan: makePlan() });
+
+    expect(backfillMod.rebuildContactMemory).toHaveBeenCalledTimes(2);
+    expect(backfillMod.rebuildContactMemory).toHaveBeenNthCalledWith(1, {
+      contactId: CONTACT_A,
+    });
+    expect(backfillMod.rebuildContactMemory).toHaveBeenNthCalledWith(2, {
+      contactId: CONTACT_B,
+    });
+    expect(result.contactsMissingRankingCards).toEqual([]);
+    expect(result.rankingCards.map((card) => card.contact_id)).toEqual([
+      CONTACT_A,
+      CONTACT_B,
+    ]);
   });
 });
 
@@ -201,6 +293,47 @@ describe("expandFinalistEvidence", () => {
     expect(evidenceArgs.contactIds).toEqual([CONTACT_A]);
     expect(result.evidence).toHaveLength(1);
     expect(result.dossiers).toHaveLength(1);
+  });
+
+  it("falls back to recent raw chunks when finalist keyword retrieval is empty", async () => {
+    const factsMod = await import("@/lib/data/admin-ai-retrieval");
+    const memoryMod = await import("@/lib/data/admin-ai-memory");
+
+    vi.mocked(factsMod.searchAdminAiEvidence).mockResolvedValue([]);
+    vi.mocked(factsMod.listRecentAdminAiEvidence).mockResolvedValue([
+      {
+        evidenceId: "chunk-1",
+        contactId: CONTACT_A,
+        applicationId: null,
+        sourceType: "contact_note",
+        sourceId: "note-1",
+        sourceLabel: "Contact note",
+        sourceTimestamp: null,
+        program: null,
+        text: "Fallback chunk",
+      },
+    ]);
+    vi.mocked(memoryMod.listContactDossiers).mockResolvedValue([
+      makeDossier(CONTACT_A),
+    ]);
+
+    const { expandFinalistEvidence } = await import("./global-retrieval");
+    const result = await expandFinalistEvidence({
+      question: "who is best?",
+      shortlistedContactIds: [CONTACT_A],
+      textFocus: ["rare-term"],
+    });
+
+    expect(factsMod.listRecentAdminAiEvidence).toHaveBeenCalledWith({
+      contactIds: [CONTACT_A],
+      limit: 60,
+    });
+    expect(result.evidence).toEqual([
+      expect.objectContaining({
+        evidenceId: "chunk-1",
+        text: "Fallback chunk",
+      }),
+    ]);
   });
 
   it("is a no-op when there is no shortlist", async () => {

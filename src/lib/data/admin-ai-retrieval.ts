@@ -1,11 +1,13 @@
 /**
  * Admin AI Analyst — retrieval data layer.
  *
- * Exposes exactly two helpers:
+ * Exposes three retrieval helpers:
  *   - queryAdminAiContactFacts: SELECT against the `admin_ai_contact_facts`
  *     view with structured filters applied server-side.
- *   - searchAdminAiEvidence: single RPC call to `search_admin_ai_evidence`
- *     for FTS/keyword evidence lookup.
+ *   - searchAdminAiEvidence: single RPC call to `search_admin_ai_chunk_evidence`
+ *     for FTS/keyword evidence lookup over normalized chunk storage.
+ *   - listRecentAdminAiEvidence: single SELECT against `crm_ai_evidence_chunks`
+ *     for bounded fallback evidence when keyword retrieval comes back empty.
  *
  * Rules (see plan "Non-negotiable guardrails"):
  *   - ONE Supabase call per helper.
@@ -139,7 +141,9 @@ export async function queryAdminAiContactFacts(input: {
     query = query.eq("contact_id", input.contactId);
   }
 
-  query = query.limit(input.limit);
+  query = query
+    .order("submitted_at", { ascending: false, nullsFirst: false })
+    .limit(input.limit);
 
   const { data, error } = await query;
   if (error) {
@@ -154,7 +158,7 @@ export async function queryAdminAiContactFacts(input: {
 // ---------------------------------------------------------------------------
 
 /**
- * Shape returned by the `search_admin_ai_evidence` RPC. Mirrors the RETURNS
+ * Shape returned by the `search_admin_ai_chunk_evidence` RPC. Mirrors the RETURNS
  * TABLE declaration in the migration so we can camelCase the rows for the
  * caller without re-stating the columns in the function signature.
  */
@@ -169,6 +173,46 @@ type EvidenceRpcRow = {
   program: string | null;
   text: string;
 };
+
+type EvidenceChunkRow = {
+  id: string;
+  contact_id: string;
+  application_id: string | null;
+  source_type: EvidenceSourceType;
+  source_id: string;
+  source_timestamp: string | null;
+  text: string;
+  metadata_json: Record<string, unknown> | null;
+};
+
+const EVIDENCE_CHUNK_SELECT = [
+  "id",
+  "contact_id",
+  "application_id",
+  "source_type",
+  "source_id",
+  "source_timestamp",
+  "text",
+  "metadata_json",
+].join(", ");
+
+function mapChunkRowToEvidenceItem(row: EvidenceChunkRow): EvidenceItem {
+  const metadata = row.metadata_json ?? {};
+  return {
+    evidenceId: row.id,
+    contactId: row.contact_id,
+    applicationId: row.application_id,
+    sourceType: row.source_type,
+    sourceId: row.source_id,
+    sourceLabel:
+      typeof metadata.sourceLabel === "string"
+        ? metadata.sourceLabel
+        : row.source_type,
+    sourceTimestamp: row.source_timestamp,
+    program: typeof metadata.program === "string" ? metadata.program : null,
+    text: row.text,
+  };
+}
 
 export async function searchAdminAiEvidence(input: {
   textFocus: string[];
@@ -185,7 +229,7 @@ export async function searchAdminAiEvidence(input: {
   // ANDed by default).
   const p_query = input.textFocus.join(" ");
 
-  const { data, error } = await supabase.rpc("search_admin_ai_evidence", {
+  const { data, error } = await supabase.rpc("search_admin_ai_chunk_evidence", {
     p_query,
     p_contact_ids: input.contactIds && input.contactIds.length > 0
       ? input.contactIds
@@ -210,4 +254,37 @@ export async function searchAdminAiEvidence(input: {
     program: row.program,
     text: row.text,
   }));
+}
+
+export async function listRecentAdminAiEvidence(input: {
+  contactIds?: string[];
+  contactId?: string;
+  limit: number;
+}): Promise<EvidenceItem[]> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("crm_ai_evidence_chunks")
+    .select(EVIDENCE_CHUNK_SELECT);
+
+  if (input.contactId) {
+    query = query.eq("contact_id", input.contactId);
+  } else if (input.contactIds && input.contactIds.length > 0) {
+    query = query.in("contact_id", input.contactIds);
+  }
+
+  query = query
+    .order("source_timestamp", { ascending: false, nullsFirst: false })
+    .order("id", { ascending: true })
+    .limit(input.limit);
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`Failed to list recent admin AI evidence: ${error.message}`);
+  }
+
+  return ((data ?? []) as unknown as EvidenceChunkRow[]).map(
+    mapChunkRowToEvidenceItem,
+  );
 }

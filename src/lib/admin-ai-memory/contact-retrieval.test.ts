@@ -3,11 +3,17 @@ import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
 
 vi.mock("@/lib/data/admin-ai-memory", () => ({
   getContactDossier: vi.fn(),
+  listContactDossierStates: vi.fn(),
   listEvidenceChunksByContact: vi.fn(),
 }));
 
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
   searchAdminAiEvidence: vi.fn(),
+  listRecentAdminAiEvidence: vi.fn(),
+}));
+
+vi.mock("./backfill", () => ({
+  rebuildContactMemory: vi.fn(),
 }));
 
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
@@ -50,7 +56,7 @@ function makeDossier(): CrmAiContactDossier {
 describe("assembleContactScopedMemory", () => {
   beforeEach(() => {
     vi.resetModules();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("loads dossier first, then contact-scoped raw evidence", async () => {
@@ -89,11 +95,58 @@ describe("assembleContactScopedMemory", () => {
     expect(result.fallbackUsed).toBe(false);
   });
 
-  it("flags fallbackUsed and still returns evidence when no dossier exists", async () => {
+  it("falls back to recent raw chunks when text-focused evidence search is empty", async () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
     const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
 
+    vi.mocked(memoryMod.getContactDossier).mockResolvedValue(makeDossier());
+    vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([]);
+    vi.mocked(retrievalMod.listRecentAdminAiEvidence).mockResolvedValue([
+      {
+        evidenceId: "chunk-1",
+        contactId: CONTACT_ID,
+        applicationId: null,
+        sourceType: "contact_note",
+        sourceId: "note-1",
+        sourceLabel: "Contact note",
+        sourceTimestamp: null,
+        program: null,
+        text: "Recent note fallback",
+      },
+    ]);
+
+    const { assembleContactScopedMemory } = await import("./contact-retrieval");
+    const result = await assembleContactScopedMemory({
+      contactId: CONTACT_ID,
+      question: "what do we know?",
+      textFocus: ["rare-term"],
+    });
+
+    expect(retrievalMod.listRecentAdminAiEvidence).toHaveBeenCalledWith({
+      contactId: CONTACT_ID,
+      limit: 40,
+    });
+    expect(result.evidence).toEqual([
+      expect.objectContaining({
+        evidenceId: "chunk-1",
+        text: "Recent note fallback",
+      }),
+    ]);
+  });
+
+  it("flags fallbackUsed and still returns evidence when no dossier exists", async () => {
+    const memoryMod = await import("@/lib/data/admin-ai-memory");
+    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const backfillMod = await import("./backfill");
+
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(null);
+    vi.mocked(backfillMod.rebuildContactMemory).mockResolvedValue({
+      contactId: CONTACT_ID,
+      status: "missing_sources",
+      chunkCount: 0,
+      dossierUpserted: false,
+      rankingCardUpserted: false,
+    });
     vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([
       {
         evidenceId: "e1",
@@ -117,6 +170,9 @@ describe("assembleContactScopedMemory", () => {
     expect(result.dossier).toBeNull();
     expect(result.fallbackUsed).toBe(true);
     expect(result.evidence).toHaveLength(1);
+    expect(backfillMod.rebuildContactMemory).toHaveBeenCalledWith({
+      contactId: CONTACT_ID,
+    });
   });
 
   it("never leaks evidence from a different contact", async () => {

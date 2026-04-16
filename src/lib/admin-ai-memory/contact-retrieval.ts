@@ -10,8 +10,13 @@
  * is treated as a critical invariant violation.
  */
 
-import { searchAdminAiEvidence } from "@/lib/data/admin-ai-retrieval";
+import {
+  listRecentAdminAiEvidence,
+  searchAdminAiEvidence,
+} from "@/lib/data/admin-ai-retrieval";
 import { getContactDossier } from "@/lib/data/admin-ai-memory";
+import { rebuildContactMemory } from "./backfill";
+import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import type { EvidenceItem } from "@/types/admin-ai";
 import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
 
@@ -28,16 +33,33 @@ export async function assembleContactScopedMemory(input: {
   question: string;
   textFocus: string[];
 }): Promise<ContactScopedMemory> {
-  const [dossier, evidence] = await Promise.all([
-    getContactDossier({ contactId: input.contactId }),
-    searchAdminAiEvidence({
-      textFocus: input.textFocus,
-      contactId: input.contactId,
-      limit: CONTACT_EVIDENCE_LIMIT,
-    }),
-  ]);
+  let dossier = await getContactDossier({ contactId: input.contactId });
 
-  for (const item of evidence) {
+  const shouldRefresh =
+    dossier === null ||
+    dossier.generator_version !== DOSSIER_GENERATOR_VERSION ||
+    (dossier.stale_at !== null &&
+      new Date(dossier.stale_at).getTime() <= Date.now());
+
+  if (shouldRefresh) {
+    await rebuildContactMemory({ contactId: input.contactId });
+    dossier = await getContactDossier({ contactId: input.contactId });
+  }
+
+  const evidence = await searchAdminAiEvidence({
+    textFocus: input.textFocus,
+    contactId: input.contactId,
+    limit: CONTACT_EVIDENCE_LIMIT,
+  });
+  const resolvedEvidence =
+    evidence.length > 0
+      ? evidence
+      : await listRecentAdminAiEvidence({
+          contactId: input.contactId,
+          limit: CONTACT_EVIDENCE_LIMIT,
+        });
+
+  for (const item of resolvedEvidence) {
     if (item.contactId !== input.contactId) {
       throw new Error(
         `admin-ai-memory: contact-scope leak — expected contactId=${input.contactId}, got ${item.contactId} for evidenceId=${item.evidenceId}`,
@@ -47,7 +69,7 @@ export async function assembleContactScopedMemory(input: {
 
   return {
     dossier,
-    evidence,
+    evidence: resolvedEvidence,
     fallbackUsed: dossier === null,
   };
 }

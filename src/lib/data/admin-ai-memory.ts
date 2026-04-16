@@ -15,6 +15,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
+import { buildStableChunkId } from "@/lib/admin-ai-memory/chunk-identity";
 import type {
   Application,
   Contact,
@@ -23,6 +24,7 @@ import type {
 import type {
   CrmAiContactDossier,
   CrmAiContactDossierInput,
+  CrmAiContactDossierState,
   CrmAiContactRankingCard,
   CrmAiContactRankingCardInput,
   CrmAiEvidenceChunk,
@@ -56,6 +58,7 @@ export async function upsertEvidenceChunks(input: {
   const supabase = await createClient();
 
   const rows = input.chunks.map((c) => ({
+    id: buildStableChunkId(c.sourceType, c.sourceId),
     contact_id: c.contactId,
     application_id: c.applicationId,
     source_type: c.sourceType,
@@ -69,7 +72,7 @@ export async function upsertEvidenceChunks(input: {
 
   const { error } = await supabase
     .from("crm_ai_evidence_chunks")
-    .upsert(rows, { onConflict: "source_type,source_id,content_hash" });
+    .upsert(rows, { onConflict: "id" });
 
   if (error) {
     throw new Error(`Failed to upsert evidence chunks: ${error.message}`);
@@ -186,12 +189,41 @@ export async function listContactDossiers(input: {
   const { data, error } = await supabase
     .from("crm_ai_contact_dossiers")
     .select(DOSSIER_SELECT)
-    .in("contact_id", input.contactIds);
+    .in("contact_id", input.contactIds)
+    .order("contact_id", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to list contact dossiers: ${error.message}`);
   }
   return (data ?? []) as unknown as CrmAiContactDossier[];
+}
+
+const DOSSIER_STATE_SELECT = [
+  "contact_id",
+  "dossier_version",
+  "generator_version",
+  "source_fingerprint",
+  "stale_at",
+  "last_built_at",
+].join(", ");
+
+export async function listContactDossierStates(input: {
+  contactIds: string[];
+}): Promise<CrmAiContactDossierState[]> {
+  if (input.contactIds.length === 0) return [];
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("crm_ai_contact_dossiers")
+    .select(DOSSIER_STATE_SELECT)
+    .in("contact_id", input.contactIds)
+    .order("contact_id", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to list contact dossier states: ${error.message}`);
+  }
+  return (data ?? []) as unknown as CrmAiContactDossierState[];
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +283,9 @@ export async function listRankingCards(input: {
     query = query.in("contact_id", input.contactIds);
   }
 
-  query = query.limit(input.limit);
+  query = query
+    .order("contact_id", { ascending: true })
+    .limit(input.limit);
 
   const { data, error } = await query;
   if (error) {

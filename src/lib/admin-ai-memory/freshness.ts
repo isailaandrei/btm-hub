@@ -16,6 +16,7 @@
 import { createHash } from "crypto";
 import type {
   CrmAiContactDossier,
+  CrmAiContactDossierState,
   CrmAiContactRankingCard,
   CrmAiEvidenceChunkInput,
 } from "@/types/admin-ai-memory";
@@ -89,4 +90,66 @@ export function needsContactMemoryRebuild(input: {
     return true;
   }
   return false;
+}
+
+export function shouldRefreshDossierOnRead(input: {
+  dossier: Pick<
+    CrmAiContactDossier,
+    "generator_version" | "stale_at"
+  > | null;
+  generatorVersion: string;
+  now?: Date;
+}): boolean {
+  if (!input.dossier) return true;
+  if (input.dossier.generator_version !== input.generatorVersion) return true;
+  if (!input.dossier.stale_at) return false;
+  const now = input.now ?? new Date();
+  return new Date(input.dossier.stale_at).getTime() <= now.getTime();
+}
+
+export function findContactsNeedingMemoryRefresh(input: {
+  contactIds: string[];
+  dossiers: CrmAiContactDossierState[];
+  rankingCards: CrmAiContactRankingCard[];
+  generatorVersion: string;
+  now?: Date;
+}): string[] {
+  const dossierByContact = new Map(
+    input.dossiers.map((dossier) => [dossier.contact_id, dossier] as const),
+  );
+  const rankingCardByContact = new Map(
+    input.rankingCards.map((card) => [card.contact_id, card] as const),
+  );
+
+  const staleContactIds: string[] = [];
+  for (const contactId of input.contactIds) {
+    const dossier = dossierByContact.get(contactId) ?? null;
+    const rankingCard = rankingCardByContact.get(contactId) ?? null;
+
+    if (
+      shouldRefreshDossierOnRead({
+        dossier,
+        generatorVersion: input.generatorVersion,
+        now: input.now,
+      })
+    ) {
+      staleContactIds.push(contactId);
+      continue;
+    }
+
+    if (!dossier) {
+      staleContactIds.push(contactId);
+      continue;
+    }
+
+    if (
+      !rankingCard ||
+      rankingCard.dossier_version !== dossier.dossier_version ||
+      rankingCard.source_fingerprint !== dossier.source_fingerprint
+    ) {
+      staleContactIds.push(contactId);
+    }
+  }
+
+  return staleContactIds;
 }

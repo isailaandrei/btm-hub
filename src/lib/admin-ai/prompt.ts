@@ -24,6 +24,8 @@ export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
     "Be conservative. If evidence is weak, say so.",
     "Never invent missing details or unsupported qualifications.",
     "Use only supplied evidenceIds inside citations — never cite dossier prose alone.",
+    "Every shortlist entry and every contact assessment must include at least one citation from the supplied raw evidence.",
+    "If you cannot support the answer with raw evidence, say so in uncertainty instead of answering from dossier memory alone.",
     "Return valid JSON matching the required schema.",
     "For global search, prefer shortlist output and leave contactAssessment null.",
     "For contact synthesis, prefer contactAssessment output and return an empty shortlist array.",
@@ -107,6 +109,7 @@ export const ADMIN_AI_RESPONSE_JSON_SCHEMA = {
           concerns: { type: "array", items: { type: "string" } },
           citations: {
             type: "array",
+            minItems: 1,
             items: {
               type: "object",
               additionalProperties: false,
@@ -132,6 +135,7 @@ export const ADMIN_AI_RESPONSE_JSON_SCHEMA = {
             concerns: { type: "array", items: { type: "string" } },
             citations: {
               type: "array",
+              minItems: 1,
               items: {
                 type: "object",
                 additionalProperties: false,

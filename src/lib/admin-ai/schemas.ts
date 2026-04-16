@@ -145,14 +145,14 @@ const adminAiShortlistEntrySchema = z.object({
   contactName: z.string(),
   whyFit: z.array(z.string()),
   concerns: z.array(z.string()),
-  citations: z.array(adminAiCitationSchema),
+  citations: z.array(adminAiCitationSchema).min(1),
 });
 
 const adminAiContactAssessmentSchema = z.object({
   facts: z.array(z.string()),
   inferredQualities: z.array(z.string()),
   concerns: z.array(z.string()),
-  citations: z.array(adminAiCitationSchema),
+  citations: z.array(adminAiCitationSchema).min(1),
 });
 
 /** Schema for `AdminAiResponse` — the structured LLM output. */

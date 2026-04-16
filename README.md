@@ -84,16 +84,16 @@ Memory artifacts are populated by a CLI backfill that uses a service-role Supaba
 export SUPABASE_SERVICE_ROLE_KEY=...
 
 # Rebuild memory for all contacts
-node --experimental-strip-types scripts/admin-ai-memory/backfill.ts
+node --import tsx scripts/admin-ai-memory/backfill.ts
 
 # Limit to N contacts
-node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --limit=5
+node --import tsx scripts/admin-ai-memory/backfill.ts --limit=5
 
 # Specific contact ids
-node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --contact=<uuid>,<uuid>
+node --import tsx scripts/admin-ai-memory/backfill.ts --contact=<uuid>,<uuid>
 
 # Force-rebuild even when memory is fresh
-node --experimental-strip-types scripts/admin-ai-memory/backfill.ts --force
+node --import tsx scripts/admin-ai-memory/backfill.ts --force
 ```
 
 ### Dossier evaluation

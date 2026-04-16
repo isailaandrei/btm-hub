@@ -461,6 +461,48 @@ describe("runAdminAiAnalysis (contact, dossier-first)", () => {
     expect(result.status).toBe("complete");
     expect(result.response?.summary).toMatch(/not enough/i);
   });
+
+  it("short-circuits when a dossier exists but no raw evidence can be retrieved", async () => {
+    const planMod = await import("./query-plan");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const tagsMod = await import("@/lib/data/contacts");
+    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
+
+    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
+    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
+    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
+      dossier: makeDossier(CONTACT_ID),
+      evidence: [],
+      fallbackUsed: false,
+    });
+    const synthesisGenerate = vi.fn();
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: synthesisGenerate,
+    });
+    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generateRanking: vi.fn(),
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
+      id: "assistant-1",
+    });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "contact",
+      threadId: "thread-1",
+      question: "what do we know?",
+      contactId: CONTACT_ID,
+    });
+
+    expect(synthesisGenerate).not.toHaveBeenCalled();
+    expect(result.status).toBe("complete");
+    expect(result.response?.uncertainty.join(" ")).toMatch(/raw evidence/i);
+  });
 });
 
 describe("runAdminAiAnalysis (provider failures)", () => {

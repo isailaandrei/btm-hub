@@ -7,7 +7,36 @@ const CHUNK_ID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 function makeRawDossier(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    facts: { name: "Joana", country: "Portugal" },
+    facts: {
+      contact: {
+        contactId: CONTACT_ID,
+        contactName: "Joana",
+        contactEmail: "joana@example.com",
+        contactPhone: null,
+      },
+      applications: {
+        applicationCount: 1,
+        applicationIds: ["app-1"],
+        programHistory: ["Filmmaking"],
+        statusHistory: ["Accepted"],
+      },
+      tags: {
+        tagIds: ["tag-1"],
+        tagNames: ["Ocean"],
+      },
+      structuredFacts: {
+        budgetValues: ["Small budget"],
+        timeAvailabilityValues: ["Flexible"],
+        startTimelineValues: ["Soon"],
+        btmCategoryValues: ["Filmmaker"],
+        travelWillingnessValues: ["Yes"],
+        languageValues: ["English"],
+        countryOfResidenceValues: ["Portugal"],
+        certificationLevelValues: ["Open Water"],
+        yearsExperienceValues: ["2-4 years"],
+        involvementLevelValues: ["High"],
+      },
+    },
     signals: {
       motivation: [
         { value: "Passionate about ocean conservation", confidence: "high" },
@@ -84,7 +113,7 @@ describe("generateContactDossier", () => {
     await expect(
       generateContactDossier({
         contactId: CONTACT_ID,
-        contactFacts: { contact_id: CONTACT_ID, contact_name: "Joana" },
+        contactFacts: makeRawDossier().facts as Record<string, unknown>,
         chunks: [
           {
             chunkId: CHUNK_ID_A,
@@ -125,7 +154,7 @@ describe("generateContactDossier", () => {
     const { generateContactDossier } = await import("./dossier-generator");
     const result = await generateContactDossier({
       contactId: CONTACT_ID,
-      contactFacts: { contact_id: CONTACT_ID, contact_name: "Joana" },
+      contactFacts: makeRawDossier().facts as Record<string, unknown>,
       chunks: [
         {
           chunkId: CHUNK_ID_A,
@@ -175,7 +204,7 @@ describe("generateContactDossier", () => {
     await expect(
       generateContactDossier({
         contactId: CONTACT_ID,
-        contactFacts: { contact_id: CONTACT_ID, contact_name: "Joana" },
+        contactFacts: makeRawDossier().facts as Record<string, unknown>,
         chunks: [
           {
             chunkId: CHUNK_ID_A,
