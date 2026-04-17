@@ -1,7 +1,20 @@
 "use client";
 
-import type { AdminAiMessageSummary } from "@/types/admin-ai";
+import type { AdminAiMessageSummary, AdminAiResponse } from "@/types/admin-ai";
 import { CitationList } from "./citation-list";
+
+function buildContactNameMap(
+  response: AdminAiResponse | null,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!response) return map;
+  for (const entry of response.shortlist ?? []) {
+    if (entry.contactId && entry.contactName) {
+      map.set(entry.contactId, entry.contactName);
+    }
+  }
+  return map;
+}
 
 function renderList(items: string[]) {
   if (items.length === 0) return null;
@@ -107,7 +120,10 @@ export function AnswerView({
         </section>
       )}
 
-      <CitationList citations={message.citations} />
+      <CitationList
+        citations={message.citations}
+        contactNameById={buildContactNameMap(response)}
+      />
     </div>
   );
 }
