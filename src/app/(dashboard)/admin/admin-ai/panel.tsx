@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useMemo, useState } from "react";
+import { startTransition, useState } from "react";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type {
   AdminAiMessageSummary,
@@ -32,7 +32,6 @@ function upsertThread(
 export function AdminAiPanel({
   scope,
   contactId,
-  contactName,
   initialThreads,
   providerAvailability,
 }: {
@@ -50,13 +49,12 @@ export function AdminAiPanel({
   const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
 
   const selectedThreadId = selectedThread?.id ?? null;
-  const panelLabel = useMemo(
-    () =>
-      scope === "contact"
-        ? `Grounded analysis for ${contactName ?? "this contact"}`
-        : "Grounded search and synthesis across your CRM",
-    [contactName, scope],
-  );
+
+  function handleDeselectThread() {
+    setSelectedThread(null);
+    setMessages(null);
+    setLoadingThreadId(null);
+  }
 
   function handleAskResolved(state: AdminAiAskFormState) {
     if (!state.thread || !state.messages) return;
@@ -117,10 +115,6 @@ export function AdminAiPanel({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
-        {panelLabel}
-      </div>
-
       <QuestionForm
         scope={scope}
         threadId={selectedThreadId}
@@ -132,14 +126,26 @@ export function AdminAiPanel({
       />
 
       <div className="space-y-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Threads
-        </p>
+        <div className="flex items-baseline justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Threads
+          </p>
+          {selectedThreadId && (
+            <button
+              type="button"
+              onClick={handleDeselectThread}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Deselect thread
+            </button>
+          )}
+        </div>
         <ThreadList
           threads={threads}
           selectedThreadId={selectedThreadId}
           loadingThreadId={loadingThreadId}
           onSelect={handleSelectThread}
+          onDeselect={handleDeselectThread}
           onRename={handleRenameThread}
           onDelete={handleDeleteThread}
         />

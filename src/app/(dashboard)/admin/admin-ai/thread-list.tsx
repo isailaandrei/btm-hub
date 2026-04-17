@@ -8,6 +8,7 @@ export function ThreadList({
   selectedThreadId,
   loadingThreadId,
   onSelect,
+  onDeselect,
   onRename,
   onDelete,
 }: {
@@ -15,6 +16,7 @@ export function ThreadList({
   selectedThreadId: string | null;
   loadingThreadId: string | null;
   onSelect: (thread: AdminAiThreadSummary) => void;
+  onDeselect?: () => void;
   onRename: (thread: AdminAiThreadSummary, nextTitle: string) => void;
   onDelete: (thread: AdminAiThreadSummary) => void;
 }) {
@@ -83,7 +85,19 @@ export function ThreadList({
           >
             <button
               type="button"
-              onClick={() => onSelect(thread)}
+              onClick={() => {
+                if (isActive && onDeselect) {
+                  onDeselect();
+                } else {
+                  onSelect(thread);
+                }
+              }}
+              aria-pressed={isActive}
+              title={
+                isActive
+                  ? "Click to deselect and start a new thread"
+                  : undefined
+              }
               className="w-full text-left"
             >
               <div className="flex items-center justify-between gap-3">
