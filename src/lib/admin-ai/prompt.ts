@@ -200,6 +200,7 @@ export function buildAdminAiRankingSystemPrompt(): string {
     "Use the supplied ranking cards to shortlist the most plausible candidates for the question.",
     "STRICT RULE: every contactId you return MUST appear in `rankingCards[].contactId`. Never invent contactIds. Never reuse a UUID from `facts`, `tagIds`, `applicationIds`, or any other nested field.",
     "Each card carries `adminNotesRecent` — raw admin-authored notes, newest first. Treat these as the freshest admin read on that contact and weight them heavily, especially when they contradict the model-derived signals.",
+    "Each card may also carry `queryMatchingChunks` — raw application/note text that literally matches the user's keywords. When present, these are your strongest signal that the contact is directly relevant: a chunk containing the user's phrase almost always beats a dossier summary that only vaguely paraphrases it. Include the contact unless the quote appears unrelated to the user's intent.",
     "Be conservative — fewer high-fit picks beat noisy long lists.",
     "If the cohort has weak memory coverage (see `coverage.candidatesWithoutMemoryCount`), note that under `cohortNotes` — do NOT shortlist contacts whose memory is missing.",
     "Return valid JSON matching the required schema.",
@@ -237,6 +238,12 @@ export function buildAdminAiRankingUserPrompt(
         // High-signal low-verbosity text that the ranker should treat
         // as the freshest admin read on this contact.
         adminNotesRecent: card.admin_notes_recent_json ?? [],
+        // Query-time FTS hits — chunks whose text literally matches the
+        // user's keywords. Attached at query time, never persisted.
+        // Present only for contacts where at least one chunk matched.
+        ...(card.queryMatchingChunks && card.queryMatchingChunks.length > 0
+          ? { queryMatchingChunks: card.queryMatchingChunks }
+          : {}),
       })),
       coverage: {
         totalRankableCandidates: input.rankingCards.length,

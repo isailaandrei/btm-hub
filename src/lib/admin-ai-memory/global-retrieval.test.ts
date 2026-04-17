@@ -169,6 +169,119 @@ describe("assembleGlobalCohortMemory", () => {
     expect(result.contactsMissingRankingCards).toEqual([]);
   });
 
+  it("attaches queryMatchingChunks to ranking cards that have FTS hits for the question", async () => {
+    const factsMod = await import("@/lib/data/admin-ai-retrieval");
+    const memoryMod = await import("@/lib/data/admin-ai-memory");
+
+    vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([
+      makeFactRow(CONTACT_A),
+      makeFactRow(CONTACT_B),
+    ]);
+    vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([]);
+    vi.mocked(memoryMod.listRankingCards).mockResolvedValue([
+      makeRankingCard(CONTACT_A),
+      makeRankingCard(CONTACT_B),
+    ]);
+    vi.mocked(factsMod.searchAdminAiEvidence).mockResolvedValue([
+      {
+        evidenceId: "chunk-a-1",
+        contactId: CONTACT_A,
+        applicationId: "app-1",
+        sourceType: "application_answer",
+        sourceId: "src-1",
+        sourceLabel: "ultimate_vision",
+        sourceTimestamp: null,
+        program: "filmmaking",
+        text: "I want to collaborate on a National Geographic underwater documentary.",
+      },
+      {
+        evidenceId: "chunk-a-2",
+        contactId: CONTACT_A,
+        applicationId: "app-1",
+        sourceType: "application_answer",
+        sourceId: "src-2",
+        sourceLabel: "inspiration_to_apply",
+        sourceTimestamp: null,
+        program: "filmmaking",
+        text: "Watched NatGeo documentaries growing up.",
+      },
+    ]);
+
+    const { assembleGlobalCohortMemory } = await import("./global-retrieval");
+    const result = await assembleGlobalCohortMemory({
+      plan: makePlan({ textFocus: ["national", "geographic"] }),
+    });
+
+    const cardA = result.rankingCards.find((c) => c.contact_id === CONTACT_A);
+    const cardB = result.rankingCards.find((c) => c.contact_id === CONTACT_B);
+    expect(cardA?.queryMatchingChunks).toBeDefined();
+    expect(cardA?.queryMatchingChunks).toHaveLength(2);
+    expect(cardA?.queryMatchingChunks?.[0]?.text).toContain(
+      "National Geographic",
+    );
+    expect(cardA?.queryMatchingChunks?.[0]?.sourceLabel).toBe("ultimate_vision");
+    // Contact B had no FTS hits — no chunks attached.
+    expect(cardB?.queryMatchingChunks).toBeUndefined();
+  });
+
+  it("skips FTS enrichment when textFocus is empty", async () => {
+    const factsMod = await import("@/lib/data/admin-ai-retrieval");
+    const memoryMod = await import("@/lib/data/admin-ai-memory");
+
+    vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([
+      makeFactRow(CONTACT_A),
+    ]);
+    vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([]);
+    vi.mocked(memoryMod.listRankingCards).mockResolvedValue([
+      makeRankingCard(CONTACT_A),
+    ]);
+
+    const { assembleGlobalCohortMemory } = await import("./global-retrieval");
+    const result = await assembleGlobalCohortMemory({
+      plan: makePlan({ textFocus: [] }),
+    });
+
+    expect(factsMod.searchAdminAiEvidence).not.toHaveBeenCalled();
+    expect(result.rankingCards[0]?.queryMatchingChunks).toBeUndefined();
+  });
+
+  it("caps per-contact matching chunks", async () => {
+    const factsMod = await import("@/lib/data/admin-ai-retrieval");
+    const memoryMod = await import("@/lib/data/admin-ai-memory");
+
+    vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([
+      makeFactRow(CONTACT_A),
+    ]);
+    vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([]);
+    vi.mocked(memoryMod.listRankingCards).mockResolvedValue([
+      makeRankingCard(CONTACT_A),
+    ]);
+    // Return 5 hits for the same contact; cap should clamp to 2.
+    vi.mocked(factsMod.searchAdminAiEvidence).mockResolvedValue(
+      Array.from({ length: 5 }, (_, i) => ({
+        evidenceId: `chunk-${i}`,
+        contactId: CONTACT_A,
+        applicationId: null,
+        sourceType: "application_answer" as const,
+        sourceId: `src-${i}`,
+        sourceLabel: `field-${i}`,
+        sourceTimestamp: null,
+        program: null,
+        text: `match ${i}`,
+      })),
+    );
+
+    const { assembleGlobalCohortMemory, MAX_QUERY_MATCH_CHUNKS_PER_CONTACT } =
+      await import("./global-retrieval");
+    const result = await assembleGlobalCohortMemory({
+      plan: makePlan({ textFocus: ["match"] }),
+    });
+
+    expect(
+      result.rankingCards[0]?.queryMatchingChunks?.length,
+    ).toBeLessThanOrEqual(MAX_QUERY_MATCH_CHUNKS_PER_CONTACT);
+  });
+
   it("caps the cohort at the configured ranking-card cap", async () => {
     const factsMod = await import("@/lib/data/admin-ai-retrieval");
     const memoryMod = await import("@/lib/data/admin-ai-memory");

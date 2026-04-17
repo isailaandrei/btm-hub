@@ -188,6 +188,24 @@ export type CrmAiContactRankingCard = {
    */
   admin_notes_recent_json?: AdminNoteRecent[];
   updated_at: string;
+  /**
+   * EPHEMERAL — populated by `assembleGlobalCohortMemory` at query time,
+   * NEVER persisted. Top FTS hits from `crm_ai_evidence_chunks` for the
+   * current question's text focus, keyed to this contact. Gives the
+   * ranker a raw-text shortcut so keyword-specific queries (e.g. "who
+   * mentioned National Geographic") surface contacts whose dossier
+   * summaries dropped the literal keyword during compression.
+   */
+  queryMatchingChunks?: QueryMatchingChunk[];
+};
+
+export type QueryMatchingChunk = {
+  /** Raw chunk text, truncated. */
+  text: string;
+  /** Origin label (`ultimate_vision`, `Contact note (…)`, etc.). */
+  sourceLabel: string;
+  /** Which source produced this chunk. */
+  sourceType: string;
 };
 
 export type CrmAiContactRankingCardInput = {

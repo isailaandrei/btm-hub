@@ -40,11 +40,23 @@ import type {
 import type {
   CrmAiContactDossier,
   CrmAiContactRankingCard,
+  QueryMatchingChunk,
 } from "@/types/admin-ai-memory";
 
 export const MAX_RANKING_COHORT = 250;
 export const MAX_FINALIST_EVIDENCE = 60;
 export const MAX_BACKGROUND_MEMORY_REFRESHES = 1;
+/**
+ * Total FTS hits attached across all ranking cards at query time. 80
+ * chunks × ~300 chars ≈ 24KB (~6K tokens) added to the ranking
+ * prompt — keeps cost bounded while giving the ranker a raw-text
+ * shortcut on keyword-specific queries.
+ */
+export const MAX_QUERY_MATCH_CHUNKS = 80;
+/** Per-contact cap so one chunk-dense contact doesn't crowd the prompt. */
+export const MAX_QUERY_MATCH_CHUNKS_PER_CONTACT = 2;
+/** Per-chunk char cap for ranking-prompt inclusion. */
+export const QUERY_MATCH_CHUNK_MAX_CHARS = 300;
 
 export type GlobalCohortMemory = {
   candidates: ContactFactRow[];
@@ -131,11 +143,75 @@ export async function assembleGlobalCohortMemory(input: {
     (id) => contactsNeedingRefreshSet.has(id) || !cardContactIds.has(id),
   );
 
+  // Query-time raw-chunk enrichment. Dossier summaries are lossy —
+  // keywords like organization names or programs get abstracted away
+  // during dossier generation. Running FTS with the question's
+  // textFocus directly over chunks gives the ranker a literal-text
+  // shortcut so keyword-specific queries still surface the right
+  // contacts even when their dossiers have dropped the keyword.
+  if (plan.textFocus.length > 0 && validRankingCards.length > 0) {
+    await attachQueryMatchingChunksToCards({
+      textFocus: plan.textFocus,
+      cards: validRankingCards,
+    });
+  }
+
   return {
     candidates,
     rankingCards: validRankingCards,
     contactsMissingRankingCards,
   };
+}
+
+function truncateQueryChunk(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(1, maxChars - 1))}\u2026`;
+}
+
+async function attachQueryMatchingChunksToCards(input: {
+  textFocus: string[];
+  cards: CrmAiContactRankingCard[];
+}): Promise<void> {
+  const contactIds = input.cards.map((card) => card.contact_id);
+  if (contactIds.length === 0) return;
+
+  let hits: EvidenceItem[] = [];
+  try {
+    const result = await searchAdminAiEvidence({
+      textFocus: input.textFocus,
+      contactIds,
+      limit: MAX_QUERY_MATCH_CHUNKS,
+    });
+    hits = Array.isArray(result) ? result : [];
+  } catch (error) {
+    // FTS is a best-effort enrichment; ranking still works with
+    // dossier summaries alone if the RPC fails.
+    console.warn(
+      "[admin-ai-memory] query-matching chunk enrichment failed",
+      { error: error instanceof Error ? error.message : String(error) },
+    );
+    return;
+  }
+  if (hits.length === 0) return;
+
+  const byContact = new Map<string, QueryMatchingChunk[]>();
+  for (const hit of hits) {
+    const existing = byContact.get(hit.contactId) ?? [];
+    if (existing.length >= MAX_QUERY_MATCH_CHUNKS_PER_CONTACT) continue;
+    existing.push({
+      text: truncateQueryChunk(hit.text, QUERY_MATCH_CHUNK_MAX_CHARS),
+      sourceLabel: hit.sourceLabel,
+      sourceType: hit.sourceType,
+    });
+    byContact.set(hit.contactId, existing);
+  }
+
+  for (const card of input.cards) {
+    const matches = byContact.get(card.contact_id);
+    if (matches && matches.length > 0) {
+      card.queryMatchingChunks = matches;
+    }
+  }
 }
 
 export type FinalistEvidence = {
