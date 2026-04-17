@@ -11,6 +11,7 @@
  * in aggregate so a noisy edge case never blocks the whole run.
  */
 
+import { buildAdminNotesRecent } from "./admin-notes-recent";
 import {
   buildCurrentCrmChunksForContact,
 } from "./chunk-builder";
@@ -245,7 +246,13 @@ export async function rebuildContactMemory(input: {
     updated_at: new Date().toISOString(),
   };
 
-  await upsertRankingCard(buildRankingCardFromDossier(dossierForCard));
+  const adminNotesRecent = buildAdminNotesRecent({
+    applications: sources.applications,
+    contactNotes: sources.contactNotes,
+  });
+  await upsertRankingCard(
+    buildRankingCardFromDossier(dossierForCard, { adminNotesRecent }),
+  );
 
   return {
     contactId: input.contactId,

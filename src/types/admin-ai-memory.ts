@@ -148,6 +148,26 @@ export type CrmAiContactDossierInput = {
 // ---------------------------------------------------------------------------
 
 /**
+ * Compact raw admin-authored note carried on the ranking card.
+ *
+ * Produced deterministically (no AI) so admin tag/note workflows stay
+ * free and the ranker gets fresh high-signal text without waiting on a
+ * dossier rebuild.
+ */
+export type AdminNoteRecent = {
+  /** Which source this note came from. */
+  kind: "contact_note" | "application_admin_note";
+  /** Raw admin text, truncated to a reasonable cap (ellipsis on truncation). */
+  text: string;
+  /** Author display name as recorded on the note. */
+  authorName: string | null;
+  /** ISO timestamp. Used for ordering; admins typically read newest-first. */
+  createdAt: string;
+  /** Populated for application admin notes so the UI can link back. */
+  applicationId?: string;
+};
+
+/**
  * Row shape from `crm_ai_contact_ranking_cards`.
  */
 export type CrmAiContactRankingCard = {
@@ -159,6 +179,14 @@ export type CrmAiContactRankingCard = {
   top_concerns_json: DossierSignalEntry[];
   confidence_notes_json: string[];
   short_summary: string;
+  /**
+   * Top-N raw admin-authored notes carried on the ranking card.
+   * Optional because the column was added in migration
+   * `20260417000001_admin_ai_ranking_card_admin_notes_recent.sql` —
+   * rows persisted before that migration won't have it, and test
+   * fixtures can omit it. Consumers should treat `undefined` as `[]`.
+   */
+  admin_notes_recent_json?: AdminNoteRecent[];
   updated_at: string;
 };
 
@@ -171,6 +199,8 @@ export type CrmAiContactRankingCardInput = {
   topConcerns: DossierSignalEntry[];
   confidenceNotes: string[];
   shortSummary: string;
+  /** Optional — defaults to `[]` if the builder isn't given a notes surface. */
+  adminNotesRecent?: AdminNoteRecent[];
 };
 
 // ---------------------------------------------------------------------------

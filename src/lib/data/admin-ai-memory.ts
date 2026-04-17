@@ -245,6 +245,7 @@ const RANKING_CARD_SELECT = [
   "top_concerns_json",
   "confidence_notes_json",
   "short_summary",
+  "admin_notes_recent_json",
   "updated_at",
 ].join(", ");
 
@@ -263,6 +264,7 @@ export async function upsertRankingCard(
     top_concerns_json: input.topConcerns,
     confidence_notes_json: input.confidenceNotes,
     short_summary: input.shortSummary,
+    admin_notes_recent_json: input.adminNotesRecent,
   };
 
   const { error } = await supabase
@@ -298,6 +300,62 @@ export async function listRankingCards(input: {
     throw new Error(`Failed to list ranking cards: ${error.message}`);
   }
   return (data ?? []) as unknown as CrmAiContactRankingCard[];
+}
+
+// ---------------------------------------------------------------------------
+// Partial-patch helpers (no AI)
+//
+// Used by `refreshContactMemoryFacts` so tag / note mutations can
+// update the structural slice of the dossier + ranking card without
+// rebuilding the interpretive fields (signals, summary, anchors —
+// those still come from the AI and only refresh on backfill or
+// version drift).
+// ---------------------------------------------------------------------------
+
+export async function patchContactDossierStructural(input: {
+  contactId: string;
+  facts: Record<string, unknown>;
+  staleAt: string | null;
+}): Promise<void> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("crm_ai_contact_dossiers")
+    .update({
+      facts_json: input.facts,
+      stale_at: input.staleAt,
+    })
+    .eq("contact_id", input.contactId);
+
+  if (error) {
+    throw new Error(
+      `Failed to patch contact dossier facts: ${error.message}`,
+    );
+  }
+}
+
+export async function patchRankingCardStructural(input: {
+  contactId: string;
+  facts: Record<string, unknown>;
+  adminNotesRecent: unknown[];
+}): Promise<void> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("crm_ai_contact_ranking_cards")
+    .update({
+      facts_json: input.facts,
+      admin_notes_recent_json: input.adminNotesRecent,
+    })
+    .eq("contact_id", input.contactId);
+
+  if (error) {
+    throw new Error(
+      `Failed to patch ranking card facts: ${error.message}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

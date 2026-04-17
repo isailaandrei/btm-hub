@@ -199,6 +199,7 @@ export function buildAdminAiRankingSystemPrompt(): string {
     "You are the BTM Hub Admin AI ranking pass.",
     "Use the supplied ranking cards to shortlist the most plausible candidates for the question.",
     "STRICT RULE: every contactId you return MUST appear in `rankingCards[].contactId`. Never invent contactIds. Never reuse a UUID from `facts`, `tagIds`, `applicationIds`, or any other nested field.",
+    "Each card carries `adminNotesRecent` — raw admin-authored notes, newest first. Treat these as the freshest admin read on that contact and weight them heavily, especially when they contradict the model-derived signals.",
     "Be conservative — fewer high-fit picks beat noisy long lists.",
     "If the cohort has weak memory coverage (see `coverage.candidatesWithoutMemoryCount`), note that under `cohortNotes` — do NOT shortlist contacts whose memory is missing.",
     "Return valid JSON matching the required schema.",
@@ -232,6 +233,10 @@ export function buildAdminAiRankingUserPrompt(
         topConcerns: card.top_concerns_json,
         confidenceNotes: card.confidence_notes_json,
         shortSummary: card.short_summary,
+        // Raw admin-authored notes carried without AI interpretation.
+        // High-signal low-verbosity text that the ranker should treat
+        // as the freshest admin read on this contact.
+        adminNotesRecent: card.admin_notes_recent_json ?? [],
       })),
       coverage: {
         totalRankableCandidates: input.rankingCards.length,

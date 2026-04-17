@@ -39,6 +39,15 @@ vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
 }));
 
+vi.mock("@/lib/admin-ai-memory/server-action-sync", () => ({
+  syncContactMemory: vi.fn().mockResolvedValue(undefined),
+  syncContactMemoryBulk: vi.fn().mockResolvedValue({
+    succeeded: 0,
+    failed: 0,
+    failures: [],
+  }),
+}));
+
 const { changeStatus, addTag, removeTag, addNote } = await import("./actions");
 
 const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";

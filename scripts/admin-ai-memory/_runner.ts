@@ -8,6 +8,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildAdminNotesRecent } from "../../src/lib/admin-ai-memory/admin-notes-recent.ts";
 import {
   buildCurrentCrmChunksForContact,
 } from "../../src/lib/admin-ai-memory/chunk-builder.ts";
@@ -498,7 +499,13 @@ async function rebuildOne(input: {
     updated_at: new Date().toISOString(),
   };
 
-  const card = buildRankingCardFromDossier(dossierForCard);
+  const adminNotesRecent = buildAdminNotesRecent({
+    applications: sources.applications,
+    contactNotes: sources.contactNotes,
+  });
+  const card = buildRankingCardFromDossier(dossierForCard, {
+    adminNotesRecent,
+  });
   await withTransportRetry(
     `upsert ranking card (${input.contactId})`,
     async () => {
@@ -514,6 +521,7 @@ async function rebuildOne(input: {
             top_concerns_json: card.topConcerns,
             confidence_notes_json: card.confidenceNotes,
             short_summary: card.shortSummary,
+            admin_notes_recent_json: card.adminNotesRecent,
           },
           { onConflict: "contact_id" },
         );

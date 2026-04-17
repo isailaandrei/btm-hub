@@ -10,6 +10,7 @@
  */
 
 import type {
+  AdminNoteRecent,
   CrmAiContactDossier,
   CrmAiContactRankingCardInput,
   DossierConfidence,
@@ -47,7 +48,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function compactFacts(facts: Record<string, unknown>): Record<string, unknown> {
+export function compactFacts(facts: Record<string, unknown>): Record<string, unknown> {
   const contact = isRecord(facts.contact) ? facts.contact : null;
   const applications = isRecord(facts.applications) ? facts.applications : null;
   const tags = isRecord(facts.tags) ? facts.tags : null;
@@ -80,6 +81,7 @@ function compactFacts(facts: Record<string, unknown>): Record<string, unknown> {
 
 export function buildRankingCardFromDossier(
   dossier: CrmAiContactDossier,
+  options: { adminNotesRecent?: AdminNoteRecent[] } = {},
 ): CrmAiContactRankingCardInput {
   const fitSignals = pickTopSignals(
     dossier.signals_json.fitSignals,
@@ -104,5 +106,6 @@ export function buildRankingCardFromDossier(
     topConcerns: concerns,
     confidenceNotes,
     shortSummary: dossier.short_summary,
+    adminNotesRecent: options.adminNotesRecent ?? [],
   };
 }
