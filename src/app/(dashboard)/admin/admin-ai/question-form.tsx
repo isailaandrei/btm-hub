@@ -93,7 +93,7 @@ export function QuestionForm({
         </p>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-start">
         <button
           type="submit"
           disabled={disabled}
