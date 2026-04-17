@@ -14,6 +14,10 @@ import {
   deleteApplication as deleteApplicationData,
 } from "@/lib/data/contacts";
 import { updateProfilePreferences } from "@/lib/data/profiles";
+import {
+  syncContactMemory,
+  syncContactMemoryBulk,
+} from "@/lib/admin-ai-memory/server-action-sync";
 
 const contactEmailSchema = z.email("Please enter a valid email address");
 const contactNoteSchema = z.object({
@@ -52,6 +56,7 @@ export async function editContact(
   await updateContact(contactId, fields, options);
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
+  await syncContactMemory(contactId);
 }
 
 export async function assignContactTag(contactId: string, tagId: string) {
@@ -60,6 +65,7 @@ export async function assignContactTag(contactId: string, tagId: string) {
   await assignTag(contactId, tagId);
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
+  await syncContactMemory(contactId);
 }
 
 export async function unassignContactTag(contactId: string, tagId: string) {
@@ -68,6 +74,7 @@ export async function unassignContactTag(contactId: string, tagId: string) {
   await unassignTag(contactId, tagId);
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
+  await syncContactMemory(contactId);
 }
 
 export async function addNote(contactId: string, text: string) {
@@ -77,6 +84,7 @@ export async function addNote(contactId: string, text: string) {
   if (!trimmed) return;
   await addContactNote(contactId, profile.id, profile.display_name ?? profile.email, trimmed);
   revalidatePath(`/admin/contacts/${contactId}`);
+  await syncContactMemory(contactId);
 }
 
 export async function submitContactNote(
@@ -144,6 +152,7 @@ export async function bulkAssignTag(contactIds: string[], tagId: string) {
   validateUUID(tagId, "tag");
   const result = await bulkAssignTags(contactIds, tagId);
   revalidatePath("/admin");
+  await syncContactMemoryBulk(contactIds);
   return result;
 }
 
@@ -156,6 +165,7 @@ export async function bulkUnassignTag(contactIds: string[], tagId: string) {
   validateUUID(tagId, "tag");
   await bulkUnassignTags(contactIds, tagId);
   revalidatePath("/admin");
+  await syncContactMemoryBulk(contactIds);
 }
 
 export async function deleteApplication(applicationId: string) {
@@ -163,6 +173,7 @@ export async function deleteApplication(applicationId: string) {
   const deletedApplication = await deleteApplicationData(applicationId);
   if (deletedApplication.contact_id) {
     revalidatePath(`/admin/contacts/${deletedApplication.contact_id}`);
+    await syncContactMemory(deletedApplication.contact_id);
   }
   revalidatePath("/admin");
 }

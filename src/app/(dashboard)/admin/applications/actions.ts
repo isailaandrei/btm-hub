@@ -11,6 +11,7 @@ import {
 import type { ApplicationStatus } from "@/types/database";
 import { isValidISODate, validateUUID } from "@/lib/validation-helpers";
 import { VersionConflictError } from "@/lib/optimistic-concurrency";
+import { syncContactMemory } from "@/lib/admin-ai-memory/server-action-sync";
 import { STATUSES } from "./constants";
 
 export type ChangeStatusResult =
@@ -42,6 +43,7 @@ export async function changeStatus(
     };
   }
 
+  let affectedContactId: string | null = null;
   try {
     const application = await updateApplicationStatus(
       applicationId,
@@ -51,6 +53,7 @@ export async function changeStatus(
       },
     );
 
+    affectedContactId = application.contact_id;
     if (application.contact_id) {
       revalidatePath(`/admin/contacts/${application.contact_id}`);
     }
@@ -67,6 +70,9 @@ export async function changeStatus(
     throw error;
   }
   revalidatePath("/admin");
+  if (affectedContactId) {
+    await syncContactMemory(affectedContactId);
+  }
   return { ok: true };
 }
 
@@ -74,6 +80,9 @@ export async function addTag(applicationId: string, tag: string) {
   validateUUID(applicationId);
   const trimmed = tag.trim().slice(0, 50);
   if (!trimmed) return;
+  // Application-level tags (applications.tags) are not part of the AI
+  // memory facts view — contact-level tags (contact_tags) are. Skip the
+  // memory sync.
   await addApplicationTag(applicationId, trimmed);
   revalidatePath("/admin");
 }
@@ -89,6 +98,14 @@ export async function addNote(applicationId: string, text: string) {
   const profile = await requireAdmin();
   const trimmed = text.trim().slice(0, 2000);
   if (!trimmed) return;
-  await addAdminNote(applicationId, profile.id, profile.display_name ?? profile.email, trimmed);
+  const application = await addAdminNote(
+    applicationId,
+    profile.id,
+    profile.display_name ?? profile.email,
+    trimmed,
+  );
   revalidatePath("/admin");
+  if (application.contact_id) {
+    await syncContactMemory(application.contact_id);
+  }
 }

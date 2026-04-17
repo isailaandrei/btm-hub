@@ -1,4 +1,8 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   images: {
@@ -6,6 +10,10 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "ojbwpfemujjjkihdhgkr.supabase.co" },
       { protocol: "https", hostname: "cdn.sanity.io" },
     ],
+  },
+  outputFileTracingRoot: projectRoot,
+  turbopack: {
+    root: projectRoot,
   },
   experimental: {
     serverActions: {
