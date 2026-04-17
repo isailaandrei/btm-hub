@@ -92,6 +92,10 @@ export default async function ContactDetailPage({
           <Card>
             <CardHeader>
               <CardTitle className="text-sm text-muted-foreground">AI Analyst</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Each question runs a fresh grounded search. Past questions below
+                are a log — they are not used as context.
+              </p>
             </CardHeader>
             <CardContent>
               <AdminAiPanel

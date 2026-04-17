@@ -13,7 +13,7 @@ type Tab = "contacts" | "tags" | "ai";
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
-  { key: "ai", label: "AI" },
+  { key: "ai", label: "AI Analyst" },
 ];
 
 export function AdminDashboard({
@@ -49,11 +49,12 @@ export function AdminDashboard({
       {activeTab === "tags" && <TagsPanel />}
 
       {activeTab === "ai" && (
-        <Card className="max-w-5xl">
+        <Card className="mx-auto max-w-7xl">
           <CardHeader>
             <CardTitle>AI Analyst</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Ask grounded questions about contacts, applications, and notes.
+            <p className="text-xs text-muted-foreground">
+              Each question runs a fresh grounded search. Past questions below
+              are a log — they are not used as context.
             </p>
           </CardHeader>
           <CardContent>

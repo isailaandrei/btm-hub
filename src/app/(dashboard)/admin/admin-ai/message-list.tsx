@@ -11,7 +11,7 @@ export function MessageList({
   if (!messages) {
     return (
       <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-        Select a thread or ask a new question.
+        Select a past question or ask a new one.
       </div>
     );
   }

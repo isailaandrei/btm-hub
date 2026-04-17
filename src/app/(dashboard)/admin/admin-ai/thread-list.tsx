@@ -61,7 +61,7 @@ export function ThreadList({
   if (threads.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
-        No saved threads yet. Ask a question to start one.
+        No past questions yet. Ask one above to log your first analysis.
       </div>
     );
   }
@@ -95,8 +95,8 @@ export function ThreadList({
               aria-pressed={isActive}
               title={
                 isActive
-                  ? "Click to deselect and start a new thread"
-                  : undefined
+                  ? "Click to close this past question"
+                  : "Click to view this past question"
               }
               className="w-full text-left"
             >
@@ -116,7 +116,7 @@ export function ThreadList({
             {isRenaming ? (
               <div className="mt-3 space-y-2">
                 <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Rename thread
+                  Rename
                 </label>
                 <input
                   type="text"
@@ -155,7 +155,7 @@ export function ThreadList({
                     }}
                     className="text-xs font-medium text-destructive hover:opacity-80"
                   >
-                    Delete thread
+                    Delete
                   </button>
                   <button
                     type="button"

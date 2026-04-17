@@ -115,31 +115,44 @@ export function AdminAiPanel({
 
   return (
     <div className="space-y-6">
-      <QuestionForm
-        scope={scope}
-        threadId={selectedThreadId}
-        threadTitle={selectedThread?.title}
-        threadCreatedAt={selectedThread?.createdAt}
-        contactId={contactId}
-        providerAvailability={providerAvailability}
-        onResolved={handleAskResolved}
-      />
-
-      <div className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Threads
-          </p>
-          {selectedThreadId && (
+      {selectedThread ? (
+        <section className="space-y-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <header className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Past question
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-foreground">
+                {selectedThread.title}
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {new Date(selectedThread.createdAt).toLocaleString()}
+              </p>
+            </div>
             <button
               type="button"
               onClick={handleDeselectThread}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
             >
-              Deselect thread
+              Ask a new question
             </button>
-          )}
-        </div>
+          </header>
+
+          <MessageList messages={messages} />
+        </section>
+      ) : (
+        <QuestionForm
+          scope={scope}
+          contactId={contactId}
+          providerAvailability={providerAvailability}
+          onResolved={handleAskResolved}
+        />
+      )}
+
+      <div className="space-y-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Past questions
+        </p>
         <ThreadList
           threads={threads}
           selectedThreadId={selectedThreadId}
@@ -149,13 +162,6 @@ export function AdminAiPanel({
           onRename={handleRenameThread}
           onDelete={handleDeleteThread}
         />
-      </div>
-
-      <div className="space-y-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Conversation
-        </p>
-        <MessageList messages={messages} />
       </div>
     </div>
   );

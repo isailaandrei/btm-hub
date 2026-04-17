@@ -11,20 +11,21 @@ async function loginAsAdmin(page: import("@playwright/test").Page) {
 }
 
 test.describe("Admin AI Analyst", () => {
-  test("renders the global AI panel inside the AI tab in /admin", async ({ page }) => {
+  test("renders the global AI panel inside the AI Analyst tab in /admin", async ({ page }) => {
     await loginAsAdmin(page);
     await page.goto("/admin");
 
     await expect(page.getByRole("button", { name: /^contacts$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^tags$/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^ai$/i })).toBeVisible();
-    await expect(page.getByText("AI Analyst")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^ai analyst$/i })).toBeVisible();
 
-    await page.getByRole("button", { name: /^ai$/i }).click();
+    await page.getByRole("button", { name: /^ai analyst$/i }).click();
 
-    await expect(page.getByText("AI Analyst")).toBeVisible();
     await expect(
-      page.getByText("Grounded search and synthesis across your CRM"),
+      page.getByRole("heading", { name: /ai analyst/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/Each question runs a fresh grounded search/i),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /ask ai/i })).toBeVisible();
   });

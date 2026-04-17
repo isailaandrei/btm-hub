@@ -15,17 +15,11 @@ const INITIAL_STATE: AdminAiAskFormState = {
 
 export function QuestionForm({
   scope,
-  threadId,
-  threadTitle,
-  threadCreatedAt,
   contactId,
   providerAvailability,
   onResolved,
 }: {
   scope: "global" | "contact";
-  threadId: string | null;
-  threadTitle?: string;
-  threadCreatedAt?: string;
   contactId?: string;
   providerAvailability: AdminAiProviderAvailability;
   onResolved: (state: AdminAiAskFormState) => void;
@@ -56,13 +50,6 @@ export function QuestionForm({
   return (
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="scope" value={scope} />
-      {threadId && <input type="hidden" name="threadId" value={threadId} />}
-      {threadId && threadTitle && (
-        <input type="hidden" name="threadTitle" value={threadTitle} />
-      )}
-      {threadId && threadCreatedAt && (
-        <input type="hidden" name="threadCreatedAt" value={threadCreatedAt} />
-      )}
       {contactId && <input type="hidden" name="contactId" value={contactId} />}
 
       {isUnavailable && (
