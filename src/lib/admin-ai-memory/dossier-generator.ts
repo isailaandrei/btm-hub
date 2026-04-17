@@ -30,7 +30,7 @@ import {
 import type { DossierChunkInput } from "./chunk-schemas";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 // Reasoning models (gpt-5 / o-series) emit internal reasoning tokens before
 // the structured output, which can blow through a 60s wall-clock timeout
 // even on small prompts. 120s gives them room; non-reasoning models still
@@ -224,12 +224,8 @@ function isRepairableError(error: unknown): boolean {
     // Only treat the chunkIds regex failure as repair-eligible. Other
     // Zod failures (missing sections, wrong types) mean the model is
     // off-contract in a way a repair retry won't fix.
-    return error.issues.some(
-      (issue) =>
-        issue.path.some(
-          (segment) => segment === "chunkIds",
-        ) ||
-        issue.path.includes("evidenceAnchors"),
+    return error.issues.some((issue) =>
+      issue.path.some((segment) => segment === "chunkIds"),
     );
   }
   return false;

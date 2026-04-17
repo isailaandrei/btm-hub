@@ -399,7 +399,7 @@ async function rebuildOne(input: {
         dossierModel:
           process.env.OPENAI_DOSSIER_MODEL?.trim() ||
           process.env.OPENAI_MODEL?.trim() ||
-          "gpt-4o-mini",
+          "gpt-5-mini",
       },
     );
   }

@@ -282,22 +282,24 @@ describe("assembleGlobalCohortMemory", () => {
     ).toBeLessThanOrEqual(MAX_QUERY_MATCH_CHUNKS_PER_CONTACT);
   });
 
-  it("caps the cohort at the configured ranking-card cap", async () => {
+  it("caps the cohort read at the configured ranking-card cap", async () => {
     const factsMod = await import("@/lib/data/admin-ai-retrieval");
     const memoryMod = await import("@/lib/data/admin-ai-memory");
 
-    const factRows = Array.from({ length: 350 }, (_, i) =>
-      makeFactRow(`contact-${i}`),
-    );
-    vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue(factRows);
+    vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([]);
     vi.mocked(memoryMod.listContactDossierStates).mockResolvedValue([]);
     vi.mocked(memoryMod.listRankingCards).mockResolvedValue([]);
 
     const { assembleGlobalCohortMemory, MAX_RANKING_COHORT } = await import(
       "./global-retrieval"
     );
-    const result = await assembleGlobalCohortMemory({ plan: makePlan() });
-    expect(result.candidates.length).toBeLessThanOrEqual(MAX_RANKING_COHORT);
+    await assembleGlobalCohortMemory({ plan: makePlan() });
+
+    // The DB query enforces the cap; we verify the call shape rather than
+    // post-truncating the response (which would be redundant defense).
+    expect(vi.mocked(factsMod.queryAdminAiContactFacts)).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: MAX_RANKING_COHORT }),
+    );
   });
 
   it("does not let requestedLimit shrink the ranking cohort read window", async () => {

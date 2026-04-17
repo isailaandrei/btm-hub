@@ -305,7 +305,13 @@ async function runFinalSynthesis(input: {
       queryPlan: input.queryPlan,
       modelMetadata: { source: "system", reason: "analysis_failed" },
     });
-    throw Object.assign(new Error(message), { assistantMessageId });
+    // Preserve the original error's stack so downstream logs can point at
+    // the actual failure (Zod validation, timeout, JSON parse, etc.)
+    // rather than this re-throw site.
+    throw Object.assign(
+      error instanceof Error ? error : new Error(message),
+      { assistantMessageId },
+    );
   }
 }
 
@@ -381,7 +387,10 @@ async function runGlobalAnalysis(input: {
       queryPlan: input.queryPlan,
       modelMetadata: { source: "system", reason: "ranking_failed" },
     });
-    throw Object.assign(new Error(message), { assistantMessageId });
+    throw Object.assign(
+      error instanceof Error ? error : new Error(message),
+      { assistantMessageId },
+    );
   }
 
   if (rankingResult.shortlistedContactIds.length === 0) {

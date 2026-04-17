@@ -1,10 +1,10 @@
 /**
  * Deterministic chunk selection for dossier generation.
  *
- * Full contact evidence can easily run past gpt-4o-mini's cost-effective
- * input range (30-50KB of chunk text for heavy contacts). The dossier
- * prompt doesn't need every chunk — it needs a bounded, representative
- * set the model can actually reason over within the 60s timeout.
+ * Full contact evidence can easily run past a cost-effective input range
+ * (30-50KB of chunk text for heavy contacts). The dossier prompt doesn't
+ * need every chunk — it needs a bounded, representative set the model
+ * can actually reason over within the request timeout.
  *
  * Rules:
  *   - Full chunk set still gets upserted to `crm_ai_evidence_chunks`

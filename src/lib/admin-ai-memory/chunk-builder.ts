@@ -44,12 +44,24 @@ function isNonBlankString(value: unknown): value is string {
 function buildAdminNoteSourceId(
   applicationId: string,
   note: Pick<AdminNote, "author_id" | "created_at">,
+  index: number,
 ): string {
-  const fingerprint = hashContent([
+  // Stable identity first: when either author_id or created_at is
+  // present, use them — the sourceId then survives array reordering.
+  // When both are missing the hash degenerates to `applicationId +
+  // "" + ""`, so two such notes on the same application would collide
+  // and silently overwrite each other on upsert. Falling back to the
+  // array index as a tiebreaker restores uniqueness for that edge
+  // case without disturbing stable ids for well-formed notes.
+  const parts: Array<string | null | undefined> = [
     applicationId,
     note.author_id,
     note.created_at,
-  ]).slice(0, 16);
+  ];
+  if (note.author_id == null && note.created_at == null) {
+    parts.push(String(index));
+  }
+  const fingerprint = hashContent(parts).slice(0, 16);
   return `${applicationId}:an:${fingerprint}`;
 }
 
@@ -148,10 +160,10 @@ export function buildApplicationAdminNoteChunks(
     : [];
   const chunks: CrmAiEvidenceChunkInput[] = [];
 
-  notes.forEach((note) => {
+  notes.forEach((note, index) => {
     if (!isNonBlankString(note.text)) return;
     const text = note.text.trim();
-    const sourceId = buildAdminNoteSourceId(application.id, note);
+    const sourceId = buildAdminNoteSourceId(application.id, note, index);
 
     chunks.push({
       contactId: application.contact_id!,

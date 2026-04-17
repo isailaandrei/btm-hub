@@ -12,7 +12,7 @@ import {
 import type { AdminAiResponse } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 const OPENAI_REQUEST_TIMEOUT_MS = 60_000;
 const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 

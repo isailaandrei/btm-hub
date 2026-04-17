@@ -95,11 +95,10 @@ export async function assembleGlobalCohortMemory(input: {
   plan: AdminAiQueryPlan;
 }): Promise<GlobalCohortMemory> {
   const { plan } = input;
-  const rawCandidates = await queryAdminAiContactFacts({
+  const candidates = await queryAdminAiContactFacts({
     filters: plan.structuredFilters,
     limit: MAX_RANKING_COHORT,
   });
-  const candidates = rawCandidates.slice(0, MAX_RANKING_COHORT);
 
   const contactIds = Array.from(
     new Set(candidates.map((c) => c.contact_id).filter(Boolean) as string[]),
@@ -132,12 +131,11 @@ export async function assembleGlobalCohortMemory(input: {
   const candidateOrder = new Map(
     contactIds.map((contactId, index) => [contactId, index] as const),
   );
-  const validRankingCards = rankingCards
-    .sort(
-      (a, b) =>
-        (candidateOrder.get(a.contact_id) ?? Number.MAX_SAFE_INTEGER) -
-        (candidateOrder.get(b.contact_id) ?? Number.MAX_SAFE_INTEGER),
-    );
+  const validRankingCards = rankingCards.toSorted(
+    (a, b) =>
+      (candidateOrder.get(a.contact_id) ?? Number.MAX_SAFE_INTEGER) -
+      (candidateOrder.get(b.contact_id) ?? Number.MAX_SAFE_INTEGER),
+  );
   const cardContactIds = new Set(validRankingCards.map((c) => c.contact_id));
   const contactsMissingRankingCards = contactIds.filter(
     (id) => contactsNeedingRefreshSet.has(id) || !cardContactIds.has(id),
