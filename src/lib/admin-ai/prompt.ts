@@ -198,9 +198,9 @@ export function buildAdminAiRankingSystemPrompt(): string {
   return [
     "You are the BTM Hub Admin AI ranking pass.",
     "Use the supplied ranking cards to shortlist the most plausible candidates for the question.",
-    "Do not invent contacts. Only use contactIds present in the input.",
+    "STRICT RULE: every contactId you return MUST appear in `rankingCards[].contactId`. Never invent contactIds. Never reuse a UUID from `facts`, `tagIds`, `applicationIds`, or any other nested field.",
     "Be conservative — fewer high-fit picks beat noisy long lists.",
-    "If the cohort coverage looks insufficient, say so under `cohortNotes`.",
+    "If the cohort has weak memory coverage (see `coverage.candidatesWithoutMemoryCount`), note that under `cohortNotes` — do NOT shortlist contacts whose memory is missing.",
     "Return valid JSON matching the required schema.",
   ].join(" ");
 }
@@ -209,6 +209,12 @@ export type AdminAiRankingInput = {
   question: string;
   queryPlan: AdminAiQueryPlan;
   rankingCards: CrmAiContactRankingCard[];
+  /**
+   * Contacts in the cohort whose memory artifacts are missing. Surfaced
+   * to the model as a COUNT (not a UUID list) so it can flag weak
+   * cohort coverage under `cohortNotes` without being tempted to
+   * shortlist contacts it can't actually rank.
+   */
   candidatesMissingMemory: string[];
 };
 
@@ -227,7 +233,10 @@ export function buildAdminAiRankingUserPrompt(
         confidenceNotes: card.confidence_notes_json,
         shortSummary: card.short_summary,
       })),
-      candidatesMissingMemory: input.candidatesMissingMemory,
+      coverage: {
+        totalRankableCandidates: input.rankingCards.length,
+        candidatesWithoutMemoryCount: input.candidatesMissingMemory.length,
+      },
       responseContract: {
         shortlistedContactIds: ["uuid"],
         reasons: [{ contactId: "uuid", reason: "string" }],

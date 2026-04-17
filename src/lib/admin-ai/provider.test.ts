@@ -54,7 +54,8 @@ describe("openAiAdminAiRankingProvider", () => {
     }
   });
 
-  it("rejects shortlist ids that are outside the ranking cohort", async () => {
+  it("drops foreign contactIds from the shortlist with a warning instead of throwing", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -69,12 +70,10 @@ describe("openAiAdminAiRankingProvider", () => {
                 {
                   type: "output_text",
                   text: JSON.stringify({
-                    shortlistedContactIds: [OTHER_CONTACT_ID],
+                    shortlistedContactIds: [CONTACT_ID, OTHER_CONTACT_ID],
                     reasons: [
-                      {
-                        contactId: OTHER_CONTACT_ID,
-                        reason: "Strong fit",
-                      },
+                      { contactId: CONTACT_ID, reason: "In cohort" },
+                      { contactId: OTHER_CONTACT_ID, reason: "Not in cohort" },
                     ],
                     cohortNotes: null,
                   }),
@@ -88,14 +87,110 @@ describe("openAiAdminAiRankingProvider", () => {
     );
 
     const provider = getAdminAiRankingProvider();
+    const result = await provider.generateRanking({
+      question: "Find the strongest applicants",
+      queryPlan: makePlan(),
+      rankingCards: [makeRankingCard(CONTACT_ID)],
+      candidatesMissingMemory: [],
+    });
 
-    await expect(
-      provider.generateRanking({
-        question: "Find the strongest applicants",
-        queryPlan: makePlan(),
-        rankingCards: [makeRankingCard(CONTACT_ID)],
-        candidatesMissingMemory: [],
+    expect(result.shortlistedContactIds).toEqual([CONTACT_ID]);
+    expect(result.reasons).toEqual([
+      { contactId: CONTACT_ID, reason: "In cohort" },
+    ]);
+    expect(result.droppedContactIds).toEqual([OTHER_CONTACT_ID]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("not in cohort"),
+      expect.objectContaining({ droppedIds: [OTHER_CONTACT_ID] }),
+    );
+  });
+
+  it("returns an empty shortlist (not a throw) when every returned id is foreign", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "resp_456",
+          model: "gpt-test",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: JSON.stringify({
+                    shortlistedContactIds: [OTHER_CONTACT_ID],
+                    reasons: [
+                      { contactId: OTHER_CONTACT_ID, reason: "Invented" },
+                    ],
+                    cohortNotes: "cohort coverage weak",
+                  }),
+                },
+              ],
+            },
+          ],
+          usage: null,
+        }),
       }),
-    ).rejects.toThrow(/not in cohort/i);
+    );
+
+    const provider = getAdminAiRankingProvider();
+    const result = await provider.generateRanking({
+      question: "Find candidates",
+      queryPlan: makePlan(),
+      rankingCards: [makeRankingCard(CONTACT_ID)],
+      candidatesMissingMemory: [],
+    });
+
+    expect(result.shortlistedContactIds).toEqual([]);
+    expect(result.reasons).toEqual([]);
+    expect(result.droppedContactIds).toEqual([OTHER_CONTACT_ID]);
+    expect(result.cohortNotes).toBe("cohort coverage weak");
+  });
+
+  it("surfaces candidate coverage as a count (not a UUID list) in the user prompt", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "resp_789",
+        model: "gpt-test",
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({
+                  shortlistedContactIds: [CONTACT_ID],
+                  reasons: [{ contactId: CONTACT_ID, reason: "fit" }],
+                  cohortNotes: null,
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = getAdminAiRankingProvider();
+    await provider.generateRanking({
+      question: "q",
+      queryPlan: makePlan(),
+      rankingCards: [makeRankingCard(CONTACT_ID)],
+      candidatesMissingMemory: [OTHER_CONTACT_ID, "another-uuid"],
+    });
+
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+    ) as { input?: Array<{ role?: string; content?: string }> };
+    const userMessage = body.input?.find((m) => m.role === "user");
+    expect(userMessage?.content).toBeDefined();
+    expect(userMessage?.content).toContain("candidatesWithoutMemoryCount");
+    // The UUID list must NOT appear in the prompt.
+    expect(userMessage?.content).not.toContain(OTHER_CONTACT_ID);
+    expect(userMessage?.content).not.toContain("another-uuid");
   });
 });

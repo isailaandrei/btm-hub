@@ -29,6 +29,14 @@ export type AdminAiRankingResult = {
   shortlistedContactIds: string[];
   reasons: Array<{ contactId: string; reason: string }>;
   cohortNotes: string | null;
+  /**
+   * ContactIds the model attempted to shortlist but weren't in the
+   * ranking-card cohort (hallucinated or drawn from a nested field
+   * like `tagIds`). Silently dropped so one bad id doesn't kill the
+   * whole query, but surfaced here for observability. Optional for
+   * backwards-compat with existing test mocks.
+   */
+  droppedContactIds?: string[];
   modelMetadata: Record<string, unknown>;
 };
 
@@ -238,20 +246,33 @@ const openAiAdminAiRankingProvider: AdminAiRankingProvider = {
       cohortNotes: string | null;
     };
 
-    // Defense-in-depth: shortlisted ids must come from the ranking-card pool.
+    // Defense-in-depth: shortlisted ids must come from the ranking-card
+    // pool. Filter foreign ids with a warning rather than throwing —
+    // one hallucinated UUID shouldn't kill the whole query. If the
+    // filter empties the shortlist, the orchestrator's existing
+    // empty-shortlist path will surface "insufficient evidence".
     const allowed = new Set(input.rankingCards.map((c) => c.contact_id));
-    for (const id of parsed.shortlistedContactIds) {
-      if (!allowed.has(id)) {
-        throw new Error(
-          `Ranking pass returned contactId not in cohort: ${id}`,
-        );
-      }
+    const droppedIds: string[] = [];
+    const cleanShortlist = parsed.shortlistedContactIds.filter((id) => {
+      if (allowed.has(id)) return true;
+      droppedIds.push(id);
+      return false;
+    });
+    const cleanReasons = parsed.reasons.filter((entry) =>
+      allowed.has(entry.contactId),
+    );
+    if (droppedIds.length > 0) {
+      console.warn(
+        "[admin-ai] ranking pass returned contactIds not in cohort — dropping",
+        { droppedIds, keptCount: cleanShortlist.length },
+      );
     }
 
     return {
-      shortlistedContactIds: parsed.shortlistedContactIds,
-      reasons: parsed.reasons,
+      shortlistedContactIds: cleanShortlist,
+      reasons: cleanReasons,
       cohortNotes: parsed.cohortNotes ?? null,
+      droppedContactIds: droppedIds,
       modelMetadata: {
         provider: "openai",
         responseId: payload.id ?? null,

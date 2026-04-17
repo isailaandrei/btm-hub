@@ -369,6 +369,14 @@ async function runGlobalAnalysis(input: {
     (c) => c.contact_id && shortlist.includes(c.contact_id),
   );
 
+  const rankingMetadata: Record<string, unknown> = {
+    ...rankingResult.modelMetadata,
+    ...(rankingResult.droppedContactIds &&
+    rankingResult.droppedContactIds.length > 0
+      ? { droppedContactIds: rankingResult.droppedContactIds }
+      : {}),
+  };
+
   return runFinalSynthesis({
     scope: "global",
     question: input.question,
@@ -377,7 +385,7 @@ async function runGlobalAnalysis(input: {
     candidates: finalistCandidates,
     dossiers: finalists.dossiers,
     evidence: finalists.evidence,
-    rankingMetadata: rankingResult.modelMetadata,
+    rankingMetadata,
   });
 }
 
