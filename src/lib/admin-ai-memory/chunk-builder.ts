@@ -41,6 +41,18 @@ function isNonBlankString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function buildAdminNoteSourceId(
+  applicationId: string,
+  note: Pick<AdminNote, "author_id" | "created_at">,
+): string {
+  const fingerprint = hashContent([
+    applicationId,
+    note.author_id,
+    note.created_at,
+  ]).slice(0, 16);
+  return `${applicationId}:an:${fingerprint}`;
+}
+
 // ---------------------------------------------------------------------------
 // Application free-text answers
 // ---------------------------------------------------------------------------
@@ -118,7 +130,13 @@ export function buildContactNoteChunks(
 }
 
 // ---------------------------------------------------------------------------
-// Application admin notes (JSONB array — preserve 0-based index in source_id)
+// Application admin notes
+//
+// The source id must stay stable if another note is removed from the JSONB
+// array. Using the positional index would make every later note "move" and
+// leave stale chunk rows behind. A created_at/author-derived fingerprint gives
+// each note its own durable identity while remaining deterministic across
+// rebuilds.
 // ---------------------------------------------------------------------------
 
 export function buildApplicationAdminNoteChunks(
@@ -130,10 +148,10 @@ export function buildApplicationAdminNoteChunks(
     : [];
   const chunks: CrmAiEvidenceChunkInput[] = [];
 
-  notes.forEach((note, index) => {
+  notes.forEach((note) => {
     if (!isNonBlankString(note.text)) return;
     const text = note.text.trim();
-    const sourceId = `${application.id}:an:${index}`;
+    const sourceId = buildAdminNoteSourceId(application.id, note);
 
     chunks.push({
       contactId: application.contact_id!,

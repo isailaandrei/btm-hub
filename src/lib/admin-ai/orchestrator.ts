@@ -270,10 +270,10 @@ async function runGlobalAnalysis(input: {
     });
   }
 
-  // Even when a candidate has no ranking card, we still surface its id to
-  // the ranking pass via `candidatesMissingMemory` so the model can flag
-  // weak coverage. The ranking pass itself can only shortlist contacts
-  // whose card is present.
+  // Even when a candidate's ranking memory is missing or flagged stale, we
+  // still surface its id to the ranking pass via `candidatesMissingMemory`
+  // so the model can flag weak coverage. The ranking pass itself can only
+  // shortlist contacts whose ranking card is present in the current read.
   if (cohort.rankingCards.length === 0) {
     const response = buildInsufficientEvidenceResponse("global", {
       extra:

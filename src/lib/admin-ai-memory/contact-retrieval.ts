@@ -57,7 +57,14 @@ export async function assembleContactScopedMemory(input: {
     try {
       await rebuildContactMemory({ contactId: input.contactId });
       dossier = await getContactDossier({ contactId: input.contactId });
-    } catch {
+    } catch (error) {
+      console.error(
+        "[admin-ai-memory] contact sync rebuild failed",
+        {
+          contactId: input.contactId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
       // Narrow fallback: if a dossier already exists, keep serving it rather
       // than failing the entire contact analysis on a transient rebuild error.
     }

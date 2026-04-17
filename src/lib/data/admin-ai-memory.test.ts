@@ -117,6 +117,66 @@ describe("upsertEvidenceChunks", () => {
   });
 });
 
+describe("deleteStaleCurrentCrmEvidenceChunksForContact", () => {
+  let mock: Harness;
+  beforeEach(async () => {
+    mock = await freshHarness();
+  });
+
+  it("deletes only current CRM chunks that are not retained", async () => {
+    mock.mockQueryResult([
+      {
+        id: "chunk-1",
+        source_type: "application_answer",
+        source_id: `${APP_ID}:ultimate_vision`,
+      },
+      {
+        id: "chunk-2",
+        source_type: "application_admin_note",
+        source_id: `${APP_ID}:an:keep-me`,
+      },
+    ]);
+    const { deleteStaleCurrentCrmEvidenceChunksForContact } = await import(
+      "./admin-ai-memory"
+    );
+
+    await deleteStaleCurrentCrmEvidenceChunksForContact({
+      contactId: CONTACT_ID,
+      retainedSourceKeys: [`application_answer:${APP_ID}:ultimate_vision`],
+    });
+
+    expect(mock.client.from).toHaveBeenCalledWith("crm_ai_evidence_chunks");
+    expect(mock.query.eq).toHaveBeenCalledWith("contact_id", CONTACT_ID);
+    expect(mock.query.in).toHaveBeenCalledWith("source_type", [
+      "application_answer",
+      "contact_note",
+      "application_admin_note",
+    ]);
+    expect(mock.query.delete).toHaveBeenCalledTimes(1);
+    expect(mock.query.in).toHaveBeenLastCalledWith("id", ["chunk-2"]);
+  });
+
+  it("does nothing when every current CRM chunk is retained", async () => {
+    mock.mockQueryResult([
+      {
+        id: "chunk-1",
+        source_type: "application_answer",
+        source_id: `${APP_ID}:ultimate_vision`,
+      },
+    ]);
+    const { deleteStaleCurrentCrmEvidenceChunksForContact } = await import(
+      "./admin-ai-memory"
+    );
+
+    await deleteStaleCurrentCrmEvidenceChunksForContact({
+      contactId: CONTACT_ID,
+      retainedSourceKeys: [`application_answer:${APP_ID}:ultimate_vision`],
+    });
+
+    expect(mock.query.delete).not.toHaveBeenCalled();
+  });
+});
+
 // ===========================================================================
 // upsertContactDossier
 // ===========================================================================

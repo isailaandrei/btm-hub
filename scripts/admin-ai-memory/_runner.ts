@@ -21,6 +21,7 @@ import {
   needsContactMemoryRebuild,
 } from "../../src/lib/admin-ai-memory/freshness.ts";
 import { buildRankingCardFromDossier } from "../../src/lib/admin-ai-memory/ranking-card.ts";
+import { CURRENT_CRM_SOURCE_TYPES } from "../../src/lib/admin-ai-memory/source-types.ts";
 import type {
   Application,
   Contact,
@@ -181,6 +182,45 @@ async function upsertChunks(
   if (error) throw new Error(`upsert chunks: ${error.message}`);
 }
 
+async function deleteStaleCurrentCrmChunks(input: {
+  supabase: SupabaseClient;
+  contactId: string;
+  retainedSourceKeys: string[];
+}): Promise<void> {
+  const sourceTypes = Array.from(CURRENT_CRM_SOURCE_TYPES);
+  const { data, error } = await input.supabase
+    .from("crm_ai_evidence_chunks")
+    .select("id, source_type, source_id")
+    .eq("contact_id", input.contactId)
+    .in("source_type", sourceTypes);
+
+  if (error) {
+    throw new Error(`list current CRM chunks: ${error.message}`);
+  }
+
+  const retainedKeys = new Set(input.retainedSourceKeys);
+  const staleIds = ((data ?? []) as Array<{
+    id: string;
+    source_type: string;
+    source_id: string;
+  }>)
+    .filter(
+      (row) => !retainedKeys.has(`${row.source_type}:${row.source_id}`),
+    )
+    .map((row) => row.id);
+
+  if (staleIds.length === 0) return;
+
+  const { error: deleteError } = await input.supabase
+    .from("crm_ai_evidence_chunks")
+    .delete()
+    .in("id", staleIds);
+
+  if (deleteError) {
+    throw new Error(`delete stale current CRM chunks: ${deleteError.message}`);
+  }
+}
+
 async function fetchExistingMemory(
   supabase: SupabaseClient,
   contactId: string,
@@ -224,6 +264,14 @@ async function rebuildOne(input: {
     contact: sources.contact,
     applications: sources.applications,
     contactNotes: sources.contactNotes,
+  });
+  const retainedSourceKeys = chunks.map(
+    (chunk) => `${chunk.sourceType}:${chunk.sourceId}`,
+  );
+  await deleteStaleCurrentCrmChunks({
+    supabase: input.supabase,
+    contactId: input.contactId,
+    retainedSourceKeys,
   });
   if (chunks.length === 0) return { status: "no_chunks", chunkCount: 0 };
 

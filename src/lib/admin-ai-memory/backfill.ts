@@ -25,6 +25,7 @@ import {
 } from "./freshness";
 import { buildRankingCardFromDossier } from "./ranking-card";
 import {
+  deleteStaleCurrentCrmEvidenceChunksForContact,
   getContactDossier,
   listContactIdsForMemory,
   listRankingCards,
@@ -109,6 +110,15 @@ export async function rebuildContactMemory(input: {
     contact: sources.contact,
     applications: sources.applications,
     contactNotes: sources.contactNotes,
+  });
+
+  const retainedSourceKeys = chunks.map(
+    (chunk) => `${chunk.sourceType}:${chunk.sourceId}`,
+  );
+
+  await deleteStaleCurrentCrmEvidenceChunksForContact({
+    contactId: input.contactId,
+    retainedSourceKeys,
   });
 
   if (chunks.length === 0) {

@@ -150,13 +150,45 @@ describe("buildContactNoteChunks", () => {
 });
 
 describe("buildApplicationAdminNoteChunks", () => {
-  it("emits one chunk per non-blank admin note keyed on application id + index", () => {
+  it("emits one chunk per non-blank admin note with a stable source id", () => {
     const chunks = buildApplicationAdminNoteChunks(makeApplication());
     expect(chunks).toHaveLength(1);
-    expect(chunks[0]!.sourceId).toBe(`${APP_ID}:an:0`);
+    expect(chunks[0]!.sourceId).toMatch(
+      new RegExp(`^${APP_ID}:an:[a-f0-9]{16}$`),
+    );
     expect(chunks[0]!.sourceType).toBe("application_admin_note");
     expect(chunks[0]!.applicationId).toBe(APP_ID);
     expect(chunks[0]!.text).toBe("Looks like a strong match.");
+  });
+
+  it("keeps the same source id for a surviving admin note when another note is removed", () => {
+    const survivingNote = {
+      author_id: "admin-2",
+      author_name: "Flo",
+      text: "Keep this note stable.",
+      created_at: "2026-04-15T05:00:00Z",
+    };
+
+    const before = buildApplicationAdminNoteChunks(
+      makeApplication({
+        admin_notes: [
+          {
+            author_id: "admin-1",
+            author_name: "Andrei",
+            text: "Delete this note.",
+            created_at: "2026-04-15T01:00:00Z",
+          },
+          survivingNote,
+        ],
+      }),
+    );
+    const after = buildApplicationAdminNoteChunks(
+      makeApplication({
+        admin_notes: [survivingNote],
+      }),
+    );
+
+    expect(before[1]?.sourceId).toBe(after[0]?.sourceId);
   });
 
   it("returns no chunks when contact_id is missing", () => {

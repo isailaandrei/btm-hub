@@ -10,6 +10,7 @@ import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 vi.mock("@/lib/data/admin-ai-memory", () => ({
   loadContactCrmSources: vi.fn(),
   listContactIdsForMemory: vi.fn(),
+  deleteStaleCurrentCrmEvidenceChunksForContact: vi.fn(),
   upsertEvidenceChunks: vi.fn(),
   upsertContactDossier: vi.fn(),
   upsertRankingCard: vi.fn(),
@@ -208,6 +209,13 @@ describe("rebuildContactMemory", () => {
     const { rebuildContactMemory } = await import("./backfill");
     const result = await rebuildContactMemory({ contactId: CONTACT_A });
 
+    expect(dataMod.deleteStaleCurrentCrmEvidenceChunksForContact).toHaveBeenCalledWith({
+      contactId: CONTACT_A,
+      retainedSourceKeys: expect.arrayContaining([
+        `application_answer:${APP_ID}:ultimate_vision`,
+        `contact_note:note-${CONTACT_A}`,
+      ]),
+    });
     expect(dataMod.upsertEvidenceChunks).toHaveBeenCalledTimes(1);
     expect(dataMod.upsertContactDossier).toHaveBeenCalledTimes(1);
     expect(dataMod.upsertRankingCard).toHaveBeenCalledTimes(1);
@@ -307,6 +315,12 @@ describe("rebuildContactMemory", () => {
     const { rebuildContactMemory } = await import("./backfill");
     const result = await rebuildContactMemory({ contactId: CONTACT_A });
     expect(result.status).toBe("no_chunks");
+    expect(
+      dataMod.deleteStaleCurrentCrmEvidenceChunksForContact,
+    ).toHaveBeenCalledWith({
+      contactId: CONTACT_A,
+      retainedSourceKeys: [],
+    });
   });
 });
 

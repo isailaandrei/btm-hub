@@ -15,6 +15,7 @@
  * actually need to justify a finalist's selection.
  */
 
+import { after } from "next/server";
 import {
   listRecentAdminAiEvidence,
   queryAdminAiContactFacts,
@@ -43,13 +44,40 @@ import type {
 
 export const MAX_RANKING_COHORT = 250;
 export const MAX_FINALIST_EVIDENCE = 60;
-export const MAX_SYNC_MEMORY_REFRESHES = 5;
+export const MAX_BACKGROUND_MEMORY_REFRESHES = 1;
 
 export type GlobalCohortMemory = {
   candidates: ContactFactRow[];
   rankingCards: CrmAiContactRankingCard[];
   contactsMissingRankingCards: string[];
 };
+
+function scheduleBackgroundMemoryRefresh(contactIds: string[]): void {
+  const queuedContactIds = contactIds.slice(0, MAX_BACKGROUND_MEMORY_REFRESHES);
+  if (queuedContactIds.length === 0) return;
+
+  after(async () => {
+    const results = await Promise.allSettled(
+      queuedContactIds.map(async (contactId) =>
+        rebuildContactMemory({ contactId }),
+      ),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") return;
+      console.error(
+        "[admin-ai-memory] background cohort refresh failed",
+        {
+          contactId: queuedContactIds[index],
+          error:
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+        },
+      );
+    });
+  });
+}
 
 export async function assembleGlobalCohortMemory(input: {
   plan: AdminAiQueryPlan;
@@ -65,7 +93,7 @@ export async function assembleGlobalCohortMemory(input: {
     new Set(candidates.map((c) => c.contact_id).filter(Boolean) as string[]),
   );
 
-  let rankingCards = contactIds.length
+  const rankingCards = contactIds.length
     ? await listRankingCards({
         contactIds,
         limit: MAX_RANKING_COHORT,
@@ -84,38 +112,15 @@ export async function assembleGlobalCohortMemory(input: {
     dossierVersion: DOSSIER_SCHEMA_VERSION,
   });
 
-  const unresolvedRefreshSet = new Set<string>();
-  if (
-    contactsNeedingRefresh.length > 0 &&
-    contactsNeedingRefresh.length <= MAX_SYNC_MEMORY_REFRESHES
-  ) {
-    await Promise.all(
-      contactsNeedingRefresh.map(async (contactId) => {
-        try {
-          await rebuildContactMemory({ contactId });
-        } catch {
-          unresolvedRefreshSet.add(contactId);
-        }
-      }),
-    );
-
-    rankingCards = await listRankingCards({
-      contactIds,
-      limit: MAX_RANKING_COHORT,
-    });
-  } else {
-    for (const contactId of contactsNeedingRefresh) {
-      unresolvedRefreshSet.add(contactId);
-    }
+  if (contactsNeedingRefresh.length > 0) {
+    scheduleBackgroundMemoryRefresh(contactsNeedingRefresh);
   }
+  const contactsNeedingRefreshSet = new Set(contactsNeedingRefresh);
 
   const candidateOrder = new Map(
     contactIds.map((contactId, index) => [contactId, index] as const),
   );
   const validRankingCards = rankingCards
-    .filter(
-      (card) => !unresolvedRefreshSet.has(card.contact_id),
-    )
     .sort(
       (a, b) =>
         (candidateOrder.get(a.contact_id) ?? Number.MAX_SAFE_INTEGER) -
@@ -123,7 +128,7 @@ export async function assembleGlobalCohortMemory(input: {
     );
   const cardContactIds = new Set(validRankingCards.map((c) => c.contact_id));
   const contactsMissingRankingCards = contactIds.filter(
-    (id) => unresolvedRefreshSet.has(id) || !cardContactIds.has(id),
+    (id) => contactsNeedingRefreshSet.has(id) || !cardContactIds.has(id),
   );
 
   return {

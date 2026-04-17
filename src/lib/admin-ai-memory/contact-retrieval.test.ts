@@ -201,6 +201,7 @@ describe("assembleContactScopedMemory", () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
     const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
     const backfillMod = await import("./backfill");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(
       makeDossier({ generator_version: "old-version" }),
@@ -223,6 +224,14 @@ describe("assembleContactScopedMemory", () => {
       expect.objectContaining({ contact_id: CONTACT_ID }),
     );
     expect(result.fallbackUsed).toBe(false);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[admin-ai-memory] contact sync rebuild failed",
+      expect.objectContaining({
+        contactId: CONTACT_ID,
+        error: "provider down",
+      }),
+    );
+    errorSpy.mockRestore();
   });
 
   it("never leaks evidence from a different contact", async () => {

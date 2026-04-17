@@ -78,10 +78,10 @@ export function AdminAiPanel({
     });
   }
 
-  function handleRenameThread(thread: AdminAiThreadSummary) {
-    const nextTitle = window.prompt("Rename thread", thread.title)?.trim();
-    if (!nextTitle || nextTitle === thread.title) return;
-
+  function handleRenameThread(
+    thread: AdminAiThreadSummary,
+    nextTitle: string,
+  ) {
     startTransition(async () => {
       await renameAdminAiThreadAction({
         threadId: thread.id,
@@ -101,8 +101,6 @@ export function AdminAiPanel({
   }
 
   function handleDeleteThread(thread: AdminAiThreadSummary) {
-    if (!window.confirm(`Delete "${thread.title}"?`)) return;
-
     startTransition(async () => {
       await deleteAdminAiThreadAction({
         threadId: thread.id,

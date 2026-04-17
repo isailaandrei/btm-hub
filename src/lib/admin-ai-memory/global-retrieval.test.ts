@@ -9,10 +9,20 @@ import type {
 } from "@/types/admin-ai-memory";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 
+const { afterMock } = vi.hoisted(() => ({
+  afterMock: vi.fn((callback: () => Promise<void> | void) => {
+    void callback();
+  }),
+}));
+
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
   queryAdminAiContactFacts: vi.fn(),
   searchAdminAiEvidence: vi.fn(),
   listRecentAdminAiEvidence: vi.fn(),
+}));
+
+vi.mock("next/server", () => ({
+  after: afterMock,
 }));
 
 vi.mock("@/lib/data/admin-ai-memory", () => ({
@@ -116,6 +126,7 @@ describe("assembleGlobalCohortMemory", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    afterMock.mockClear();
   });
 
   it("applies structured filters and loads ranking cards for the cohort", async () => {
@@ -201,7 +212,7 @@ describe("assembleGlobalCohortMemory", () => {
     });
   });
 
-  it("rebuilds missing or stale ranking memory for a small stale subset", async () => {
+  it("schedules a narrow background refresh without blocking the current cohort read", async () => {
     const factsMod = await import("@/lib/data/admin-ai-retrieval");
     const memoryMod = await import("@/lib/data/admin-ai-memory");
     const backfillMod = await import("./backfill");
@@ -221,13 +232,9 @@ describe("assembleGlobalCohortMemory", () => {
       },
     ]);
     vi.mocked(memoryMod.listRankingCards)
-      .mockResolvedValueOnce([makeRankingCard(CONTACT_A)])
-      .mockResolvedValueOnce([
-        makeRankingCard(CONTACT_A),
-        makeRankingCard(CONTACT_B),
-      ]);
+      .mockResolvedValue([makeRankingCard(CONTACT_A)]);
     vi.mocked(backfillMod.rebuildContactMemory).mockResolvedValue({
-      contactId: CONTACT_B,
+      contactId: CONTACT_A,
       status: "rebuilt",
       chunkCount: 3,
       dossierUpserted: true,
@@ -237,17 +244,18 @@ describe("assembleGlobalCohortMemory", () => {
     const { assembleGlobalCohortMemory } = await import("./global-retrieval");
     const result = await assembleGlobalCohortMemory({ plan: makePlan() });
 
-    expect(backfillMod.rebuildContactMemory).toHaveBeenCalledTimes(2);
+    expect(afterMock).toHaveBeenCalledTimes(1);
+    expect(backfillMod.rebuildContactMemory).toHaveBeenCalledTimes(1);
     expect(backfillMod.rebuildContactMemory).toHaveBeenNthCalledWith(1, {
       contactId: CONTACT_A,
     });
-    expect(backfillMod.rebuildContactMemory).toHaveBeenNthCalledWith(2, {
-      contactId: CONTACT_B,
-    });
-    expect(result.contactsMissingRankingCards).toEqual([]);
-    expect(result.rankingCards.map((card) => card.contact_id)).toEqual([
+    expect(memoryMod.listRankingCards).toHaveBeenCalledTimes(1);
+    expect(result.contactsMissingRankingCards).toEqual([
       CONTACT_A,
       CONTACT_B,
+    ]);
+    expect(result.rankingCards.map((card) => card.contact_id)).toEqual([
+      CONTACT_A,
     ]);
   });
 });

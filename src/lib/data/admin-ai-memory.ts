@@ -16,6 +16,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { buildStableChunkId } from "@/lib/admin-ai-memory/chunk-identity";
+import { CURRENT_CRM_SOURCE_TYPES } from "@/lib/admin-ai-memory/source-types";
 import type {
   Application,
   Contact,
@@ -60,6 +61,51 @@ export async function upsertEvidenceChunks(input: {
 
   if (error) {
     throw new Error(`Failed to upsert evidence chunks: ${error.message}`);
+  }
+}
+
+export async function deleteStaleCurrentCrmEvidenceChunksForContact(input: {
+  contactId: string;
+  retainedSourceKeys: string[];
+}): Promise<void> {
+  await requireAdmin();
+  const supabase = await createClient();
+  const sourceTypes = Array.from(CURRENT_CRM_SOURCE_TYPES);
+
+  const { data, error } = await supabase
+    .from("crm_ai_evidence_chunks")
+    .select("id, source_type, source_id")
+    .eq("contact_id", input.contactId)
+    .in("source_type", sourceTypes);
+
+  if (error) {
+    throw new Error(
+      `Failed to load current CRM evidence chunks for pruning: ${error.message}`,
+    );
+  }
+
+  const retainedKeys = new Set(input.retainedSourceKeys);
+  const staleIds = ((data ?? []) as Array<{
+    id: string;
+    source_type: string;
+    source_id: string;
+  }>)
+    .filter(
+      (row) => !retainedKeys.has(`${row.source_type}:${row.source_id}`),
+    )
+    .map((row) => row.id);
+
+  if (staleIds.length === 0) return;
+
+  const { error: deleteError } = await supabase
+    .from("crm_ai_evidence_chunks")
+    .delete()
+    .in("id", staleIds);
+
+  if (deleteError) {
+    throw new Error(
+      `Failed to delete stale current CRM evidence chunks: ${deleteError.message}`,
+    );
   }
 }
 
