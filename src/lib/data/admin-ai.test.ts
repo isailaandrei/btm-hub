@@ -632,7 +632,7 @@ describe("searchAdminAiEvidence", () => {
     expect(mock.client.rpc).toHaveBeenCalledWith(
       "search_admin_ai_chunk_evidence",
       expect.objectContaining({
-        p_query: "dolphins ocean",
+        p_query: "dolphins OR ocean",
         p_contact_ids: ["c1", "c2"],
         p_contact_id: null,
         p_limit: 20,
@@ -651,6 +651,22 @@ describe("searchAdminAiEvidence", () => {
         text: "swimming with dolphins",
       },
     ]);
+  });
+
+  it("joins textFocus with AND when matchMode is 'all'", async () => {
+    mock.mockQueryResult([]);
+    const { searchAdminAiEvidence } = await import("./admin-ai-retrieval");
+    await searchAdminAiEvidence({
+      textFocus: ["dolphins", "ocean"],
+      limit: 10,
+      matchMode: "all",
+    });
+    expect(mock.client.rpc).toHaveBeenCalledWith(
+      "search_admin_ai_chunk_evidence",
+      expect.objectContaining({
+        p_query: "dolphins ocean",
+      }),
+    );
   });
 
   it("passes p_contact_id when a single contactId is provided", async () => {

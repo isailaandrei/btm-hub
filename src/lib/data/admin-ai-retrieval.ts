@@ -219,15 +219,31 @@ export async function searchAdminAiEvidence(input: {
   contactIds?: string[];
   contactId?: string;
   limit: number;
+  /**
+   * "any" → join tokens with ` OR ` so chunks matching any single token
+   * surface (ranked higher when more tokens match, via ts_rank_cd).
+   * "all" → join with spaces so chunks must match every token (the old
+   * strict behavior).
+   *
+   * Defaults to "any". AND semantics were silently dropping chunks that
+   * contained the user's most important keywords (e.g. a chunk with
+   * "National Geographic" but not the other filler words in the
+   * question); with OR the ranking function still prioritizes
+   * more-complete matches, so precision survives while recall jumps.
+   */
+  matchMode?: "any" | "all";
 }): Promise<EvidenceItem[]> {
   await requireAdmin();
   const supabase = await createClient();
 
   // The SQL function handles the empty-query branch itself, so we can pass
-  // an empty string through. Joining with a single space matches the
-  // `websearch_to_tsquery` expectation ("dolphins ocean" => two tokens
-  // ANDed by default).
-  const p_query = input.textFocus.join(" ");
+  // an empty string through.
+  const mode = input.matchMode ?? "any";
+  const p_query = input.textFocus.length === 0
+    ? ""
+    : mode === "all"
+      ? input.textFocus.join(" ")
+      : input.textFocus.join(" OR ");
 
   const { data, error } = await supabase.rpc("search_admin_ai_chunk_evidence", {
     p_query,
