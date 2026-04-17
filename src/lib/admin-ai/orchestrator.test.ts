@@ -550,7 +550,8 @@ describe("runAdminAiAnalysis (provider failures)", () => {
     expect(result.error).toMatch(/not configured/i);
   });
 
-  it("throws when the synthesis response references unknown evidence ids", async () => {
+  it("drops citations with unknown evidence ids from the persisted response instead of throwing", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const planMod = await import("./query-plan");
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
@@ -573,11 +574,86 @@ describe("runAdminAiAnalysis (provider failures)", () => {
           keyFindings: [],
           uncertainty: [],
           contactAssessment: {
-            facts: [],
+            facts: ["Real fact."],
             inferredQualities: [],
             concerns: [],
             citations: [
-              { evidenceId: "missing", claimKey: "contactAssessment.facts.0" },
+              { evidenceId: "evidence-1", claimKey: "contactAssessment.facts.0" },
+              { evidenceId: "missing", claimKey: "contactAssessment.facts.1" },
+            ],
+          },
+        } as AdminAiResponse,
+        modelMetadata: { model: "synthesis" },
+      }),
+    });
+    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generateRanking: vi.fn(),
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
+      id: "assistant-1",
+    });
+    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "contact",
+      threadId: "thread-1",
+      question: "what?",
+      contactId: CONTACT_ID,
+    });
+
+    // The real citation survives, the `missing` one is dropped silently.
+    expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
+      messageId: "assistant-1",
+      citations: [
+        expect.objectContaining({
+          claim_key: "contactAssessment.facts.0",
+          source_type: "application_answer",
+        }),
+      ],
+    });
+    expect(result.status).toBe("complete");
+    expect(
+      result.response?.contactAssessment?.citations.map((c) => c.evidenceId),
+    ).toEqual(["evidence-1"]);
+    expect(result.modelMetadata?.droppedEvidenceIds).toEqual(["missing"]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("outside the evidence pack"),
+      expect.objectContaining({ droppedEvidenceIds: ["missing"] }),
+    );
+  });
+
+  it("persists an empty citations array (not a throw) when every citation is foreign", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const planMod = await import("./query-plan");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const tagsMod = await import("@/lib/data/contacts");
+    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
+
+    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
+    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
+    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
+      dossier: makeDossier(CONTACT_ID),
+      evidence: [makeEvidence(CONTACT_ID)],
+      fallbackUsed: false,
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: vi.fn().mockResolvedValue({
+        response: {
+          summary: "ok",
+          keyFindings: [],
+          uncertainty: [],
+          contactAssessment: {
+            facts: ["fact"],
+            inferredQualities: [],
+            concerns: [],
+            citations: [
+              { evidenceId: "ghost-1", claimKey: "contactAssessment.facts.0" },
             ],
           },
         } as AdminAiResponse,
@@ -589,18 +665,22 @@ describe("runAdminAiAnalysis (provider failures)", () => {
       getUnavailableReason: () => null,
       generateRanking: vi.fn(),
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-failed",
-    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "asst" });
+    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
-    await expect(
-      runAdminAiAnalysis({
-        scope: "contact",
-        threadId: "thread-1",
-        question: "what?",
-        contactId: CONTACT_ID,
-      }),
-    ).rejects.toThrow(/unknown evidence id/i);
+    const result = await runAdminAiAnalysis({
+      scope: "contact",
+      threadId: "thread-1",
+      question: "what?",
+      contactId: CONTACT_ID,
+    });
+
+    expect(result.status).toBe("complete");
+    expect(result.citations).toEqual([]);
+    expect(
+      result.response?.contactAssessment?.citations,
+    ).toEqual([]);
+    expect(result.modelMetadata?.droppedEvidenceIds).toEqual(["ghost-1"]);
   });
 });

@@ -95,17 +95,25 @@ function collectCitationRefs(
   });
 }
 
+type CitationResolution = {
+  drafts: AdminAiCitationDraft[];
+  droppedEvidenceIds: string[];
+};
+
 function resolveCitationDrafts(
   response: AdminAiResponse,
   evidence: EvidenceItem[],
-): AdminAiCitationDraft[] {
+): CitationResolution {
   const evidenceById = new Map(evidence.map((item) => [item.evidenceId, item] as const));
-  return collectCitationRefs(response).map((ref) => {
+  const drafts: AdminAiCitationDraft[] = [];
+  const droppedEvidenceIds: string[] = [];
+  for (const ref of collectCitationRefs(response)) {
     const item = evidenceById.get(ref.evidenceId);
     if (!item) {
-      throw new Error(`Provider returned unknown evidence id: ${ref.evidenceId}`);
+      droppedEvidenceIds.push(ref.evidenceId);
+      continue;
     }
-    return {
+    drafts.push({
       claim_key: ref.claimKey,
       source_type: item.sourceType,
       source_id: item.sourceId,
@@ -113,8 +121,46 @@ function resolveCitationDrafts(
       application_id: item.applicationId,
       source_label: item.sourceLabel,
       snippet: item.text,
-    };
-  });
+    });
+  }
+  if (droppedEvidenceIds.length > 0) {
+    console.warn(
+      "[admin-ai] synthesis returned citations outside the evidence pack — dropping",
+      { droppedEvidenceIds, keptCount: drafts.length },
+    );
+  }
+  return { drafts, droppedEvidenceIds };
+}
+
+/**
+ * Rebuild the response payload with foreign citations stripped so the
+ * persisted `response_json` and the persisted citation rows agree on
+ * what actually got cited. Entries / assessments whose citations were
+ * all foreign end up with an empty citations array — acceptable as a
+ * degradation mode; the UI still renders the entry with a gap.
+ */
+function applyDroppedEvidenceIdsToResponse(
+  response: AdminAiResponse,
+  droppedEvidenceIds: Set<string>,
+): AdminAiResponse {
+  if (droppedEvidenceIds.size === 0) return response;
+  return {
+    ...response,
+    shortlist: response.shortlist?.map((entry) => ({
+      ...entry,
+      citations: entry.citations.filter(
+        (c) => !droppedEvidenceIds.has(c.evidenceId),
+      ),
+    })),
+    contactAssessment: response.contactAssessment
+      ? {
+          ...response.contactAssessment,
+          citations: response.contactAssessment.citations.filter(
+            (c) => !droppedEvidenceIds.has(c.evidenceId),
+          ),
+        }
+      : undefined,
+  };
 }
 
 async function persistFailedAssistantMessage(input: {
@@ -210,22 +256,32 @@ async function runFinalSynthesis(input: {
       throw new Error(`AdminAiResponse validation failed: ${message}`);
     }
 
-    const citations = resolveCitationDrafts(response, input.evidence);
+    const { drafts: citations, droppedEvidenceIds } = resolveCitationDrafts(
+      response,
+      input.evidence,
+    );
+    const cleanedResponse = applyDroppedEvidenceIdsToResponse(
+      response,
+      new Set(droppedEvidenceIds),
+    );
 
     const mergedMetadata: Record<string, unknown> = {
       ...modelMetadata,
       ...(input.rankingMetadata
         ? { rankingPass: input.rankingMetadata }
         : {}),
+      ...(droppedEvidenceIds.length > 0
+        ? { droppedEvidenceIds }
+        : {}),
     };
 
     const { id } = await createAdminAiMessage({
       threadId: input.threadId,
       role: "assistant",
-      content: response.summary,
+      content: cleanedResponse.summary,
       status: "complete",
       queryPlan: input.queryPlan,
-      responseJson: response,
+      responseJson: cleanedResponse,
       modelMetadata: mergedMetadata,
     });
 
@@ -235,7 +291,7 @@ async function runFinalSynthesis(input: {
       status: "complete",
       assistantMessageId: id,
       queryPlan: input.queryPlan,
-      response,
+      response: cleanedResponse,
       citations,
       modelMetadata: mergedMetadata,
       error: null,
