@@ -31,7 +31,11 @@ import type { DossierChunkInput } from "./chunk-schemas";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
-const OPENAI_REQUEST_TIMEOUT_MS = 60_000;
+// Reasoning models (gpt-5 / o-series) emit internal reasoning tokens before
+// the structured output, which can blow through a 60s wall-clock timeout
+// even on small prompts. 120s gives them room; non-reasoning models still
+// finish well under that.
+const OPENAI_REQUEST_TIMEOUT_MS = 120_000;
 
 export type DossierGenerationInput = {
   contactId: string;
