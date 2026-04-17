@@ -6,8 +6,16 @@
  * dossier prompt + schema do not couple to the answer-time provider
  * surface. They share configuration semantics (env vars, JSON schema mode)
  * but neither calls the other.
+ *
+ * Retry posture:
+ *   - Malformed chunk-id anchors (Zod regex fail) or unknown chunk-id
+ *     anchors (remap miss) trigger ONE repair retry with a stricter
+ *     system prompt that enumerates the valid labels. This catches the
+ *     common model failure mode without spinning on deterministic bugs.
+ *   - Timeouts, HTTP errors, and refusals are NOT retried here.
  */
 
+import { ZodError } from "zod/v4";
 import {
   DOSSIER_RESPONSE_JSON_SCHEMA,
   dossierResultSchema,
@@ -15,6 +23,7 @@ import {
 } from "./dossier-schema";
 import {
   DOSSIER_GENERATOR_VERSION,
+  buildDossierRepairSystemPrompt,
   buildDossierSystemPrompt,
   buildDossierUserPrompt,
 } from "./dossier-prompt";
@@ -38,6 +47,7 @@ export type DossierGenerationResult = {
     model: string;
     responseId: string | null;
     usage: Record<string, unknown> | null;
+    repairAttempted?: boolean;
   };
 };
 
@@ -114,35 +124,32 @@ function buildPromptChunkRefs(chunks: DossierChunkInput[]): PromptChunkRef[] {
   }));
 }
 
-export async function generateContactDossier(
-  input: DossierGenerationInput,
-): Promise<DossierGenerationResult> {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("Dossier generator is not configured (missing OPENAI_API_KEY).");
+class UnknownAnchorChunkIdError extends Error {
+  constructor(public readonly chunkId: string) {
+    super(`Dossier referenced unknown chunkId in evidence anchor: ${chunkId}`);
+    this.name = "UnknownAnchorChunkIdError";
   }
-  const model = getDossierModel();
-  const promptChunks = buildPromptChunkRefs(input.chunks);
+}
 
+async function callDossierApi(input: {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+}): Promise<OpenAiResponsesPayload> {
   let response: Response;
   try {
     response = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${input.apiKey}`,
       },
       body: JSON.stringify({
-        model,
+        model: input.model,
         input: [
-          { role: "system", content: buildDossierSystemPrompt() },
-          {
-            role: "user",
-            content: buildDossierUserPrompt({
-              ...input,
-              chunks: promptChunks,
-            }),
-          },
+          { role: "system", content: input.systemPrompt },
+          { role: "user", content: input.userPrompt },
         ],
         text: {
           format: {
@@ -169,7 +176,13 @@ export async function generateContactDossier(
     throw new Error(`OpenAI dossier request failed: ${message}`);
   }
 
-  const payload = (await response.json()) as OpenAiResponsesPayload;
+  return (await response.json()) as OpenAiResponsesPayload;
+}
+
+function parseAndValidate(
+  payload: OpenAiResponsesPayload,
+  promptChunks: PromptChunkRef[],
+): DossierResult {
   const rawText = extractResponseText(payload);
   let parsedJson: unknown;
   try {
@@ -181,8 +194,10 @@ export async function generateContactDossier(
 
   const dossier = dossierResultSchema.parse(parsedJson);
 
-  // Defense-in-depth: anchors must point to known chunk ids. The schema
-  // can't enforce this on its own (it doesn't see the input chunk ids).
+  // Remap prompt-local labels back to stable chunk ids. Unknown labels
+  // at this point mean the model returned something like `chunk_99` when
+  // we only handed it `chunk_1..chunk_5` — caught here and handled as a
+  // repair-eligible error by the caller.
   const promptToStableChunkId = new Map(
     promptChunks.map((chunk) => [chunk.chunkId, chunk.stableChunkId]),
   );
@@ -190,12 +205,74 @@ export async function generateContactDossier(
     anchor.chunkIds = anchor.chunkIds.map((id) => {
       const stableId = promptToStableChunkId.get(id);
       if (!stableId) {
-        throw new Error(
-          `Dossier referenced unknown chunkId in evidence anchor: ${id}`,
-        );
+        throw new UnknownAnchorChunkIdError(id);
       }
       return stableId;
     });
+  }
+
+  return dossier;
+}
+
+function isRepairableError(error: unknown): boolean {
+  if (error instanceof UnknownAnchorChunkIdError) return true;
+  if (error instanceof ZodError) {
+    // Only treat the chunkIds regex failure as repair-eligible. Other
+    // Zod failures (missing sections, wrong types) mean the model is
+    // off-contract in a way a repair retry won't fix.
+    return error.issues.some(
+      (issue) =>
+        issue.path.some(
+          (segment) => segment === "chunkIds",
+        ) ||
+        issue.path.includes("evidenceAnchors"),
+    );
+  }
+  return false;
+}
+
+export async function generateContactDossier(
+  input: DossierGenerationInput,
+): Promise<DossierGenerationResult> {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error("Dossier generator is not configured (missing OPENAI_API_KEY).");
+  }
+  const model = getDossierModel();
+  const promptChunks = buildPromptChunkRefs(input.chunks);
+  const userPrompt = buildDossierUserPrompt({
+    ...input,
+    chunks: promptChunks,
+  });
+
+  let payload: OpenAiResponsesPayload;
+  let dossier: DossierResult;
+  let repairAttempted = false;
+
+  try {
+    payload = await callDossierApi({
+      apiKey,
+      model,
+      systemPrompt: buildDossierSystemPrompt(),
+      userPrompt,
+    });
+    dossier = parseAndValidate(payload, promptChunks);
+  } catch (error) {
+    if (!isRepairableError(error)) throw error;
+
+    repairAttempted = true;
+    const previousError = error instanceof Error ? error.message : String(error);
+    payload = await callDossierApi({
+      apiKey,
+      model,
+      systemPrompt: buildDossierRepairSystemPrompt({
+        validChunkIds: promptChunks.map((c) => c.chunkId),
+        previousError,
+      }),
+      userPrompt,
+    });
+    // A second validation failure propagates — we only repair once.
+    dossier = parseAndValidate(payload, promptChunks);
   }
 
   return {
@@ -206,6 +283,7 @@ export async function generateContactDossier(
       model: payload.model ?? model,
       responseId: payload.id ?? null,
       usage: payload.usage ?? null,
+      ...(repairAttempted ? { repairAttempted: true } : {}),
     },
   };
 }

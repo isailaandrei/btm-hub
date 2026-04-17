@@ -13,6 +13,7 @@ import {
 } from "../../src/lib/admin-ai-memory/chunk-builder.ts";
 import { buildStableChunkId } from "../../src/lib/admin-ai-memory/chunk-identity.ts";
 import { buildDossierContactFacts } from "../../src/lib/admin-ai-memory/contact-facts.ts";
+import { selectChunksForDossier } from "../../src/lib/admin-ai-memory/dossier-chunk-selection.ts";
 import { generateContactDossier } from "../../src/lib/admin-ai-memory/dossier-generator.ts";
 import { DOSSIER_GENERATOR_VERSION } from "../../src/lib/admin-ai-memory/dossier-prompt.ts";
 import { DOSSIER_SCHEMA_VERSION } from "../../src/lib/admin-ai-memory/dossier-version.ts";
@@ -35,6 +36,65 @@ import type {
   DossierSourceCoverage,
 } from "../../src/types/admin-ai-memory.ts";
 import type { BackfillStats } from "../../src/lib/admin-ai-memory/backfill.ts";
+
+const DEBUG_ENABLED = () =>
+  process.env.ADMIN_AI_BACKFILL_DEBUG?.trim() === "1";
+
+// ---------------------------------------------------------------------------
+// Transport retry
+//
+// Wraps a Supabase write so a transient `TypeError: fetch failed` or
+// `AbortError` from the edge doesn't kill the whole contact. Bounded at
+// two retries with short backoff. Validation / constraint errors
+// propagate immediately.
+// ---------------------------------------------------------------------------
+
+const TRANSIENT_TRANSPORT_PATTERNS = [
+  /fetch failed/i,
+  /network( |-)?request failed/i,
+  /socket (hang up|disconnected)/i,
+  /ECONNRESET/,
+  /ETIMEDOUT/,
+  /ECONNREFUSED/,
+];
+
+function isTransientTransportError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "AbortError") return true;
+  const message = error.message ?? "";
+  const causeMessage =
+    error.cause instanceof Error ? error.cause.message : "";
+  return TRANSIENT_TRANSPORT_PATTERNS.some(
+    (pattern) => pattern.test(message) || pattern.test(causeMessage),
+  );
+}
+
+async function withTransportRetry<T>(
+  label: string,
+  fn: () => Promise<T>,
+  opts: { maxAttempts?: number; baseDelayMs?: number } = {},
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const baseDelayMs = opts.baseDelayMs ?? 500;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientTransportError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+      const delay = baseDelayMs * attempt;
+      console.warn(
+        `[backfill] ${label} transient transport error (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms`,
+        error instanceof Error ? error.message : String(error),
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
 
 function emptyStats(): BackfillStats {
   return {
@@ -285,6 +345,7 @@ async function rebuildOne(input: {
         rankingCard: existing.rankingCard,
         chunks,
         generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
       })
     ) {
       return { status: "fresh", chunkCount: chunks.length };
@@ -307,41 +368,115 @@ async function rebuildOne(input: {
     applicationCount: sources.applications.length,
   });
 
-  const generation = await generateContactDossier({
-    contactId: input.contactId,
-    contactFacts: dossierFacts,
-    chunks: chunks.map((c) => ({
-      chunkId: buildStableChunkId(c.sourceType, c.sourceId),
-      sourceType: c.sourceType,
-      sourceLabel: String(c.metadata.sourceLabel ?? c.sourceType),
-      sourceTimestamp: c.sourceTimestamp,
-      text: c.text,
-    })),
-  });
-
-  const { error: dossierErr } = await input.supabase
-    .from("crm_ai_contact_dossiers")
-    .upsert(
+  // Narrow the chunks handed to the dossier model. Full chunks still
+  // sit in crm_ai_evidence_chunks for answer-time retrieval — only the
+  // prompt gets the bounded subset.
+  const selection = selectChunksForDossier(chunks);
+  const totalChars = chunks.reduce((sum, c) => sum + c.text.length, 0);
+  const maxChunkChars = chunks.reduce(
+    (max, c) => Math.max(max, c.text.length),
+    0,
+  );
+  const shouldLogDiagnostics =
+    DEBUG_ENABLED() || selection.stats.truncated;
+  if (shouldLogDiagnostics) {
+    console.info(
+      "[backfill] dossier input diagnostics",
       {
-        contact_id: input.contactId,
-        dossier_version: DOSSIER_SCHEMA_VERSION,
-        generator_version: generation.generatorVersion,
-        source_fingerprint: fingerprint,
-        source_coverage: sourceCoverage,
-        facts_json: generation.dossier.facts,
-        signals_json: generation.dossier.signals,
-        contradictions_json: generation.dossier.contradictions,
-        unknowns_json: generation.dossier.unknowns,
-        evidence_anchors_json: generation.dossier.evidenceAnchors,
-        short_summary: generation.dossier.summary.short,
-        medium_summary: generation.dossier.summary.medium,
-        confidence_json: generation.dossier.confidence ?? {},
-        last_built_at: new Date().toISOString(),
-        stale_at: null,
+        contactId: input.contactId,
+        chunkCount: chunks.length,
+        selectedChunkCount: selection.stats.selectedCount,
+        totalChars,
+        selectedChars: selection.stats.selectedChars,
+        maxChunkChars,
+        applicationCount: sources.applications.length,
+        contactNoteCount: sources.contactNotes.length,
+        applicationAdminNoteCount: sourceCoverage.applicationAdminNoteCount,
+        truncated: selection.stats.truncated,
+        droppedByChunkCap: selection.stats.droppedByChunkCap,
+        droppedByCharCap: selection.stats.droppedByCharCap,
+        dossierModel:
+          process.env.OPENAI_DOSSIER_MODEL?.trim() ||
+          process.env.OPENAI_MODEL?.trim() ||
+          "gpt-4o-mini",
       },
-      { onConflict: "contact_id" },
     );
-  if (dossierErr) throw new Error(`upsert dossier: ${dossierErr.message}`);
+  }
+
+  let generation;
+  try {
+    generation = await generateContactDossier({
+      contactId: input.contactId,
+      contactFacts: dossierFacts,
+      chunks: selection.selected.map((c) => ({
+        chunkId: buildStableChunkId(c.sourceType, c.sourceId),
+        sourceType: c.sourceType,
+        sourceLabel: String(c.metadata.sourceLabel ?? c.sourceType),
+        sourceTimestamp: c.sourceTimestamp,
+        text: c.text,
+      })),
+    });
+  } catch (error) {
+    // On failure, always log diagnostics so the next triage pass can see
+    // whether this was a size issue vs a prompt/schema issue.
+    if (!shouldLogDiagnostics) {
+      console.error(
+        "[backfill] dossier generation failed — post-mortem diagnostics",
+        {
+          contactId: input.contactId,
+          chunkCount: chunks.length,
+          selectedChunkCount: selection.stats.selectedCount,
+          totalChars,
+          selectedChars: selection.stats.selectedChars,
+          maxChunkChars,
+          applicationCount: sources.applications.length,
+          contactNoteCount: sources.contactNotes.length,
+          applicationAdminNoteCount: sourceCoverage.applicationAdminNoteCount,
+          truncated: selection.stats.truncated,
+        },
+      );
+    }
+    throw error;
+  }
+
+  if (DEBUG_ENABLED() && generation.modelMetadata.repairAttempted) {
+    console.info(
+      "[backfill] dossier repair retry succeeded",
+      {
+        contactId: input.contactId,
+        responseId: generation.modelMetadata.responseId,
+      },
+    );
+  }
+
+  await withTransportRetry(
+    `upsert dossier (${input.contactId})`,
+    async () => {
+      const { error: dossierErr } = await input.supabase
+        .from("crm_ai_contact_dossiers")
+        .upsert(
+          {
+            contact_id: input.contactId,
+            dossier_version: DOSSIER_SCHEMA_VERSION,
+            generator_version: generation.generatorVersion,
+            source_fingerprint: fingerprint,
+            source_coverage: sourceCoverage,
+            facts_json: generation.dossier.facts,
+            signals_json: generation.dossier.signals,
+            contradictions_json: generation.dossier.contradictions,
+            unknowns_json: generation.dossier.unknowns,
+            evidence_anchors_json: generation.dossier.evidenceAnchors,
+            short_summary: generation.dossier.summary.short,
+            medium_summary: generation.dossier.summary.medium,
+            confidence_json: generation.dossier.confidence ?? {},
+            last_built_at: new Date().toISOString(),
+            stale_at: null,
+          },
+          { onConflict: "contact_id" },
+        );
+      if (dossierErr) throw new Error(`upsert dossier: ${dossierErr.message}`);
+    },
+  );
 
   const dossierForCard: CrmAiContactDossier = {
     contact_id: input.contactId,
@@ -364,22 +499,27 @@ async function rebuildOne(input: {
   };
 
   const card = buildRankingCardFromDossier(dossierForCard);
-  const { error: cardErr } = await input.supabase
-    .from("crm_ai_contact_ranking_cards")
-    .upsert(
-      {
-        contact_id: card.contactId,
-        dossier_version: card.dossierVersion,
-        source_fingerprint: card.sourceFingerprint,
-        facts_json: card.facts,
-        top_fit_signals_json: card.topFitSignals,
-        top_concerns_json: card.topConcerns,
-        confidence_notes_json: card.confidenceNotes,
-        short_summary: card.shortSummary,
-      },
-      { onConflict: "contact_id" },
-    );
-  if (cardErr) throw new Error(`upsert ranking card: ${cardErr.message}`);
+  await withTransportRetry(
+    `upsert ranking card (${input.contactId})`,
+    async () => {
+      const { error: cardErr } = await input.supabase
+        .from("crm_ai_contact_ranking_cards")
+        .upsert(
+          {
+            contact_id: card.contactId,
+            dossier_version: card.dossierVersion,
+            source_fingerprint: card.sourceFingerprint,
+            facts_json: card.facts,
+            top_fit_signals_json: card.topFitSignals,
+            top_concerns_json: card.topConcerns,
+            confidence_notes_json: card.confidenceNotes,
+            short_summary: card.shortSummary,
+          },
+          { onConflict: "contact_id" },
+        );
+      if (cardErr) throw new Error(`upsert ranking card: ${cardErr.message}`);
+    },
+  );
 
   return { status: "rebuilt", chunkCount: chunks.length };
 }

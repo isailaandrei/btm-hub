@@ -30,9 +30,23 @@ const signalsSchema = z.object({
   concerns: z.array(signalEntrySchema),
 });
 
+/**
+ * Chunk ids in evidence anchors must be prompt-local labels we handed to
+ * the model (e.g. `chunk_1`, `chunk_2`). Rejecting anything else at the
+ * schema boundary catches model hallucinations like `facts`, `summary`,
+ * `chunk_`, or partial labels early — before the id-remap throws a less
+ * informative error downstream.
+ */
+const CHUNK_ID_PATTERN = /^chunk_[1-9][0-9]*$/;
+const CHUNK_ID_PATTERN_SOURCE = "^chunk_[1-9][0-9]*$";
+
 const evidenceAnchorSchema = z.object({
   claim: z.string().min(1),
-  chunkIds: z.array(z.string().min(1)),
+  chunkIds: z.array(
+    z.string().regex(CHUNK_ID_PATTERN, {
+      message: `chunkId must match ${CHUNK_ID_PATTERN_SOURCE}`,
+    }),
+  ),
   confidence: confidenceEnum,
 });
 
@@ -242,7 +256,10 @@ export const DOSSIER_RESPONSE_JSON_SCHEMA = {
         additionalProperties: false,
         properties: {
           claim: { type: "string" },
-          chunkIds: { type: "array", items: { type: "string" } },
+          chunkIds: {
+            type: "array",
+            items: { type: "string", pattern: CHUNK_ID_PATTERN_SOURCE },
+          },
           confidence: { enum: ["high", "medium", "low"] },
         },
         required: ["claim", "chunkIds", "confidence"],

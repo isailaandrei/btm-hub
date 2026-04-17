@@ -23,7 +23,8 @@ export function buildDossierSystemPrompt(): string {
     "Preserve fit signals, concerns, and motivation — these drive future ranking.",
     "Surface contradictions explicitly under `contradictions`.",
     "List things you do not know under `unknowns`.",
-    "Cite sources by chunkId in `evidenceAnchors`. Only use the exact chunkId labels that appear in the input chunks.",
+    "Every evidence anchor MUST cite one or more prompt-local chunk labels that appear exactly in the `chunks` array — e.g. `chunk_1`, `chunk_2`.",
+    "Do NOT invent labels like `facts`, `signals`, `summary`, `contact`, or return partial labels like `chunk_`. Valid labels match the pattern `chunk_<positive integer>`.",
     "Do not invent personality types or speculate beyond the evidence.",
     "Do not produce marketing-style summaries — be concrete and auditable.",
     "Return valid JSON matching the response schema.",
@@ -57,7 +58,12 @@ export function buildDossierUserPrompt(input: DossierUserPromptInput): string {
           concerns: "Concrete reasons to slow down or ask follow-ups.",
         },
         evidenceAnchors:
-          "Each anchor must reference one or more chunkIds present in `chunks`. Treat chunkIds as exact prompt-local labels such as `chunk_1` and copy them verbatim.",
+          "Each anchor must reference one or more chunkIds copied verbatim from the `chunks` array above.",
+        chunkIdRules: {
+          valid: ["chunk_1", "chunk_2", "chunk_10"],
+          invalid: ["chunk_", "facts", "signals", "summary", "1", ""],
+          pattern: "^chunk_[1-9][0-9]*$",
+        },
         unknowns:
           "List specific gaps that would change the answer if filled.",
       },
@@ -65,4 +71,23 @@ export function buildDossierUserPrompt(input: DossierUserPromptInput): string {
     null,
     2,
   );
+}
+
+/**
+ * Strict repair prompt used when the first dossier response contained
+ * malformed or unknown chunk labels. Appends a hard instruction that
+ * enumerates the only valid labels so the model has nothing to guess.
+ */
+export function buildDossierRepairSystemPrompt(input: {
+  validChunkIds: string[];
+  previousError: string;
+}): string {
+  return [
+    buildDossierSystemPrompt(),
+    "REPAIR MODE — your previous response was REJECTED because it used invalid chunk labels.",
+    `Previous error: ${input.previousError}`,
+    `The ONLY valid chunk labels for this contact are: ${input.validChunkIds.join(", ")}.`,
+    "If an anchor cannot be supported by one of these labels, drop the anchor — do not invent labels.",
+    "Copy the labels verbatim. Do not add quotes, backticks, or any other characters.",
+  ].join(" ");
 }

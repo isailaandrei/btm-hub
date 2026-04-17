@@ -305,6 +305,79 @@ describe("rebuildContactMemory", () => {
     expect(result.status).toBe("missing_sources");
   });
 
+  it("truncates the dossier prompt chunk set when total chars exceeds the cap (full chunks still upserted)", async () => {
+    const dataMod = await import("@/lib/data/admin-ai-memory");
+    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const generatorMod = await import("./dossier-generator");
+
+    // Build an application with ~60KB of text across allowlisted fields —
+    // well past the 20_000-char dossier cap.
+    const hugeApplication = {
+      ...makeApplication(CONTACT_A),
+      answers: {
+        ultimate_vision: "x".repeat(8_000),
+        inspiration_to_apply: "y".repeat(8_000),
+        candidacy_reason: "z".repeat(8_000),
+        anything_else: "a".repeat(8_000),
+        questions_or_concerns: "b".repeat(8_000),
+        current_occupation: "c".repeat(8_000),
+        filmmaking_experience: "d".repeat(8_000),
+      },
+    };
+
+    vi.mocked(dataMod.loadContactCrmSources).mockResolvedValue({
+      contact: makeContact(CONTACT_A),
+      applications: [hugeApplication],
+      contactNotes: [makeNote(CONTACT_A)],
+    });
+    vi.mocked(retrievalMod.queryAdminAiContactFacts).mockResolvedValue([]);
+    vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
+    vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
+    vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
+      dossier: {
+        facts: makeDossierFacts(CONTACT_A),
+        signals: {
+          motivation: [{ value: "m", confidence: "high" }],
+          communicationStyle: [],
+          reliabilitySignals: [],
+          fitSignals: [],
+          concerns: [],
+        },
+        contradictions: [],
+        unknowns: [],
+        evidenceAnchors: [],
+        summary: { short: "s", medium: "m" },
+      },
+      generatorVersion: "dossier-prompt-v1",
+      modelMetadata: {
+        provider: "openai",
+        model: "gpt-test",
+        responseId: null,
+        usage: null,
+      },
+    });
+
+    const { rebuildContactMemory } = await import("./backfill");
+    const result = await rebuildContactMemory({ contactId: CONTACT_A });
+
+    expect(result.status).toBe("rebuilt");
+    // All chunks get upserted to DB (full evidence for answer-time retrieval).
+    const upsertedChunks = vi.mocked(dataMod.upsertEvidenceChunks).mock
+      .calls[0]?.[0]?.chunks ?? [];
+    expect(upsertedChunks.length).toBeGreaterThanOrEqual(8); // 7 answers + 1 note
+
+    // The dossier prompt received a bounded subset.
+    const dossierCall = vi.mocked(generatorMod.generateContactDossier).mock
+      .calls[0]?.[0];
+    const dossierChars =
+      dossierCall?.chunks.reduce((sum, c) => sum + c.text.length, 0) ?? 0;
+    expect(dossierChars).toBeLessThanOrEqual(20_000);
+    // Must have dropped at least one chunk — total input was ~56K chars.
+    expect(dossierCall?.chunks.length).toBeLessThan(upsertedChunks.length);
+    // Contact note wins priority over application answers.
+    expect(dossierCall?.chunks[0]?.sourceType).toBe("contact_note");
+  });
+
   it("returns no_chunks when contact has no usable text", async () => {
     const dataMod = await import("@/lib/data/admin-ai-memory");
     vi.mocked(dataMod.loadContactCrmSources).mockResolvedValue({

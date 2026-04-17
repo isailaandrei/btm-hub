@@ -16,6 +16,7 @@ import {
 } from "./chunk-builder";
 import { buildStableChunkId } from "./chunk-identity";
 import { buildDossierContactFacts } from "./contact-facts";
+import { selectChunksForDossier } from "./dossier-chunk-selection";
 import { generateContactDossier } from "./dossier-generator";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
@@ -177,15 +178,27 @@ export async function rebuildContactMemory(input: {
     applicationCount: sources.applications.length,
   });
 
-  // Map chunks to deterministic stable ids so the dossier model can anchor
-  // evidence by the same `chunkId` that answer-time citations persist.
-  const chunkPromptItems = chunks.map((c) => ({
+  // Full chunks stay in the DB for answer-time retrieval. The dossier
+  // prompt only sees the narrowed subset — bounded on count and total
+  // chars so oversized contacts don't blow past the dossier timeout.
+  const dossierChunkSelection = selectChunksForDossier(chunks);
+  const chunkPromptItems = dossierChunkSelection.selected.map((c) => ({
     chunkId: buildStableChunkId(c.sourceType, c.sourceId),
     sourceType: c.sourceType,
     sourceLabel: String(c.metadata.sourceLabel ?? c.sourceType),
     sourceTimestamp: c.sourceTimestamp,
     text: c.text,
   }));
+
+  if (dossierChunkSelection.stats.truncated) {
+    console.warn(
+      "[admin-ai-memory] dossier chunk truncation",
+      {
+        contactId: input.contactId,
+        ...dossierChunkSelection.stats,
+      },
+    );
+  }
 
   const generation = await generateContactDossier({
     contactId: input.contactId,
