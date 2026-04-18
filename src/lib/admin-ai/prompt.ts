@@ -13,8 +13,14 @@ import type {
 export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
   const scopeInstruction =
     scope === "contact"
-      ? "This is a contact-scoped synthesis. Do not compare or mention other contacts."
-      : "This is the grounded-synthesis pass over a pre-shortlisted set of contacts.";
+      ? [
+          "This is a contact-scoped synthesis. Do not compare or mention other contacts.",
+          "Return `contactAssessment` populated and `shortlist` as an empty array.",
+        ].join(" ")
+      : [
+          "This is the grounded-synthesis pass over a pre-shortlisted set of contacts.",
+          "Return `shortlist` populated and `contactAssessment` as null. Never emit a contactAssessment object on global-scope questions — it will be stripped server-side regardless.",
+        ].join(" ");
 
   return [
     "You are the BTM Hub Admin AI Analyst.",
@@ -25,10 +31,8 @@ export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
     "Never invent missing details or unsupported qualifications.",
     "Use only supplied evidenceIds inside citations — never cite dossier prose alone.",
     "Every shortlist entry and every contact assessment must include at least one citation from the supplied raw evidence.",
-    "If you cannot support the answer with raw evidence, say so in uncertainty instead of answering from dossier memory alone.",
+    "If you cannot support the answer with raw evidence, say so in `uncertainty` instead of answering from dossier memory alone.",
     "Return valid JSON matching the required schema.",
-    "For global search, prefer shortlist output and leave contactAssessment null.",
-    "For contact synthesis, prefer contactAssessment output and return an empty shortlist array.",
   ].join(" ");
 }
 
@@ -59,8 +63,6 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
       })),
       evidence: input.evidence,
       responseContract: {
-        summary: "string",
-        keyFindings: ["string"],
         shortlist: [
           {
             contactId: "uuid",
@@ -71,7 +73,6 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
           },
         ],
         contactAssessment: {
-          facts: ["string"],
           inferredQualities: ["string"],
           concerns: ["string"],
           citations: [{ evidenceId: "string", claimKey: "string" }],
@@ -92,11 +93,6 @@ export const ADMIN_AI_RESPONSE_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    summary: { type: "string" },
-    keyFindings: {
-      type: "array",
-      items: { type: "string" },
-    },
     shortlist: {
       type: "array",
       items: {
@@ -130,7 +126,6 @@ export const ADMIN_AI_RESPONSE_JSON_SCHEMA = {
           type: "object",
           additionalProperties: false,
           properties: {
-            facts: { type: "array", items: { type: "string" } },
             inferredQualities: { type: "array", items: { type: "string" } },
             concerns: { type: "array", items: { type: "string" } },
             citations: {
@@ -147,7 +142,7 @@ export const ADMIN_AI_RESPONSE_JSON_SCHEMA = {
               },
             },
           },
-          required: ["facts", "inferredQualities", "concerns", "citations"],
+          required: ["inferredQualities", "concerns", "citations"],
         },
         { type: "null" },
       ],
@@ -157,30 +152,28 @@ export const ADMIN_AI_RESPONSE_JSON_SCHEMA = {
       items: { type: "string" },
     },
   },
-  required: [
-    "summary",
-    "keyFindings",
-    "shortlist",
-    "contactAssessment",
-    "uncertainty",
-  ],
+  required: ["shortlist", "contactAssessment", "uncertainty"],
 } as const;
 
-export function normalizeProviderResponse(payload: {
-  summary: string;
-  keyFindings: string[];
-  shortlist: AdminAiResponse["shortlist"] | [];
-  contactAssessment: AdminAiResponse["contactAssessment"] | null;
-  uncertainty: string[];
-}): AdminAiResponse {
+export function normalizeProviderResponse(
+  payload: {
+    shortlist: AdminAiResponse["shortlist"] | [];
+    contactAssessment: AdminAiResponse["contactAssessment"] | null;
+    uncertainty: string[];
+  },
+  scope: AdminAiScope,
+): AdminAiResponse {
   return {
-    summary: payload.summary,
-    keyFindings: payload.keyFindings,
     shortlist:
       Array.isArray(payload.shortlist) && payload.shortlist.length > 0
         ? payload.shortlist
         : undefined,
-    contactAssessment: payload.contactAssessment ?? undefined,
+    // Defense against the model emitting a contactAssessment on global
+    // questions — the prompt + schema tell it to return null, but we
+    // strip here too so the persisted response never has cross-scope
+    // clutter.
+    contactAssessment:
+      scope === "global" ? undefined : payload.contactAssessment ?? undefined,
     uncertainty: payload.uncertainty,
   };
 }

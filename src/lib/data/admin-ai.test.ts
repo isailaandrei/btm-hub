@@ -339,8 +339,6 @@ describe("createAdminAiMessage", () => {
       requestedLimit: 20,
     };
     const responseJson = {
-      summary: "ok",
-      keyFindings: [],
       uncertainty: [],
     };
     await createAdminAiMessage({

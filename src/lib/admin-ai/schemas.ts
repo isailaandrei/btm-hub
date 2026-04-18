@@ -149,7 +149,6 @@ const adminAiShortlistEntrySchema = z.object({
 });
 
 const adminAiContactAssessmentSchema = z.object({
-  facts: z.array(z.string()),
   inferredQualities: z.array(z.string()),
   concerns: z.array(z.string()),
   citations: z.array(adminAiCitationSchema).min(1),
@@ -157,8 +156,6 @@ const adminAiContactAssessmentSchema = z.object({
 
 /** Schema for `AdminAiResponse` — the structured LLM output. */
 export const adminAiResponseSchema = z.object({
-  summary: z.string(),
-  keyFindings: z.array(z.string()),
   shortlist: z.array(adminAiShortlistEntrySchema).optional(),
   contactAssessment: adminAiContactAssessmentSchema.optional(),
   uncertainty: z.array(z.string()),

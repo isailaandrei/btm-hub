@@ -39,22 +39,6 @@ export function AnswerView({
 
   return (
     <div className="space-y-4">
-      <section>
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Summary
-        </p>
-        <p className="mt-2 text-sm text-foreground">{response.summary}</p>
-      </section>
-
-      {response.keyFindings.length > 0 && (
-        <section>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Key Findings
-          </p>
-          {renderList(response.keyFindings)}
-        </section>
-      )}
-
       {response.shortlist && response.shortlist.length > 0 && (
         <section className="space-y-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -90,12 +74,6 @@ export function AnswerView({
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Contact Assessment
           </p>
-          {response.contactAssessment.facts.length > 0 && (
-            <div>
-              <p className="text-xs text-muted-foreground">Facts</p>
-              {renderList(response.contactAssessment.facts)}
-            </div>
-          )}
           {response.contactAssessment.inferredQualities.length > 0 && (
             <div>
               <p className="text-xs text-muted-foreground">Inferred qualities</p>

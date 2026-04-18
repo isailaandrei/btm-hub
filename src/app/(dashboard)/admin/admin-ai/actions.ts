@@ -7,7 +7,10 @@ import {
   adminAiThreadMutationSchema,
 } from "@/lib/admin-ai/schemas";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
-import { runAdminAiAnalysis } from "@/lib/admin-ai/orchestrator";
+import {
+  describeAssistantResponse,
+  runAdminAiAnalysis,
+} from "@/lib/admin-ai/orchestrator";
 import {
   createAdminAiMessage,
   createAdminAiThread,
@@ -239,7 +242,9 @@ export async function askAdminAiQuestion(
       threadId,
       role: "assistant",
       status: analysis.status,
-      content: analysis.response?.summary ?? analysis.error ?? "Admin AI failed.",
+      content: analysis.response
+        ? describeAssistantResponse(analysis.response)
+        : analysis.error ?? "Admin AI failed.",
       createdAt: assistantCreatedAt,
       queryPlan: analysis.queryPlan,
       response: analysis.response,
