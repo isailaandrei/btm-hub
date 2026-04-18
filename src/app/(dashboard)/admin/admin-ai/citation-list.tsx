@@ -9,9 +9,22 @@ function shortenId(id: string): string {
 function groupByContact(
   citations: AdminAiCitationRow[],
 ): Array<{ contactId: string; rows: AdminAiCitationRow[] }> {
+  // Dedupe on (contactId, source_type, source_id) before grouping so that
+  // rows persisted under different claim_keys but pointing at the same
+  // chunk render as a single entry. Defense for legacy rows written
+  // before the server-side dedupe landed; first-seen row wins.
+  const seenSources = new Set<string>();
+  const unique: AdminAiCitationRow[] = [];
+  for (const citation of citations) {
+    const key = `${citation.contact_id}:${citation.source_type}:${citation.source_id}`;
+    if (seenSources.has(key)) continue;
+    seenSources.add(key);
+    unique.push(citation);
+  }
+
   const order: string[] = [];
   const buckets = new Map<string, AdminAiCitationRow[]>();
-  for (const citation of citations) {
+  for (const citation of unique) {
     const existing = buckets.get(citation.contact_id);
     if (existing) {
       existing.push(citation);
