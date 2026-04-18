@@ -25,6 +25,7 @@ import {
   searchAdminAiEvidence,
 } from "@/lib/data/admin-ai-retrieval";
 import { getContactDossier } from "@/lib/data/admin-ai-memory";
+import { areAiRebuildsDisabled } from "./ai-rebuild-guard";
 import { rebuildContactMemory } from "./backfill";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
@@ -54,19 +55,26 @@ export async function assembleContactScopedMemory(input: {
   });
 
   if (shouldRefresh) {
-    try {
-      await rebuildContactMemory({ contactId: input.contactId });
-      dossier = await getContactDossier({ contactId: input.contactId });
-    } catch (error) {
-      console.error(
-        "[admin-ai-memory] contact sync rebuild failed",
-        {
-          contactId: input.contactId,
-          error: error instanceof Error ? error.message : String(error),
-        },
+    if (areAiRebuildsDisabled()) {
+      console.info(
+        "[admin-ai-memory] contact sync rebuild skipped — ADMIN_AI_DISABLE_REBUILDS is set",
+        { contactId: input.contactId },
       );
-      // Narrow fallback: if a dossier already exists, keep serving it rather
-      // than failing the entire contact analysis on a transient rebuild error.
+    } else {
+      try {
+        await rebuildContactMemory({ contactId: input.contactId });
+        dossier = await getContactDossier({ contactId: input.contactId });
+      } catch (error) {
+        console.error(
+          "[admin-ai-memory] contact sync rebuild failed",
+          {
+            contactId: input.contactId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+        // Narrow fallback: if a dossier already exists, keep serving it rather
+        // than failing the entire contact analysis on a transient rebuild error.
+      }
     }
   }
 
