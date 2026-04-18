@@ -6,17 +6,34 @@ function shortenId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
 }
 
+/**
+ * Dedupe key for an evidence card. Notes keep their unique source_id
+ * since every note is an independent entry. For application answers
+ * we collapse across applications on the same field — a contact who
+ * applied twice and wrote two similar `ultimate_vision` answers should
+ * show as one evidence card, not two. Application-answer source_ids
+ * are `${applicationId}:${field}`, so the portion after the last `:`
+ * is the field identifier we want to key on.
+ */
+function dedupeKey(citation: AdminAiCitationRow): string {
+  if (citation.source_type === "application_answer") {
+    const field = citation.source_id.split(":").pop() ?? citation.source_id;
+    return `${citation.contact_id}:application_answer:${field}`;
+  }
+  return `${citation.contact_id}:${citation.source_type}:${citation.source_id}`;
+}
+
 function groupByContact(
   citations: AdminAiCitationRow[],
 ): Array<{ contactId: string; rows: AdminAiCitationRow[] }> {
-  // Dedupe on (contactId, source_type, source_id) before grouping so that
-  // rows persisted under different claim_keys but pointing at the same
-  // chunk render as a single entry. Defense for legacy rows written
-  // before the server-side dedupe landed; first-seen row wins.
+  // Dedupe before grouping so a single logical piece of evidence per
+  // contact renders once. First-seen row wins (the retrieval layer
+  // returns newer chunks first, so the freshest answer is the one
+  // that survives when a contact has multiple applications).
   const seenSources = new Set<string>();
   const unique: AdminAiCitationRow[] = [];
   for (const citation of citations) {
-    const key = `${citation.contact_id}:${citation.source_type}:${citation.source_id}`;
+    const key = dedupeKey(citation);
     if (seenSources.has(key)) continue;
     seenSources.add(key);
     unique.push(citation);
