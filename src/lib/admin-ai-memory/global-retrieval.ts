@@ -26,6 +26,7 @@ import {
   listContactDossiers,
   listRankingCards,
 } from "@/lib/data/admin-ai-memory";
+import { areAiRebuildsDisabled } from "./ai-rebuild-guard";
 import { rebuildContactMemory } from "./backfill";
 import {
   findContactsNeedingMemoryRefresh,
@@ -65,6 +66,13 @@ export type GlobalCohortMemory = {
 };
 
 function scheduleBackgroundMemoryRefresh(contactIds: string[]): void {
+  if (areAiRebuildsDisabled()) {
+    console.info(
+      "[admin-ai-memory] background cohort refresh skipped — ADMIN_AI_DISABLE_REBUILDS is set",
+      { contactIds: contactIds.slice(0, MAX_BACKGROUND_MEMORY_REFRESHES) },
+    );
+    return;
+  }
   const queuedContactIds = contactIds.slice(0, MAX_BACKGROUND_MEMORY_REFRESHES);
   if (queuedContactIds.length === 0) return;
 

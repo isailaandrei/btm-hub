@@ -64,6 +64,10 @@ OPENAI_RANKING_MODEL=gpt-5-mini   # optional — falls back to OPENAI_MODEL
 
 `OPENAI_MODEL` is optional. If omitted, the app defaults to `gpt-5-mini`. Dossier generation and the cohort ranking pass each pick up their own override env so the three roles (synthesis, dossier-writing, ranking) can be tuned independently.
 
+### Disabling AI-driven memory rebuilds
+
+Set `ADMIN_AI_DISABLE_REBUILDS=1` (or `true` / `on` / `yes`) to temporarily stop every OpenAI-backed dossier and ranking-card rebuild triggered from an admin AI read path — both the synchronous rebuild on a contact-scoped question and the background queue from a global question. Structural sync (tag/note writes that refresh `facts_json` without an LLM call) continues to run. Admin AI questions keep working against whatever dossiers and ranking cards are already persisted; contacts without a dossier fall back to raw evidence chunks. Clearing the variable resumes rebuilds on the next request.
+
 ### Memory architecture
 
 Phase 2 added a five-layer external memory system around the existing
