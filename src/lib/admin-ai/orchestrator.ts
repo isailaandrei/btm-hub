@@ -70,10 +70,33 @@ function buildInsufficientEvidenceResponse(
       : "The current CRM evidence is too thin to support a reliable shortlist for this question.";
   const uncertainty = options?.extra ? [base, options.extra] : [base];
   return {
-    summary: "There is not enough evidence to answer that reliably yet.",
-    keyFindings: [],
     uncertainty,
   };
+}
+
+/**
+ * One-line description of an assistant response. Used for `admin_ai_messages.content`
+ * (where the structured response_json carries the real payload that drives
+ * the UI). Keeping `content` human-readable makes log scans and future
+ * message-history search work without re-deriving the shape.
+ */
+export function describeAssistantResponse(response: AdminAiResponse): string {
+  if (response.shortlist && response.shortlist.length > 0) {
+    const names = response.shortlist.map((entry) => entry.contactName);
+    const preview = names.slice(0, 3).join(", ");
+    const tail =
+      names.length > 3 ? `, +${names.length - 3} more` : "";
+    const label =
+      names.length === 1 ? "Shortlisted 1 contact" : `Shortlisted ${names.length} contacts`;
+    return `${label}: ${preview}${tail}.`;
+  }
+  if (response.contactAssessment) {
+    return "Contact assessment returned.";
+  }
+  if (response.uncertainty.length > 0) {
+    return response.uncertainty[0]!;
+  }
+  return "Admin AI response.";
 }
 
 function collectCitationRefs(
@@ -195,7 +218,7 @@ async function persistInsufficientResponse(input: {
   const { id } = await createAdminAiMessage({
     threadId: input.threadId,
     role: "assistant",
-    content: input.response.summary,
+    content: describeAssistantResponse(input.response),
     status: "complete",
     queryPlan: input.queryPlan,
     responseJson: input.response,
@@ -282,7 +305,7 @@ async function runFinalSynthesis(input: {
     const { id } = await createAdminAiMessage({
       threadId: input.threadId,
       role: "assistant",
-      content: cleanedResponse.summary,
+      content: describeAssistantResponse(cleanedResponse),
       status: "complete",
       queryPlan: input.queryPlan,
       responseJson: cleanedResponse,

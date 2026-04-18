@@ -78,15 +78,12 @@ export type AdminAiShortlistEntry = {
 };
 
 export type AdminAiContactAssessment = {
-  facts: string[];
   inferredQualities: string[];
   concerns: string[];
   citations: AdminAiCitation[];
 };
 
 export type AdminAiResponse = {
-  summary: string;
-  keyFindings: string[];
   shortlist?: AdminAiShortlistEntry[];
   contactAssessment?: AdminAiContactAssessment;
   uncertainty: string[];
