@@ -30,6 +30,8 @@ vi.mock("@/lib/data/admin-ai", () => ({
 
 vi.mock("@/lib/admin-ai/orchestrator", () => ({
   runAdminAiAnalysis: mockRunAdminAiAnalysis,
+  describeAssistantResponse: (response: { shortlist?: { contactName: string }[] }) =>
+    response.shortlist?.[0]?.contactName ?? "Admin AI response.",
 }));
 
 vi.mock("@/lib/admin-ai/provider", () => ({
@@ -51,8 +53,6 @@ function makePlan(): AdminAiQueryPlan {
 
 function makeResponse(): AdminAiResponse {
   return {
-    summary: "Joana is a strong fit for the brief.",
-    keyFindings: ["Strong conservation motivation."],
     uncertainty: [],
     shortlist: [
       {
@@ -234,10 +234,7 @@ describe("askAdminAiQuestion", () => {
         requestedLimit: 1,
       },
       response: {
-        summary: "Grounded contact synthesis.",
-        keyFindings: [],
         contactAssessment: {
-          facts: ["Has active filmmaking application."],
           inferredQualities: ["Appears motivated."],
           concerns: [],
           citations: [],

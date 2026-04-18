@@ -197,15 +197,13 @@ const openAiAdminAiProvider: AdminAiProvider = {
     });
 
     const rawResponse = JSON.parse(rawText) as {
-      summary: string;
-      keyFindings: string[];
       shortlist: AdminAiResponse["shortlist"] | [];
       contactAssessment: AdminAiResponse["contactAssessment"] | null;
       uncertainty: string[];
     };
 
     return {
-      response: normalizeProviderResponse(rawResponse),
+      response: normalizeProviderResponse(rawResponse, input.scope),
       modelMetadata: {
         provider: "openai",
         responseId: payload.id ?? null,

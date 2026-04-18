@@ -154,8 +154,6 @@ function makeEvidence(
 
 function makeResponse(): AdminAiResponse {
   return {
-    summary: "Strong candidate.",
-    keyFindings: [],
     uncertainty: [],
     shortlist: [
       {
@@ -292,7 +290,7 @@ describe("runAdminAiAnalysis (global, two-pass)", () => {
     expect(synthesisGenerate).not.toHaveBeenCalled();
     expect(dataMod.createAdminAiCitations).not.toHaveBeenCalled();
     expect(result.status).toBe("complete");
-    expect(result.response?.summary).toMatch(/not enough/i);
+    expect(result.response?.uncertainty?.[0]).toMatch(/too thin/i);
   });
 
   it("short-circuits when ranking returns an empty shortlist", async () => {
@@ -365,15 +363,15 @@ describe("runAdminAiAnalysis (contact, dossier-first)", () => {
     });
     const synthesisGenerate = vi.fn().mockResolvedValue({
       response: {
-        summary: "Strong candidate.",
-        keyFindings: [],
         uncertainty: [],
         contactAssessment: {
-          facts: ["Ocean focus."],
-          inferredQualities: [],
+          inferredQualities: ["Ocean focus."],
           concerns: [],
           citations: [
-            { evidenceId: "evidence-1", claimKey: "contactAssessment.facts.0" },
+            {
+              evidenceId: "evidence-1",
+              claimKey: "contactAssessment.inferredQualities.0",
+            },
           ],
         },
       } as AdminAiResponse,
@@ -459,7 +457,7 @@ describe("runAdminAiAnalysis (contact, dossier-first)", () => {
 
     expect(synthesisGenerate).not.toHaveBeenCalled();
     expect(result.status).toBe("complete");
-    expect(result.response?.summary).toMatch(/not enough/i);
+    expect(result.response?.uncertainty?.[0]).toMatch(/too thin/i);
   });
 
   it("short-circuits when a dossier exists but no raw evidence can be retrieved", async () => {
@@ -570,16 +568,19 @@ describe("runAdminAiAnalysis (provider failures)", () => {
       getUnavailableReason: () => null,
       generate: vi.fn().mockResolvedValue({
         response: {
-          summary: "ok",
-          keyFindings: [],
           uncertainty: [],
           contactAssessment: {
-            facts: ["Real fact."],
-            inferredQualities: [],
+            inferredQualities: ["Real inferred quality."],
             concerns: [],
             citations: [
-              { evidenceId: "evidence-1", claimKey: "contactAssessment.facts.0" },
-              { evidenceId: "missing", claimKey: "contactAssessment.facts.1" },
+              {
+                evidenceId: "evidence-1",
+                claimKey: "contactAssessment.inferredQualities.0",
+              },
+              {
+                evidenceId: "missing",
+                claimKey: "contactAssessment.inferredQualities.1",
+              },
             ],
           },
         } as AdminAiResponse,
@@ -609,7 +610,7 @@ describe("runAdminAiAnalysis (provider failures)", () => {
       messageId: "assistant-1",
       citations: [
         expect.objectContaining({
-          claim_key: "contactAssessment.facts.0",
+          claim_key: "contactAssessment.inferredQualities.0",
           source_type: "application_answer",
         }),
       ],
@@ -645,15 +646,15 @@ describe("runAdminAiAnalysis (provider failures)", () => {
       getUnavailableReason: () => null,
       generate: vi.fn().mockResolvedValue({
         response: {
-          summary: "ok",
-          keyFindings: [],
           uncertainty: [],
           contactAssessment: {
-            facts: ["fact"],
-            inferredQualities: [],
+            inferredQualities: ["inferred"],
             concerns: [],
             citations: [
-              { evidenceId: "ghost-1", claimKey: "contactAssessment.facts.0" },
+              {
+                evidenceId: "ghost-1",
+                claimKey: "contactAssessment.inferredQualities.0",
+              },
             ],
           },
         } as AdminAiResponse,
