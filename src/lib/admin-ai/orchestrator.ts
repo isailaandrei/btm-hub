@@ -86,11 +86,15 @@ function collectCitationRefs(
   if (response.contactAssessment) {
     refs.push(...response.contactAssessment.citations);
   }
+  // Dedupe on evidenceId alone. The UI surfaces citations as "pieces of
+  // evidence" grouped by contact — it does not render claim_key — so two
+  // refs that point at the same evidence under different claims would
+  // render as duplicate snippets. Keep the first ref per evidenceId as
+  // the representative attribution.
   const seen = new Set<string>();
   return refs.filter((ref) => {
-    const key = `${ref.claimKey}:${ref.evidenceId}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    if (seen.has(ref.evidenceId)) return false;
+    seen.add(ref.evidenceId);
     return true;
   });
 }
