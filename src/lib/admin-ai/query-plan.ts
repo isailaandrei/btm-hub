@@ -199,6 +199,37 @@ function phraseMatchIndices(hayTokens: string[], needle: string): Set<number> {
   return result;
 }
 
+/**
+ * Returns true if every token of `needle` appears anywhere in `hayTokens`
+ * — order-independent, non-contiguous. Used for tag matching where the
+ * tag name often encodes multiple semantic atoms ("azores trip: interested")
+ * that the admin naturally phrases in any order ("who's interested in the
+ * azores trip"). Strict phrase matching would miss those queries entirely.
+ */
+function tokensAllPresent(hayTokens: string[], needle: string): boolean {
+  const needleTokens = tokenize(needle);
+  if (needleTokens.length === 0) return false;
+  const haySet = new Set(hayTokens);
+  for (const token of needleTokens) {
+    if (!haySet.has(token)) return false;
+  }
+  return true;
+}
+
+/**
+ * Indices of `hayTokens` that match any token of `needle`. Used by the
+ * loose tag match to mark tokens as consumed so they don't also flow
+ * into `textFocus`.
+ */
+function tokenMatchIndices(hayTokens: string[], needle: string): Set<number> {
+  const result = new Set<number>();
+  const needleSet = new Set(tokenize(needle));
+  for (let i = 0; i < hayTokens.length; i++) {
+    if (needleSet.has(hayTokens[i]!)) result.add(i);
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Filter extraction
 // ---------------------------------------------------------------------------
@@ -265,15 +296,37 @@ function extractStructuredFilters(
   }
 
   // 3. Tag matches — allowlist comes from `availableTags`, a runtime-provided
-  //    list of the workspace's tags. Emit tag_ids filter since that's what
-  //    the facts view actually stores.
+  //    list of the workspace's tags. Tags encode high-signal admin
+  //    curation ("azores trip: interested"), so a direct mention of the
+  //    tag words should always narrow the cohort, even when the admin
+  //    phrases the question naturally ("who is interested in the azores
+  //    trip"). We therefore accept a loose, order-independent match of
+  //    all tag tokens.
+  //
+  //    When multiple tags match, pick the most specific (longest name by
+  //    token count). Emitting two tag filters would AND them via Postgres
+  //    array containment, which can empty the cohort when no contact
+  //    carries every matched tag simultaneously. Picking the most-
+  //    specific tag preserves intent without that brittleness; any
+  //    secondary tag can still be inferred by the ranking pass from the
+  //    card's tagNames.
+  const matchedTags: Array<{ id: string; name: string; tokenCount: number }> = [];
   for (const tag of availableTags) {
     if (!tag.name) continue;
-    if (phraseMatches(hayTokens, tag.name)) {
-      filters.push({ field: "tag_ids", op: "contains", value: [tag.id] });
-      for (const idx of phraseMatchIndices(hayTokens, tag.name)) {
-        consumedIndices.add(idx);
-      }
+    if (tokensAllPresent(hayTokens, tag.name)) {
+      matchedTags.push({
+        id: tag.id,
+        name: tag.name,
+        tokenCount: tokenize(tag.name).length,
+      });
+    }
+  }
+  if (matchedTags.length > 0) {
+    matchedTags.sort((a, b) => b.tokenCount - a.tokenCount);
+    const chosen = matchedTags[0]!;
+    filters.push({ field: "tag_ids", op: "contains", value: [chosen.id] });
+    for (const idx of tokenMatchIndices(hayTokens, chosen.name)) {
+      consumedIndices.add(idx);
     }
   }
 
