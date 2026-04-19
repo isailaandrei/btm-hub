@@ -1,29 +1,26 @@
 /**
  * Memory-first admin AI orchestration.
  *
- * Global path (two-pass):
+ * Global path:
  *   1. plan -> structured filters
- *   2. assemble cohort ranking memory (cards only)
- *   3. ranking pass -> shortlisted contact ids
- *   4. expand finalist dossiers + raw evidence
- *   5. grounded synthesis pass
- *   6. persist assistant message + raw-evidence citations
+ *   2. assemble whole-cohort dossier projections
+ *   3. single global reasoning call over the cohort
+ *   4. resolve support refs back to raw chunk citations
+ *   5. persist assistant message + raw-evidence citations
  *
- * Contact path (one-pass):
+ * Contact path:
  *   1. plan
  *   2. assemble dossier-first contact memory
  *   3. grounded synthesis pass
  *   4. persist assistant message + raw-evidence citations
  *
- * The final answer schema (`AdminAiResponse`) and the citation persistence
- * model are unchanged so the existing UI keeps working.
+ * The final answer schema (`AdminAiResponse`) and citation persistence model
+ * are unchanged so the existing UI keeps working.
  */
 
 import { buildAdminAiQueryPlan } from "./query-plan";
-import {
-  getAdminAiProvider,
-  getAdminAiRankingProvider,
-} from "./provider";
+import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
+import { getAdminAiProvider } from "./provider";
 import { adminAiResponseSchema } from "./schemas";
 import { getTags } from "@/lib/data/contacts";
 import {
@@ -31,8 +28,8 @@ import {
   createAdminAiMessage,
 } from "@/lib/data/admin-ai";
 import {
-  assembleGlobalCohortMemory,
-  expandFinalistEvidence,
+  assembleGlobalSinglePassCohort,
+  type GlobalSupportRefResolution,
 } from "@/lib/admin-ai-memory/global-retrieval";
 import { assembleContactScopedMemory } from "@/lib/admin-ai-memory/contact-retrieval";
 import type {
@@ -56,9 +53,6 @@ export type RunAdminAiAnalysisResult = {
   modelMetadata: Record<string, unknown> | null;
   error: string | null;
 };
-
-const RANKING_CARDS_FOR_RANKING_LIMIT = 250;
-const SHORTLIST_FINALIST_CAP = 12;
 
 function buildInsufficientEvidenceResponse(
   scope: AdminAiScope,
@@ -159,6 +153,60 @@ function resolveCitationDrafts(
   return { drafts, droppedEvidenceIds };
 }
 
+function hydrateSupportRefsInGlobalResponse(input: {
+  response: AdminAiResponse;
+  supportRefMap: Map<string, GlobalSupportRefResolution>;
+  evidence: EvidenceItem[];
+}): {
+  response: AdminAiResponse;
+  unresolvedSupportRefs: string[];
+} {
+  const evidenceById = new Map(
+    input.evidence.map((item) => [item.evidenceId, item] as const),
+  );
+  const unresolvedSupportRefs: string[] = [];
+
+  const shortlist = input.response.shortlist?.map((entry) => {
+    const expanded: typeof entry.citations = [];
+    const seenEvidenceIds = new Set<string>();
+
+    for (const citation of entry.citations) {
+      const support = input.supportRefMap.get(citation.evidenceId);
+      if (!support || support.contactId !== entry.contactId) {
+        unresolvedSupportRefs.push(citation.evidenceId);
+        continue;
+      }
+
+      for (const chunkId of support.chunkIds) {
+        const evidence = evidenceById.get(chunkId);
+        if (!evidence || evidence.contactId !== entry.contactId) {
+          unresolvedSupportRefs.push(citation.evidenceId);
+          continue;
+        }
+        if (seenEvidenceIds.has(evidence.evidenceId)) continue;
+        seenEvidenceIds.add(evidence.evidenceId);
+        expanded.push({
+          evidenceId: evidence.evidenceId,
+          claimKey: citation.claimKey,
+        });
+      }
+    }
+
+    return {
+      ...entry,
+      citations: expanded,
+    };
+  });
+
+  return {
+    response: {
+      ...input.response,
+      shortlist,
+    },
+    unresolvedSupportRefs,
+  };
+}
+
 /**
  * Rebuild the response payload with foreign citations stripped so the
  * persisted `response_json` and the persisted citation rows agree on
@@ -243,7 +291,6 @@ async function runFinalSynthesis(input: {
   candidates: ContactFactRow[];
   dossiers: CrmAiContactDossier[];
   evidence: EvidenceItem[];
-  rankingMetadata?: Record<string, unknown> | null;
 }): Promise<RunAdminAiAnalysisResult> {
   const provider = getAdminAiProvider();
   if (!provider.isConfigured()) {
@@ -266,6 +313,12 @@ async function runFinalSynthesis(input: {
   }
 
   try {
+    const synthesisTimer = startAdminAiDebugTimer("final-synthesis", {
+      scope: input.scope,
+      candidateCount: input.candidates.length,
+      dossierCount: input.dossiers.length,
+      evidenceCount: input.evidence.length,
+    });
     const { response: rawResponse, modelMetadata } = await provider.generate({
       question: input.question,
       scope: input.scope,
@@ -294,12 +347,7 @@ async function runFinalSynthesis(input: {
 
     const mergedMetadata: Record<string, unknown> = {
       ...modelMetadata,
-      ...(input.rankingMetadata
-        ? { rankingPass: input.rankingMetadata }
-        : {}),
-      ...(droppedEvidenceIds.length > 0
-        ? { droppedEvidenceIds }
-        : {}),
+      ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
     };
 
     const { id } = await createAdminAiMessage({
@@ -314,6 +362,13 @@ async function runFinalSynthesis(input: {
 
     await createAdminAiCitations({ messageId: id, citations });
 
+    synthesisTimer.end({
+      status: "complete",
+      citationCount: citations.length,
+      model: (modelMetadata.model as string | undefined) ?? null,
+      responseId: (modelMetadata.responseId as string | undefined) ?? null,
+    });
+
     return {
       status: "complete",
       assistantMessageId: id,
@@ -324,6 +379,13 @@ async function runFinalSynthesis(input: {
       error: null,
     };
   } catch (error) {
+    adminAiDebugLog("final-synthesis-failed", {
+      scope: input.scope,
+      candidateCount: input.candidates.length,
+      dossierCount: input.dossiers.length,
+      evidenceCount: input.evidence.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
     const message =
       error instanceof Error ? error.message : "Admin AI analysis failed.";
     const assistantMessageId = await persistFailedAssistantMessage({
@@ -347,9 +409,23 @@ async function runGlobalAnalysis(input: {
   question: string;
   queryPlan: AdminAiQueryPlan;
 }): Promise<RunAdminAiAnalysisResult> {
-  const cohort = await assembleGlobalCohortMemory({ plan: input.queryPlan });
+  const cohort = await assembleGlobalSinglePassCohort({
+    plan: input.queryPlan,
+  });
+  adminAiDebugLog("global-single-pass-assembled", {
+    candidateCount: cohort.candidates.length,
+    projectionCount: cohort.projections.length,
+    supportRefCount: cohort.supportRefMap.size,
+    evidenceCount: cohort.evidence.length,
+    contactsMissingDossiers: cohort.contactsMissingDossiers.length,
+    contactsServingStaleDossiers: cohort.contactsServingStaleDossiers.length,
+    compressionLevel: cohort.compressionLevel,
+    wasCompressed: cohort.wasCompressed,
+    cohortTokenEstimate: cohort.cohortTokenEstimate,
+    cohortTokenBudget: cohort.cohortTokenBudget,
+  });
 
-  if (cohort.candidates.length === 0) {
+  if (cohort.candidates.length === 0 || cohort.projections.length === 0) {
     const response = buildInsufficientEvidenceResponse("global");
     return persistInsufficientResponse({
       threadId: input.threadId,
@@ -359,27 +435,23 @@ async function runGlobalAnalysis(input: {
     });
   }
 
-  // Even when a candidate's ranking memory is missing or flagged stale, we
-  // still surface its id to the ranking pass via `candidatesMissingMemory`
-  // so the model can flag weak coverage. The ranking pass itself can only
-  // shortlist contacts whose ranking card is present in the current read.
-  if (cohort.rankingCards.length === 0) {
+  if (cohort.supportRefMap.size === 0 || cohort.evidence.length === 0) {
     const response = buildInsufficientEvidenceResponse("global", {
       extra:
-        "No persisted ranking memory exists for the cohort. Run the admin AI memory backfill to enable cohort ranking.",
+        "No anchor-backed dossier evidence is available for the current cohort yet.",
     });
     return persistInsufficientResponse({
       threadId: input.threadId,
       queryPlan: input.queryPlan,
       response,
-      reason: "no_ranking_memory",
+      reason: "no_anchor_backed_memory",
     });
   }
 
-  const rankingProvider = getAdminAiRankingProvider();
-  if (!rankingProvider.isConfigured()) {
+  const provider = getAdminAiProvider();
+  if (!provider.isConfigured()) {
     const reason =
-      rankingProvider.getUnavailableReason() ?? "Admin AI is unavailable.";
+      provider.getUnavailableReason() ?? "Admin AI is unavailable.";
     const assistantMessageId = await persistFailedAssistantMessage({
       threadId: input.threadId,
       content: reason,
@@ -397,88 +469,111 @@ async function runGlobalAnalysis(input: {
     };
   }
 
-  let rankingResult;
   try {
-    rankingResult = await rankingProvider.generateRanking({
-      question: input.question,
-      queryPlan: input.queryPlan,
-      rankingCards: cohort.rankingCards.slice(0, RANKING_CARDS_FOR_RANKING_LIMIT),
-      candidatesMissingMemory: cohort.contactsMissingRankingCards,
+    const timer = startAdminAiDebugTimer("global-single-pass", {
+      candidateCount: cohort.candidates.length,
+      projectionCount: cohort.projections.length,
+      supportRefCount: cohort.supportRefMap.size,
+      evidenceCount: cohort.evidence.length,
+      compressionLevel: cohort.compressionLevel,
+      wasCompressed: cohort.wasCompressed,
     });
+    const { response: rawResponse, modelMetadata } =
+      await provider.generateGlobalCohortResponse({
+        question: input.question,
+        queryPlan: input.queryPlan,
+        cohort: cohort.projections,
+        coverage: {
+          totalCandidates: cohort.candidates.length,
+          candidatesWithoutDossierCount:
+            cohort.contactsMissingDossiers.length,
+          staleDossierCount: cohort.contactsServingStaleDossiers.length,
+          compressionLevel: cohort.compressionLevel,
+          wasCompressed: cohort.wasCompressed,
+        },
+      });
+
+    const response = adminAiResponseSchema.parse(rawResponse);
+    const hydrated = hydrateSupportRefsInGlobalResponse({
+      response,
+      supportRefMap: cohort.supportRefMap,
+      evidence: cohort.evidence,
+    });
+
+    if (
+      hydrated.unresolvedSupportRefs.length > 0 ||
+      hydrated.response.shortlist?.some((entry) => entry.citations.length === 0)
+    ) {
+      throw new Error(
+        `Single-pass global response contained unresolved support refs: ${Array.from(
+          new Set(hydrated.unresolvedSupportRefs),
+        ).join(", ")}`,
+      );
+    }
+
+    const { drafts: citations } = resolveCitationDrafts(
+      hydrated.response,
+      cohort.evidence,
+    );
+
+    const mergedMetadata: Record<string, unknown> = {
+      ...modelMetadata,
+      globalSinglePass: {
+        supportRefCount: cohort.supportRefMap.size,
+        evidenceCount: cohort.evidence.length,
+        contactsMissingDossiers: cohort.contactsMissingDossiers.length,
+        contactsServingStaleDossiers:
+          cohort.contactsServingStaleDossiers.length,
+        compressionLevel: cohort.compressionLevel,
+        wasCompressed: cohort.wasCompressed,
+        cohortTokenEstimate: cohort.cohortTokenEstimate,
+        cohortTokenBudget: cohort.cohortTokenBudget,
+      },
+    };
+
+    const { id } = await createAdminAiMessage({
+      threadId: input.threadId,
+      role: "assistant",
+      content: describeAssistantResponse(hydrated.response),
+      status: "complete",
+      queryPlan: input.queryPlan,
+      responseJson: hydrated.response,
+      modelMetadata: mergedMetadata,
+    });
+
+    await createAdminAiCitations({ messageId: id, citations });
+    timer.end({
+      status: "complete",
+      shortlistCount: hydrated.response.shortlist?.length ?? 0,
+      citationCount: citations.length,
+    });
+
+    return {
+      status: "complete",
+      assistantMessageId: id,
+      queryPlan: input.queryPlan,
+      response: hydrated.response,
+      citations,
+      modelMetadata: mergedMetadata,
+      error: null,
+    };
   } catch (error) {
+    adminAiDebugLog("global-single-pass-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     const message =
-      error instanceof Error ? error.message : "Ranking pass failed.";
+      error instanceof Error ? error.message : "Global single-pass analysis failed.";
     const assistantMessageId = await persistFailedAssistantMessage({
       threadId: input.threadId,
       content: message,
       queryPlan: input.queryPlan,
-      modelMetadata: { source: "system", reason: "ranking_failed" },
+      modelMetadata: { source: "system", reason: "analysis_failed" },
     });
     throw Object.assign(
       error instanceof Error ? error : new Error(message),
       { assistantMessageId },
     );
   }
-
-  if (rankingResult.shortlistedContactIds.length === 0) {
-    const response = buildInsufficientEvidenceResponse("global", {
-      extra:
-        rankingResult.cohortNotes?.trim() ||
-        "Ranking pass returned no shortlist for this question.",
-    });
-    return persistInsufficientResponse({
-      threadId: input.threadId,
-      queryPlan: input.queryPlan,
-      response,
-      reason: "empty_shortlist",
-    });
-  }
-
-  const shortlist = rankingResult.shortlistedContactIds.slice(
-    0,
-    SHORTLIST_FINALIST_CAP,
-  );
-  const finalists = await expandFinalistEvidence({
-    question: input.question,
-    shortlistedContactIds: shortlist,
-    textFocus: input.queryPlan.textFocus,
-  });
-
-  if (finalists.evidence.length === 0) {
-    const response = buildInsufficientEvidenceResponse("global", {
-      extra:
-        "No raw evidence could be retrieved for the shortlisted contacts, so I can't produce a cited shortlist yet.",
-    });
-    return persistInsufficientResponse({
-      threadId: input.threadId,
-      queryPlan: input.queryPlan,
-      response,
-      reason: "missing_finalist_evidence",
-    });
-  }
-
-  const finalistCandidates = cohort.candidates.filter(
-    (c) => c.contact_id && shortlist.includes(c.contact_id),
-  );
-
-  const rankingMetadata: Record<string, unknown> = {
-    ...rankingResult.modelMetadata,
-    ...(rankingResult.droppedContactIds &&
-    rankingResult.droppedContactIds.length > 0
-      ? { droppedContactIds: rankingResult.droppedContactIds }
-      : {}),
-  };
-
-  return runFinalSynthesis({
-    scope: "global",
-    question: input.question,
-    queryPlan: input.queryPlan,
-    threadId: input.threadId,
-    candidates: finalistCandidates,
-    dossiers: finalists.dossiers,
-    evidence: finalists.evidence,
-    rankingMetadata,
-  });
 }
 
 async function runContactAnalysis(input: {
@@ -491,6 +586,12 @@ async function runContactAnalysis(input: {
     contactId: input.contactId,
     question: input.question,
     textFocus: input.queryPlan.textFocus,
+  });
+  adminAiDebugLog("contact-memory-assembled", {
+    contactId: input.contactId,
+    hasDossier: Boolean(memory.dossier),
+    evidenceCount: memory.evidence.length,
+    fallbackUsed: memory.fallbackUsed,
   });
 
   if (!memory.dossier && memory.evidence.length === 0) {
@@ -543,6 +644,14 @@ export async function runAdminAiAnalysis(input: {
     contactId: input.contactId,
     question: input.question,
     availableTags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
+  });
+  adminAiDebugLog("query-plan", {
+    scope: input.scope,
+    contactId: input.contactId ?? null,
+    mode: queryPlan.mode,
+    structuredFilterCount: queryPlan.structuredFilters.length,
+    textFocus: queryPlan.textFocus,
+    requestedLimit: queryPlan.requestedLimit,
   });
 
   if (input.scope === "contact" && input.contactId) {

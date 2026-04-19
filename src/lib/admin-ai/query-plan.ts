@@ -123,10 +123,10 @@ const MAX_TEXT_FOCUS_TOKENS = 12;
 
 /**
  * Sensible global default for the planner — the evidence pipeline caps this
- * further (see `MAX_RANKING_COHORT` in
+ * further (see `MAX_GLOBAL_DOSSIER_COHORT` in
  * `src/lib/admin-ai-memory/global-retrieval.ts`). We pick 25 because that is
  * the historical candidate cap; the cohort retrieval layer enforces a wider
- * 250 cap and keeps ranking-card cost bounded on its own.
+ * 250 cap and keeps whole-cohort dossier reasoning bounded on its own.
  */
 const GLOBAL_REQUESTED_LIMIT_DEFAULT = 25;
 
@@ -308,8 +308,8 @@ function extractStructuredFilters(
   //    array containment, which can empty the cohort when no contact
   //    carries every matched tag simultaneously. Picking the most-
   //    specific tag preserves intent without that brittleness; any
-  //    secondary tag can still be inferred by the ranking pass from the
-  //    card's tagNames.
+  //    secondary tag can still remain visible to the model via the
+  //    dossier projection's tagNames.
   const matchedTags: Array<{ id: string; name: string; tokenCount: number }> = [];
   for (const tag of availableTags) {
     if (!tag.name) continue;

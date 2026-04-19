@@ -8,7 +8,6 @@ vi.mock("@/lib/data/admin-ai-memory", () => ({
   deleteStaleCurrentCrmEvidenceChunksForContact: vi.fn(),
   upsertEvidenceChunks: vi.fn(),
   patchContactDossierStructural: vi.fn(),
-  patchRankingCardStructural: vi.fn(),
 }));
 
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
@@ -104,7 +103,7 @@ describe("refreshContactMemoryFacts", () => {
     vi.clearAllMocks();
   });
 
-  it("syncs chunks, patches dossier facts, patches ranking card with admin notes surface", async () => {
+  it("syncs chunks and patches dossier facts", async () => {
     const dataMod = await import("@/lib/data/admin-ai-memory");
     const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
 
@@ -144,7 +143,6 @@ describe("refreshContactMemoryFacts", () => {
 
     expect(result.status).toBe("refreshed");
     expect(result.dossierPatched).toBe(true);
-    expect(result.rankingCardPatched).toBe(true);
     expect(dataMod.deleteStaleCurrentCrmEvidenceChunksForContact).toHaveBeenCalled();
     expect(dataMod.upsertEvidenceChunks).toHaveBeenCalled();
     expect(dataMod.patchContactDossierStructural).toHaveBeenCalledWith(
@@ -155,25 +153,6 @@ describe("refreshContactMemoryFacts", () => {
           tags: expect.objectContaining({ tagNames: ["red flag"] }),
         }),
         staleAt: expect.any(String),
-      }),
-    );
-    expect(dataMod.patchRankingCardStructural).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contactId: CONTACT_ID,
-        facts: expect.objectContaining({
-          contactName: "Joana",
-          tagNames: ["red flag"],
-        }),
-        adminNotesRecent: expect.arrayContaining([
-          expect.objectContaining({
-            kind: "application_admin_note",
-            text: "Strong interview — push to accept",
-          }),
-          expect.objectContaining({
-            kind: "contact_note",
-            text: "Met at the dock",
-          }),
-        ]),
       }),
     );
   });
@@ -201,10 +180,8 @@ describe("refreshContactMemoryFacts", () => {
     const result = await refreshContactMemoryFacts({ contactId: CONTACT_ID });
     expect(result.status).toBe("no_dossier");
     expect(result.dossierPatched).toBe(false);
-    expect(result.rankingCardPatched).toBe(false);
     expect(dataMod.upsertEvidenceChunks).toHaveBeenCalled();
     expect(dataMod.patchContactDossierStructural).not.toHaveBeenCalled();
-    expect(dataMod.patchRankingCardStructural).not.toHaveBeenCalled();
   });
 
   it("never calls the dossier generator (no OpenAI call in the facts-only path)", async () => {

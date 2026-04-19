@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Application, Contact, ContactNote } from "@/types/database";
-import type {
-  CrmAiContactDossier,
-  CrmAiContactRankingCard,
-} from "@/types/admin-ai-memory";
+import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
 import { buildStableChunkId } from "./chunk-identity";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 
@@ -13,9 +10,7 @@ vi.mock("@/lib/data/admin-ai-memory", () => ({
   deleteStaleCurrentCrmEvidenceChunksForContact: vi.fn(),
   upsertEvidenceChunks: vi.fn(),
   upsertContactDossier: vi.fn(),
-  upsertRankingCard: vi.fn(),
   getContactDossier: vi.fn(),
-  listRankingCards: vi.fn(),
 }));
 
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
@@ -146,7 +141,7 @@ describe("rebuildContactMemory", () => {
     vi.clearAllMocks();
   });
 
-  it("loads sources, normalizes chunks, generates dossier, builds ranking card", async () => {
+  it("loads sources, normalizes chunks, and generates a dossier", async () => {
     const dataMod = await import("@/lib/data/admin-ai-memory");
     const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
     const generatorMod = await import("./dossier-generator");
@@ -181,7 +176,6 @@ describe("rebuildContactMemory", () => {
       },
     ]);
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
       dossier: {
         facts: makeDossierFacts(CONTACT_A),
@@ -218,7 +212,6 @@ describe("rebuildContactMemory", () => {
     });
     expect(dataMod.upsertEvidenceChunks).toHaveBeenCalledTimes(1);
     expect(dataMod.upsertContactDossier).toHaveBeenCalledTimes(1);
-    expect(dataMod.upsertRankingCard).toHaveBeenCalledTimes(1);
     expect(generatorMod.generateContactDossier).toHaveBeenCalledWith(
       expect.objectContaining({
         contactFacts: expect.objectContaining({
@@ -274,19 +267,6 @@ describe("rebuildContactMemory", () => {
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(
       makeDossier(CONTACT_A, { source_fingerprint: fingerprint }),
     );
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([
-      {
-        contact_id: CONTACT_A,
-        dossier_version: DOSSIER_SCHEMA_VERSION,
-        source_fingerprint: fingerprint,
-        facts_json: {},
-        top_fit_signals_json: [],
-        top_concerns_json: [],
-        confidence_notes_json: [],
-        short_summary: "s",
-        updated_at: "2026-04-15T00:00:00Z",
-      } satisfies CrmAiContactRankingCard,
-    ]);
 
     const { rebuildContactMemory } = await import("./backfill");
     const result = await rebuildContactMemory({ contactId: CONTACT_A });
@@ -294,7 +274,6 @@ describe("rebuildContactMemory", () => {
     expect(result.status).toBe("fresh");
     expect(generatorMod.generateContactDossier).not.toHaveBeenCalled();
     expect(dataMod.upsertContactDossier).not.toHaveBeenCalled();
-    expect(dataMod.upsertRankingCard).not.toHaveBeenCalled();
   });
 
   it("returns missing_sources when contact does not exist", async () => {
@@ -332,7 +311,6 @@ describe("rebuildContactMemory", () => {
     });
     vi.mocked(retrievalMod.queryAdminAiContactFacts).mockResolvedValue([]);
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
       dossier: {
         facts: makeDossierFacts(CONTACT_A),
@@ -442,7 +420,6 @@ describe("backfillContactMemory", () => {
       }),
     );
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
     vi.mocked(generatorMod.generateContactDossier)
       .mockRejectedValueOnce(new Error("model down"))
       .mockResolvedValueOnce({

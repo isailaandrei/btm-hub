@@ -40,6 +40,39 @@ export type AdminAiQueryPlan = {
 };
 
 // ---------------------------------------------------------------------------
+// Whole-cohort single-pass reasoning
+// ---------------------------------------------------------------------------
+
+export type GlobalCohortProjection = {
+  contactId: string;
+  contactName: string | null;
+  memoryStatus: "fresh" | "stale" | "missing";
+  coverage: {
+    applicationCount: number;
+    contactNoteCount: number;
+    applicationAdminNoteCount: number;
+  };
+  facts: {
+    programHistory: string[];
+    statusHistory: string[];
+    tagNames: string[];
+    budgetValues?: string[];
+    timeAvailabilityValues?: string[];
+    travelWillingnessValues?: string[];
+    languageValues?: string[];
+    countryOfResidenceValues?: string[];
+  };
+  summary: string | null;
+  supportRefs: Array<{
+    supportRef: string;
+    claim: string;
+    confidence: "high" | "medium" | "low";
+  }>;
+  contradictions: string[];
+  unknowns: string[];
+};
+
+// ---------------------------------------------------------------------------
 // Evidence retrieval
 // ---------------------------------------------------------------------------
 

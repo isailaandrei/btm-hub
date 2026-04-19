@@ -338,62 +338,6 @@ describe("listContactDossierStates", () => {
 });
 
 // ===========================================================================
-// upsertRankingCard / listRankingCards
-// ===========================================================================
-
-describe("upsertRankingCard", () => {
-  let mock: Harness;
-  beforeEach(async () => {
-    mock = await freshHarness();
-  });
-
-  it("upserts ranking card keyed on contact_id", async () => {
-    mock.mockQueryResult([{ contact_id: CONTACT_ID }]);
-    const { upsertRankingCard } = await import("./admin-ai-memory");
-
-    await upsertRankingCard({
-      contactId: CONTACT_ID,
-      dossierVersion: 1,
-      sourceFingerprint: "fp-1",
-      facts: { name: "Joana" },
-      topFitSignals: [{ value: "ocean focus", confidence: "high" }],
-      topConcerns: [],
-      confidenceNotes: [],
-      shortSummary: "Joana is ocean-focused.",
-    });
-
-    expect(mock.client.from).toHaveBeenCalledWith("crm_ai_contact_ranking_cards");
-    expect(mock.query.upsert).toHaveBeenCalledTimes(1);
-    const opts = mock.query.upsert.mock.calls[0][1] as
-      | { onConflict: string }
-      | undefined;
-    expect(opts?.onConflict).toBe("contact_id");
-  });
-});
-
-describe("listRankingCards", () => {
-  let mock: Harness;
-  beforeEach(async () => {
-    mock = await freshHarness();
-  });
-
-  it("loads all ranking cards up to a cap", async () => {
-    mock.mockQueryResult([]);
-    const { listRankingCards } = await import("./admin-ai-memory");
-    await listRankingCards({ limit: 250 });
-    expect(mock.client.from).toHaveBeenCalledWith("crm_ai_contact_ranking_cards");
-    expect(mock.query.limit).toHaveBeenCalledWith(250);
-  });
-
-  it("filters by provided contact ids when given", async () => {
-    mock.mockQueryResult([]);
-    const { listRankingCards } = await import("./admin-ai-memory");
-    await listRankingCards({ contactIds: ["c1", "c2"], limit: 100 });
-    expect(mock.query.in).toHaveBeenCalledWith("contact_id", ["c1", "c2"]);
-  });
-});
-
-// ===========================================================================
 // findStaleContactMemory
 // ===========================================================================
 

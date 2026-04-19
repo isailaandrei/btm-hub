@@ -5,7 +5,6 @@
  * foundation migration:
  *   - crm_ai_evidence_chunks
  *   - crm_ai_contact_dossiers
- *   - crm_ai_contact_ranking_cards
  *   - crm_ai_embeddings (schema only here — no helpers yet)
  *
  * Every write goes through `requireAdmin()`. Reads use the server-side
@@ -26,8 +25,6 @@ import type {
   CrmAiContactDossier,
   CrmAiContactDossierInput,
   CrmAiContactDossierState,
-  CrmAiContactRankingCard,
-  CrmAiContactRankingCardInput,
   CrmAiEvidenceChunkInput,
 } from "@/types/admin-ai-memory";
 
@@ -233,83 +230,12 @@ export async function listContactDossierStates(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Ranking cards
-// ---------------------------------------------------------------------------
-
-const RANKING_CARD_SELECT = [
-  "contact_id",
-  "dossier_version",
-  "source_fingerprint",
-  "facts_json",
-  "top_fit_signals_json",
-  "top_concerns_json",
-  "confidence_notes_json",
-  "short_summary",
-  "admin_notes_recent_json",
-  "updated_at",
-].join(", ");
-
-export async function upsertRankingCard(
-  input: CrmAiContactRankingCardInput,
-): Promise<void> {
-  await requireAdmin();
-  const supabase = await createClient();
-
-  const row = {
-    contact_id: input.contactId,
-    dossier_version: input.dossierVersion,
-    source_fingerprint: input.sourceFingerprint,
-    facts_json: input.facts,
-    top_fit_signals_json: input.topFitSignals,
-    top_concerns_json: input.topConcerns,
-    confidence_notes_json: input.confidenceNotes,
-    short_summary: input.shortSummary,
-    admin_notes_recent_json: input.adminNotesRecent,
-  };
-
-  const { error } = await supabase
-    .from("crm_ai_contact_ranking_cards")
-    .upsert(row, { onConflict: "contact_id" });
-
-  if (error) {
-    throw new Error(`Failed to upsert ranking card: ${error.message}`);
-  }
-}
-
-export async function listRankingCards(input: {
-  contactIds?: string[];
-  limit: number;
-}): Promise<CrmAiContactRankingCard[]> {
-  await requireAdmin();
-  const supabase = await createClient();
-
-  let query = supabase
-    .from("crm_ai_contact_ranking_cards")
-    .select(RANKING_CARD_SELECT);
-
-  if (input.contactIds && input.contactIds.length > 0) {
-    query = query.in("contact_id", input.contactIds);
-  }
-
-  query = query
-    .order("contact_id", { ascending: true })
-    .limit(input.limit);
-
-  const { data, error } = await query;
-  if (error) {
-    throw new Error(`Failed to list ranking cards: ${error.message}`);
-  }
-  return (data ?? []) as unknown as CrmAiContactRankingCard[];
-}
-
-// ---------------------------------------------------------------------------
 // Partial-patch helpers (no AI)
 //
-// Used by `refreshContactMemoryFacts` so tag / note mutations can
-// update the structural slice of the dossier + ranking card without
-// rebuilding the interpretive fields (signals, summary, anchors —
-// those still come from the AI and only refresh on backfill or
-// version drift).
+// Used by `refreshContactMemoryFacts` so tag / note mutations can update
+// the structural slice of the dossier without rebuilding the interpretive
+// fields (signals, summary, anchors — those still come from the AI and
+// only refresh on backfill or version drift).
 // ---------------------------------------------------------------------------
 
 export async function patchContactDossierStructural(input: {
@@ -331,29 +257,6 @@ export async function patchContactDossierStructural(input: {
   if (error) {
     throw new Error(
       `Failed to patch contact dossier facts: ${error.message}`,
-    );
-  }
-}
-
-export async function patchRankingCardStructural(input: {
-  contactId: string;
-  facts: Record<string, unknown>;
-  adminNotesRecent: unknown[];
-}): Promise<void> {
-  await requireAdmin();
-  const supabase = await createClient();
-
-  const { error } = await supabase
-    .from("crm_ai_contact_ranking_cards")
-    .update({
-      facts_json: input.facts,
-      admin_notes_recent_json: input.adminNotesRecent,
-    })
-    .eq("contact_id", input.contactId);
-
-  if (error) {
-    throw new Error(
-      `Failed to patch ranking card facts: ${error.message}`,
     );
   }
 }

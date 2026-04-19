@@ -3,33 +3,29 @@
  *
  * Runs on every admin write that touches tags, notes, or structural
  * contact fields. No OpenAI call — we only touch the parts of the
- * dossier + ranking card that are pure projections of the source data:
+ * dossier that are pure projections of the source data:
  *
  *   - Evidence chunks (delete stale + upsert current).
  *   - Dossier `facts_json` (via `buildDossierContactFacts`) + `stale_at`
  *     stamp so the next AI-involving read knows the interpretive fields
  *     may lag.
- *   - Ranking card `facts_json` (via `compactFacts`) + `admin_notes_recent_json`.
  *
  * Signals, evidence anchors, contradictions, unknowns, and summaries
  * are NOT touched here — those still come from the dossier generator
  * and only refresh on backfill or version drift.
  *
  * Must stay fast. Admins call this from server actions inline with
- * their tag/note writes. Three cheap Supabase reads + two writes,
+ * their tag/note writes. Three cheap Supabase reads + one write,
  * typically ~100ms end-to-end.
  */
 
-import { buildAdminNotesRecent } from "./admin-notes-recent";
 import { buildCurrentCrmChunksForContact } from "./chunk-builder";
 import { buildDossierContactFacts } from "./contact-facts";
-import { compactFacts } from "./ranking-card";
 import {
   deleteStaleCurrentCrmEvidenceChunksForContact,
   getContactDossier,
   loadContactCrmSources,
   patchContactDossierStructural,
-  patchRankingCardStructural,
   upsertEvidenceChunks,
 } from "@/lib/data/admin-ai-memory";
 import { queryAdminAiContactFacts } from "@/lib/data/admin-ai-retrieval";
@@ -44,7 +40,6 @@ export type FactsRefreshResult = {
   status: FactsRefreshStatus;
   chunkCount: number;
   dossierPatched: boolean;
-  rankingCardPatched: boolean;
 };
 
 export async function refreshContactMemoryFacts(input: {
@@ -57,7 +52,6 @@ export async function refreshContactMemoryFacts(input: {
       status: "missing_sources",
       chunkCount: 0,
       dossierPatched: false,
-      rankingCardPatched: false,
     };
   }
 
@@ -89,11 +83,10 @@ export async function refreshContactMemoryFacts(input: {
       status: "no_dossier",
       chunkCount: chunks.length,
       dossierPatched: false,
-      rankingCardPatched: false,
     };
   }
 
-  // 3. Rebuild the structural facts and the admin-notes surface.
+  // 3. Rebuild the structural facts.
   const factRows = await queryAdminAiContactFacts({
     filters: [],
     contactId: input.contactId,
@@ -104,10 +97,6 @@ export async function refreshContactMemoryFacts(input: {
     factRows,
     applicationCount: sources.applications.length,
   });
-  const adminNotesRecent = buildAdminNotesRecent({
-    applications: sources.applications,
-    contactNotes: sources.contactNotes,
-  });
 
   // 4. Patch the dossier: fresh facts, stale_at stamped. Interpretive
   //    fields untouched.
@@ -117,19 +106,10 @@ export async function refreshContactMemoryFacts(input: {
     staleAt: new Date().toISOString(),
   });
 
-  // 5. Patch the ranking card: compact facts + admin-notes surface.
-  //    Signals / short summary stay as the dossier last said.
-  await patchRankingCardStructural({
-    contactId: input.contactId,
-    facts: compactFacts(facts),
-    adminNotesRecent,
-  });
-
   return {
     contactId: input.contactId,
     status: "refreshed",
     chunkCount: chunks.length,
     dossierPatched: true,
-    rankingCardPatched: true,
   };
 }

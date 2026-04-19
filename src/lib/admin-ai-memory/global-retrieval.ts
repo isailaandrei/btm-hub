@@ -1,35 +1,26 @@
 /**
- * Global cohort memory retrieval — two-pass support.
+ * Global cohort memory retrieval — single-pass dossier cohort path.
  *
- * Pass 1 (`assembleGlobalCohortMemory`):
- *   - applies structured filters via the existing facts query
- *   - caps the cohort at MAX_RANKING_COHORT (250 by default)
- *   - loads ranking cards for that cohort (NOT dossiers, NOT raw chunks)
- *
- * Pass 2 (`expandFinalistEvidence`):
- *   - takes the shortlist from the ranking pass
- *   - loads dossiers + raw evidence ONLY for the shortlisted contacts
- *
- * This is the main cost-control behavior for global queries: ranking
- * cards stay cheap, dossiers and raw evidence are only loaded when we
- * actually need to justify a finalist's selection.
+ * Loads the whole eligible dossier cohort, projects each contact into a
+ * bounded prompt block, and resolves anchor-backed support refs to raw
+ * chunk-backed evidence rows for post-call citation hydration.
  */
 
 import { after } from "next/server";
+import { adminAiDebugLog } from "@/lib/admin-ai/debug";
 import {
-  listRecentAdminAiEvidence,
+  listAdminAiEvidenceByIds,
   queryAdminAiContactFacts,
-  searchAdminAiEvidence,
 } from "@/lib/data/admin-ai-retrieval";
 import {
   listContactDossierStates,
   listContactDossiers,
-  listRankingCards,
 } from "@/lib/data/admin-ai-memory";
 import { areAiRebuildsDisabled } from "./ai-rebuild-guard";
 import { rebuildContactMemory } from "./backfill";
 import {
-  findContactsNeedingMemoryRefresh,
+  isDossierSoftStale,
+  shouldForceDossierRefreshOnRead,
 } from "./freshness";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
@@ -37,32 +28,70 @@ import type {
   AdminAiQueryPlan,
   ContactFactRow,
   EvidenceItem,
+  GlobalCohortProjection,
 } from "@/types/admin-ai";
 import type {
+  DossierConfidence,
   CrmAiContactDossier,
-  CrmAiContactRankingCard,
-  QueryMatchingChunk,
 } from "@/types/admin-ai-memory";
 
-export const MAX_RANKING_COHORT = 250;
-export const MAX_FINALIST_EVIDENCE = 60;
+export const MAX_GLOBAL_DOSSIER_COHORT = 250;
+export const MAX_GLOBAL_SINGLE_PASS_TOKENS = 240_000;
 export const MAX_BACKGROUND_MEMORY_REFRESHES = 1;
-/**
- * Total FTS hits attached across all ranking cards at query time. 80
- * chunks × ~300 chars ≈ 24KB (~6K tokens) added to the ranking
- * prompt — keeps cost bounded while giving the ranker a raw-text
- * shortcut on keyword-specific queries.
- */
-export const MAX_QUERY_MATCH_CHUNKS = 80;
-/** Per-contact cap so one chunk-dense contact doesn't crowd the prompt. */
-export const MAX_QUERY_MATCH_CHUNKS_PER_CONTACT = 2;
-/** Per-chunk char cap for ranking-prompt inclusion. */
-export const QUERY_MATCH_CHUNK_MAX_CHARS = 300;
 
-export type GlobalCohortMemory = {
+type ProjectionCompressionLevel = "full" | "compact" | "minimal";
+
+const SINGLE_PASS_LEVELS: Array<{
+  name: ProjectionCompressionLevel;
+  maxAnchors: number;
+  maxContradictions: number;
+  maxUnknowns: number;
+  includeSummary: boolean;
+  includeExtendedFacts: boolean;
+}> = [
+  {
+    name: "full",
+    maxAnchors: 6,
+    maxContradictions: 2,
+    maxUnknowns: 2,
+    includeSummary: true,
+    includeExtendedFacts: true,
+  },
+  {
+    name: "compact",
+    maxAnchors: 4,
+    maxContradictions: 1,
+    maxUnknowns: 1,
+    includeSummary: true,
+    includeExtendedFacts: false,
+  },
+  {
+    name: "minimal",
+    maxAnchors: 2,
+    maxContradictions: 0,
+    maxUnknowns: 0,
+    includeSummary: false,
+    includeExtendedFacts: false,
+  },
+] as const;
+
+export type GlobalSupportRefResolution = {
+  contactId: string;
+  claim: string;
+  chunkIds: string[];
+};
+
+export type GlobalSinglePassCohortMemory = {
   candidates: ContactFactRow[];
-  rankingCards: CrmAiContactRankingCard[];
-  contactsMissingRankingCards: string[];
+  projections: GlobalCohortProjection[];
+  supportRefMap: Map<string, GlobalSupportRefResolution>;
+  evidence: EvidenceItem[];
+  contactsMissingDossiers: string[];
+  contactsServingStaleDossiers: string[];
+  cohortTokenEstimate: number;
+  cohortTokenBudget: number;
+  compressionLevel: ProjectionCompressionLevel;
+  wasCompressed: boolean;
 };
 
 function scheduleBackgroundMemoryRefresh(contactIds: string[]): void {
@@ -75,6 +104,10 @@ function scheduleBackgroundMemoryRefresh(contactIds: string[]): void {
   }
   const queuedContactIds = contactIds.slice(0, MAX_BACKGROUND_MEMORY_REFRESHES);
   if (queuedContactIds.length === 0) return;
+  adminAiDebugLog("background-memory-refresh-scheduled", {
+    queuedContactIds,
+    totalRequested: contactIds.length,
+  });
 
   after(async () => {
     const results = await Promise.allSettled(
@@ -99,167 +132,328 @@ function scheduleBackgroundMemoryRefresh(contactIds: string[]): void {
   });
 }
 
-export async function assembleGlobalCohortMemory(input: {
-  plan: AdminAiQueryPlan;
-}): Promise<GlobalCohortMemory> {
-  const { plan } = input;
-  const candidates = await queryAdminAiContactFacts({
-    filters: plan.structuredFilters,
-    limit: MAX_RANKING_COHORT,
-  });
+function estimateTokenCount(value: unknown): number {
+  return Math.ceil(JSON.stringify(value).length / 4);
+}
 
-  const contactIds = Array.from(
-    new Set(candidates.map((c) => c.contact_id).filter(Boolean) as string[]),
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function compactProjectionFacts(input: {
+  dossier?: CrmAiContactDossier | null;
+  candidate: ContactFactRow;
+  includeExtendedFacts: boolean;
+}): GlobalCohortProjection["facts"] {
+  const facts = input.dossier?.facts_json ?? {};
+  const applications =
+    facts && typeof facts === "object" && "applications" in facts
+      ? facts.applications
+      : null;
+  const tags =
+    facts && typeof facts === "object" && "tags" in facts
+      ? facts.tags
+      : null;
+  const structuredFacts =
+    facts && typeof facts === "object" && "structuredFacts" in facts
+      ? facts.structuredFacts
+      : null;
+
+  const compact: GlobalCohortProjection["facts"] = {
+    programHistory:
+      applications &&
+      typeof applications === "object" &&
+      "programHistory" in applications
+        ? readStringArray(applications.programHistory)
+        : input.candidate.program
+          ? [input.candidate.program]
+          : [],
+    statusHistory:
+      applications &&
+      typeof applications === "object" &&
+      "statusHistory" in applications
+        ? readStringArray(applications.statusHistory)
+        : input.candidate.status
+          ? [input.candidate.status]
+          : [],
+    tagNames:
+      tags && typeof tags === "object" && "tagNames" in tags
+        ? readStringArray(tags.tagNames)
+        : input.candidate.tag_names,
+  };
+
+  if (!input.includeExtendedFacts) {
+    return compact;
+  }
+
+  compact.budgetValues =
+    structuredFacts &&
+    typeof structuredFacts === "object" &&
+    "budgetValues" in structuredFacts
+      ? readStringArray(structuredFacts.budgetValues)
+      : input.candidate.budget
+        ? [input.candidate.budget]
+        : [];
+  compact.timeAvailabilityValues =
+    structuredFacts &&
+    typeof structuredFacts === "object" &&
+    "timeAvailabilityValues" in structuredFacts
+      ? readStringArray(structuredFacts.timeAvailabilityValues)
+      : input.candidate.time_availability
+        ? [input.candidate.time_availability]
+        : [];
+  compact.travelWillingnessValues =
+    structuredFacts &&
+    typeof structuredFacts === "object" &&
+    "travelWillingnessValues" in structuredFacts
+      ? readStringArray(structuredFacts.travelWillingnessValues)
+      : input.candidate.travel_willingness
+        ? [input.candidate.travel_willingness]
+        : [];
+  compact.languageValues =
+    structuredFacts &&
+    typeof structuredFacts === "object" &&
+    "languageValues" in structuredFacts
+      ? readStringArray(structuredFacts.languageValues)
+      : input.candidate.languages
+        ? [input.candidate.languages]
+        : [];
+  compact.countryOfResidenceValues =
+    structuredFacts &&
+    typeof structuredFacts === "object" &&
+    "countryOfResidenceValues" in structuredFacts
+      ? readStringArray(structuredFacts.countryOfResidenceValues)
+      : input.candidate.country_of_residence
+        ? [input.candidate.country_of_residence]
+        : [];
+
+  return compact;
+}
+
+function buildMissingProjection(input: {
+  candidate: ContactFactRow;
+}): GlobalCohortProjection {
+  return {
+    contactId: input.candidate.contact_id,
+    contactName: input.candidate.contact_name,
+    memoryStatus: "missing",
+    coverage: {
+      applicationCount: input.candidate.application_id ? 1 : 0,
+      contactNoteCount: 0,
+      applicationAdminNoteCount: 0,
+    },
+    facts: compactProjectionFacts({
+      candidate: input.candidate,
+      includeExtendedFacts: false,
+    }),
+    summary: null,
+    supportRefs: [],
+    contradictions: [],
+    unknowns: ["No dossier has been built for this contact yet."],
+  };
+}
+
+function buildProjectedSupportRefs(input: {
+  dossier: CrmAiContactDossier;
+  contactId: string;
+  maxAnchors: number;
+  nextSupportRefIndex: { current: number };
+  supportRefMap: Map<string, GlobalSupportRefResolution>;
+}): GlobalCohortProjection["supportRefs"] {
+  return input.dossier.evidence_anchors_json.slice(0, input.maxAnchors).map(
+    (anchor) => {
+      const supportRef = `support_${input.nextSupportRefIndex.current++}`;
+      input.supportRefMap.set(supportRef, {
+        contactId: input.contactId,
+        claim: anchor.claim,
+        chunkIds: anchor.chunkIds,
+      });
+      return {
+        supportRef,
+        claim: anchor.claim,
+        confidence: anchor.confidence as DossierConfidence,
+      };
+    },
+  );
+}
+
+function buildProjectedCohort(input: {
+  candidateRows: ContactFactRow[];
+  dossiersById: Map<string, CrmAiContactDossier>;
+  staleContactIds: Set<string>;
+  level: (typeof SINGLE_PASS_LEVELS)[number];
+}): {
+  projections: GlobalCohortProjection[];
+  supportRefMap: Map<string, GlobalSupportRefResolution>;
+  evidenceIds: string[];
+  tokenEstimate: number;
+} {
+  const projections: GlobalCohortProjection[] = [];
+  const supportRefMap = new Map<string, GlobalSupportRefResolution>();
+  const nextSupportRefIndex = { current: 1 };
+
+  for (const candidate of input.candidateRows) {
+    const dossier = input.dossiersById.get(candidate.contact_id);
+    if (!dossier) {
+      projections.push(buildMissingProjection({ candidate }));
+      continue;
+    }
+
+    const supportRefs = buildProjectedSupportRefs({
+      dossier,
+      contactId: candidate.contact_id,
+      maxAnchors: input.level.maxAnchors,
+      nextSupportRefIndex,
+      supportRefMap,
+    });
+
+    projections.push({
+      contactId: candidate.contact_id,
+      contactName: candidate.contact_name,
+      memoryStatus: input.staleContactIds.has(candidate.contact_id)
+        ? "stale"
+        : "fresh",
+      coverage: {
+        applicationCount: dossier.source_coverage.applicationCount,
+        contactNoteCount: dossier.source_coverage.contactNoteCount,
+        applicationAdminNoteCount:
+          dossier.source_coverage.applicationAdminNoteCount,
+      },
+      facts: compactProjectionFacts({
+        dossier,
+        candidate,
+        includeExtendedFacts: input.level.includeExtendedFacts,
+      }),
+      summary: input.level.includeSummary ? dossier.short_summary : null,
+      supportRefs,
+      contradictions: dossier.contradictions_json.slice(
+        0,
+        input.level.maxContradictions,
+      ),
+      unknowns: dossier.unknowns_json.slice(0, input.level.maxUnknowns),
+    });
+  }
+
+  const evidenceIds = Array.from(
+    new Set(
+      Array.from(supportRefMap.values()).flatMap((value) => value.chunkIds),
+    ),
   );
 
-  const rankingCards = contactIds.length
-    ? await listRankingCards({
-        contactIds,
-        limit: MAX_RANKING_COHORT,
-      })
-    : [];
+  return {
+    projections,
+    supportRefMap,
+    evidenceIds,
+    tokenEstimate: estimateTokenCount(projections),
+  };
+}
 
+function uniqueCandidateRowsByContact(
+  rows: ContactFactRow[],
+): ContactFactRow[] {
+  const seen = new Set<string>();
+  const unique: ContactFactRow[] = [];
+  for (const row of rows) {
+    if (seen.has(row.contact_id)) continue;
+    seen.add(row.contact_id);
+    unique.push(row);
+  }
+  return unique;
+}
+
+export async function assembleGlobalSinglePassCohort(input: {
+  plan: AdminAiQueryPlan;
+}): Promise<GlobalSinglePassCohortMemory> {
+  const candidates = await queryAdminAiContactFacts({
+    filters: input.plan.structuredFilters,
+    limit: MAX_GLOBAL_DOSSIER_COHORT,
+  });
+  const candidateRows = uniqueCandidateRowsByContact(candidates);
+  const contactIds = candidateRows.map((candidate) => candidate.contact_id);
+
+  const dossiers = contactIds.length
+    ? await listContactDossiers({ contactIds })
+    : [];
   const dossierStates = contactIds.length
     ? await listContactDossierStates({ contactIds })
     : [];
 
-  const contactsNeedingRefresh = findContactsNeedingMemoryRefresh({
-    contactIds,
-    dossiers: dossierStates,
-    rankingCards,
-    generatorVersion: DOSSIER_GENERATOR_VERSION,
-    dossierVersion: DOSSIER_SCHEMA_VERSION,
-  });
+  const dossierById = new Map(
+    dossiers.map((dossier) => [dossier.contact_id, dossier] as const),
+  );
+  const contactsMissingDossiers = contactIds.filter(
+    (contactId) => !dossierById.has(contactId),
+  );
+  const contactsServingStaleDossiers = dossierStates
+    .filter((dossier) => {
+      if (
+        shouldForceDossierRefreshOnRead({
+          dossier,
+          generatorVersion: DOSSIER_GENERATOR_VERSION,
+          dossierVersion: DOSSIER_SCHEMA_VERSION,
+        })
+      ) {
+        return true;
+      }
+      return isDossierSoftStale({ dossier });
+    })
+    .map((dossier) => dossier.contact_id);
 
+  const contactsNeedingRefresh = Array.from(
+    new Set([...contactsMissingDossiers, ...contactsServingStaleDossiers]),
+  );
   if (contactsNeedingRefresh.length > 0) {
     scheduleBackgroundMemoryRefresh(contactsNeedingRefresh);
   }
-  const contactsNeedingRefreshSet = new Set(contactsNeedingRefresh);
 
-  const candidateOrder = new Map(
-    contactIds.map((contactId, index) => [contactId, index] as const),
-  );
-  const validRankingCards = rankingCards.toSorted(
-    (a, b) =>
-      (candidateOrder.get(a.contact_id) ?? Number.MAX_SAFE_INTEGER) -
-      (candidateOrder.get(b.contact_id) ?? Number.MAX_SAFE_INTEGER),
-  );
-  const cardContactIds = new Set(validRankingCards.map((c) => c.contact_id));
-  const contactsMissingRankingCards = contactIds.filter(
-    (id) => contactsNeedingRefreshSet.has(id) || !cardContactIds.has(id),
-  );
+  const staleContactIds = new Set(contactsServingStaleDossiers);
+  let selectedProjection:
+    | ReturnType<typeof buildProjectedCohort>
+    | null = null;
+  let selectedLevel = SINGLE_PASS_LEVELS[SINGLE_PASS_LEVELS.length - 1]!;
 
-  // Query-time raw-chunk enrichment. Dossier summaries are lossy —
-  // keywords like organization names or programs get abstracted away
-  // during dossier generation. Running FTS with the question's
-  // textFocus directly over chunks gives the ranker a literal-text
-  // shortcut so keyword-specific queries still surface the right
-  // contacts even when their dossiers have dropped the keyword.
-  if (plan.textFocus.length > 0 && validRankingCards.length > 0) {
-    await attachQueryMatchingChunksToCards({
-      textFocus: plan.textFocus,
-      cards: validRankingCards,
+  for (const level of SINGLE_PASS_LEVELS) {
+    const projection = buildProjectedCohort({
+      candidateRows,
+      dossiersById: dossierById,
+      staleContactIds,
+      level,
     });
+    selectedProjection = projection;
+    selectedLevel = level;
+    if (projection.tokenEstimate <= MAX_GLOBAL_SINGLE_PASS_TOKENS) {
+      break;
+    }
   }
+
+  const evidence = await listAdminAiEvidenceByIds({
+    evidenceIds: selectedProjection?.evidenceIds ?? [],
+  });
+
+  adminAiDebugLog("global-single-pass-cohort", {
+    candidateCount: candidates.length,
+    uniqueContactCount: candidateRows.length,
+    dossierCount: dossiers.length,
+    contactsMissingDossiers: contactsMissingDossiers.length,
+    contactsServingStaleDossiers: contactsServingStaleDossiers.length,
+    projectionCount: selectedProjection?.projections.length ?? 0,
+    supportRefCount: selectedProjection?.supportRefMap.size ?? 0,
+    evidenceCount: evidence.length,
+    compressionLevel: selectedLevel.name,
+    cohortTokenEstimate: selectedProjection?.tokenEstimate ?? 0,
+  });
 
   return {
     candidates,
-    rankingCards: validRankingCards,
-    contactsMissingRankingCards,
+    projections: selectedProjection?.projections ?? [],
+    supportRefMap: selectedProjection?.supportRefMap ?? new Map(),
+    evidence,
+    contactsMissingDossiers,
+    contactsServingStaleDossiers,
+    cohortTokenEstimate: selectedProjection?.tokenEstimate ?? 0,
+    cohortTokenBudget: MAX_GLOBAL_SINGLE_PASS_TOKENS,
+    compressionLevel: selectedLevel.name,
+    wasCompressed: selectedLevel.name !== "full",
   };
-}
-
-function truncateQueryChunk(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, Math.max(1, maxChars - 1))}\u2026`;
-}
-
-async function attachQueryMatchingChunksToCards(input: {
-  textFocus: string[];
-  cards: CrmAiContactRankingCard[];
-}): Promise<void> {
-  const contactIds = input.cards.map((card) => card.contact_id);
-  if (contactIds.length === 0) return;
-
-  let hits: EvidenceItem[] = [];
-  try {
-    const result = await searchAdminAiEvidence({
-      textFocus: input.textFocus,
-      contactIds,
-      limit: MAX_QUERY_MATCH_CHUNKS,
-    });
-    hits = Array.isArray(result) ? result : [];
-  } catch (error) {
-    // FTS is a best-effort enrichment; ranking still works with
-    // dossier summaries alone if the RPC fails.
-    console.warn(
-      "[admin-ai-memory] query-matching chunk enrichment failed",
-      { error: error instanceof Error ? error.message : String(error) },
-    );
-    return;
-  }
-  if (hits.length === 0) return;
-
-  const byContact = new Map<string, QueryMatchingChunk[]>();
-  for (const hit of hits) {
-    const existing = byContact.get(hit.contactId) ?? [];
-    if (existing.length >= MAX_QUERY_MATCH_CHUNKS_PER_CONTACT) continue;
-    existing.push({
-      text: truncateQueryChunk(hit.text, QUERY_MATCH_CHUNK_MAX_CHARS),
-      sourceLabel: hit.sourceLabel,
-      sourceType: hit.sourceType,
-    });
-    byContact.set(hit.contactId, existing);
-  }
-
-  for (const card of input.cards) {
-    const matches = byContact.get(card.contact_id);
-    if (matches && matches.length > 0) {
-      card.queryMatchingChunks = matches;
-    }
-  }
-}
-
-export type FinalistEvidence = {
-  dossiers: CrmAiContactDossier[];
-  evidence: EvidenceItem[];
-};
-
-export async function expandFinalistEvidence(input: {
-  question: string;
-  shortlistedContactIds: string[];
-  textFocus: string[];
-}): Promise<FinalistEvidence> {
-  const ids = Array.from(new Set(input.shortlistedContactIds.filter(Boolean)));
-  if (ids.length === 0) {
-    return { dossiers: [], evidence: [] };
-  }
-
-  const [dossiers, evidence] = await Promise.all([
-    listContactDossiers({ contactIds: ids }),
-    searchAdminAiEvidence({
-      textFocus: input.textFocus,
-      contactIds: ids,
-      limit: MAX_FINALIST_EVIDENCE,
-    }),
-  ]);
-  const resolvedEvidence =
-    evidence.length > 0
-      ? evidence
-      : await listRecentAdminAiEvidence({
-          contactIds: ids,
-          limit: MAX_FINALIST_EVIDENCE,
-        });
-
-  // Defense-in-depth: any evidence row outside the shortlist is a leak.
-  const shortlistSet = new Set(ids);
-  for (const item of resolvedEvidence) {
-    if (!shortlistSet.has(item.contactId)) {
-      throw new Error(
-        `admin-ai-memory: cohort-scope leak — evidenceId=${item.evidenceId} belongs to contact ${item.contactId} which is not in the shortlist`,
-      );
-    }
-  }
-
-  return { dossiers, evidence: resolvedEvidence };
 }

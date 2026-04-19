@@ -3,11 +3,11 @@ import type {
   AdminAiQueryPlan,
   AdminAiResponse,
   ContactFactRow,
+  GlobalCohortProjection,
   EvidenceItem,
 } from "@/types/admin-ai";
 import type {
   CrmAiContactDossier,
-  CrmAiContactRankingCard,
 } from "@/types/admin-ai-memory";
 
 vi.mock("./query-plan", () => ({
@@ -16,7 +16,6 @@ vi.mock("./query-plan", () => ({
 
 vi.mock("./provider", () => ({
   getAdminAiProvider: vi.fn(),
-  getAdminAiRankingProvider: vi.fn(),
 }));
 
 vi.mock("@/lib/data/admin-ai", () => ({
@@ -29,8 +28,7 @@ vi.mock("@/lib/data/contacts", () => ({
 }));
 
 vi.mock("@/lib/admin-ai-memory/global-retrieval", () => ({
-  assembleGlobalCohortMemory: vi.fn(),
-  expandFinalistEvidence: vi.fn(),
+  assembleGlobalSinglePassCohort: vi.fn(),
 }));
 
 vi.mock("@/lib/admin-ai-memory/contact-retrieval", () => ({
@@ -86,17 +84,37 @@ function makeCandidate(contactId: string): ContactFactRow {
   };
 }
 
-function makeRankingCard(contactId: string): CrmAiContactRankingCard {
+function makeGlobalCohortProjection(
+  contactId: string,
+  options?: {
+    supportRefs?: Array<{ supportRef: string; claim: string }>;
+    memoryStatus?: "fresh" | "stale" | "missing";
+  },
+): GlobalCohortProjection {
   return {
-    contact_id: contactId,
-    dossier_version: 1,
-    source_fingerprint: "fp",
-    facts_json: {},
-    top_fit_signals_json: [],
-    top_concerns_json: [],
-    confidence_notes_json: [],
-    short_summary: "s",
-    updated_at: "2026-04-15T00:00:00Z",
+    contactId,
+    contactName: contactId,
+    memoryStatus: options?.memoryStatus ?? "fresh",
+    coverage: {
+      applicationCount: 1,
+      contactNoteCount: 0,
+      applicationAdminNoteCount: 0,
+    },
+    facts: {
+      programHistory: ["filmmaking"],
+      statusHistory: ["reviewing"],
+      tagNames: [],
+    },
+    summary: "Wildlife-focused storyteller.",
+    supportRefs: options?.supportRefs ?? [
+      {
+        supportRef: "support_1",
+        claim: "Strong excitement about conservation storytelling.",
+        confidence: "high",
+      },
+    ],
+    contradictions: [],
+    unknowns: [],
   };
 }
 
@@ -152,30 +170,13 @@ function makeEvidence(
   };
 }
 
-function makeResponse(): AdminAiResponse {
-  return {
-    uncertainty: [],
-    shortlist: [
-      {
-        contactId: CONTACT_ID,
-        contactName: CONTACT_ID,
-        whyFit: ["Ocean focus"],
-        concerns: [],
-        citations: [
-          { evidenceId: "evidence-1", claimKey: "shortlist.0.whyFit.0" },
-        ],
-      },
-    ],
-  };
-}
-
-describe("runAdminAiAnalysis (global, two-pass)", () => {
+describe("runAdminAiAnalysis (global)", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
-  it("runs ranking pass over the cohort, then grounded synthesis on the shortlist", async () => {
+  it("uses the single-pass cohort path and resolves support refs into raw chunk-backed citations", async () => {
     const planMod = await import("./query-plan");
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
@@ -184,37 +185,72 @@ describe("runAdminAiAnalysis (global, two-pass)", () => {
 
     vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makePlan());
     vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(globalMod.assembleGlobalCohortMemory).mockResolvedValue({
+    vi.mocked(globalMod.assembleGlobalSinglePassCohort).mockResolvedValue({
       candidates: [makeCandidate(CONTACT_ID), makeCandidate(OTHER_CONTACT_ID)],
-      rankingCards: [
-        makeRankingCard(CONTACT_ID),
-        makeRankingCard(OTHER_CONTACT_ID),
+      projections: [
+        makeGlobalCohortProjection(CONTACT_ID),
+        makeGlobalCohortProjection(OTHER_CONTACT_ID, {
+          supportRefs: [
+            {
+              supportRef: "support_2",
+              claim: "Looks excited by field reporting work.",
+              confidence: "medium",
+            },
+          ],
+        }),
       ],
-      contactsMissingRankingCards: [],
-    });
-    vi.mocked(globalMod.expandFinalistEvidence).mockResolvedValue({
-      dossiers: [makeDossier(CONTACT_ID)],
-      evidence: [makeEvidence(CONTACT_ID)],
+      supportRefMap: new Map([
+        [
+          "support_1",
+          {
+            contactId: CONTACT_ID,
+            claim: "Strong excitement about conservation storytelling.",
+            chunkIds: ["evidence-1"],
+          },
+        ],
+        [
+          "support_2",
+          {
+            contactId: OTHER_CONTACT_ID,
+            claim: "Looks excited by field reporting work.",
+            chunkIds: ["evidence-2"],
+          },
+        ],
+      ]),
+      evidence: [
+        makeEvidence(CONTACT_ID, "evidence-1"),
+        makeEvidence(OTHER_CONTACT_ID, "evidence-2"),
+      ],
+      contactsMissingDossiers: [],
+      contactsServingStaleDossiers: [],
+      cohortTokenEstimate: 2000,
+      cohortTokenBudget: 280000,
+      compressionLevel: "full",
+      wasCompressed: false,
     });
 
-    const rankingGenerate = vi.fn().mockResolvedValue({
-      shortlistedContactIds: [CONTACT_ID],
-      cohortNotes: null,
-      modelMetadata: { model: "ranking" },
-    });
-    const synthesisGenerate = vi.fn().mockResolvedValue({
-      response: makeResponse(),
-      modelMetadata: { model: "synthesis" },
-    });
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: rankingGenerate,
+    const cohortGenerate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: CONTACT_ID,
+            whyFit: ["Mission match"],
+            concerns: [],
+            citations: [
+              { evidenceId: "support_1", claimKey: "shortlist.0.whyFit.0" },
+            ],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { model: "single-pass" },
     });
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
-      generate: synthesisGenerate,
+      generateGlobalCohortResponse: cohortGenerate,
+      generate: vi.fn(),
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
       id: "assistant-1",
@@ -225,16 +261,11 @@ describe("runAdminAiAnalysis (global, two-pass)", () => {
     const result = await runAdminAiAnalysis({
       scope: "global",
       threadId: "thread-1",
-      question: "find strong candidates",
+      question: "find mission-driven candidates",
     });
 
-    expect(rankingGenerate).toHaveBeenCalledTimes(1);
-    expect(globalMod.expandFinalistEvidence).toHaveBeenCalledWith(
-      expect.objectContaining({
-        shortlistedContactIds: [CONTACT_ID],
-      }),
-    );
-    expect(synthesisGenerate).toHaveBeenCalledTimes(1);
+    expect(globalMod.assembleGlobalSinglePassCohort).toHaveBeenCalledTimes(1);
+    expect(cohortGenerate).toHaveBeenCalledTimes(1);
     expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
       messageId: "assistant-1",
       citations: [
@@ -245,99 +276,9 @@ describe("runAdminAiAnalysis (global, two-pass)", () => {
         }),
       ],
     });
-    expect(result.status).toBe("complete");
-  });
-
-  it("short-circuits when no candidates match the structured filters", async () => {
-    const planMod = await import("./query-plan");
-    const providerMod = await import("./provider");
-    const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const globalMod = await import("@/lib/admin-ai-memory/global-retrieval");
-
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makePlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(globalMod.assembleGlobalCohortMemory).mockResolvedValue({
-      candidates: [],
-      rankingCards: [],
-      contactsMissingRankingCards: [],
-    });
-    const rankingGenerate = vi.fn();
-    const synthesisGenerate = vi.fn();
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: rankingGenerate,
-    });
-    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generate: synthesisGenerate,
-    });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
-    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
-
-    const { runAdminAiAnalysis } = await import("./orchestrator");
-    const result = await runAdminAiAnalysis({
-      scope: "global",
-      threadId: "thread-1",
-      question: "find strong candidates",
-    });
-
-    expect(rankingGenerate).not.toHaveBeenCalled();
-    expect(synthesisGenerate).not.toHaveBeenCalled();
-    expect(dataMod.createAdminAiCitations).not.toHaveBeenCalled();
-    expect(result.status).toBe("complete");
-    expect(result.response?.uncertainty?.[0]).toMatch(/too thin/i);
-  });
-
-  it("short-circuits when ranking returns an empty shortlist", async () => {
-    const planMod = await import("./query-plan");
-    const providerMod = await import("./provider");
-    const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const globalMod = await import("@/lib/admin-ai-memory/global-retrieval");
-
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makePlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(globalMod.assembleGlobalCohortMemory).mockResolvedValue({
-      candidates: [makeCandidate(CONTACT_ID)],
-      rankingCards: [makeRankingCard(CONTACT_ID)],
-      contactsMissingRankingCards: [],
-    });
-    const rankingGenerate = vi.fn().mockResolvedValue({
-      shortlistedContactIds: [],
-      cohortNotes: "Cohort coverage too thin.",
-      modelMetadata: { model: "ranking" },
-    });
-    const synthesisGenerate = vi.fn();
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: rankingGenerate,
-    });
-    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generate: synthesisGenerate,
-    });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
-
-    const { runAdminAiAnalysis } = await import("./orchestrator");
-    const result = await runAdminAiAnalysis({
-      scope: "global",
-      threadId: "thread-1",
-      question: "find strong candidates",
-    });
-
-    expect(rankingGenerate).toHaveBeenCalledTimes(1);
-    expect(synthesisGenerate).not.toHaveBeenCalled();
-    expect(result.status).toBe("complete");
-    expect(result.response?.uncertainty.join(" ")).toMatch(/cohort coverage/i);
+    expect(
+      result.response?.shortlist?.[0]?.citations.map((citation) => citation.evidenceId),
+    ).toEqual(["evidence-1"]);
   });
 });
 
@@ -380,12 +321,8 @@ describe("runAdminAiAnalysis (contact, dossier-first)", () => {
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
+      generateGlobalCohortResponse: vi.fn(),
       generate: synthesisGenerate,
-    });
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: vi.fn(),
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
       id: "assistant-1",
@@ -436,12 +373,8 @@ describe("runAdminAiAnalysis (contact, dossier-first)", () => {
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
+      generateGlobalCohortResponse: vi.fn(),
       generate: synthesisGenerate,
-    });
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: vi.fn(),
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
       id: "assistant-1",
@@ -478,12 +411,8 @@ describe("runAdminAiAnalysis (contact, dossier-first)", () => {
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
+      generateGlobalCohortResponse: vi.fn(),
       generate: synthesisGenerate,
-    });
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: vi.fn(),
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
       id: "assistant-1",
@@ -526,12 +455,8 @@ describe("runAdminAiAnalysis (provider failures)", () => {
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => false,
       getUnavailableReason: () => "Admin AI is not configured yet.",
+      generateGlobalCohortResponse: vi.fn(),
       generate: vi.fn(),
-    });
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: vi.fn(),
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
       id: "assistant-1",
@@ -566,6 +491,7 @@ describe("runAdminAiAnalysis (provider failures)", () => {
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
+      generateGlobalCohortResponse: vi.fn(),
       generate: vi.fn().mockResolvedValue({
         response: {
           uncertainty: [],
@@ -586,11 +512,6 @@ describe("runAdminAiAnalysis (provider failures)", () => {
         } as AdminAiResponse,
         modelMetadata: { model: "synthesis" },
       }),
-    });
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: vi.fn(),
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
       id: "assistant-1",
@@ -644,6 +565,7 @@ describe("runAdminAiAnalysis (provider failures)", () => {
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
+      generateGlobalCohortResponse: vi.fn(),
       generate: vi.fn().mockResolvedValue({
         response: {
           uncertainty: [],
@@ -660,11 +582,6 @@ describe("runAdminAiAnalysis (provider failures)", () => {
         } as AdminAiResponse,
         modelMetadata: {},
       }),
-    });
-    vi.mocked(providerMod.getAdminAiRankingProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateRanking: vi.fn(),
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "asst" });
     vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();

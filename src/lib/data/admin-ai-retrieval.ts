@@ -304,3 +304,25 @@ export async function listRecentAdminAiEvidence(input: {
     mapChunkRowToEvidenceItem,
   );
 }
+
+export async function listAdminAiEvidenceByIds(input: {
+  evidenceIds: string[];
+}): Promise<EvidenceItem[]> {
+  if (input.evidenceIds.length === 0) return [];
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("crm_ai_evidence_chunks")
+    .select(EVIDENCE_CHUNK_SELECT)
+    .in("id", input.evidenceIds)
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to list admin AI evidence by ids: ${error.message}`);
+  }
+
+  return ((data ?? []) as unknown as EvidenceChunkRow[]).map(
+    mapChunkRowToEvidenceItem,
+  );
+}

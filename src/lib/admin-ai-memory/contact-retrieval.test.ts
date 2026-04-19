@@ -153,7 +153,6 @@ describe("assembleContactScopedMemory", () => {
       status: "missing_sources",
       chunkCount: 0,
       dossierUpserted: false,
-      rankingCardUpserted: false,
     });
     vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([
       makeEvidence(),

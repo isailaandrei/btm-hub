@@ -5,7 +5,7 @@
  * concurrency-limited and return per-contact success/failure counts.
  *
  * Never calls OpenAI. Pure projection of source data into the
- * structural slice of the dossier + ranking card.
+ * structural slice of the dossier.
  */
 
 import { refreshContactMemoryFacts } from "./facts-refresh";

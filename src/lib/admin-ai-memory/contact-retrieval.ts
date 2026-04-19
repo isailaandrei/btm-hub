@@ -24,6 +24,7 @@ import {
   listRecentAdminAiEvidence,
   searchAdminAiEvidence,
 } from "@/lib/data/admin-ai-retrieval";
+import { adminAiDebugLog } from "@/lib/admin-ai/debug";
 import { getContactDossier } from "@/lib/data/admin-ai-memory";
 import { areAiRebuildsDisabled } from "./ai-rebuild-guard";
 import { rebuildContactMemory } from "./backfill";
@@ -47,6 +48,7 @@ export async function assembleContactScopedMemory(input: {
   textFocus: string[];
 }): Promise<ContactScopedMemory> {
   let dossier = await getContactDossier({ contactId: input.contactId });
+  const hadInitialDossier = Boolean(dossier);
 
   const shouldRefresh = shouldForceDossierRefreshOnRead({
     dossier,
@@ -64,6 +66,10 @@ export async function assembleContactScopedMemory(input: {
       try {
         await rebuildContactMemory({ contactId: input.contactId });
         dossier = await getContactDossier({ contactId: input.contactId });
+        adminAiDebugLog("contact-sync-rebuild", {
+          contactId: input.contactId,
+          outcome: "rebuilt",
+        });
       } catch (error) {
         console.error(
           "[admin-ai-memory] contact sync rebuild failed",
@@ -72,6 +78,11 @@ export async function assembleContactScopedMemory(input: {
             error: error instanceof Error ? error.message : String(error),
           },
         );
+        adminAiDebugLog("contact-sync-rebuild", {
+          contactId: input.contactId,
+          outcome: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
         // Narrow fallback: if a dossier already exists, keep serving it rather
         // than failing the entire contact analysis on a transient rebuild error.
       }
@@ -90,6 +101,15 @@ export async function assembleContactScopedMemory(input: {
           contactId: input.contactId,
           limit: CONTACT_EVIDENCE_LIMIT,
         });
+
+  adminAiDebugLog("contact-scoped-memory", {
+    contactId: input.contactId,
+    hadInitialDossier,
+    shouldRefresh,
+    hasDossier: Boolean(dossier),
+    evidenceCount: resolvedEvidence.length,
+    usedRecentFallback: evidence.length === 0,
+  });
 
   for (const item of resolvedEvidence) {
     if (item.contactId !== input.contactId) {

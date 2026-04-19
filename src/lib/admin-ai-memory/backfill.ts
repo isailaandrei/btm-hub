@@ -3,15 +3,14 @@
  *
  * `rebuildContactMemory` is the single source of truth for "make this
  * contact's memory current". It is idempotent and skips work when the
- * dossier and ranking card are already fresh against the live source
- * fingerprint and current generator version.
+ * dossier is already fresh against the live source fingerprint and
+ * current generator version.
  *
  * `backfillContactMemory` iterates the cohort, calling the rebuild flow
  * per contact. It keeps going past per-contact failures and reports them
  * in aggregate so a noisy edge case never blocks the whole run.
  */
 
-import { buildAdminNotesRecent } from "./admin-notes-recent";
 import {
   buildCurrentCrmChunksForContact,
 } from "./chunk-builder";
@@ -25,16 +24,13 @@ import {
   computeChunkSourceFingerprint,
   needsContactMemoryRebuild,
 } from "./freshness";
-import { buildRankingCardFromDossier } from "./ranking-card";
 import {
   deleteStaleCurrentCrmEvidenceChunksForContact,
   getContactDossier,
   listContactIdsForMemory,
-  listRankingCards,
   loadContactCrmSources,
   upsertContactDossier,
   upsertEvidenceChunks,
-  upsertRankingCard,
 } from "@/lib/data/admin-ai-memory";
 import { queryAdminAiContactFacts } from "@/lib/data/admin-ai-retrieval";
 import type {
@@ -57,7 +53,6 @@ export type RebuildContactMemoryResult = {
   status: RebuildStatus;
   chunkCount: number;
   dossierUpserted: boolean;
-  rankingCardUpserted: boolean;
 };
 
 export type BackfillStats = {
@@ -70,7 +65,6 @@ export type BackfillStats = {
   skippedMissingSources: number;
   chunksUpserted: number;
   dossiersUpserted: number;
-  rankingCardsUpserted: number;
   failures: Array<{ contactId: string; error: string }>;
 };
 
@@ -104,7 +98,6 @@ export async function rebuildContactMemory(input: {
       status: "missing_sources",
       chunkCount: 0,
       dossierUpserted: false,
-      rankingCardUpserted: false,
     };
   }
 
@@ -129,21 +122,16 @@ export async function rebuildContactMemory(input: {
       status: "no_chunks",
       chunkCount: 0,
       dossierUpserted: false,
-      rankingCardUpserted: false,
     };
   }
 
   await upsertEvidenceChunks({ chunks });
 
   if (!input.force) {
-    const [existingDossier, [existingRankingCard]] = await Promise.all([
-      getContactDossier({ contactId: input.contactId }),
-      listRankingCards({ contactIds: [input.contactId], limit: 1 }),
-    ]);
+    const existingDossier = await getContactDossier({ contactId: input.contactId });
     if (
       !needsContactMemoryRebuild({
         dossier: existingDossier,
-        rankingCard: existingRankingCard ?? null,
         chunks,
         generatorVersion: DOSSIER_GENERATOR_VERSION,
         dossierVersion: DOSSIER_SCHEMA_VERSION,
@@ -154,7 +142,6 @@ export async function rebuildContactMemory(input: {
         status: "fresh",
         chunkCount: chunks.length,
         dossierUpserted: false,
-        rankingCardUpserted: false,
       };
     }
   }
@@ -226,40 +213,11 @@ export async function rebuildContactMemory(input: {
 
   await upsertContactDossier(dossierInput);
 
-  const dossierForCard = {
-    contact_id: dossierInput.contactId,
-    dossier_version: dossierInput.dossierVersion,
-    generator_version: dossierInput.generatorVersion,
-    source_fingerprint: dossierInput.sourceFingerprint,
-    source_coverage: dossierInput.sourceCoverage,
-    facts_json: dossierInput.facts,
-    signals_json: dossierInput.signals,
-    contradictions_json: dossierInput.contradictions,
-    unknowns_json: dossierInput.unknowns,
-    evidence_anchors_json: dossierInput.evidenceAnchors,
-    short_summary: dossierInput.shortSummary,
-    medium_summary: dossierInput.mediumSummary,
-    confidence_json: dossierInput.confidence,
-    last_built_at: new Date().toISOString(),
-    stale_at: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  const adminNotesRecent = buildAdminNotesRecent({
-    applications: sources.applications,
-    contactNotes: sources.contactNotes,
-  });
-  await upsertRankingCard(
-    buildRankingCardFromDossier(dossierForCard, { adminNotesRecent }),
-  );
-
   return {
     contactId: input.contactId,
     status: "rebuilt",
     chunkCount: chunks.length,
     dossierUpserted: true,
-    rankingCardUpserted: true,
   };
 }
 
@@ -282,7 +240,6 @@ export async function backfillContactMemory(input: {
     skippedMissingSources: 0,
     chunksUpserted: 0,
     dossiersUpserted: 0,
-    rankingCardsUpserted: 0,
     failures: [],
   };
 
@@ -300,7 +257,6 @@ export async function backfillContactMemory(input: {
       stats.contactsSucceeded += 1;
       stats.chunksUpserted += result.chunkCount;
       if (result.dossierUpserted) stats.dossiersUpserted += 1;
-      if (result.rankingCardUpserted) stats.rankingCardsUpserted += 1;
       switch (result.status) {
         case "rebuilt":
           stats.contactsRebuilt += 1;

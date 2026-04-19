@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiThreadSummary } from "@/types/admin-ai";
 import { ContactsPanel } from "./contacts/contacts-panel";
@@ -51,7 +51,7 @@ export function AdminDashboard({
       {activeTab === "ai" && (
         <Card className="mx-auto max-w-7xl">
           <CardHeader>
-            <CardTitle>AI Analyst</CardTitle>
+            <h2 className="text-base font-medium text-foreground">AI Analyst</h2>
             <p className="text-xs text-muted-foreground">
               Each question runs a fresh grounded search. Past questions below
               are a log — they are not used as context.
