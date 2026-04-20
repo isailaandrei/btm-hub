@@ -280,6 +280,120 @@ describe("runAdminAiAnalysis (global)", () => {
       result.response?.shortlist?.[0]?.citations.map((citation) => citation.evidenceId),
     ).toEqual(["evidence-1"]);
   });
+
+  it("drops unsupported global shortlist entries instead of failing the whole response", async () => {
+    const planMod = await import("./query-plan");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const tagsMod = await import("@/lib/data/contacts");
+    const globalMod = await import("@/lib/admin-ai-memory/global-retrieval");
+
+    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makePlan());
+    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
+    vi.mocked(globalMod.assembleGlobalSinglePassCohort).mockResolvedValue({
+      candidates: [makeCandidate(CONTACT_ID), makeCandidate(OTHER_CONTACT_ID)],
+      projections: [
+        makeGlobalCohortProjection(CONTACT_ID),
+        makeGlobalCohortProjection(OTHER_CONTACT_ID, {
+          supportRefs: [
+            {
+              supportRef: "support_2",
+              claim: "Looks excited by field reporting work.",
+              confidence: "medium",
+            },
+          ],
+        }),
+      ],
+      supportRefMap: new Map([
+        [
+          "support_1",
+          {
+            contactId: CONTACT_ID,
+            claim: "Strong excitement about conservation storytelling.",
+            chunkIds: ["evidence-1"],
+          },
+        ],
+        [
+          "support_2",
+          {
+            contactId: OTHER_CONTACT_ID,
+            claim: "Looks excited by field reporting work.",
+            chunkIds: ["evidence-2"],
+          },
+        ],
+      ]),
+      evidence: [
+        makeEvidence(CONTACT_ID, "evidence-1"),
+        makeEvidence(OTHER_CONTACT_ID, "evidence-2"),
+      ],
+      contactsMissingDossiers: [],
+      contactsServingStaleDossiers: [],
+      cohortTokenEstimate: 2000,
+      cohortTokenBudget: 280000,
+      compressionLevel: "full",
+      wasCompressed: false,
+    });
+
+    const cohortGenerate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: CONTACT_ID,
+            whyFit: ["Mission match"],
+            concerns: [],
+            citations: [
+              { evidenceId: "support_1", claimKey: "shortlist.0.whyFit.0" },
+            ],
+          },
+          {
+            contactId: OTHER_CONTACT_ID,
+            contactName: OTHER_CONTACT_ID,
+            whyFit: ["Field reporting fit"],
+            concerns: [],
+            citations: [
+              { evidenceId: "support_99", claimKey: "shortlist.1.whyFit.0" },
+            ],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { model: "single-pass" },
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generateGlobalCohortResponse: cohortGenerate,
+      generate: vi.fn(),
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
+      id: "assistant-1",
+    });
+    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "find mission-driven candidates",
+    });
+
+    expect(result.status).toBe("complete");
+    expect(result.response?.shortlist?.map((entry) => entry.contactId)).toEqual([
+      CONTACT_ID,
+    ]);
+    expect(result.response?.uncertainty).toContain(
+      "Some model-returned shortlist entries were dropped because their citations could not be resolved to raw evidence.",
+    );
+    expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
+      messageId: "assistant-1",
+      citations: [
+        expect.objectContaining({
+          contact_id: CONTACT_ID,
+        }),
+      ],
+    });
+  });
 });
 
 describe("runAdminAiAnalysis (contact, dossier-first)", () => {

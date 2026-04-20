@@ -72,6 +72,16 @@ If contacts are missing dossiers or the cohort had to serve soft-stale dossiers,
 
 That means the one-pass cohort call can still see every eligible contact without pretending all memory is equally fresh.
 
+### Historical migration note
+
+The repo still contains historical ranking-card migrations because those files were already applied in real environments before the single-pass refactor removed that layer.
+
+Current rule:
+- do not rewrite or delete already-applied migrations just to make the history look cleaner
+- use forward-only cleanup migrations, like `20260418000001_admin_ai_remove_ranking_cards.sql`, to reach the final schema state
+
+If we ever want a cleaner migration history, that should be a deliberate baseline/squash task coordinated across environments, not an ad hoc edit to applied files.
+
 ### Contact-scoped reads only sync-rebuild on hard drift
 
 Contact retrieval uses a narrow sync-rebuild posture.

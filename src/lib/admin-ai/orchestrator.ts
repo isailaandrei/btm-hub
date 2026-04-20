@@ -207,6 +207,49 @@ function hydrateSupportRefsInGlobalResponse(input: {
   };
 }
 
+function pruneUncitedGlobalShortlistEntries(input: {
+  response: AdminAiResponse;
+  unresolvedSupportRefs: string[];
+}): {
+  response: AdminAiResponse;
+  droppedContactIds: string[];
+} {
+  const droppedContactIds: string[] = [];
+  const shortlist = input.response.shortlist?.filter((entry) => {
+    if (entry.citations.length > 0) return true;
+    droppedContactIds.push(entry.contactId);
+    return false;
+  });
+
+  if (
+    input.unresolvedSupportRefs.length === 0 &&
+    droppedContactIds.length === 0
+  ) {
+    return {
+      response: input.response,
+      droppedContactIds,
+    };
+  }
+
+  const uncertainty = [...input.response.uncertainty];
+  const note =
+    shortlist && shortlist.length > 0
+      ? "Some model-returned shortlist entries were dropped because their citations could not be resolved to raw evidence."
+      : "The model returned shortlist entries, but their citations could not be resolved to raw evidence, so no grounded shortlist could be kept.";
+  if (!uncertainty.includes(note)) {
+    uncertainty.push(note);
+  }
+
+  return {
+    response: {
+      ...input.response,
+      shortlist,
+      uncertainty,
+    },
+    droppedContactIds,
+  };
+}
+
 /**
  * Rebuild the response payload with foreign citations stripped so the
  * persisted `response_json` and the persisted citation rows agree on
@@ -500,19 +543,53 @@ async function runGlobalAnalysis(input: {
       evidence: cohort.evidence,
     });
 
+    const cleaned = pruneUncitedGlobalShortlistEntries({
+      response: hydrated.response,
+      unresolvedSupportRefs: hydrated.unresolvedSupportRefs,
+    });
+    const unresolvedSupportRefs = Array.from(
+      new Set(hydrated.unresolvedSupportRefs),
+    );
     if (
-      hydrated.unresolvedSupportRefs.length > 0 ||
-      hydrated.response.shortlist?.some((entry) => entry.citations.length === 0)
+      unresolvedSupportRefs.length > 0 ||
+      cleaned.droppedContactIds.length > 0
     ) {
-      throw new Error(
-        `Single-pass global response contained unresolved support refs: ${Array.from(
-          new Set(hydrated.unresolvedSupportRefs),
-        ).join(", ")}`,
+      console.warn(
+        "[admin-ai] single-pass global response contained unresolved support refs — dropping unsupported shortlist entries",
+        {
+          unresolvedSupportRefs,
+          droppedContactIds: cleaned.droppedContactIds,
+          keptCount: cleaned.response.shortlist?.length ?? 0,
+        },
       );
+      adminAiDebugLog("global-support-ref-cleanup", {
+        unresolvedSupportRefs,
+        droppedContactIds: cleaned.droppedContactIds,
+        keptCount: cleaned.response.shortlist?.length ?? 0,
+      });
+    }
+
+    if ((cleaned.response.shortlist?.length ?? 0) === 0) {
+      const response = buildInsufficientEvidenceResponse("global", {
+        extra:
+          cleaned.response.uncertainty.at(-1) ??
+          "The model did not return any grounded shortlist entries for this question.",
+      });
+      timer.end({
+        status: "insufficient_after_support_ref_cleanup",
+        unresolvedSupportRefCount: unresolvedSupportRefs.length,
+        droppedShortlistCount: cleaned.droppedContactIds.length,
+      });
+      return persistInsufficientResponse({
+        threadId: input.threadId,
+        queryPlan: input.queryPlan,
+        response,
+        reason: "ungrounded_single_pass_shortlist",
+      });
     }
 
     const { drafts: citations } = resolveCitationDrafts(
-      hydrated.response,
+      cleaned.response,
       cohort.evidence,
     );
 
@@ -528,23 +605,25 @@ async function runGlobalAnalysis(input: {
         wasCompressed: cohort.wasCompressed,
         cohortTokenEstimate: cohort.cohortTokenEstimate,
         cohortTokenBudget: cohort.cohortTokenBudget,
+        unresolvedSupportRefs,
+        droppedShortlistContactIds: cleaned.droppedContactIds,
       },
     };
 
     const { id } = await createAdminAiMessage({
       threadId: input.threadId,
       role: "assistant",
-      content: describeAssistantResponse(hydrated.response),
+      content: describeAssistantResponse(cleaned.response),
       status: "complete",
       queryPlan: input.queryPlan,
-      responseJson: hydrated.response,
+      responseJson: cleaned.response,
       modelMetadata: mergedMetadata,
     });
 
     await createAdminAiCitations({ messageId: id, citations });
     timer.end({
       status: "complete",
-      shortlistCount: hydrated.response.shortlist?.length ?? 0,
+      shortlistCount: cleaned.response.shortlist?.length ?? 0,
       citationCount: citations.length,
     });
 
@@ -552,7 +631,7 @@ async function runGlobalAnalysis(input: {
       status: "complete",
       assistantMessageId: id,
       queryPlan: input.queryPlan,
-      response: hydrated.response,
+      response: cleaned.response,
       citations,
       modelMetadata: mergedMetadata,
       error: null,
