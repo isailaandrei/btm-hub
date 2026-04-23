@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local tooling and scratch space
+    ".worktrees/**",
+    "tmp/**",
+    "e2e/**",
     // Claude Code worktrees
     ".claude/**",
   ]),
