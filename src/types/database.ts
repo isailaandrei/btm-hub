@@ -89,6 +89,33 @@ export interface ContactNote {
   created_at: string;
 }
 
+export type ContactEventType =
+  | "note"
+  | "call"
+  | "in_person_meeting"
+  | "message"
+  | "info_requested"
+  | "awaiting_btm_response"
+  | "mentor_assigned"
+  | "custom";
+
+export interface ContactEvent {
+  id: string;
+  contact_id: string;
+  type: ContactEventType;
+  custom_label: string | null;
+  body: string;
+  happened_at: string;
+  created_at: string;
+  updated_at: string;
+  author_id: string;
+  author_name: string;
+  edited_at: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  metadata: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // Forum
 // ---------------------------------------------------------------------------
