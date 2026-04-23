@@ -4,7 +4,6 @@ import {
   shouldForceDossierRefreshOnRead,
   isDossierSoftStale,
   isDossierStale,
-  needsContactMemoryRebuild,
 } from "./freshness";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
@@ -123,55 +122,6 @@ describe("isDossierStale", () => {
       dossierVersion: DOSSIER_SCHEMA_VERSION,
     });
     expect(result).toBe(false);
-  });
-});
-
-describe("needsContactMemoryRebuild", () => {
-  it("returns true when dossier is missing or stale", () => {
-    expect(
-      needsContactMemoryRebuild({
-        dossier: null,
-        chunks: [makeChunkInput()],
-        generatorVersion: DOSSIER_GENERATOR_VERSION,
-        dossierVersion: DOSSIER_SCHEMA_VERSION,
-      }),
-    ).toBe(true);
-
-    expect(
-      needsContactMemoryRebuild({
-        dossier: makeDossier({ generator_version: "older" }),
-        chunks: [makeChunkInput()],
-        generatorVersion: DOSSIER_GENERATOR_VERSION,
-        dossierVersion: DOSSIER_SCHEMA_VERSION,
-      }),
-    ).toBe(true);
-  });
-
-  it("returns false when the dossier matches current chunks and versions", () => {
-    const fingerprint = computeChunkSourceFingerprint([makeChunkInput()]);
-    expect(
-      needsContactMemoryRebuild({
-        dossier: makeDossier({ source_fingerprint: fingerprint }),
-        chunks: [makeChunkInput()],
-        generatorVersion: DOSSIER_GENERATOR_VERSION,
-        dossierVersion: DOSSIER_SCHEMA_VERSION,
-      }),
-    ).toBe(false);
-  });
-
-  it("treats dossier-prompt-v1 as compatible with the current interpretive contract", () => {
-    const fingerprint = computeChunkSourceFingerprint([makeChunkInput()]);
-    expect(
-      needsContactMemoryRebuild({
-        dossier: makeDossier({
-          generator_version: "dossier-prompt-v1",
-          source_fingerprint: fingerprint,
-        }),
-        chunks: [makeChunkInput()],
-        generatorVersion: DOSSIER_GENERATOR_VERSION,
-        dossierVersion: DOSSIER_SCHEMA_VERSION,
-      }),
-    ).toBe(false);
   });
 });
 

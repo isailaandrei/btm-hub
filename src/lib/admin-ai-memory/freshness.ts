@@ -59,25 +59,6 @@ export function isDossierStale(input: {
   return false;
 }
 
-export function needsContactMemoryRebuild(input: {
-  dossier: CrmAiContactDossier | null;
-  chunks: CrmAiEvidenceChunkInput[];
-  generatorVersion: string;
-  dossierVersion: number;
-}): boolean {
-  if (
-    isDossierStale({
-      dossier: input.dossier,
-      chunks: input.chunks,
-      generatorVersion: input.generatorVersion,
-      dossierVersion: input.dossierVersion,
-    })
-  ) {
-    return true;
-  }
-  return false;
-}
-
 export function shouldForceDossierRefreshOnRead(input: {
   dossier: Pick<
     CrmAiContactDossier,

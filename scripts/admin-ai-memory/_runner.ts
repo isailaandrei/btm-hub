@@ -22,7 +22,7 @@ import { DOSSIER_GENERATOR_VERSION } from "../../src/lib/admin-ai-memory/dossier
 import { DOSSIER_SCHEMA_VERSION } from "../../src/lib/admin-ai-memory/dossier-version.ts";
 import {
   computeChunkSourceFingerprint,
-  needsContactMemoryRebuild,
+  isDossierStale,
 } from "../../src/lib/admin-ai-memory/freshness.ts";
 import { CURRENT_CRM_SOURCE_TYPES } from "../../src/lib/admin-ai-memory/source-types.ts";
 import type {
@@ -553,7 +553,7 @@ async function rebuildOne(input: {
   if (!input.force) {
     const existing = await fetchExistingMemory(input.supabase, input.contactId);
     if (
-      !needsContactMemoryRebuild({
+      !isDossierStale({
         dossier: existing.dossier,
         chunks,
         generatorVersion: DOSSIER_GENERATOR_VERSION,

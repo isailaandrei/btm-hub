@@ -25,7 +25,7 @@ import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 import {
   computeChunkSourceFingerprint,
-  needsContactMemoryRebuild,
+  isDossierStale,
 } from "./freshness";
 import {
   getContactDossier,
@@ -156,7 +156,7 @@ export async function rebuildContactMemory(input: {
   if (!input.force) {
     const existingDossier = await getContactDossier({ contactId: input.contactId });
     if (
-      !needsContactMemoryRebuild({
+      !isDossierStale({
         dossier: existingDossier,
         chunks,
         generatorVersion: DOSSIER_GENERATOR_VERSION,
