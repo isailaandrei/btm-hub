@@ -13,6 +13,7 @@ import type { Contact, ProgramSlug } from "@/types/database";
 import { updatePreferences } from "./actions";
 import { pruneSelectedIds } from "./selection-helpers";
 import type { SortState } from "./sort-helpers";
+import type { PendingFilterValue } from "./pending-filter";
 
 const FILTERS_STORAGE_KEY = "btm-admin-contacts-filters";
 
@@ -30,6 +31,7 @@ type StoredFilters = {
   selectedProgram?: ProgramSlug;
   selectedTagIds?: string[];
   columnFilters?: Record<string, string[]>;
+  pendingFilter?: PendingFilterValue[];
   sortBy?: SortState | null;
   pageSize?: PageSize;
   page?: number;
@@ -72,6 +74,9 @@ export function useContactsPanelState({
   );
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     storedFilters.selectedTagIds ?? [],
+  );
+  const [pendingFilter, setPendingFilter] = useState<PendingFilterValue[]>(
+    storedFilters.pendingFilter ?? [],
   );
   const [pageSize, setPageSize] = useState<PageSize>(
     storedFilters.pageSize ?? 25,
@@ -132,6 +137,7 @@ export function useContactsPanelState({
           selectedProgram,
           selectedTagIds,
           columnFilters,
+          pendingFilter,
           sortBy,
           pageSize,
           page,
@@ -146,6 +152,7 @@ export function useContactsPanelState({
     columnWidths,
     page,
     pageSize,
+    pendingFilter,
     search,
     selectedProgram,
     selectedTagIds,
@@ -273,6 +280,15 @@ export function useContactsPanelState({
     clearSelection();
   }, [clearSelection]);
 
+  const handlePendingFilterChange = useCallback(
+    (next: PendingFilterValue[]) => {
+      setPendingFilter(next);
+      setPage(1);
+      clearSelection();
+    },
+    [clearSelection],
+  );
+
   const handleColumnToggle = useCallback((key: string) => {
     preferencesInitializedRef.current = true;
 
@@ -353,6 +369,7 @@ export function useContactsPanelState({
     setSelectedProgram(undefined);
     setSelectedTagIds([]);
     setColumnFilters({});
+    setPendingFilter([]);
     setSortBy(null);
     setPage(1);
     clearSelection();
@@ -367,11 +384,13 @@ export function useContactsPanelState({
     handleColumnFilterClear,
     handleColumnFilterToggle,
     handleColumnToggle,
+    handlePendingFilterChange,
     handleProgramChange,
     handleSearchChange,
     handleTagToggle,
     page,
     pageSize,
+    pendingFilter,
     previouslySelectedColumns,
     search,
     selectedIds,

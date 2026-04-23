@@ -141,7 +141,7 @@ export function ContactsPanel() {
     selectedProgram: state.selectedProgram,
     selectedTagIds: state.selectedTagIds,
     columnFilters: state.columnFilters,
-    pendingFilter: (state as unknown as { pendingFilter?: ("awaiting_applicant" | "awaiting_btm")[] }).pendingFilter ?? [],
+    pendingFilter: state.pendingFilter,
     sortBy: state.sortBy,
     page: state.page,
     pageSize: state.pageSize,
@@ -272,6 +272,8 @@ export function ContactsPanel() {
           onTagToggle={state.handleTagToggle}
           onClearTags={state.handleClearTags}
           onColumnToggle={state.handleColumnToggle}
+          pendingFilter={state.pendingFilter}
+          onPendingFilterChange={state.handlePendingFilterChange}
         />
       </div>
 
