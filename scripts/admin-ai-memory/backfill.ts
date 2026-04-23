@@ -2,10 +2,11 @@
 /**
  * Local admin AI memory backfill CLI.
  *
- * Rebuilds dossier + ranking-card memory artifacts for current CRM
- * contacts. Bypasses the Next.js request lifecycle by using a service-role
- * Supabase client directly. Intended for local + CI use; production
- * should drive the same `rebuildContactMemory` flow from a server context.
+ * Rebuilds the Admin AI memory artifacts for current CRM contacts:
+ * evidence chunks, direct fact observations, and dossiers.
+ * Bypasses the Next.js request lifecycle by using a service-role Supabase
+ * client directly. Intended for local + CI use; production should drive
+ * the same `rebuildContactMemory` flow from a server context.
  *
  * Usage:
  *   node --import tsx scripts/admin-ai-memory/backfill.ts
@@ -66,13 +67,23 @@ type CliArgs = {
   limit: number | undefined;
   contactIds: string[];
   force: boolean;
+  structuralOnly: boolean;
 };
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { limit: undefined, contactIds: [], force: false };
+  const args: CliArgs = {
+    limit: undefined,
+    contactIds: [],
+    force: false,
+    structuralOnly: false,
+  };
   for (const raw of argv.slice(2)) {
     if (raw === "--force") {
       args.force = true;
+      continue;
+    }
+    if (raw === "--structural-only") {
+      args.structuralOnly = true;
       continue;
     }
     if (raw.startsWith("--limit=")) {
@@ -107,6 +118,7 @@ function printHelp(): void {
       "  --limit=N           Process at most N contacts (default: all).",
       "  --contact=<uuid>    One or more contact ids (comma-separated).",
       "  --force             Rebuild even when memory is already fresh.",
+      "  --structural-only   Refresh deterministic dossier facts/version only; no OpenAI dossier call.",
       "  --help              Show this message.",
     ].join("\n"),
   );
@@ -131,24 +143,33 @@ async function main(): Promise<void> {
       "Missing SUPABASE_SERVICE_ROLE_KEY (set it for the local supabase instance — see `supabase status`).",
     );
   }
-  if (!process.env.OPENAI_API_KEY) {
+  if (!args.structuralOnly && !process.env.OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY — dossier generation requires it.");
   }
 
   // Lazy-import so env loading happens before any module reads process.env.
   const { createClient } = await import("@supabase/supabase-js");
-  const { runStandaloneBackfill } = await import("./_runner.ts");
+  const {
+    runStandaloneBackfill,
+    runStandaloneStructuralRefresh,
+  } = await import("./_runner.ts");
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const stats = await runStandaloneBackfill({
-    supabase,
-    limit: args.limit,
-    contactIds: args.contactIds.length > 0 ? args.contactIds : undefined,
-    force: args.force,
-  });
+  const stats = args.structuralOnly
+    ? await runStandaloneStructuralRefresh({
+        supabase,
+        limit: args.limit,
+        contactIds: args.contactIds.length > 0 ? args.contactIds : undefined,
+      })
+    : await runStandaloneBackfill({
+        supabase,
+        limit: args.limit,
+        contactIds: args.contactIds.length > 0 ? args.contactIds : undefined,
+        force: args.force,
+      });
 
   console.log("\nBackfill summary:");
   console.log(JSON.stringify(stats, null, 2));

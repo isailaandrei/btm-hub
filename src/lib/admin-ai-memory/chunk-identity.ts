@@ -11,14 +11,8 @@ function setVariantNibble(hex: string): string {
   return `${withVariant.toString(16)}${hex.slice(1)}`;
 }
 
-export function buildStableChunkId(
-  sourceType: CrmAiChunkSourceType,
-  sourceId: string,
-): string {
-  const hex = createHash("sha256")
-    .update(`${sourceType}:${sourceId}`)
-    .digest("hex")
-    .slice(0, 32);
+function buildStableUuid(key: string): string {
+  const hex = createHash("sha256").update(key).digest("hex").slice(0, 32);
 
   const part1 = hex.slice(0, 8);
   const part2 = hex.slice(8, 12);
@@ -27,4 +21,18 @@ export function buildStableChunkId(
   const part5 = hex.slice(20, 32);
 
   return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+}
+
+export function buildStableChunkId(
+  sourceType: CrmAiChunkSourceType,
+  sourceId: string,
+): string {
+  return buildStableUuid(`${sourceType}:${sourceId}`);
+}
+
+export function buildStableSubchunkId(
+  parentChunkId: string,
+  subchunkIndex: number,
+): string {
+  return buildStableUuid(`subchunk:${parentChunkId}:${subchunkIndex}`);
 }

@@ -247,42 +247,42 @@ function extractStructuredFilters(
   const filters: AdminAiStructuredFilter[] = [];
   const consumedIndices = new Set<number>();
 
-  // 1. Program values. Words like "photography" or "filmmaking" also appear
-  //    as generic English nouns ("macro photography", "underwater
-  //    filmmaking experience"), so a bare lexical match would produce
-  //    false-positive filters. Require a disambiguating neighbor token
-  //    ("program", "programs", "applicants", "applicant", "track") within
-  //    a small window around the match to treat it as a structured program
-  //    filter. If no such signal exists, leave the token for `textFocus`.
-  const PROGRAM_DISAMBIGUATORS = new Set<string>([
-    "program",
-    "programs",
-    "applicant",
-    "applicants",
-    "applied",
-    "applying",
-    "track",
-    "tracks",
-    "cohort",
-  ]);
+  // 1. Program values. Treat them as hard filters only when the question
+  //    uses explicit program-shaped language ("filmmaking program",
+  //    "applied to filmmaking", "filmmaking track"). Adjective-style
+  //    mentions like "filmmaking applicants" stay in `textFocus` so the
+  //    global path can reason semantically without prematurely excluding
+  //    other programs.
   for (const program of PROGRAM_VALUES) {
-    const indices = phraseMatchIndices(hayTokens, program);
-    if (indices.size === 0) continue;
-    let disambiguated = false;
-    for (const idx of indices) {
-      const prev = hayTokens[idx - 1];
-      const next = hayTokens[idx + 1];
-      if (
-        (prev && PROGRAM_DISAMBIGUATORS.has(prev)) ||
-        (next && PROGRAM_DISAMBIGUATORS.has(next))
-      ) {
-        disambiguated = true;
-        break;
-      }
+    const explicitProgramPhrases = [
+      `${program} program`,
+      `${program} programs`,
+      `${program} track`,
+      `${program} tracks`,
+      `${program} cohort`,
+      `program ${program}`,
+      `programs ${program}`,
+      `track ${program}`,
+      `tracks ${program}`,
+      `cohort ${program}`,
+      `apply to ${program}`,
+      `applied to ${program}`,
+      `applying to ${program}`,
+      `apply for ${program}`,
+      `applied for ${program}`,
+      `applying for ${program}`,
+    ];
+
+    let matchedIndices: Set<number> | null = null;
+    for (const phrase of explicitProgramPhrases) {
+      if (!phraseMatches(hayTokens, phrase)) continue;
+      matchedIndices = phraseMatchIndices(hayTokens, phrase);
+      break;
     }
-    if (!disambiguated) continue;
+    if (!matchedIndices || matchedIndices.size === 0) continue;
+
     filters.push({ field: "program", op: "eq", value: program });
-    for (const idx of indices) consumedIndices.add(idx);
+    for (const idx of matchedIndices) consumedIndices.add(idx);
   }
 
   // 2. Status values.
@@ -414,7 +414,6 @@ export function buildAdminAiQueryPlan(input: {
   // Mode selection:
   //   - contact scope with contactId → contact_synthesis (hard-forced).
   //   - global scope → global_search.
-  //   Phase 1 does not emit "hybrid"; that mode is reserved for later work.
   let plan: AdminAiQueryPlan;
   if (scope === "contact" && contactId) {
     plan = {

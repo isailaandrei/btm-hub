@@ -1,18 +1,21 @@
 /**
  * Admin AI Analyst — retrieval data layer.
  *
- * Exposes three retrieval helpers:
+ * Exposes four retrieval helpers:
  *   - queryAdminAiContactFacts: SELECT against the `admin_ai_contact_facts`
  *     view with structured filters applied server-side.
+ *   - searchAdminAiEvidenceByEmbedding: single RPC call to
+ *     `search_admin_ai_subchunk_evidence` for vector search over current
+ *     retrieval subchunks.
  *   - searchAdminAiEvidence: single RPC call to `search_admin_ai_chunk_evidence`
  *     for FTS/keyword evidence lookup over normalized chunk storage.
  *   - listRecentAdminAiEvidence: single SELECT against `crm_ai_evidence_chunks`
- *     for bounded fallback evidence when keyword retrieval comes back empty.
+ *     for bounded fallback evidence when hybrid retrieval comes back empty.
  *
  * Rules (see plan "Non-negotiable guardrails"):
  *   - ONE Supabase call per helper.
  *   - No per-contact N+1 fetches.
- *   - Ranking/FTS logic lives in SQL, not here.
+ *   - Retrieval ranking logic lives in SQL or the fusion layer, not here.
  *   - Unknown filter fields are silently dropped (Zod in Task 2 is the
  *     primary enforcer; this is defense-in-depth).
  */
@@ -174,15 +177,31 @@ type EvidenceRpcRow = {
   text: string;
 };
 
+type EmbeddedEvidenceRpcRow = {
+  subchunk_id: string;
+  evidence_id: string;
+  contact_id: string;
+  application_id: string | null;
+  source_type: EvidenceSourceType;
+  source_id: string;
+  source_label: string;
+  source_timestamp: string | null;
+  program: string | null;
+  text: string;
+  similarity: number;
+};
+
 type EvidenceChunkRow = {
   id: string;
   contact_id: string;
   application_id: string | null;
   source_type: EvidenceSourceType;
+  logical_source_id?: string;
   source_id: string;
   source_timestamp: string | null;
   text: string;
   metadata_json: Record<string, unknown> | null;
+  superseded_at?: string | null;
 };
 
 const EVIDENCE_CHUNK_SELECT = [
@@ -212,6 +231,51 @@ function mapChunkRowToEvidenceItem(row: EvidenceChunkRow): EvidenceItem {
     program: typeof metadata.program === "string" ? metadata.program : null,
     text: row.text,
   };
+}
+
+export async function searchAdminAiEvidenceByEmbedding(input: {
+  embedding: number[];
+  contactIds?: string[];
+  contactId?: string;
+  limit: number;
+}): Promise<Array<{ evidence: EvidenceItem; score: number }>> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.rpc(
+    "search_admin_ai_subchunk_evidence",
+    {
+      p_query_embedding: input.embedding,
+      p_contact_ids:
+        input.contactIds && input.contactIds.length > 0
+          ? input.contactIds
+          : null,
+      p_contact_id: input.contactId ?? null,
+      p_limit: input.limit,
+    },
+  );
+
+  if (error) {
+    throw new Error(
+      `Failed to search admin AI evidence by embedding: ${error.message}`,
+    );
+  }
+
+  const rows = (data ?? []) as EmbeddedEvidenceRpcRow[];
+  return rows.map((row) => ({
+    evidence: {
+      evidenceId: row.evidence_id,
+      contactId: row.contact_id,
+      applicationId: row.application_id,
+      sourceType: row.source_type,
+      sourceId: row.source_id,
+      sourceLabel: row.source_label,
+      sourceTimestamp: row.source_timestamp,
+      program: row.program,
+      text: row.text,
+    },
+    score: row.similarity,
+  }));
 }
 
 export async function searchAdminAiEvidence(input: {
@@ -283,6 +347,7 @@ export async function listRecentAdminAiEvidence(input: {
   let query = supabase
     .from("crm_ai_evidence_chunks")
     .select(EVIDENCE_CHUNK_SELECT);
+  query = query.is("superseded_at", null);
 
   if (input.contactId) {
     query = query.eq("contact_id", input.contactId);
@@ -298,28 +363,6 @@ export async function listRecentAdminAiEvidence(input: {
   const { data, error } = await query;
   if (error) {
     throw new Error(`Failed to list recent admin AI evidence: ${error.message}`);
-  }
-
-  return ((data ?? []) as unknown as EvidenceChunkRow[]).map(
-    mapChunkRowToEvidenceItem,
-  );
-}
-
-export async function listAdminAiEvidenceByIds(input: {
-  evidenceIds: string[];
-}): Promise<EvidenceItem[]> {
-  if (input.evidenceIds.length === 0) return [];
-  await requireAdmin();
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("crm_ai_evidence_chunks")
-    .select(EVIDENCE_CHUNK_SELECT)
-    .in("id", input.evidenceIds)
-    .order("id", { ascending: true });
-
-  if (error) {
-    throw new Error(`Failed to list admin AI evidence by ids: ${error.message}`);
   }
 
   return ((data ?? []) as unknown as EvidenceChunkRow[]).map(

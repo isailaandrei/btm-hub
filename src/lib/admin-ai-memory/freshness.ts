@@ -16,6 +16,7 @@
  */
 
 import { createHash } from "crypto";
+import { isDossierGeneratorVersionCompatible } from "./dossier-prompt";
 import type {
   CrmAiContactDossier,
   CrmAiEvidenceChunkInput,
@@ -45,7 +46,14 @@ export function isDossierStale(input: {
 }): boolean {
   if (!input.dossier) return true;
   if (input.dossier.dossier_version !== input.dossierVersion) return true;
-  if (input.dossier.generator_version !== input.generatorVersion) return true;
+  if (
+    !isDossierGeneratorVersionCompatible(
+      input.dossier.generator_version,
+      input.generatorVersion,
+    )
+  ) {
+    return true;
+  }
   const expected = computeChunkSourceFingerprint(input.chunks);
   if (input.dossier.source_fingerprint !== expected) return true;
   return false;
@@ -80,7 +88,14 @@ export function shouldForceDossierRefreshOnRead(input: {
 }): boolean {
   if (!input.dossier) return true;
   if (input.dossier.dossier_version !== input.dossierVersion) return true;
-  if (input.dossier.generator_version !== input.generatorVersion) return true;
+  if (
+    !isDossierGeneratorVersionCompatible(
+      input.dossier.generator_version,
+      input.generatorVersion,
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 

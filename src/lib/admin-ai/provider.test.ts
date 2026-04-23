@@ -84,13 +84,13 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
                 text: JSON.stringify({
                   shortlist: [
                     {
-                      contactId: CONTACT_ID,
-                      contactName: CONTACT_ID,
-                      whyFit: ["Mission-driven fit"],
-                      concerns: [],
+                    contactId: CONTACT_ID,
+                    contactName: CONTACT_ID,
+                    whyFit: ["Mission-driven fit"],
+                    concerns: [],
                       citations: [
                         {
-                          evidenceId: "support_1",
+                          evidenceId: "evidence-1",
                           claimKey: "shortlist.0.whyFit.0",
                         },
                       ],
@@ -112,6 +112,7 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
     const result = await provider.generateGlobalCohortResponse({
       question: "Find mission-driven candidates",
       queryPlan: makePlan(),
+      promptCacheKey: "cache-key-1",
       coverage: {
         totalCandidates: 1,
         candidatesWithoutDossierCount: 0,
@@ -120,11 +121,24 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
         wasCompressed: false,
       },
       cohort: [makeGlobalProjection(CONTACT_ID)],
+      evidence: [
+        {
+          evidenceId: "evidence-1",
+          contactId: CONTACT_ID,
+          applicationId: null,
+          sourceType: "application_answer",
+          sourceId: "app-1:ultimate_vision",
+          sourceLabel: "ultimate_vision",
+          sourceTimestamp: "2026-04-15T00:00:00Z",
+          program: "filmmaking",
+          text: "I would love to work on conservation storytelling.",
+        },
+      ],
     });
 
     expect(result.response.shortlist?.[0]?.citations).toEqual([
       {
-        evidenceId: "support_1",
+        evidenceId: "evidence-1",
         claimKey: "shortlist.0.whyFit.0",
       },
     ]);
@@ -136,5 +150,9 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
     expect(userMessage?.content).toContain("\"supportRef\": \"support_1\"");
     expect(userMessage?.content).toContain("\"memoryStatus\": \"fresh\"");
     expect(userMessage?.content).toContain("\"compressionLevel\": \"full\"");
+    expect(userMessage?.content).toContain("\"evidenceId\": \"evidence-1\"");
+    expect(body).toMatchObject({
+      prompt_cache_key: "cache-key-1",
+    });
   });
 });

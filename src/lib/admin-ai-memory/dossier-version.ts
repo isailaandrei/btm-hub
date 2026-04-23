@@ -11,4 +11,4 @@
  * Bump this when stored dossier fields or anchor semantics change in a way
  * that should invalidate existing memory.
  */
-export const DOSSIER_SCHEMA_VERSION = 2;
+export const DOSSIER_SCHEMA_VERSION = 4;

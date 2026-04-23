@@ -158,6 +158,21 @@ describe("needsContactMemoryRebuild", () => {
       }),
     ).toBe(false);
   });
+
+  it("treats dossier-prompt-v1 as compatible with the current interpretive contract", () => {
+    const fingerprint = computeChunkSourceFingerprint([makeChunkInput()]);
+    expect(
+      needsContactMemoryRebuild({
+        dossier: makeDossier({
+          generator_version: "dossier-prompt-v1",
+          source_fingerprint: fingerprint,
+        }),
+        chunks: [makeChunkInput()],
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("shouldForceDossierRefreshOnRead", () => {
@@ -177,6 +192,19 @@ describe("shouldForceDossierRefreshOnRead", () => {
         dossier: makeDossier({
           generator_version: DOSSIER_GENERATOR_VERSION,
           stale_at: "2026-04-15T00:00:00Z",
+        }),
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
+        dossierVersion: DOSSIER_SCHEMA_VERSION,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not force a read-time rebuild for dossier-prompt-v1 rows", () => {
+    expect(
+      shouldForceDossierRefreshOnRead({
+        dossier: makeDossier({
+          generator_version: "dossier-prompt-v1",
+          dossier_version: DOSSIER_SCHEMA_VERSION,
         }),
         generatorVersion: DOSSIER_GENERATOR_VERSION,
         dossierVersion: DOSSIER_SCHEMA_VERSION,

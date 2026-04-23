@@ -21,13 +21,12 @@
  */
 
 import {
-  listRecentAdminAiEvidence,
-  searchAdminAiEvidence,
-} from "@/lib/data/admin-ai-retrieval";
-import { adminAiDebugLog } from "@/lib/admin-ai/debug";
+  adminAiDebugLog,
+} from "@/lib/admin-ai/debug";
 import { getContactDossier } from "@/lib/data/admin-ai-memory";
 import { areAiRebuildsDisabled } from "./ai-rebuild-guard";
 import { rebuildContactMemory } from "./backfill";
+import { retrieveHybridEvidence } from "./retrieval-fusion";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 import { shouldForceDossierRefreshOnRead } from "./freshness";
@@ -89,18 +88,12 @@ export async function assembleContactScopedMemory(input: {
     }
   }
 
-  const evidence = await searchAdminAiEvidence({
+  const resolvedEvidence = await retrieveHybridEvidence({
+    question: input.question,
     textFocus: input.textFocus,
     contactId: input.contactId,
     limit: CONTACT_EVIDENCE_LIMIT,
   });
-  const resolvedEvidence =
-    evidence.length > 0
-      ? evidence
-      : await listRecentAdminAiEvidence({
-          contactId: input.contactId,
-          limit: CONTACT_EVIDENCE_LIMIT,
-        });
 
   adminAiDebugLog("contact-scoped-memory", {
     contactId: input.contactId,
@@ -108,7 +101,7 @@ export async function assembleContactScopedMemory(input: {
     shouldRefresh,
     hasDossier: Boolean(dossier),
     evidenceCount: resolvedEvidence.length,
-    usedRecentFallback: evidence.length === 0,
+    retrievalMode: "hybrid",
   });
 
   for (const item of resolvedEvidence) {

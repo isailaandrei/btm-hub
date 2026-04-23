@@ -12,6 +12,9 @@ It is written for the current BTM Hub stack:
 - Supabase
 - OpenAI-backed admin AI
 
+For the current runtime architecture itself, read:
+- [docs/admin-ai-analyst-current-flow.md](../admin-ai-analyst-current-flow.md)
+
 ## The Short Answer
 
 If you want the best debugging setup for this feature, use these together:
@@ -25,7 +28,7 @@ If you want the best debugging setup for this feature, use these together:
 4. terminal logs from `npm run dev`
    - best for server actions, retrieval, provider calls, and DB-facing logic
 5. direct DB inspection
-   - best for checking persisted threads, messages, citations, chunks, dossiers, and cohort coverage
+   - best for checking persisted threads, messages, citations, chunks, subchunks, fact observations, dossiers, and cohort coverage
 
 ## React-Specific Debuggers
 
@@ -297,8 +300,8 @@ Inspect:
 - which model was used
 - number of candidates
 - number of cohort projections
-- number of support refs
-- number of evidence rows loaded for support-ref hydration
+- number of profile support refs included as scaffold context
+- number of dynamically retrieved evidence rows
 - raw model output
 - token usage
 
@@ -311,6 +314,7 @@ console.log("[admin-ai] provider input", {
   cohort: input.cohort?.length,
   supportRefs: input.cohort?.reduce((sum, entry) => sum + entry.supportRefs.length, 0),
   evidence: input.evidence.length,
+  promptCacheKey: input.promptCacheKey,
 });
 ```
 
@@ -320,8 +324,8 @@ console.log("[admin-ai] provider usage", modelMetadata?.usage);
 
 If something is wrong with grounding, this is where to check:
 - did the model receive the full cohort projections
-- did it return `support_*` citations
-- did those support refs resolve back to raw chunk evidence ids
+- did it return raw `evidenceId` citations from the evidence pack
+- did the evidence pack contain the supporting chunks you expected
 
 ### Step 6: Orchestration
 
@@ -332,7 +336,7 @@ Inspect:
 - which path ran: contact vs global
 - did insufficient-evidence short-circuit trigger
 - shortlist entries returned by the one-pass cohort call
-- support-ref hydration
+- evidence-id citation stripping / pruning
 - citation resolution
 - whether final message persistence succeeded
 

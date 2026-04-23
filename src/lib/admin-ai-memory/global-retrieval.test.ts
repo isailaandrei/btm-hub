@@ -6,6 +6,7 @@ import type {
 import type {
   CrmAiContactDossier,
 } from "@/types/admin-ai-memory";
+import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 
 const { afterMock } = vi.hoisted(() => ({
@@ -16,7 +17,6 @@ const { afterMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/data/admin-ai-retrieval", () => ({
   queryAdminAiContactFacts: vi.fn(),
-  listAdminAiEvidenceByIds: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -30,6 +30,10 @@ vi.mock("@/lib/data/admin-ai-memory", () => ({
 
 vi.mock("./backfill", () => ({
   rebuildContactMemory: vi.fn(),
+}));
+
+vi.mock("./retrieval-fusion", () => ({
+  retrieveHybridEvidence: vi.fn(),
 }));
 
 const CONTACT_A = "11111111-1111-4111-8111-111111111111";
@@ -74,7 +78,7 @@ function makeDossier(contactId: string): CrmAiContactDossier {
   return {
     contact_id: contactId,
     dossier_version: DOSSIER_SCHEMA_VERSION,
-    generator_version: "dossier-prompt-v1",
+    generator_version: DOSSIER_GENERATOR_VERSION,
     source_fingerprint: "fp",
     source_coverage: {
       applicationCount: 1,
@@ -88,7 +92,12 @@ function makeDossier(contactId: string): CrmAiContactDossier {
       contact: { contactId, contactName: contactId },
       applications: { programHistory: ["filmmaking"], statusHistory: ["reviewing"] },
       tags: { tagNames: [] },
-      structuredFacts: {},
+      structuredFieldDetails: {},
+      observationSummary: {
+        fieldHistory: {},
+        conflictingFields: [],
+        tagHistory: [],
+      },
     },
     signals_json: {
       motivation: [],
@@ -121,12 +130,13 @@ describe("assembleGlobalSinglePassCohort", () => {
     const factsMod = await import("@/lib/data/admin-ai-retrieval");
     const memoryMod = await import("@/lib/data/admin-ai-memory");
     const backfillMod = await import("./backfill");
+    const retrievalMod = await import("./retrieval-fusion");
 
     vi.mocked(factsMod.queryAdminAiContactFacts).mockResolvedValue([
       makeFactRow(CONTACT_A),
       makeFactRow(CONTACT_B),
     ]);
-    vi.mocked(factsMod.listAdminAiEvidenceByIds).mockResolvedValue([
+    vi.mocked(retrievalMod.retrieveHybridEvidence).mockResolvedValue([
       {
         evidenceId: "chunk-1",
         contactId: CONTACT_A,
@@ -143,7 +153,7 @@ describe("assembleGlobalSinglePassCohort", () => {
       {
         contact_id: CONTACT_A,
         dossier_version: DOSSIER_SCHEMA_VERSION,
-        generator_version: "dossier-prompt-v1",
+        generator_version: DOSSIER_GENERATOR_VERSION,
         source_fingerprint: "fp",
         stale_at: "2026-04-15T00:00:00Z",
         last_built_at: "2026-04-15T00:00:00Z",
@@ -152,6 +162,29 @@ describe("assembleGlobalSinglePassCohort", () => {
     vi.mocked(memoryMod.listContactDossiers).mockResolvedValue([
       {
         ...makeDossier(CONTACT_A),
+        facts_json: {
+          contact: { contactId: CONTACT_A, contactName: CONTACT_A },
+          applications: {
+            programHistory: ["filmmaking"],
+            statusHistory: ["reviewing"],
+          },
+          tags: { tagNames: ["Ocean"] },
+          structuredFieldDetails: {
+            budget: {
+              rawValues: ["Medium"],
+              normalizedValues: ["Medium"],
+            },
+            gender: {
+              rawValues: ["Female"],
+              normalizedValues: ["Female"],
+            },
+          },
+          observationSummary: {
+            fieldHistory: {},
+            conflictingFields: ["travel_willingness"],
+            tagHistory: [],
+          },
+        },
         evidence_anchors_json: [
           {
             claim: "Strong ocean storytelling motivation",
@@ -169,15 +202,41 @@ describe("assembleGlobalSinglePassCohort", () => {
     });
 
     const { assembleGlobalSinglePassCohort } = await import("./global-retrieval");
-    const result = await assembleGlobalSinglePassCohort({ plan: makePlan() });
+    const result = await assembleGlobalSinglePassCohort({
+      plan: makePlan(),
+      question: "Find ocean storytellers",
+    });
 
     expect(result.projections).toHaveLength(2);
     expect(result.projections[0]?.contactId).toBe(CONTACT_A);
     expect(result.projections[0]?.memoryStatus).toBe("stale");
     expect(result.projections[1]?.contactId).toBe(CONTACT_B);
     expect(result.projections[1]?.memoryStatus).toBe("missing");
-    expect(result.supportRefMap.get("support_1")?.chunkIds).toEqual(["chunk-1"]);
     expect(result.evidence).toHaveLength(1);
+    expect(retrievalMod.retrieveHybridEvidence).toHaveBeenCalledWith({
+      question: "Find ocean storytellers",
+      textFocus: ["ocean"],
+      contactIds: [CONTACT_A, CONTACT_B],
+      limit: 60,
+    });
+    expect(result.projections[0]?.facts).toMatchObject({
+      currentStructuredFields: [
+        {
+          fieldKey: "budget",
+          rawValues: ["Medium"],
+          normalizedValues: ["Medium"],
+        },
+        {
+          fieldKey: "gender",
+          rawValues: ["Female"],
+          normalizedValues: ["Female"],
+        },
+      ],
+      conflictingFieldKeys: ["travel_willingness"],
+    });
+    expect(result.projections[0]?.signals).toMatchObject({
+      fitSignals: [{ value: "Ocean focus", confidence: "high" }],
+    });
     expect(afterMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -15,8 +15,11 @@ import {
   buildCurrentCrmChunksForContact,
 } from "./chunk-builder";
 import { buildStableChunkId } from "./chunk-identity";
-import { buildDossierContactFacts } from "./contact-facts";
 import { selectChunksForDossier } from "./dossier-chunk-selection";
+import { buildFactObservationsFromChunks } from "./fact-observations";
+import { compileContactProfileFacts } from "./profile-compiler";
+import { buildEvidenceSubchunks } from "./subchunk-builder";
+import { generateSubchunkEmbeddings } from "./embeddings";
 import { generateContactDossier } from "./dossier-generator";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
@@ -25,14 +28,17 @@ import {
   needsContactMemoryRebuild,
 } from "./freshness";
 import {
-  deleteStaleCurrentCrmEvidenceChunksForContact,
   getContactDossier,
   listContactIdsForMemory,
+  listFactObservationsForContact,
   loadContactCrmSources,
+  supersedeStaleCurrentCrmEvidenceChunksForContact,
   upsertContactDossier,
+  upsertEmbeddings,
   upsertEvidenceChunks,
+  upsertEvidenceSubchunks,
+  upsertFactObservations,
 } from "@/lib/data/admin-ai-memory";
-import { queryAdminAiContactFacts } from "@/lib/data/admin-ai-retrieval";
 import type {
   CrmAiContactDossierInput,
   DossierSourceCoverage,
@@ -105,15 +111,12 @@ export async function rebuildContactMemory(input: {
     contact: sources.contact,
     applications: sources.applications,
     contactNotes: sources.contactNotes,
+    contactTags: sources.contactTags,
   });
 
-  const retainedSourceKeys = chunks.map(
-    (chunk) => `${chunk.sourceType}:${chunk.sourceId}`,
-  );
-
-  await deleteStaleCurrentCrmEvidenceChunksForContact({
+  await supersedeStaleCurrentCrmEvidenceChunksForContact({
     contactId: input.contactId,
-    retainedSourceKeys,
+    chunks,
   });
 
   if (chunks.length === 0) {
@@ -126,6 +129,29 @@ export async function rebuildContactMemory(input: {
   }
 
   await upsertEvidenceChunks({ chunks });
+  const subchunks = buildEvidenceSubchunks({ chunks });
+  await upsertEvidenceSubchunks({ subchunks });
+  try {
+    const embeddingBatch = await generateSubchunkEmbeddings({
+      parentChunks: chunks,
+      subchunks,
+    });
+    if (embeddingBatch.rows.length > 0) {
+      await upsertEmbeddings({ embeddings: embeddingBatch.rows });
+    }
+  } catch (error) {
+    console.warn(
+      "[admin-ai-memory] subchunk embedding generation failed",
+      {
+        contactId: input.contactId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+  const directObservations = buildFactObservationsFromChunks({ chunks });
+  if (directObservations.length > 0) {
+    await upsertFactObservations({ observations: directObservations });
+  }
 
   if (!input.force) {
     const existingDossier = await getContactDossier({ contactId: input.contactId });
@@ -155,15 +181,14 @@ export async function rebuildContactMemory(input: {
     ).length,
   });
 
-  const factRows = await queryAdminAiContactFacts({
-    filters: [],
+  const observations = await listFactObservationsForContact({
     contactId: input.contactId,
-    limit: 100,
   });
-  const dossierFacts = buildDossierContactFacts({
+  const dossierFacts = compileContactProfileFacts({
     contact: sources.contact,
-    factRows,
-    applicationCount: sources.applications.length,
+    applications: sources.applications,
+    currentChunks: chunks,
+    observations,
   });
 
   // Full chunks stay in the DB for answer-time retrieval. The dossier
@@ -198,9 +223,10 @@ export async function rebuildContactMemory(input: {
     contactId: input.contactId,
     dossierVersion: DOSSIER_SCHEMA_VERSION,
     generatorVersion: generation.generatorVersion,
+    generatorModel: generation.modelMetadata.model,
     sourceFingerprint: fingerprint,
     sourceCoverage,
-    facts: generation.dossier.facts,
+    facts: dossierFacts,
     signals: generation.dossier.signals,
     contradictions: generation.dossier.contradictions,
     unknowns: generation.dossier.unknowns,

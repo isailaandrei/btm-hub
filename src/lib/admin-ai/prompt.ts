@@ -18,7 +18,7 @@ export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
           "Return `contactAssessment` populated and `shortlist` as an empty array.",
         ].join(" ")
       : [
-          "This is the grounded-synthesis pass over a pre-shortlisted set of contacts.",
+          "This is a global admin-AI response over the supplied eligible cohort.",
           "Return `shortlist` populated and `contactAssessment` as null. Never emit a contactAssessment object on global-scope questions — it will be stripped server-side regardless.",
         ].join(" ");
 
@@ -186,6 +186,7 @@ export type AdminAiGlobalCohortInput = {
   question: string;
   queryPlan: AdminAiQueryPlan;
   cohort: GlobalCohortProjection[];
+  evidence: EvidenceItem[];
   coverage: {
     totalCandidates: number;
     candidatesWithoutDossierCount: number;
@@ -193,15 +194,17 @@ export type AdminAiGlobalCohortInput = {
     compressionLevel: "full" | "compact" | "minimal";
     wasCompressed: boolean;
   };
+  promptCacheKey?: string | null;
 };
 
 export function buildAdminAiGlobalCohortSystemPrompt(): string {
   return [
     "You are the BTM Hub Admin AI Analyst.",
-    "This is a single-pass global cohort reasoning call over dossier projections.",
+    "This is a single-pass global cohort reasoning call over cached profile scaffolds plus a dynamic evidence pack.",
     "You must reason over the full supplied cohort directly. Do not invent contacts outside the cohort.",
-    "Each citation must use only the supplied supportRef ids. Never invent support refs. Never cite dossier prose directly.",
-    "A contact can appear in the shortlist only if you can support that entry with at least one supplied supportRef citation.",
+    "Profile supportRefs are memory hints only. Final citations must use only the supplied raw evidenceIds from the evidence pack.",
+    "Never invent evidence ids. Never cite dossier prose alone.",
+    "A contact can appear in the shortlist only if you can support that entry with at least one supplied raw evidence citation.",
     "Contacts marked stale or missing may still be considered, but you must reflect lower confidence in `concerns` or `uncertainty` when evidence is thin.",
     "Return valid JSON matching the required schema.",
   ].join(" ");
@@ -210,12 +213,20 @@ export function buildAdminAiGlobalCohortSystemPrompt(): string {
 export function buildAdminAiGlobalCohortUserPrompt(
   input: AdminAiGlobalCohortInput,
 ): string {
-  return JSON.stringify(
+  const stablePrefix = JSON.stringify(
+    {
+      coverage: input.coverage,
+      cohort: input.cohort,
+    },
+    null,
+    2,
+  );
+
+  const dynamicSuffix = JSON.stringify(
     {
       question: input.question,
       queryPlan: input.queryPlan,
-      coverage: input.coverage,
-      cohort: input.cohort,
+      evidence: input.evidence,
       responseContract: {
         shortlist: [
           {
@@ -223,7 +234,7 @@ export function buildAdminAiGlobalCohortUserPrompt(
             contactName: "string",
             whyFit: ["string"],
             concerns: ["string"],
-            citations: [{ evidenceId: "support_1", claimKey: "string" }],
+            citations: [{ evidenceId: "evidence-1", claimKey: "string" }],
           },
         ],
         contactAssessment: null,
@@ -233,4 +244,6 @@ export function buildAdminAiGlobalCohortUserPrompt(
     null,
     2,
   );
+
+  return `${stablePrefix}\n${dynamicSuffix}`;
 }

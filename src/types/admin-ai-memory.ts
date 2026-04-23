@@ -15,7 +15,9 @@
 
 export type CrmAiChunkSourceType =
   | "application_answer"
+  | "application_structured_field"
   | "contact_note"
+  | "contact_tag"
   | "application_admin_note"
   | "whatsapp_message"
   | "instagram_message"
@@ -30,12 +32,14 @@ export type CrmAiEvidenceChunk = {
   contact_id: string;
   application_id: string | null;
   source_type: CrmAiChunkSourceType;
+  logical_source_id: string;
   source_id: string;
   source_timestamp: string | null;
   text: string;
   metadata_json: Record<string, unknown>;
   content_hash: string;
   chunk_version: number;
+  superseded_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -48,12 +52,92 @@ export type CrmAiEvidenceChunkInput = {
   contactId: string;
   applicationId: string | null;
   sourceType: CrmAiChunkSourceType;
+  logicalSourceId: string;
   sourceId: string;
   sourceTimestamp: string | null;
   text: string;
   metadata: Record<string, unknown>;
   contentHash: string;
   chunkVersion: number;
+};
+
+export type CrmAiEvidenceSubchunk = {
+  id: string;
+  parent_chunk_id: string;
+  contact_id: string;
+  application_id: string | null;
+  subchunk_index: number;
+  text: string;
+  content_hash: string;
+  token_estimate: number;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CrmAiEvidenceSubchunkInput = {
+  id: string;
+  parentChunkId: string;
+  contactId: string;
+  applicationId: string | null;
+  subchunkIndex: number;
+  text: string;
+  contentHash: string;
+  tokenEstimate: number;
+  metadata: Record<string, unknown>;
+};
+
+// ---------------------------------------------------------------------------
+// Fact observation types
+// ---------------------------------------------------------------------------
+
+export type CrmAiFactObservationType =
+  | "application_field"
+  | "contact_tag";
+
+export type CrmAiFactObservationValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "multiselect"
+  | "json"
+  | "tag";
+
+export type CrmAiFactObservationConfidence = "high" | "medium" | "low";
+
+export type CrmAiFactObservation = {
+  id: string;
+  contact_id: string;
+  observation_type: CrmAiFactObservationType;
+  field_key: string | null;
+  value_type: CrmAiFactObservationValueType;
+  value_text: string;
+  value_json: unknown;
+  confidence: CrmAiFactObservationConfidence;
+  source_chunk_ids: string[];
+  source_timestamp: string | null;
+  observed_at: string;
+  invalidated_at: string | null;
+  conflict_group: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type CrmAiFactObservationInput = {
+  id: string;
+  contactId: string;
+  observationType: CrmAiFactObservationType;
+  fieldKey: string | null;
+  valueType: CrmAiFactObservationValueType;
+  valueText: string;
+  valueJson: unknown;
+  confidence: CrmAiFactObservationConfidence;
+  sourceChunkIds: string[];
+  sourceTimestamp: string | null;
+  observedAt: string;
+  invalidatedAt: string | null;
+  conflictGroup: string | null;
+  metadata: Record<string, unknown>;
 };
 
 // ---------------------------------------------------------------------------
@@ -97,6 +181,7 @@ export type CrmAiContactDossier = {
   contact_id: string;
   dossier_version: number;
   generator_version: string;
+  generator_model?: string | null;
   source_fingerprint: string;
   source_coverage: DossierSourceCoverage;
   facts_json: Record<string, unknown>;
@@ -130,6 +215,7 @@ export type CrmAiContactDossierInput = {
   contactId: string;
   dossierVersion: number;
   generatorVersion: string;
+  generatorModel: string;
   sourceFingerprint: string;
   sourceCoverage: DossierSourceCoverage;
   facts: Record<string, unknown>;
@@ -147,7 +233,7 @@ export type CrmAiContactDossierInput = {
 // Embedding types (schema only — retrieval not active in current CRM path)
 // ---------------------------------------------------------------------------
 
-export type CrmAiEmbeddingTargetType = "chunk" | "dossier";
+export type CrmAiEmbeddingTargetType = "chunk" | "dossier" | "subchunk";
 
 export type CrmAiEmbeddingRow = {
   id: string;
@@ -158,4 +244,13 @@ export type CrmAiEmbeddingRow = {
   content_hash: string;
   embedding: number[] | null;
   created_at: string;
+};
+
+export type CrmAiEmbeddingInput = {
+  targetType: CrmAiEmbeddingTargetType;
+  targetId: string;
+  embeddingModel: string;
+  embeddingVersion: string;
+  contentHash: string;
+  embedding: number[] | null;
 };

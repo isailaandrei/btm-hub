@@ -6,6 +6,9 @@ This file is a tracked runtime supplement to the local wiki topics:
 
 Use it as the source for the current implementation details that matter when continuing work on the admin AI analyst and memory layer.
 
+For the clearest high-level runtime walkthrough, also read:
+- [docs/admin-ai-analyst-current-flow.md](../admin-ai-analyst-current-flow.md)
+
 ## Debug flag
 
 Set:
@@ -16,7 +19,7 @@ to emit step-level server logs for:
 - query plan shape
 - dossier cohort size and token estimate
 - single-pass cohort timing
-- support-ref hydration
+- hybrid evidence retrieval
 - contact-scoped memory assembly
 - final synthesis timing
 - raw OpenAI call timing, model, response id, and timeout/error status
@@ -29,10 +32,13 @@ The source of truth is still the underlying CRM data:
 - `applications.answers`
 - `applications.admin_notes`
 - `contact_notes`
+- `contact_tags`
 - `contacts`
 
 The memory layer is derived context:
 - `crm_ai_evidence_chunks`
+- `crm_ai_evidence_subchunks`
+- `crm_ai_fact_observations`
 - `crm_ai_contact_dossiers`
 
 Final answers must still cite raw chunk-backed evidence, not dossier prose alone.
@@ -58,8 +64,10 @@ The default global path is now:
 1. build exact structured filters with the deterministic planner
 2. load the whole eligible dossier cohort
 3. build a bounded ask-time projection for every eligible contact
-4. send that full cohort block in one model call
-5. hydrate returned `support_*` refs back to raw chunk citations before persistence
+4. derive a stable `promptCacheKey` from that cohort projection
+5. dynamically retrieve raw evidence across the cohort with hybrid lexical + vector retrieval
+6. send one cohort call with the cache-friendly profile scaffold plus the dynamic evidence pack
+7. strip any unsupported citations and drop uncited shortlist entries before persistence
 
 There is no ranking-card layer and no separate shortlist-model pass anymore.
 
@@ -113,15 +121,53 @@ This prevents surviving notes from "moving" when another note is deleted from th
 Relevant file:
 - [src/lib/admin-ai-memory/chunk-builder.ts](/Users/andrei/Dev/btm-hub/src/lib/admin-ai-memory/chunk-builder.ts)
 
-### Rebuilds prune stale current-CRM chunks
+### Current CRM evidence is versioned, not destructively pruned
 
-Before rebuilding dossier memory, the system now removes stale chunk rows for current CRM source types that no longer exist in the live source set.
+Before rebuilding dossier memory, the system now:
+- keeps a stable `logical_source_id` per mutable source slot
+- inserts a new chunk version when the rendered evidence changes
+- marks the older current version with `superseded_at`
+
+So answer-time retrieval can default to current evidence while still preserving older observations for conflict/timeline work.
+
+Current evidence surface now includes:
+- free-text application answers
+- synthetic structured-field chunks for application fields
+- contact notes
+- application admin notes
+- synthetic contact-tag chunks
+
+On top of that, the current rebuild path now appends a direct fact ledger:
+- `crm_ai_fact_observations`
+- populated from current structured-field and contact-tag chunks
+- idempotent on rerun for the same chunk version
+- additive when a field or tag assignment changes over time
+
+The current evidence surface also derives retrievable subchunks:
+- `crm_ai_evidence_subchunks`
+- every current chunk yields at least one subchunk
+- oversized free-text sources split deterministically with overlap
+- short structured chunks stay as a single retrievable subchunk
+- subchunk ids are stable per parent chunk id + subchunk index
+
+Embeddings are now wired into the retrieval path:
+- `crm_ai_embeddings` can target `subchunk`
+- contextualized embedding text is built from the parent chunk metadata plus subchunk text
+- query-time hybrid retrieval now fuses:
+  - vector hits over subchunks
+  - lexical hits over canonical chunks
+  - recent-evidence fallback when both are empty
 
 Relevant helpers:
-- `deleteStaleCurrentCrmEvidenceChunksForContact()` in [src/lib/data/admin-ai-memory.ts](/Users/andrei/Dev/btm-hub/src/lib/data/admin-ai-memory.ts)
+- `supersedeStaleCurrentCrmEvidenceChunksForContact()` in [src/lib/data/admin-ai-memory.ts](/Users/andrei/Dev/btm-hub/src/lib/data/admin-ai-memory.ts)
+- `upsertFactObservations()` in [src/lib/data/admin-ai-memory.ts](/Users/andrei/Dev/btm-hub/src/lib/data/admin-ai-memory.ts)
+- `buildFactObservationsFromChunks()` in [src/lib/admin-ai-memory/fact-observations.ts](/Users/andrei/Dev/btm-hub/src/lib/admin-ai-memory/fact-observations.ts)
+- `buildEvidenceSubchunks()` in [src/lib/admin-ai-memory/subchunk-builder.ts](/Users/andrei/Dev/btm-hub/src/lib/admin-ai-memory/subchunk-builder.ts)
+- `generateSubchunkEmbeddings()` in [src/lib/admin-ai-memory/embeddings.ts](/Users/andrei/Dev/btm-hub/src/lib/admin-ai-memory/embeddings.ts)
+- `retrieveHybridEvidence()` in [src/lib/admin-ai-memory/retrieval-fusion.ts](/Users/andrei/Dev/btm-hub/src/lib/admin-ai-memory/retrieval-fusion.ts)
 - mirrored logic in [scripts/admin-ai-memory/_runner.ts](/Users/andrei/Dev/btm-hub/scripts/admin-ai-memory/_runner.ts)
 
-This is especially important for deleted admin notes and other mutable current-CRM sources.
+This is especially important for application answers, structured form fields, tags, deleted admin notes, and any future mutable CRM evidence.
 
 ### Dossier anchors persist stable chunk IDs
 
@@ -157,7 +203,10 @@ If you continue implementation from this branch, assume the following are alread
 - global questions use a single cohort call over dossier projections
 - contact sync rebuild is narrow and soft-stale memory can still be served
 - admin-note chunk IDs are stable and non-positional
-- stale current-CRM chunks are pruned during rebuild/backfill
+- stale current-CRM chunks are superseded during rebuild/backfill instead of deleted
+- direct structured-field and contact-tag observations are appended into `crm_ai_fact_observations`
+- current chunks also derive deterministic `crm_ai_evidence_subchunks`
+- contact and global reads now use hybrid evidence retrieval
 - limited cohort coverage is surfaced through dossier-based coverage fields
 
 Do not reintroduce:

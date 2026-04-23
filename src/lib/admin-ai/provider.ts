@@ -58,6 +58,18 @@ function getSynthesisModel(): string {
   return process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
 }
 
+function getGlobalCohortModel(): string {
+  return (
+    process.env.OPENAI_GLOBAL_MODEL?.trim()
+    || process.env.OPENAI_MODEL?.trim()
+    || DEFAULT_OPENAI_MODEL
+  );
+}
+
+function getGlobalPromptCacheRetention(): string | null {
+  return process.env.OPENAI_GLOBAL_PROMPT_CACHE_RETENTION?.trim() || null;
+}
+
 function extractResponseText(payload: OpenAiResponsesPayload): string {
   const textParts: string[] = [];
   const refusalParts: string[] = [];
@@ -101,6 +113,8 @@ async function callOpenAi(input: {
   userPrompt: string;
   schemaName: string;
   schema: object;
+  promptCacheKey?: string | null;
+  promptCacheRetention?: string | null;
 }): Promise<{
   payload: OpenAiResponsesPayload;
   rawText: string;
@@ -121,6 +135,10 @@ async function callOpenAi(input: {
       },
       body: JSON.stringify({
         model: input.model,
+        ...(input.promptCacheKey ? { prompt_cache_key: input.promptCacheKey } : {}),
+        ...(input.promptCacheRetention
+          ? { prompt_cache_retention: input.promptCacheRetention }
+          : {}),
         input: [
           { role: "system", content: input.systemPrompt },
           { role: "user", content: input.userPrompt },
@@ -226,7 +244,7 @@ const openAiAdminAiProvider: AdminAiProvider = {
     if (!apiKey) {
       throw new Error(PROVIDER_UNAVAILABLE_REASON);
     }
-    const model = getSynthesisModel();
+    const model = getGlobalCohortModel();
     const { payload, rawText } = await callOpenAi({
       apiKey,
       model,
@@ -234,6 +252,8 @@ const openAiAdminAiProvider: AdminAiProvider = {
       userPrompt: buildAdminAiGlobalCohortUserPrompt(input),
       schemaName: "admin_ai_response",
       schema: ADMIN_AI_RESPONSE_JSON_SCHEMA,
+      promptCacheKey: input.promptCacheKey ?? null,
+      promptCacheRetention: getGlobalPromptCacheRetention(),
     });
 
     const rawResponse = JSON.parse(rawText) as {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { dossierResultSchema } from "./dossier-schema";
+import { DOSSIER_RESPONSE_JSON_SCHEMA, dossierResultSchema } from "./dossier-schema";
 
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
 const CHUNK_ID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -9,36 +9,6 @@ const PROMPT_CHUNK_ID_B = "chunk_2";
 
 function makeRawDossier(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    facts: {
-      contact: {
-        contactId: CONTACT_ID,
-        contactName: "Joana",
-        contactEmail: "joana@example.com",
-        contactPhone: null,
-      },
-      applications: {
-        applicationCount: 1,
-        applicationIds: ["app-1"],
-        programHistory: ["Filmmaking"],
-        statusHistory: ["Accepted"],
-      },
-      tags: {
-        tagIds: ["tag-1"],
-        tagNames: ["Ocean"],
-      },
-      structuredFacts: {
-        budgetValues: ["Small budget"],
-        timeAvailabilityValues: ["Flexible"],
-        startTimelineValues: ["Soon"],
-        btmCategoryValues: ["Filmmaker"],
-        travelWillingnessValues: ["Yes"],
-        languageValues: ["English"],
-        countryOfResidenceValues: ["Portugal"],
-        certificationLevelValues: ["Open Water"],
-        yearsExperienceValues: ["2-4 years"],
-        involvementLevelValues: ["High"],
-      },
-    },
     signals: {
       motivation: [
         { value: "Passionate about ocean conservation", confidence: "high" },
@@ -70,11 +40,52 @@ function makeRawDossier(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+function makeContactFacts(): Record<string, unknown> {
+  return {
+    contact: {
+      contactId: CONTACT_ID,
+      contactName: "Joana",
+      contactEmail: "joana@example.com",
+      contactPhone: null,
+    },
+    applications: {
+      applicationCount: 1,
+      applicationIds: ["app-1"],
+      programHistory: ["Filmmaking"],
+      statusHistory: ["Accepted"],
+    },
+    tags: {
+      tagIds: ["tag-1"],
+      tagNames: ["Ocean"],
+      observedTagIds: ["tag-1"],
+      observedTagNames: ["Ocean"],
+    },
+    structuredFieldDetails: {
+      budget: {
+        fieldLabel: "Budget",
+        valueType: "string",
+        rawValues: ["Small budget"],
+        normalizedValues: ["Small budget"],
+      },
+    },
+    observationSummary: {
+      fieldHistory: {},
+      conflictingFields: [],
+      tagHistory: [],
+    },
+  };
+}
+
 describe("dossierResultSchema", () => {
   it("accepts a well-formed dossier", () => {
     const parsed = dossierResultSchema.parse(makeRawDossier());
     expect(parsed.summary.short).toBeTypeOf("string");
     expect(parsed.signals.fitSignals).toHaveLength(1);
+    expect(parsed).not.toHaveProperty("facts");
+  });
+
+  it("does not require model-authored facts in the provider JSON schema", () => {
+    expect(DOSSIER_RESPONSE_JSON_SCHEMA.required).not.toContain("facts");
   });
 
   it("rejects dossiers that omit required sections", () => {
@@ -115,7 +126,7 @@ describe("generateContactDossier", () => {
     await expect(
       generateContactDossier({
         contactId: CONTACT_ID,
-        contactFacts: makeRawDossier().facts as Record<string, unknown>,
+        contactFacts: makeContactFacts(),
         chunks: [
           {
             chunkId: CHUNK_ID_A,
@@ -166,7 +177,7 @@ describe("generateContactDossier", () => {
     const { generateContactDossier } = await import("./dossier-generator");
     const result = await generateContactDossier({
       contactId: CONTACT_ID,
-      contactFacts: makeRawDossier().facts as Record<string, unknown>,
+      contactFacts: makeContactFacts(),
       chunks: [
         {
           chunkId: CHUNK_ID_A,
@@ -226,7 +237,7 @@ describe("generateContactDossier", () => {
     await expect(
       generateContactDossier({
         contactId: CONTACT_ID,
-        contactFacts: makeRawDossier().facts as Record<string, unknown>,
+        contactFacts: makeContactFacts(),
         chunks: [
           {
             chunkId: CHUNK_ID_A,
@@ -279,7 +290,7 @@ describe("generateContactDossier", () => {
     const { generateContactDossier } = await import("./dossier-generator");
     const result = await generateContactDossier({
       contactId: CONTACT_ID,
-      contactFacts: makeRawDossier().facts as Record<string, unknown>,
+      contactFacts: makeContactFacts(),
       chunks: [
         {
           chunkId: CHUNK_ID_A,
@@ -359,7 +370,7 @@ describe("generateContactDossier", () => {
     const { generateContactDossier } = await import("./dossier-generator");
     const result = await generateContactDossier({
       contactId: CONTACT_ID,
-      contactFacts: makeRawDossier().facts as Record<string, unknown>,
+      contactFacts: makeContactFacts(),
       chunks: [
         {
           chunkId: CHUNK_ID_A,
@@ -417,7 +428,7 @@ describe("generateContactDossier", () => {
     await expect(
       generateContactDossier({
         contactId: CONTACT_ID,
-        contactFacts: makeRawDossier().facts as Record<string, unknown>,
+        contactFacts: makeContactFacts(),
         chunks: [
           {
             chunkId: CHUNK_ID_A,
@@ -489,7 +500,7 @@ describe("generateContactDossier", () => {
     const { generateContactDossier } = await import("./dossier-generator");
     const result = await generateContactDossier({
       contactId: CONTACT_ID,
-      contactFacts: makeRawDossier().facts as Record<string, unknown>,
+      contactFacts: makeContactFacts(),
       chunks: [
         {
           chunkId: CHUNK_ID_A,

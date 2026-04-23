@@ -2,14 +2,14 @@
  * Global cohort memory retrieval — single-pass dossier cohort path.
  *
  * Loads the whole eligible dossier cohort, projects each contact into a
- * bounded prompt block, and resolves anchor-backed support refs to raw
- * chunk-backed evidence rows for post-call citation hydration.
+ * bounded prompt block, and pairs that cache-friendly profile scaffold
+ * with a dynamic hybrid-retrieved evidence pack.
  */
 
 import { after } from "next/server";
+import { createHash } from "crypto";
 import { adminAiDebugLog } from "@/lib/admin-ai/debug";
 import {
-  listAdminAiEvidenceByIds,
   queryAdminAiContactFacts,
 } from "@/lib/data/admin-ai-retrieval";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/lib/data/admin-ai-memory";
 import { areAiRebuildsDisabled } from "./ai-rebuild-guard";
 import { rebuildContactMemory } from "./backfill";
+import { retrieveHybridEvidence } from "./retrieval-fusion";
 import {
   isDossierSoftStale,
   shouldForceDossierRefreshOnRead,
@@ -38,12 +39,14 @@ import type {
 export const MAX_GLOBAL_DOSSIER_COHORT = 250;
 export const MAX_GLOBAL_SINGLE_PASS_TOKENS = 240_000;
 export const MAX_BACKGROUND_MEMORY_REFRESHES = 1;
+export const MAX_GLOBAL_DYNAMIC_EVIDENCE = 60;
 
 type ProjectionCompressionLevel = "full" | "compact" | "minimal";
 
 const SINGLE_PASS_LEVELS: Array<{
   name: ProjectionCompressionLevel;
   maxAnchors: number;
+  maxSignalsPerCategory: number;
   maxContradictions: number;
   maxUnknowns: number;
   includeSummary: boolean;
@@ -52,6 +55,7 @@ const SINGLE_PASS_LEVELS: Array<{
   {
     name: "full",
     maxAnchors: 6,
+    maxSignalsPerCategory: 2,
     maxContradictions: 2,
     maxUnknowns: 2,
     includeSummary: true,
@@ -60,6 +64,7 @@ const SINGLE_PASS_LEVELS: Array<{
   {
     name: "compact",
     maxAnchors: 4,
+    maxSignalsPerCategory: 1,
     maxContradictions: 1,
     maxUnknowns: 1,
     includeSummary: true,
@@ -68,6 +73,7 @@ const SINGLE_PASS_LEVELS: Array<{
   {
     name: "minimal",
     maxAnchors: 2,
+    maxSignalsPerCategory: 0,
     maxContradictions: 0,
     maxUnknowns: 0,
     includeSummary: false,
@@ -75,16 +81,9 @@ const SINGLE_PASS_LEVELS: Array<{
   },
 ] as const;
 
-export type GlobalSupportRefResolution = {
-  contactId: string;
-  claim: string;
-  chunkIds: string[];
-};
-
 export type GlobalSinglePassCohortMemory = {
   candidates: ContactFactRow[];
   projections: GlobalCohortProjection[];
-  supportRefMap: Map<string, GlobalSupportRefResolution>;
   evidence: EvidenceItem[];
   contactsMissingDossiers: string[];
   contactsServingStaleDossiers: string[];
@@ -92,6 +91,7 @@ export type GlobalSinglePassCohortMemory = {
   cohortTokenBudget: number;
   compressionLevel: ProjectionCompressionLevel;
   wasCompressed: boolean;
+  promptCacheKey: string;
 };
 
 function scheduleBackgroundMemoryRefresh(contactIds: string[]): void {
@@ -136,9 +136,140 @@ function estimateTokenCount(value: unknown): number {
   return Math.ceil(JSON.stringify(value).length / 4);
 }
 
+function buildPromptCacheKey(input: {
+  projections: GlobalCohortProjection[];
+  coverage: {
+    totalCandidates: number;
+    candidatesWithoutDossierCount: number;
+    staleDossierCount: number;
+    compressionLevel: ProjectionCompressionLevel;
+    wasCompressed: boolean;
+  };
+}): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        coverage: input.coverage,
+        cohort: input.projections,
+      }),
+    )
+    .digest("hex");
+}
+
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function readStringRecordEntries(value: unknown): Array<{
+  fieldKey: string;
+  rawValues: string[];
+  normalizedValues: string[];
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value)
+    .map(([fieldKey, rawValues]) => ({
+      fieldKey,
+      rawValues: readStringArray(rawValues),
+      normalizedValues: readStringArray(rawValues),
+    }))
+    .filter((entry) => entry.normalizedValues.length > 0)
+    .sort((a, b) => a.fieldKey.localeCompare(b.fieldKey));
+}
+
+function readStructuredFieldDetailEntries(value: unknown): Array<{
+  fieldKey: string;
+  rawValues: string[];
+  normalizedValues: string[];
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value)
+    .map(([fieldKey, raw]) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+      const rawValues =
+        "rawValues" in raw ? readStringArray(raw.rawValues) : [];
+      const normalizedValues =
+        "normalizedValues" in raw
+          ? readStringArray(raw.normalizedValues)
+          : [];
+      if (rawValues.length === 0 && normalizedValues.length === 0) return null;
+      return {
+        fieldKey,
+        rawValues,
+        normalizedValues:
+          normalizedValues.length > 0 ? normalizedValues : rawValues,
+      };
+    })
+    .filter(
+      (
+        entry,
+      ): entry is {
+        fieldKey: string;
+        rawValues: string[];
+        normalizedValues: string[];
+      } => entry !== null,
+    )
+    .sort((a, b) => a.fieldKey.localeCompare(b.fieldKey));
+}
+
+function readSignalEntries(
+  value: unknown,
+  maxPerCategory: number,
+): GlobalCohortProjection["signals"] | undefined {
+  if (
+    maxPerCategory <= 0 ||
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return undefined;
+  }
+
+  const readEntries = (entries: unknown) =>
+    Array.isArray(entries)
+      ? entries
+          .filter(
+            (
+              entry,
+            ): entry is { value: string; confidence: "high" | "medium" | "low" } =>
+              Boolean(
+                entry &&
+                  typeof entry === "object" &&
+                  "value" in entry &&
+                  typeof entry.value === "string" &&
+                  "confidence" in entry &&
+                  (entry.confidence === "high" ||
+                    entry.confidence === "medium" ||
+                    entry.confidence === "low"),
+              ),
+          )
+          .slice(0, maxPerCategory)
+      : [];
+
+  return {
+    motivation: readEntries("motivation" in value ? value.motivation : []),
+    communicationStyle: readEntries(
+      "communicationStyle" in value ? value.communicationStyle : [],
+    ),
+    reliabilitySignals: readEntries(
+      "reliabilitySignals" in value ? value.reliabilitySignals : [],
+    ),
+    fitSignals: readEntries("fitSignals" in value ? value.fitSignals : []),
+    concerns: readEntries("concerns" in value ? value.concerns : []),
+  };
+}
+
+function findStructuredFieldValues(
+  entries: Array<{
+    fieldKey: string;
+    rawValues: string[];
+    normalizedValues: string[];
+  }>,
+  fieldKey: string,
+): string[] {
+  const match = entries.find((entry) => entry.fieldKey === fieldKey);
+  if (!match) return [];
+  return match.normalizedValues.length > 0 ? match.normalizedValues : match.rawValues;
 }
 
 function compactProjectionFacts(input: {
@@ -155,9 +286,21 @@ function compactProjectionFacts(input: {
     facts && typeof facts === "object" && "tags" in facts
       ? facts.tags
       : null;
-  const structuredFacts =
+  const legacyStructuredFacts =
     facts && typeof facts === "object" && "structuredFacts" in facts
       ? facts.structuredFacts
+      : null;
+  const legacyStructuredFieldValues =
+    facts && typeof facts === "object" && "allStructuredFieldValues" in facts
+      ? facts.allStructuredFieldValues
+      : null;
+  const structuredFieldDetails =
+    facts && typeof facts === "object" && "structuredFieldDetails" in facts
+      ? facts.structuredFieldDetails
+      : null;
+  const observationSummary =
+    facts && typeof facts === "object" && "observationSummary" in facts
+      ? facts.observationSummary
       : null;
 
   const compact: GlobalCohortProjection["facts"] = {
@@ -181,52 +324,76 @@ function compactProjectionFacts(input: {
       tags && typeof tags === "object" && "tagNames" in tags
         ? readStringArray(tags.tagNames)
         : input.candidate.tag_names,
+    conflictingFieldKeys:
+      observationSummary &&
+      typeof observationSummary === "object" &&
+      "conflictingFields" in observationSummary
+        ? readStringArray(observationSummary.conflictingFields)
+        : [],
   };
 
   if (!input.includeExtendedFacts) {
     return compact;
   }
 
+  const currentStructuredFields =
+    readStructuredFieldDetailEntries(structuredFieldDetails).length > 0
+      ? readStructuredFieldDetailEntries(structuredFieldDetails)
+      : readStringRecordEntries(legacyStructuredFieldValues);
   compact.budgetValues =
-    structuredFacts &&
-    typeof structuredFacts === "object" &&
-    "budgetValues" in structuredFacts
-      ? readStringArray(structuredFacts.budgetValues)
-      : input.candidate.budget
-        ? [input.candidate.budget]
-        : [];
+    findStructuredFieldValues(currentStructuredFields, "budget").length > 0
+      ? findStructuredFieldValues(currentStructuredFields, "budget")
+      : legacyStructuredFacts &&
+          typeof legacyStructuredFacts === "object" &&
+          "budgetValues" in legacyStructuredFacts
+        ? readStringArray(legacyStructuredFacts.budgetValues)
+        : input.candidate.budget
+          ? [input.candidate.budget]
+          : [];
   compact.timeAvailabilityValues =
-    structuredFacts &&
-    typeof structuredFacts === "object" &&
-    "timeAvailabilityValues" in structuredFacts
-      ? readStringArray(structuredFacts.timeAvailabilityValues)
-      : input.candidate.time_availability
-        ? [input.candidate.time_availability]
-        : [];
+    findStructuredFieldValues(currentStructuredFields, "time_availability")
+      .length > 0
+      ? findStructuredFieldValues(currentStructuredFields, "time_availability")
+      : legacyStructuredFacts &&
+          typeof legacyStructuredFacts === "object" &&
+          "timeAvailabilityValues" in legacyStructuredFacts
+        ? readStringArray(legacyStructuredFacts.timeAvailabilityValues)
+        : input.candidate.time_availability
+          ? [input.candidate.time_availability]
+          : [];
   compact.travelWillingnessValues =
-    structuredFacts &&
-    typeof structuredFacts === "object" &&
-    "travelWillingnessValues" in structuredFacts
-      ? readStringArray(structuredFacts.travelWillingnessValues)
-      : input.candidate.travel_willingness
-        ? [input.candidate.travel_willingness]
-        : [];
+    findStructuredFieldValues(currentStructuredFields, "travel_willingness")
+      .length > 0
+      ? findStructuredFieldValues(currentStructuredFields, "travel_willingness")
+      : legacyStructuredFacts &&
+          typeof legacyStructuredFacts === "object" &&
+          "travelWillingnessValues" in legacyStructuredFacts
+        ? readStringArray(legacyStructuredFacts.travelWillingnessValues)
+        : input.candidate.travel_willingness
+          ? [input.candidate.travel_willingness]
+          : [];
   compact.languageValues =
-    structuredFacts &&
-    typeof structuredFacts === "object" &&
-    "languageValues" in structuredFacts
-      ? readStringArray(structuredFacts.languageValues)
-      : input.candidate.languages
-        ? [input.candidate.languages]
-        : [];
+    findStructuredFieldValues(currentStructuredFields, "languages").length > 0
+      ? findStructuredFieldValues(currentStructuredFields, "languages")
+      : legacyStructuredFacts &&
+          typeof legacyStructuredFacts === "object" &&
+          "languageValues" in legacyStructuredFacts
+        ? readStringArray(legacyStructuredFacts.languageValues)
+        : input.candidate.languages
+          ? [input.candidate.languages]
+          : [];
   compact.countryOfResidenceValues =
-    structuredFacts &&
-    typeof structuredFacts === "object" &&
-    "countryOfResidenceValues" in structuredFacts
-      ? readStringArray(structuredFacts.countryOfResidenceValues)
-      : input.candidate.country_of_residence
-        ? [input.candidate.country_of_residence]
-        : [];
+    findStructuredFieldValues(currentStructuredFields, "country_of_residence")
+      .length > 0
+      ? findStructuredFieldValues(currentStructuredFields, "country_of_residence")
+      : legacyStructuredFacts &&
+          typeof legacyStructuredFacts === "object" &&
+          "countryOfResidenceValues" in legacyStructuredFacts
+        ? readStringArray(legacyStructuredFacts.countryOfResidenceValues)
+        : input.candidate.country_of_residence
+          ? [input.candidate.country_of_residence]
+          : [];
+  compact.currentStructuredFields = currentStructuredFields;
 
   return compact;
 }
@@ -256,19 +423,12 @@ function buildMissingProjection(input: {
 
 function buildProjectedSupportRefs(input: {
   dossier: CrmAiContactDossier;
-  contactId: string;
   maxAnchors: number;
   nextSupportRefIndex: { current: number };
-  supportRefMap: Map<string, GlobalSupportRefResolution>;
 }): GlobalCohortProjection["supportRefs"] {
   return input.dossier.evidence_anchors_json.slice(0, input.maxAnchors).map(
     (anchor) => {
       const supportRef = `support_${input.nextSupportRefIndex.current++}`;
-      input.supportRefMap.set(supportRef, {
-        contactId: input.contactId,
-        claim: anchor.claim,
-        chunkIds: anchor.chunkIds,
-      });
       return {
         supportRef,
         claim: anchor.claim,
@@ -285,12 +445,9 @@ function buildProjectedCohort(input: {
   level: (typeof SINGLE_PASS_LEVELS)[number];
 }): {
   projections: GlobalCohortProjection[];
-  supportRefMap: Map<string, GlobalSupportRefResolution>;
-  evidenceIds: string[];
   tokenEstimate: number;
 } {
   const projections: GlobalCohortProjection[] = [];
-  const supportRefMap = new Map<string, GlobalSupportRefResolution>();
   const nextSupportRefIndex = { current: 1 };
 
   for (const candidate of input.candidateRows) {
@@ -302,10 +459,8 @@ function buildProjectedCohort(input: {
 
     const supportRefs = buildProjectedSupportRefs({
       dossier,
-      contactId: candidate.contact_id,
       maxAnchors: input.level.maxAnchors,
       nextSupportRefIndex,
-      supportRefMap,
     });
 
     projections.push({
@@ -325,6 +480,10 @@ function buildProjectedCohort(input: {
         candidate,
         includeExtendedFacts: input.level.includeExtendedFacts,
       }),
+      signals: readSignalEntries(
+        dossier.signals_json,
+        input.level.maxSignalsPerCategory,
+      ),
       summary: input.level.includeSummary ? dossier.short_summary : null,
       supportRefs,
       contradictions: dossier.contradictions_json.slice(
@@ -335,16 +494,8 @@ function buildProjectedCohort(input: {
     });
   }
 
-  const evidenceIds = Array.from(
-    new Set(
-      Array.from(supportRefMap.values()).flatMap((value) => value.chunkIds),
-    ),
-  );
-
   return {
     projections,
-    supportRefMap,
-    evidenceIds,
     tokenEstimate: estimateTokenCount(projections),
   };
 }
@@ -364,6 +515,7 @@ function uniqueCandidateRowsByContact(
 
 export async function assembleGlobalSinglePassCohort(input: {
   plan: AdminAiQueryPlan;
+  question: string;
 }): Promise<GlobalSinglePassCohortMemory> {
   const candidates = await queryAdminAiContactFacts({
     filters: input.plan.structuredFilters,
@@ -427,8 +579,21 @@ export async function assembleGlobalSinglePassCohort(input: {
     }
   }
 
-  const evidence = await listAdminAiEvidenceByIds({
-    evidenceIds: selectedProjection?.evidenceIds ?? [],
+  const evidence = await retrieveHybridEvidence({
+    question: input.question,
+    textFocus: input.plan.textFocus,
+    contactIds,
+    limit: MAX_GLOBAL_DYNAMIC_EVIDENCE,
+  });
+  const promptCacheKey = buildPromptCacheKey({
+    projections: selectedProjection?.projections ?? [],
+    coverage: {
+      totalCandidates: candidateRows.length,
+      candidatesWithoutDossierCount: contactsMissingDossiers.length,
+      staleDossierCount: contactsServingStaleDossiers.length,
+      compressionLevel: selectedLevel.name,
+      wasCompressed: selectedLevel.name !== "full",
+    },
   });
 
   adminAiDebugLog("global-single-pass-cohort", {
@@ -438,16 +603,20 @@ export async function assembleGlobalSinglePassCohort(input: {
     contactsMissingDossiers: contactsMissingDossiers.length,
     contactsServingStaleDossiers: contactsServingStaleDossiers.length,
     projectionCount: selectedProjection?.projections.length ?? 0,
-    supportRefCount: selectedProjection?.supportRefMap.size ?? 0,
+    supportRefCount:
+      selectedProjection?.projections.reduce(
+        (sum, projection) => sum + projection.supportRefs.length,
+        0,
+      ) ?? 0,
     evidenceCount: evidence.length,
     compressionLevel: selectedLevel.name,
     cohortTokenEstimate: selectedProjection?.tokenEstimate ?? 0,
+    promptCacheKey,
   });
 
   return {
     candidates,
     projections: selectedProjection?.projections ?? [],
-    supportRefMap: selectedProjection?.supportRefMap ?? new Map(),
     evidence,
     contactsMissingDossiers,
     contactsServingStaleDossiers,
@@ -455,5 +624,6 @@ export async function assembleGlobalSinglePassCohort(input: {
     cohortTokenBudget: MAX_GLOBAL_SINGLE_PASS_TOKENS,
     compressionLevel: selectedLevel.name,
     wasCompressed: selectedLevel.name !== "full",
+    promptCacheKey,
   };
 }

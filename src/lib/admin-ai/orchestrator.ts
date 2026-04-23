@@ -3,14 +3,14 @@
  *
  * Global path:
  *   1. plan -> structured filters
- *   2. assemble whole-cohort dossier projections
+ *   2. assemble whole-cohort profile scaffold + dynamic evidence pack
  *   3. single global reasoning call over the cohort
- *   4. resolve support refs back to raw chunk citations
+ *   4. strip unsupported raw-evidence citations before persistence
  *   5. persist assistant message + raw-evidence citations
  *
  * Contact path:
  *   1. plan
- *   2. assemble dossier-first contact memory
+ *   2. assemble dossier-first contact memory + hybrid evidence pack
  *   3. grounded synthesis pass
  *   4. persist assistant message + raw-evidence citations
  *
@@ -29,7 +29,6 @@ import {
 } from "@/lib/data/admin-ai";
 import {
   assembleGlobalSinglePassCohort,
-  type GlobalSupportRefResolution,
 } from "@/lib/admin-ai-memory/global-retrieval";
 import { assembleContactScopedMemory } from "@/lib/admin-ai-memory/contact-retrieval";
 import type {
@@ -153,63 +152,9 @@ function resolveCitationDrafts(
   return { drafts, droppedEvidenceIds };
 }
 
-function hydrateSupportRefsInGlobalResponse(input: {
-  response: AdminAiResponse;
-  supportRefMap: Map<string, GlobalSupportRefResolution>;
-  evidence: EvidenceItem[];
-}): {
-  response: AdminAiResponse;
-  unresolvedSupportRefs: string[];
-} {
-  const evidenceById = new Map(
-    input.evidence.map((item) => [item.evidenceId, item] as const),
-  );
-  const unresolvedSupportRefs: string[] = [];
-
-  const shortlist = input.response.shortlist?.map((entry) => {
-    const expanded: typeof entry.citations = [];
-    const seenEvidenceIds = new Set<string>();
-
-    for (const citation of entry.citations) {
-      const support = input.supportRefMap.get(citation.evidenceId);
-      if (!support || support.contactId !== entry.contactId) {
-        unresolvedSupportRefs.push(citation.evidenceId);
-        continue;
-      }
-
-      for (const chunkId of support.chunkIds) {
-        const evidence = evidenceById.get(chunkId);
-        if (!evidence || evidence.contactId !== entry.contactId) {
-          unresolvedSupportRefs.push(citation.evidenceId);
-          continue;
-        }
-        if (seenEvidenceIds.has(evidence.evidenceId)) continue;
-        seenEvidenceIds.add(evidence.evidenceId);
-        expanded.push({
-          evidenceId: evidence.evidenceId,
-          claimKey: citation.claimKey,
-        });
-      }
-    }
-
-    return {
-      ...entry,
-      citations: expanded,
-    };
-  });
-
-  return {
-    response: {
-      ...input.response,
-      shortlist,
-    },
-    unresolvedSupportRefs,
-  };
-}
-
 function pruneUncitedGlobalShortlistEntries(input: {
   response: AdminAiResponse;
-  unresolvedSupportRefs: string[];
+  droppedEvidenceIds: string[];
 }): {
   response: AdminAiResponse;
   droppedContactIds: string[];
@@ -222,7 +167,7 @@ function pruneUncitedGlobalShortlistEntries(input: {
   });
 
   if (
-    input.unresolvedSupportRefs.length === 0 &&
+    input.droppedEvidenceIds.length === 0 &&
     droppedContactIds.length === 0
   ) {
     return {
@@ -454,11 +399,11 @@ async function runGlobalAnalysis(input: {
 }): Promise<RunAdminAiAnalysisResult> {
   const cohort = await assembleGlobalSinglePassCohort({
     plan: input.queryPlan,
+    question: input.question,
   });
   adminAiDebugLog("global-single-pass-assembled", {
     candidateCount: cohort.candidates.length,
     projectionCount: cohort.projections.length,
-    supportRefCount: cohort.supportRefMap.size,
     evidenceCount: cohort.evidence.length,
     contactsMissingDossiers: cohort.contactsMissingDossiers.length,
     contactsServingStaleDossiers: cohort.contactsServingStaleDossiers.length,
@@ -466,6 +411,7 @@ async function runGlobalAnalysis(input: {
     wasCompressed: cohort.wasCompressed,
     cohortTokenEstimate: cohort.cohortTokenEstimate,
     cohortTokenBudget: cohort.cohortTokenBudget,
+    promptCacheKey: cohort.promptCacheKey,
   });
 
   if (cohort.candidates.length === 0 || cohort.projections.length === 0) {
@@ -478,16 +424,16 @@ async function runGlobalAnalysis(input: {
     });
   }
 
-  if (cohort.supportRefMap.size === 0 || cohort.evidence.length === 0) {
+  if (cohort.evidence.length === 0) {
     const response = buildInsufficientEvidenceResponse("global", {
       extra:
-        "No anchor-backed dossier evidence is available for the current cohort yet.",
+        "No raw evidence could be retrieved for the current cohort yet.",
     });
     return persistInsufficientResponse({
       threadId: input.threadId,
       queryPlan: input.queryPlan,
       response,
-      reason: "no_anchor_backed_memory",
+      reason: "no_retrieved_evidence",
     });
   }
 
@@ -516,7 +462,6 @@ async function runGlobalAnalysis(input: {
     const timer = startAdminAiDebugTimer("global-single-pass", {
       candidateCount: cohort.candidates.length,
       projectionCount: cohort.projections.length,
-      supportRefCount: cohort.supportRefMap.size,
       evidenceCount: cohort.evidence.length,
       compressionLevel: cohort.compressionLevel,
       wasCompressed: cohort.wasCompressed,
@@ -534,36 +479,37 @@ async function runGlobalAnalysis(input: {
           compressionLevel: cohort.compressionLevel,
           wasCompressed: cohort.wasCompressed,
         },
+        evidence: cohort.evidence,
+        promptCacheKey: cohort.promptCacheKey,
       });
 
     const response = adminAiResponseSchema.parse(rawResponse);
-    const hydrated = hydrateSupportRefsInGlobalResponse({
+    const { drafts: citations, droppedEvidenceIds } = resolveCitationDrafts(
       response,
-      supportRefMap: cohort.supportRefMap,
-      evidence: cohort.evidence,
-    });
-
-    const cleaned = pruneUncitedGlobalShortlistEntries({
-      response: hydrated.response,
-      unresolvedSupportRefs: hydrated.unresolvedSupportRefs,
-    });
-    const unresolvedSupportRefs = Array.from(
-      new Set(hydrated.unresolvedSupportRefs),
+      cohort.evidence,
     );
+    const cleanedResponse = applyDroppedEvidenceIdsToResponse(
+      response,
+      new Set(droppedEvidenceIds),
+    );
+    const cleaned = pruneUncitedGlobalShortlistEntries({
+      response: cleanedResponse,
+      droppedEvidenceIds,
+    });
     if (
-      unresolvedSupportRefs.length > 0 ||
+      droppedEvidenceIds.length > 0 ||
       cleaned.droppedContactIds.length > 0
     ) {
       console.warn(
-        "[admin-ai] single-pass global response contained unresolved support refs — dropping unsupported shortlist entries",
+        "[admin-ai] single-pass global response contained unresolved evidence citations — dropping unsupported shortlist entries",
         {
-          unresolvedSupportRefs,
+          droppedEvidenceIds,
           droppedContactIds: cleaned.droppedContactIds,
           keptCount: cleaned.response.shortlist?.length ?? 0,
         },
       );
-      adminAiDebugLog("global-support-ref-cleanup", {
-        unresolvedSupportRefs,
+      adminAiDebugLog("global-evidence-cleanup", {
+        droppedEvidenceIds,
         droppedContactIds: cleaned.droppedContactIds,
         keptCount: cleaned.response.shortlist?.length ?? 0,
       });
@@ -576,27 +522,21 @@ async function runGlobalAnalysis(input: {
           "The model did not return any grounded shortlist entries for this question.",
       });
       timer.end({
-        status: "insufficient_after_support_ref_cleanup",
-        unresolvedSupportRefCount: unresolvedSupportRefs.length,
+        status: "insufficient_after_evidence_cleanup",
+        droppedEvidenceCount: droppedEvidenceIds.length,
         droppedShortlistCount: cleaned.droppedContactIds.length,
       });
       return persistInsufficientResponse({
         threadId: input.threadId,
         queryPlan: input.queryPlan,
         response,
-        reason: "ungrounded_single_pass_shortlist",
+        reason: "ungrounded_retrieved_evidence_shortlist",
       });
     }
-
-    const { drafts: citations } = resolveCitationDrafts(
-      cleaned.response,
-      cohort.evidence,
-    );
 
     const mergedMetadata: Record<string, unknown> = {
       ...modelMetadata,
       globalSinglePass: {
-        supportRefCount: cohort.supportRefMap.size,
         evidenceCount: cohort.evidence.length,
         contactsMissingDossiers: cohort.contactsMissingDossiers.length,
         contactsServingStaleDossiers:
@@ -605,7 +545,8 @@ async function runGlobalAnalysis(input: {
         wasCompressed: cohort.wasCompressed,
         cohortTokenEstimate: cohort.cohortTokenEstimate,
         cohortTokenBudget: cohort.cohortTokenBudget,
-        unresolvedSupportRefs,
+        promptCacheKey: cohort.promptCacheKey,
+        droppedEvidenceIds,
         droppedShortlistContactIds: cleaned.droppedContactIds,
       },
     };
@@ -625,6 +566,7 @@ async function runGlobalAnalysis(input: {
       status: "complete",
       shortlistCount: cleaned.response.shortlist?.length ?? 0,
       citationCount: citations.length,
+      cacheKey: cohort.promptCacheKey,
     });
 
     return {

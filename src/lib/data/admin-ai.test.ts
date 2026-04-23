@@ -703,6 +703,76 @@ describe("searchAdminAiEvidence", () => {
   });
 });
 
+describe("searchAdminAiEvidenceByEmbedding", () => {
+  let mock: Harness;
+  beforeEach(async () => {
+    mock = await freshHarness();
+  });
+
+  it("calls the embedding RPC exactly once and maps the canonical evidence rows", async () => {
+    mock.mockQueryResult([
+      {
+        subchunk_id: "subchunk-1",
+        evidence_id: "chunk-1",
+        contact_id: "c1",
+        application_id: "a1",
+        source_type: "application_answer",
+        source_id: "a1:ultimate_vision",
+        source_label: "ultimate_vision",
+        source_timestamp: "2026-04-14T00:00:00Z",
+        program: "academy",
+        text: "swimming with dolphins",
+        similarity: 0.87,
+      },
+    ]);
+
+    const { searchAdminAiEvidenceByEmbedding } = await import("./admin-ai-retrieval");
+    const out = await searchAdminAiEvidenceByEmbedding({
+      embedding: [0.1, 0.2, 0.3],
+      contactIds: ["c1", "c2"],
+      limit: 20,
+    });
+
+    expect(mock.client.rpc).toHaveBeenCalledTimes(1);
+    expect(mock.client.rpc).toHaveBeenCalledWith(
+      "search_admin_ai_subchunk_evidence",
+      expect.objectContaining({
+        p_query_embedding: [0.1, 0.2, 0.3],
+        p_contact_ids: ["c1", "c2"],
+        p_contact_id: null,
+        p_limit: 20,
+      }),
+    );
+    expect(out).toEqual([
+      {
+        evidence: {
+          evidenceId: "chunk-1",
+          contactId: "c1",
+          applicationId: "a1",
+          sourceType: "application_answer",
+          sourceId: "a1:ultimate_vision",
+          sourceLabel: "ultimate_vision",
+          sourceTimestamp: "2026-04-14T00:00:00Z",
+          program: "academy",
+          text: "swimming with dolphins",
+        },
+        score: 0.87,
+      },
+    ]);
+  });
+
+  it("throws when the embedding RPC errors", async () => {
+    mock.mockQueryResult(null, { message: "vector rpc failed" });
+    const { searchAdminAiEvidenceByEmbedding } = await import("./admin-ai-retrieval");
+    await expect(
+      searchAdminAiEvidenceByEmbedding({
+        embedding: [0.1, 0.2, 0.3],
+        limit: 5,
+      }),
+    ).rejects.toThrow(/vector rpc failed/);
+  });
+});
+
 // ===========================================================================
 // listRecentAdminAiEvidence
 // ===========================================================================
@@ -738,6 +808,7 @@ describe("listRecentAdminAiEvidence", () => {
 
     expect(mock.client.from).toHaveBeenCalledWith("crm_ai_evidence_chunks");
     expect(mock.query.eq).toHaveBeenCalledWith("contact_id", "c1");
+    expect(mock.query.is).toHaveBeenCalledWith("superseded_at", null);
     expect(mock.query.order).toHaveBeenCalledWith("source_timestamp", {
       ascending: false,
       nullsFirst: false,

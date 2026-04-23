@@ -6,9 +6,8 @@ import type {
   GlobalCohortProjection,
   EvidenceItem,
 } from "@/types/admin-ai";
-import type {
-  CrmAiContactDossier,
-} from "@/types/admin-ai-memory";
+import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
+import { DOSSIER_GENERATOR_VERSION } from "@/lib/admin-ai-memory/dossier-prompt";
 
 vi.mock("./query-plan", () => ({
   buildAdminAiQueryPlan: vi.fn(),
@@ -122,7 +121,7 @@ function makeDossier(contactId: string): CrmAiContactDossier {
   return {
     contact_id: contactId,
     dossier_version: 1,
-    generator_version: "dossier-prompt-v1",
+    generator_version: DOSSIER_GENERATOR_VERSION,
     source_fingerprint: "fp",
     source_coverage: {
       applicationCount: 1,
@@ -176,7 +175,7 @@ describe("runAdminAiAnalysis (global)", () => {
     vi.clearAllMocks();
   });
 
-  it("uses the single-pass cohort path and resolves support refs into raw chunk-backed citations", async () => {
+  it("uses the single-pass cohort path and keeps only grounded raw-evidence citations", async () => {
     const planMod = await import("./query-plan");
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
@@ -199,24 +198,6 @@ describe("runAdminAiAnalysis (global)", () => {
           ],
         }),
       ],
-      supportRefMap: new Map([
-        [
-          "support_1",
-          {
-            contactId: CONTACT_ID,
-            claim: "Strong excitement about conservation storytelling.",
-            chunkIds: ["evidence-1"],
-          },
-        ],
-        [
-          "support_2",
-          {
-            contactId: OTHER_CONTACT_ID,
-            claim: "Looks excited by field reporting work.",
-            chunkIds: ["evidence-2"],
-          },
-        ],
-      ]),
       evidence: [
         makeEvidence(CONTACT_ID, "evidence-1"),
         makeEvidence(OTHER_CONTACT_ID, "evidence-2"),
@@ -227,6 +208,7 @@ describe("runAdminAiAnalysis (global)", () => {
       cohortTokenBudget: 280000,
       compressionLevel: "full",
       wasCompressed: false,
+      promptCacheKey: "cache-key-1",
     });
 
     const cohortGenerate = vi.fn().mockResolvedValue({
@@ -239,7 +221,7 @@ describe("runAdminAiAnalysis (global)", () => {
             whyFit: ["Mission match"],
             concerns: [],
             citations: [
-              { evidenceId: "support_1", claimKey: "shortlist.0.whyFit.0" },
+              { evidenceId: "evidence-1", claimKey: "shortlist.0.whyFit.0" },
             ],
           },
         ],
@@ -304,24 +286,6 @@ describe("runAdminAiAnalysis (global)", () => {
           ],
         }),
       ],
-      supportRefMap: new Map([
-        [
-          "support_1",
-          {
-            contactId: CONTACT_ID,
-            claim: "Strong excitement about conservation storytelling.",
-            chunkIds: ["evidence-1"],
-          },
-        ],
-        [
-          "support_2",
-          {
-            contactId: OTHER_CONTACT_ID,
-            claim: "Looks excited by field reporting work.",
-            chunkIds: ["evidence-2"],
-          },
-        ],
-      ]),
       evidence: [
         makeEvidence(CONTACT_ID, "evidence-1"),
         makeEvidence(OTHER_CONTACT_ID, "evidence-2"),
@@ -332,6 +296,7 @@ describe("runAdminAiAnalysis (global)", () => {
       cohortTokenBudget: 280000,
       compressionLevel: "full",
       wasCompressed: false,
+      promptCacheKey: "cache-key-1",
     });
 
     const cohortGenerate = vi.fn().mockResolvedValue({
@@ -344,7 +309,7 @@ describe("runAdminAiAnalysis (global)", () => {
             whyFit: ["Mission match"],
             concerns: [],
             citations: [
-              { evidenceId: "support_1", claimKey: "shortlist.0.whyFit.0" },
+              { evidenceId: "evidence-1", claimKey: "shortlist.0.whyFit.0" },
             ],
           },
           {
@@ -353,7 +318,7 @@ describe("runAdminAiAnalysis (global)", () => {
             whyFit: ["Field reporting fit"],
             concerns: [],
             citations: [
-              { evidenceId: "support_99", claimKey: "shortlist.1.whyFit.0" },
+              { evidenceId: "missing-evidence", claimKey: "shortlist.1.whyFit.0" },
             ],
           },
         ],
