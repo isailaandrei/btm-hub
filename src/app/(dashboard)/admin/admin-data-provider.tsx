@@ -31,7 +31,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import type { Application, Profile, Contact, TagCategory, Tag, ContactTag } from "@/types/database";
+import type { Application, Profile, Contact, TagCategory, Tag, ContactTag, ContactEvent } from "@/types/database";
+import type { ContactEventSummary } from "@/lib/data/contact-events";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 type FetchState = "idle" | "loading" | "done";
@@ -53,6 +54,7 @@ interface AdminContactsContextValue {
   tagCategories: TagCategory[] | null;
   tags: Tag[] | null;
   contactTags: ContactTag[] | null;
+  contactEventSummaries: ContactEventSummary[] | null;
   contactsError: string | null;
   ensureContacts: () => void;
 }
@@ -81,6 +83,8 @@ const TAG_CATEGORY_SELECT =
   "id, name, color, sort_order, created_at, updated_at";
 const TAG_SELECT =
   "id, category_id, name, sort_order, updated_at";
+const CONTACT_EVENT_SUMMARY_SELECT =
+  "contact_id, type, custom_label, happened_at, resolved_at";
 const TAGS_REFETCH_DEBOUNCE_MS = 200;
 
 function sortContactsByName(items: Contact[]): Contact[] {
@@ -151,6 +155,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(null);
   const [tags, setTags] = useState<Tag[] | null>(null);
   const [contactTags, setContactTags] = useState<ContactTag[] | null>(null);
+  const [contactEventSummaries, setContactEventSummaries] =
+    useState<ContactEventSummary[] | null>(null);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
   const [preferences, setPreferences] = useState<Record<string, unknown>>({});
@@ -317,6 +323,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         { data: tagCategoriesData, error: tagCategoriesErr },
         { data: tagsData, error: tagsErr },
         { data: contactTagsData, error: contactTagsErr },
+        { data: contactEventSummariesData, error: contactEventSummariesErr },
       ] = await Promise.all([
         supabase.from("contacts").select(CONTACT_SELECT).order("name"),
         supabase
@@ -325,9 +332,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           .order("sort_order"),
         supabase.from("tags").select(TAG_SELECT).order("sort_order"),
         supabase.from("contact_tags").select("*"),
+        supabase.from("contact_events").select(CONTACT_EVENT_SUMMARY_SELECT),
       ]);
 
-      const fetchError = contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr;
+      const fetchError =
+        contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr ?? contactEventSummariesErr;
       if (fetchError) {
         contactsFetchState.current = "idle";
         setContactsError("Failed to load contacts.");
@@ -340,6 +349,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       setTagCategories(tagCategoriesData ?? []);
       setTags(tagsData ?? []);
       setContactTags(contactTagsData ?? []);
+      setContactEventSummaries(contactEventSummariesData ?? []);
       contactsFetchState.current = "done";
 
       // Subscribe to Realtime only after the initial fetch succeeds
@@ -433,7 +443,59 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         )
         .subscribe();
 
-      channelsRef.current.push(contactsChannel, contactTagsChannel, tagCategoriesChannel, tagsChannel);
+      const contactEventsChannel = supabase
+        .channel("admin-contact-events")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "contact_events" },
+          (payload) => {
+            const row = payload.new as ContactEvent;
+            const summary: ContactEventSummary = {
+              contact_id: row.contact_id,
+              type: row.type,
+              custom_label: row.custom_label,
+              happened_at: row.happened_at,
+              resolved_at: row.resolved_at,
+            };
+            setContactEventSummaries((prev) => [...(prev ?? []), summary]);
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "contact_events" },
+          (payload) => {
+            const row = payload.new as ContactEvent;
+            setContactEventSummaries((prev) =>
+              (prev ?? []).map((s) =>
+                s.contact_id === row.contact_id && s.happened_at === row.happened_at
+                  ? {
+                      contact_id: row.contact_id,
+                      type: row.type,
+                      custom_label: row.custom_label,
+                      happened_at: row.happened_at,
+                      resolved_at: row.resolved_at,
+                    }
+                  : s,
+              ),
+            );
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "contact_events" },
+          (payload) => {
+            const row = payload.old as ContactEvent;
+            setContactEventSummaries((prev) =>
+              (prev ?? []).filter(
+                (s) =>
+                  !(s.contact_id === row.contact_id && s.happened_at === row.happened_at),
+              ),
+            );
+          },
+        )
+        .subscribe();
+
+      channelsRef.current.push(contactsChannel, contactTagsChannel, tagCategoriesChannel, tagsChannel, contactEventsChannel);
     }
 
     fetchContacts();
@@ -509,6 +571,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       tagCategories,
       tags,
       contactTags,
+      contactEventSummaries,
       contactsError,
       ensureContacts,
     }),
@@ -517,6 +580,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       tagCategories,
       tags,
       contactTags,
+      contactEventSummaries,
       contactsError,
       ensureContacts,
     ],
