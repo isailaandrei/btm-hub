@@ -236,13 +236,15 @@ export async function supersedeStaleCurrentCrmEvidenceChunksForContact(input: {
     ]),
   );
 
-  const staleIds = ((data ?? []) as Array<{
+  const currentRows = (data ?? []) as unknown as Array<{
     id: string;
     source_type: string;
     logical_source_id: string;
     source_id: string;
     superseded_at: string | null;
-  }>)
+  }>;
+
+  const staleIds = currentRows
     .filter((row) => {
       const nextSourceId = currentByLogicalKey.get(
         `${row.source_type}:${row.logical_source_id}`,
@@ -303,7 +305,7 @@ export async function listCurrentCrmEvidenceChunkInputsForContact(input: {
     );
   }
 
-  return ((data ?? []) as Array<{
+  const rows = (data ?? []) as unknown as Array<{
     contact_id: string;
     application_id: string | null;
     source_type: CrmAiEvidenceChunkInput["sourceType"];
@@ -314,7 +316,9 @@ export async function listCurrentCrmEvidenceChunkInputsForContact(input: {
     metadata_json: Record<string, unknown>;
     content_hash: string;
     chunk_version: number;
-  }>).map((row) => ({
+  }>;
+
+  return rows.map((row) => ({
     contactId: row.contact_id,
     applicationId: row.application_id,
     sourceType: row.source_type,
@@ -571,7 +575,7 @@ export async function loadContactCrmSources(input: {
     );
   }
 
-  const contactTags = ((tagData ?? []) as Array<{
+  const contactTags = ((tagData ?? []) as unknown as Array<{
     tag_id: string;
     assigned_at: string | null;
     tags: Array<{ id: string; name: string }> | null;
@@ -584,9 +588,9 @@ export async function loadContactCrmSources(input: {
     }));
 
   return {
-    contact: contactData as Contact,
-    applications: (applicationData ?? []) as Application[],
-    contactNotes: (noteData ?? []) as ContactNote[],
+    contact: contactData as unknown as Contact,
+    applications: (applicationData ?? []) as unknown as Application[],
+    contactNotes: (noteData ?? []) as unknown as ContactNote[],
     contactTags,
   };
 }
@@ -610,7 +614,8 @@ export async function listContactIdsForMemory(input: {
   if (error) {
     throw new Error(`Failed to list contacts for memory: ${error.message}`);
   }
-  return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
+  const rows = (data ?? []) as unknown as Array<{ id: string }>;
+  return rows.map((row) => row.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -631,6 +636,6 @@ export async function findStaleContactMemory(input: {
   if (error) {
     throw new Error(`Failed to find stale contact memory: ${error.message}`);
   }
-  const rows = (data ?? []) as Array<{ contact_id: string }>;
+  const rows = (data ?? []) as unknown as Array<{ contact_id: string }>;
   return rows.map((r) => r.contact_id);
 }

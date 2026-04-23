@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   const {
     runStandaloneBackfill,
     runStandaloneStructuralRefresh,
-  } = await import("./_runner.ts");
+  } = await import("./_runner");
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },

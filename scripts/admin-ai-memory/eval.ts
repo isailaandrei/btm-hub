@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import {
   scoreDossier,
   type Verdict,
-} from "../../src/lib/admin-ai-memory/eval-rubric.ts";
+} from "../../src/lib/admin-ai-memory/eval-rubric";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../..");

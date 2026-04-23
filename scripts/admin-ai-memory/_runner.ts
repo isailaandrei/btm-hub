@@ -10,26 +10,26 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildCurrentCrmChunksForContact,
   type ContactTagChunkSource,
-} from "../../src/lib/admin-ai-memory/chunk-builder.ts";
-import { buildStableChunkId } from "../../src/lib/admin-ai-memory/chunk-identity.ts";
-import { selectChunksForDossier } from "../../src/lib/admin-ai-memory/dossier-chunk-selection.ts";
-import { buildFactObservationsFromChunks } from "../../src/lib/admin-ai-memory/fact-observations.ts";
-import { compileContactProfileFacts } from "../../src/lib/admin-ai-memory/profile-compiler.ts";
-import { buildEvidenceSubchunks } from "../../src/lib/admin-ai-memory/subchunk-builder.ts";
-import { generateSubchunkEmbeddings } from "../../src/lib/admin-ai-memory/embeddings.ts";
-import { generateContactDossier } from "../../src/lib/admin-ai-memory/dossier-generator.ts";
-import { DOSSIER_GENERATOR_VERSION } from "../../src/lib/admin-ai-memory/dossier-prompt.ts";
-import { DOSSIER_SCHEMA_VERSION } from "../../src/lib/admin-ai-memory/dossier-version.ts";
+} from "../../src/lib/admin-ai-memory/chunk-builder";
+import { buildStableChunkId } from "../../src/lib/admin-ai-memory/chunk-identity";
+import { selectChunksForDossier } from "../../src/lib/admin-ai-memory/dossier-chunk-selection";
+import { buildFactObservationsFromChunks } from "../../src/lib/admin-ai-memory/fact-observations";
+import { compileContactProfileFacts } from "../../src/lib/admin-ai-memory/profile-compiler";
+import { buildEvidenceSubchunks } from "../../src/lib/admin-ai-memory/subchunk-builder";
+import { generateSubchunkEmbeddings } from "../../src/lib/admin-ai-memory/embeddings";
+import { generateContactDossier } from "../../src/lib/admin-ai-memory/dossier-generator";
+import { DOSSIER_GENERATOR_VERSION } from "../../src/lib/admin-ai-memory/dossier-prompt";
+import { DOSSIER_SCHEMA_VERSION } from "../../src/lib/admin-ai-memory/dossier-version";
 import {
   computeChunkSourceFingerprint,
   isDossierStale,
-} from "../../src/lib/admin-ai-memory/freshness.ts";
-import { CURRENT_CRM_SOURCE_TYPES } from "../../src/lib/admin-ai-memory/source-types.ts";
+} from "../../src/lib/admin-ai-memory/freshness";
+import { CURRENT_CRM_SOURCE_TYPES } from "../../src/lib/admin-ai-memory/source-types";
 import type {
   Application,
   Contact,
   ContactNote,
-} from "../../src/types/database.ts";
+} from "../../src/types/database";
 import type {
   CrmAiContactDossier,
   CrmAiEvidenceChunkInput,
@@ -38,8 +38,8 @@ import type {
   CrmAiFactObservation,
   CrmAiFactObservationInput,
   DossierSourceCoverage,
-} from "../../src/types/admin-ai-memory.ts";
-import type { BackfillStats } from "../../src/lib/admin-ai-memory/backfill.ts";
+} from "../../src/types/admin-ai-memory";
+import type { BackfillStats } from "../../src/lib/admin-ai-memory/backfill";
 
 const DEBUG_ENABLED = () =>
   process.env.ADMIN_AI_BACKFILL_DEBUG?.trim() === "1";
@@ -163,7 +163,8 @@ async function listContactIds(
   if (typeof limit === "number") query = query.limit(limit);
   const { data, error } = await query;
   if (error) throw new Error(`Failed to list contacts: ${error.message}`);
-  return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  const rows = (data ?? []) as unknown as Array<{ id: string }>;
+  return rows.map((row) => row.id);
 }
 
 async function loadContactSources(
@@ -209,10 +210,10 @@ async function loadContactSources(
   if (tagErr) throw new Error(`contact_tags: ${tagErr.message}`);
 
   return {
-    contact: contact as Contact,
-    applications: (applications ?? []) as Application[],
-    contactNotes: (notes ?? []) as ContactNote[],
-    contactTags: ((contactTags ?? []) as Array<{
+    contact: contact as unknown as Contact,
+    applications: (applications ?? []) as unknown as Application[],
+    contactNotes: (notes ?? []) as unknown as ContactNote[],
+    contactTags: ((contactTags ?? []) as unknown as Array<{
       tag_id: string;
       assigned_at: string | null;
       tags: Array<{ id: string; name: string }> | null;
@@ -256,7 +257,42 @@ async function listFactObservations(
     .order("observed_at", { ascending: false });
 
   if (error) throw new Error(`crm_ai_fact_observations: ${error.message}`);
-  return (data ?? []) as CrmAiFactObservation[];
+
+  const rows = (data ?? []) as unknown as Array<{
+    id: string;
+    contact_id: string;
+    observation_type: CrmAiFactObservation["observation_type"];
+    field_key: string | null;
+    value_type: CrmAiFactObservation["value_type"];
+    value_text: string;
+    value_json: unknown;
+    confidence: CrmAiFactObservation["confidence"];
+    source_chunk_ids: string[];
+    source_timestamp: string | null;
+    observed_at: string;
+    invalidated_at: string | null;
+    conflict_group: string | null;
+    metadata_json: Record<string, unknown>;
+    created_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    contact_id: row.contact_id,
+    observation_type: row.observation_type,
+    field_key: row.field_key,
+    value_type: row.value_type,
+    value_text: row.value_text,
+    value_json: row.value_json,
+    confidence: row.confidence,
+    source_chunk_ids: row.source_chunk_ids,
+    source_timestamp: row.source_timestamp,
+    observed_at: row.observed_at,
+    invalidated_at: row.invalidated_at,
+    conflict_group: row.conflict_group,
+    metadata_json: row.metadata_json,
+    created_at: row.created_at,
+  }));
 }
 
 async function listCurrentStoredCrmChunks(
@@ -286,7 +322,7 @@ async function listCurrentStoredCrmChunks(
 
   if (error) throw new Error(`crm_ai_evidence_chunks: ${error.message}`);
 
-  return ((data ?? []) as Array<{
+  const rows = (data ?? []) as unknown as Array<{
     contact_id: string;
     application_id: string | null;
     source_type: CrmAiEvidenceChunkInput["sourceType"];
@@ -297,7 +333,9 @@ async function listCurrentStoredCrmChunks(
     metadata_json: Record<string, unknown>;
     content_hash: string;
     chunk_version: number;
-  }>).map((row) => ({
+  }>;
+
+  return rows.map((row) => ({
     contactId: row.contact_id,
     applicationId: row.application_id,
     sourceType: row.source_type,
@@ -458,13 +496,15 @@ async function supersedeStaleCurrentCrmChunks(input: {
     ]),
   );
 
-  const staleIds = ((data ?? []) as Array<{
+  const rows = (data ?? []) as unknown as Array<{
     id: string;
     source_type: string;
     logical_source_id: string;
     source_id: string;
     superseded_at: string | null;
-  }>)
+  }>;
+
+  const staleIds = rows
     .filter((row) => {
       const nextSourceId = currentByLogicalKey.get(
         `${row.source_type}:${row.logical_source_id}`,
@@ -499,7 +539,7 @@ async function fetchExistingMemory(
     .maybeSingle();
   if (dErr) throw new Error(`dossier read: ${dErr.message}`);
   return {
-    dossier: (dossier as CrmAiContactDossier | null) ?? null,
+    dossier: (dossier as unknown as CrmAiContactDossier | null) ?? null,
   };
 }
 
