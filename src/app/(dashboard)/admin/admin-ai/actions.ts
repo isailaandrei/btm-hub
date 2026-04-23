@@ -6,6 +6,7 @@ import {
   adminAiThreadLoadSchema,
   adminAiThreadMutationSchema,
 } from "@/lib/admin-ai/schemas";
+import { adminAiDebugLog } from "@/lib/admin-ai/debug";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import {
   describeAssistantResponse,
@@ -167,6 +168,12 @@ export async function askAdminAiQuestion(
   const threadTitle = buildThreadTitle(parsed.data.question);
   const existingThreadMetadata = getExistingThreadMetadata(formData);
   const providerAvailability = getAdminAiProviderAvailability();
+  adminAiDebugLog("ask-action", {
+    scope: parsed.data.scope,
+    contactId: parsed.data.contactId ?? null,
+    hasThreadId: Boolean(parsed.data.threadId),
+    questionChars: parsed.data.question.length,
+  });
 
   if (!providerAvailability.isConfigured) {
     return {
@@ -256,6 +263,13 @@ export async function askAdminAiQuestion(
     };
 
     revalidateAdminAiViews(parsed.data.scope, parsed.data.contactId);
+    adminAiDebugLog("ask-action-result", {
+      scope: parsed.data.scope,
+      status: analysis.status,
+      assistantMessageId: analysis.assistantMessageId,
+      citationCount: analysis.citations.length,
+      hasStructuredResponse: Boolean(analysis.response),
+    });
 
     return {
       errors: null,
@@ -274,6 +288,11 @@ export async function askAdminAiQuestion(
         : crypto.randomUUID();
 
     revalidateAdminAiViews(parsed.data.scope, parsed.data.contactId);
+    adminAiDebugLog("ask-action-failed", {
+      scope: parsed.data.scope,
+      assistantMessageId,
+      error: error instanceof Error ? error.message : "Admin AI analysis failed.",
+    });
 
     return {
       errors: null,

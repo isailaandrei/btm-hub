@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
+import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 
 vi.mock("@/lib/data/admin-ai-memory", () => ({
@@ -7,9 +8,8 @@ vi.mock("@/lib/data/admin-ai-memory", () => ({
   loadContactCrmSources: vi.fn(),
 }));
 
-vi.mock("@/lib/data/admin-ai-retrieval", () => ({
-  searchAdminAiEvidence: vi.fn(),
-  listRecentAdminAiEvidence: vi.fn(),
+vi.mock("./retrieval-fusion", () => ({
+  retrieveHybridEvidence: vi.fn(),
 }));
 
 vi.mock("./backfill", () => ({
@@ -24,7 +24,7 @@ function makeDossier(
   return {
     contact_id: CONTACT_ID,
     dossier_version: DOSSIER_SCHEMA_VERSION,
-    generator_version: "dossier-prompt-v1",
+    generator_version: DOSSIER_GENERATOR_VERSION,
     source_fingerprint: "fp",
     source_coverage: {
       applicationCount: 1,
@@ -78,11 +78,11 @@ describe("assembleContactScopedMemory", () => {
 
   it("loads dossier first, then contact-scoped raw evidence", async () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const retrievalMod = await import("./retrieval-fusion");
 
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(makeDossier());
     vi.mocked(memoryMod.loadContactCrmSources).mockResolvedValue(null);
-    vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([
+    vi.mocked(retrievalMod.retrieveHybridEvidence).mockResolvedValue([
       makeEvidence(),
     ]);
 
@@ -97,7 +97,7 @@ describe("assembleContactScopedMemory", () => {
       contactId: CONTACT_ID,
     });
     expect(
-      vi.mocked(retrievalMod.searchAdminAiEvidence).mock.calls[0]?.[0],
+      vi.mocked(retrievalMod.retrieveHybridEvidence).mock.calls[0]?.[0],
     ).toEqual(
       expect.objectContaining({
         contactId: CONTACT_ID,
@@ -110,12 +110,11 @@ describe("assembleContactScopedMemory", () => {
 
   it("falls back to recent raw chunks when text-focused evidence search is empty", async () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const retrievalMod = await import("./retrieval-fusion");
 
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(makeDossier());
     vi.mocked(memoryMod.loadContactCrmSources).mockResolvedValue(null);
-    vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([]);
-    vi.mocked(retrievalMod.listRecentAdminAiEvidence).mockResolvedValue([
+    vi.mocked(retrievalMod.retrieveHybridEvidence).mockResolvedValue([
       {
         ...makeEvidence(),
         evidenceId: "chunk-1",
@@ -130,7 +129,9 @@ describe("assembleContactScopedMemory", () => {
       textFocus: ["rare-term"],
     });
 
-    expect(retrievalMod.listRecentAdminAiEvidence).toHaveBeenCalledWith({
+    expect(retrievalMod.retrieveHybridEvidence).toHaveBeenCalledWith({
+      question: "what do we know?",
+      textFocus: ["rare-term"],
       contactId: CONTACT_ID,
       limit: 40,
     });
@@ -144,7 +145,7 @@ describe("assembleContactScopedMemory", () => {
 
   it("flags fallbackUsed and still returns evidence when no dossier exists", async () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const retrievalMod = await import("./retrieval-fusion");
     const backfillMod = await import("./backfill");
 
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(null);
@@ -153,9 +154,8 @@ describe("assembleContactScopedMemory", () => {
       status: "missing_sources",
       chunkCount: 0,
       dossierUpserted: false,
-      rankingCardUpserted: false,
     });
-    vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([
+    vi.mocked(retrievalMod.retrieveHybridEvidence).mockResolvedValue([
       makeEvidence(),
     ]);
 
@@ -176,13 +176,13 @@ describe("assembleContactScopedMemory", () => {
 
   it("does not sync-rebuild when an existing dossier is only soft-stale", async () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const retrievalMod = await import("./retrieval-fusion");
     const backfillMod = await import("./backfill");
 
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(
       makeDossier({ stale_at: "2026-04-15T00:00:00Z" }),
     );
-    vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([
+    vi.mocked(retrievalMod.retrieveHybridEvidence).mockResolvedValue([
       makeEvidence(),
     ]);
 
@@ -199,14 +199,14 @@ describe("assembleContactScopedMemory", () => {
 
   it("falls back to the existing dossier when sync rebuild fails", async () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const retrievalMod = await import("./retrieval-fusion");
     const backfillMod = await import("./backfill");
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(
       makeDossier({ generator_version: "old-version" }),
     );
-    vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([
+    vi.mocked(retrievalMod.retrieveHybridEvidence).mockResolvedValue([
       makeEvidence(),
     ]);
     vi.mocked(backfillMod.rebuildContactMemory).mockRejectedValue(
@@ -236,11 +236,11 @@ describe("assembleContactScopedMemory", () => {
 
   it("never leaks evidence from a different contact", async () => {
     const memoryMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
+    const retrievalMod = await import("./retrieval-fusion");
 
     vi.mocked(memoryMod.getContactDossier).mockResolvedValue(makeDossier());
     vi.mocked(memoryMod.loadContactCrmSources).mockResolvedValue(null);
-    vi.mocked(retrievalMod.searchAdminAiEvidence).mockResolvedValue([
+    vi.mocked(retrievalMod.retrieveHybridEvidence).mockResolvedValue([
       makeEvidence("different-contact"),
     ]);
 

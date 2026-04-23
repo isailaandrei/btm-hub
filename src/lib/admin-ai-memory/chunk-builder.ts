@@ -12,7 +12,11 @@
  */
 
 import { createHash } from "crypto";
-import { ADMIN_AI_TEXT_FIELDS } from "@/lib/admin-ai/field-config";
+import {
+  ADMIN_AI_TEXT_FIELDS,
+  getAdminAiFieldLabel,
+  normalizeAdminAiOption,
+} from "@/lib/admin-ai/field-config";
 import { CHUNK_SOURCE_TYPES } from "./source-types";
 import type {
   Application,
@@ -28,6 +32,12 @@ import type { CrmAiEvidenceChunkInput } from "@/types/admin-ai-memory";
  */
 export const CHUNK_BUILDER_VERSION = 1;
 
+export type ContactTagChunkSource = {
+  tagId: string;
+  tagName: string;
+  assignedAt: string | null;
+};
+
 function hashContent(parts: Array<string | null | undefined>): string {
   const hash = createHash("sha256");
   for (const part of parts) {
@@ -39,6 +49,75 @@ function hashContent(parts: Array<string | null | undefined>): string {
 
 function isNonBlankString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function shortFingerprint(value: unknown): string {
+  return createHash("sha256")
+    .update(typeof value === "string" ? value : JSON.stringify(value))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function buildVersionedSourceId(logicalSourceId: string, value: unknown): string {
+  return `${logicalSourceId}:v:${shortFingerprint(value)}`;
+}
+
+function classifySensitivity(fieldKey: string): "sensitive" | "default" {
+  return fieldKey === "age" || fieldKey === "gender" ? "sensitive" : "default";
+}
+
+function normalizeFieldValue(
+  fieldKey: string,
+  value: unknown,
+): {
+  displayValue: string;
+  normalizedValue: unknown;
+  valueType: "string" | "number" | "boolean" | "multiselect" | "json";
+} | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null;
+    return {
+      displayValue: trimmed,
+      normalizedValue: normalizeAdminAiOption(fieldKey, trimmed) ?? trimmed,
+      valueType: "string",
+    };
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return {
+      displayValue: String(value),
+      normalizedValue: value,
+      valueType: typeof value === "number" ? "number" : "boolean",
+    };
+  }
+
+  if (Array.isArray(value)) {
+    const normalizedItems = value
+      .map((item) => (typeof item === "string" ? item.trim() : String(item)))
+      .filter((item) => item.length > 0);
+
+    if (normalizedItems.length === 0) return null;
+
+    return {
+      displayValue: normalizedItems.join(", "),
+      normalizedValue: normalizedItems.map(
+        (item) => normalizeAdminAiOption(fieldKey, item) ?? item,
+      ),
+      valueType: "multiselect",
+    };
+  }
+
+  if (value == null) return null;
+
+  const json = JSON.stringify(value);
+  if (!json || json === "{}" || json === "[]") return null;
+
+  return {
+    displayValue: json,
+    normalizedValue: value,
+    valueType: "json",
+  };
 }
 
 function buildAdminNoteSourceId(
@@ -80,21 +159,81 @@ export function buildApplicationAnswerChunks(
     const raw = answers[field];
     if (!isNonBlankString(raw)) continue;
     const text = raw.trim();
-    const sourceId = `${application.id}:${field}`;
+    const logicalSourceId = `${application.id}:${field}`;
+    const sourceId = buildVersionedSourceId(logicalSourceId, text);
 
     chunks.push({
       contactId: application.contact_id,
       applicationId: application.id,
       sourceType: CHUNK_SOURCE_TYPES.applicationAnswer,
+      logicalSourceId,
       sourceId,
       sourceTimestamp: application.submitted_at ?? null,
       text,
       metadata: {
         sourceLabel: field,
+        fieldKey: field,
+        chunkClass: "free_text_answer",
         program: application.program,
       },
       contentHash: hashContent([
         CHUNK_SOURCE_TYPES.applicationAnswer,
+        sourceId,
+        text,
+      ]),
+      chunkVersion: CHUNK_BUILDER_VERSION,
+    });
+  }
+
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// Application structured fields
+// ---------------------------------------------------------------------------
+
+export function buildApplicationStructuredFieldChunks(
+  application: Application,
+): CrmAiEvidenceChunkInput[] {
+  if (!application.contact_id) return [];
+  const answers = application.answers ?? {};
+  const chunks: CrmAiEvidenceChunkInput[] = [];
+
+  for (const [fieldKey, rawValue] of Object.entries(answers)) {
+    if ((ADMIN_AI_TEXT_FIELDS as readonly string[]).includes(fieldKey)) continue;
+
+    const normalized = normalizeFieldValue(fieldKey, rawValue);
+    if (!normalized) continue;
+
+    const fieldLabel = getAdminAiFieldLabel(fieldKey);
+    const logicalSourceId = `${application.id}:sf:${fieldKey}`;
+    const sourceId = buildVersionedSourceId(
+      logicalSourceId,
+      normalized.normalizedValue,
+    );
+    const text = `Application field: ${fieldLabel}. Candidate reports ${normalized.displayValue}.`;
+
+    chunks.push({
+      contactId: application.contact_id,
+      applicationId: application.id,
+      sourceType: CHUNK_SOURCE_TYPES.applicationStructuredField,
+      logicalSourceId,
+      sourceId,
+      sourceTimestamp: application.submitted_at ?? null,
+      text,
+      metadata: {
+        sourceLabel: fieldLabel,
+        fieldKey,
+        fieldLabel,
+        displayValue: normalized.displayValue,
+        normalizedValue: normalized.normalizedValue,
+        valueType: normalized.valueType,
+        chunkClass: "structured_field",
+        sensitivity: classifySensitivity(fieldKey),
+        program: application.program,
+      },
+      contentHash: hashContent([
+        CHUNK_SOURCE_TYPES.applicationStructuredField,
         sourceId,
         text,
       ]),
@@ -122,11 +261,13 @@ export function buildContactNoteChunks(
       contactId: note.contact_id,
       applicationId: null,
       sourceType: CHUNK_SOURCE_TYPES.contactNote,
+      logicalSourceId: sourceId,
       sourceId,
       sourceTimestamp: note.created_at ?? null,
       text,
       metadata: {
         sourceLabel: `Contact note (${note.author_name ?? "admin"})`,
+        chunkClass: "contact_note",
         authorId: note.author_id,
         authorName: note.author_name,
       },
@@ -138,6 +279,46 @@ export function buildContactNoteChunks(
       chunkVersion: CHUNK_BUILDER_VERSION,
     });
   }
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// Contact tags
+// ---------------------------------------------------------------------------
+
+export function buildContactTagChunks(input: {
+  contactId: string;
+  tags: ContactTagChunkSource[];
+}): CrmAiEvidenceChunkInput[] {
+  const chunks: CrmAiEvidenceChunkInput[] = [];
+
+  for (const tag of input.tags) {
+    const tagName = tag.tagName.trim();
+    if (tagName.length === 0) continue;
+
+    const logicalSourceId = `${input.contactId}:tag:${tag.tagId}`;
+    const sourceId = buildVersionedSourceId(logicalSourceId, tagName);
+    const text = `CRM tag: ${tagName}.`;
+
+    chunks.push({
+      contactId: input.contactId,
+      applicationId: null,
+      sourceType: CHUNK_SOURCE_TYPES.contactTag,
+      logicalSourceId,
+      sourceId,
+      sourceTimestamp: tag.assignedAt,
+      text,
+      metadata: {
+        sourceLabel: "CRM tag",
+        chunkClass: "tag",
+        tagId: tag.tagId,
+        tagName,
+      },
+      contentHash: hashContent([CHUNK_SOURCE_TYPES.contactTag, sourceId, text]),
+      chunkVersion: CHUNK_BUILDER_VERSION,
+    });
+  }
+
   return chunks;
 }
 
@@ -169,11 +350,13 @@ export function buildApplicationAdminNoteChunks(
       contactId: application.contact_id!,
       applicationId: application.id,
       sourceType: CHUNK_SOURCE_TYPES.applicationAdminNote,
+      logicalSourceId: sourceId,
       sourceId,
       sourceTimestamp: note.created_at ?? application.submitted_at ?? null,
       text,
       metadata: {
         sourceLabel: `Admin note (${note.author_name ?? "admin"})`,
+        chunkClass: "application_admin_note",
         authorId: note.author_id,
         authorName: note.author_name,
         program: application.program,
@@ -198,6 +381,7 @@ export function buildCurrentCrmChunksForContact(input: {
   contact: Contact;
   applications: Application[];
   contactNotes: ContactNote[];
+  contactTags?: ContactTagChunkSource[];
 }): CrmAiEvidenceChunkInput[] {
   // Contact-scoped — applications passed in MUST already be filtered to the
   // target contact. We still defensively filter to avoid misuse leaking
@@ -212,8 +396,15 @@ export function buildCurrentCrmChunksForContact(input: {
   const chunks: CrmAiEvidenceChunkInput[] = [];
   for (const app of ownedApplications) {
     chunks.push(...buildApplicationAnswerChunks(app));
+    chunks.push(...buildApplicationStructuredFieldChunks(app));
     chunks.push(...buildApplicationAdminNoteChunks(app));
   }
   chunks.push(...buildContactNoteChunks(ownedNotes));
+  chunks.push(
+    ...buildContactTagChunks({
+      contactId: input.contact.id,
+      tags: input.contactTags ?? [],
+    }),
+  );
   return chunks;
 }

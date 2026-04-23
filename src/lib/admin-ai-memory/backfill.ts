@@ -3,40 +3,42 @@
  *
  * `rebuildContactMemory` is the single source of truth for "make this
  * contact's memory current". It is idempotent and skips work when the
- * dossier and ranking card are already fresh against the live source
- * fingerprint and current generator version.
+ * dossier is already fresh against the live source fingerprint and
+ * current generator version.
  *
  * `backfillContactMemory` iterates the cohort, calling the rebuild flow
  * per contact. It keeps going past per-contact failures and reports them
  * in aggregate so a noisy edge case never blocks the whole run.
  */
 
-import { buildAdminNotesRecent } from "./admin-notes-recent";
 import {
   buildCurrentCrmChunksForContact,
 } from "./chunk-builder";
 import { buildStableChunkId } from "./chunk-identity";
-import { buildDossierContactFacts } from "./contact-facts";
 import { selectChunksForDossier } from "./dossier-chunk-selection";
+import { buildFactObservationsFromChunks } from "./fact-observations";
+import { compileContactProfileFacts } from "./profile-compiler";
+import { buildEvidenceSubchunks } from "./subchunk-builder";
+import { generateSubchunkEmbeddings } from "./embeddings";
 import { generateContactDossier } from "./dossier-generator";
 import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 import {
   computeChunkSourceFingerprint,
-  needsContactMemoryRebuild,
+  isDossierStale,
 } from "./freshness";
-import { buildRankingCardFromDossier } from "./ranking-card";
 import {
-  deleteStaleCurrentCrmEvidenceChunksForContact,
   getContactDossier,
   listContactIdsForMemory,
-  listRankingCards,
+  listFactObservationsForContact,
   loadContactCrmSources,
+  supersedeStaleCurrentCrmEvidenceChunksForContact,
   upsertContactDossier,
+  upsertEmbeddings,
   upsertEvidenceChunks,
-  upsertRankingCard,
+  upsertEvidenceSubchunks,
+  upsertFactObservations,
 } from "@/lib/data/admin-ai-memory";
-import { queryAdminAiContactFacts } from "@/lib/data/admin-ai-retrieval";
 import type {
   CrmAiContactDossierInput,
   DossierSourceCoverage,
@@ -57,7 +59,6 @@ export type RebuildContactMemoryResult = {
   status: RebuildStatus;
   chunkCount: number;
   dossierUpserted: boolean;
-  rankingCardUpserted: boolean;
 };
 
 export type BackfillStats = {
@@ -70,7 +71,6 @@ export type BackfillStats = {
   skippedMissingSources: number;
   chunksUpserted: number;
   dossiersUpserted: number;
-  rankingCardsUpserted: number;
   failures: Array<{ contactId: string; error: string }>;
 };
 
@@ -104,7 +104,6 @@ export async function rebuildContactMemory(input: {
       status: "missing_sources",
       chunkCount: 0,
       dossierUpserted: false,
-      rankingCardUpserted: false,
     };
   }
 
@@ -112,15 +111,12 @@ export async function rebuildContactMemory(input: {
     contact: sources.contact,
     applications: sources.applications,
     contactNotes: sources.contactNotes,
+    contactTags: sources.contactTags,
   });
 
-  const retainedSourceKeys = chunks.map(
-    (chunk) => `${chunk.sourceType}:${chunk.sourceId}`,
-  );
-
-  await deleteStaleCurrentCrmEvidenceChunksForContact({
+  await supersedeStaleCurrentCrmEvidenceChunksForContact({
     contactId: input.contactId,
-    retainedSourceKeys,
+    chunks,
   });
 
   if (chunks.length === 0) {
@@ -129,21 +125,39 @@ export async function rebuildContactMemory(input: {
       status: "no_chunks",
       chunkCount: 0,
       dossierUpserted: false,
-      rankingCardUpserted: false,
     };
   }
 
   await upsertEvidenceChunks({ chunks });
+  const subchunks = buildEvidenceSubchunks({ chunks });
+  await upsertEvidenceSubchunks({ subchunks });
+  try {
+    const embeddingBatch = await generateSubchunkEmbeddings({
+      parentChunks: chunks,
+      subchunks,
+    });
+    if (embeddingBatch.rows.length > 0) {
+      await upsertEmbeddings({ embeddings: embeddingBatch.rows });
+    }
+  } catch (error) {
+    console.warn(
+      "[admin-ai-memory] subchunk embedding generation failed",
+      {
+        contactId: input.contactId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+  const directObservations = buildFactObservationsFromChunks({ chunks });
+  if (directObservations.length > 0) {
+    await upsertFactObservations({ observations: directObservations });
+  }
 
   if (!input.force) {
-    const [existingDossier, [existingRankingCard]] = await Promise.all([
-      getContactDossier({ contactId: input.contactId }),
-      listRankingCards({ contactIds: [input.contactId], limit: 1 }),
-    ]);
+    const existingDossier = await getContactDossier({ contactId: input.contactId });
     if (
-      !needsContactMemoryRebuild({
+      !isDossierStale({
         dossier: existingDossier,
-        rankingCard: existingRankingCard ?? null,
         chunks,
         generatorVersion: DOSSIER_GENERATOR_VERSION,
         dossierVersion: DOSSIER_SCHEMA_VERSION,
@@ -154,7 +168,6 @@ export async function rebuildContactMemory(input: {
         status: "fresh",
         chunkCount: chunks.length,
         dossierUpserted: false,
-        rankingCardUpserted: false,
       };
     }
   }
@@ -168,15 +181,14 @@ export async function rebuildContactMemory(input: {
     ).length,
   });
 
-  const factRows = await queryAdminAiContactFacts({
-    filters: [],
+  const observations = await listFactObservationsForContact({
     contactId: input.contactId,
-    limit: 100,
   });
-  const dossierFacts = buildDossierContactFacts({
+  const dossierFacts = compileContactProfileFacts({
     contact: sources.contact,
-    factRows,
-    applicationCount: sources.applications.length,
+    applications: sources.applications,
+    currentChunks: chunks,
+    observations,
   });
 
   // Full chunks stay in the DB for answer-time retrieval. The dossier
@@ -211,9 +223,10 @@ export async function rebuildContactMemory(input: {
     contactId: input.contactId,
     dossierVersion: DOSSIER_SCHEMA_VERSION,
     generatorVersion: generation.generatorVersion,
+    generatorModel: generation.modelMetadata.model,
     sourceFingerprint: fingerprint,
     sourceCoverage,
-    facts: generation.dossier.facts,
+    facts: dossierFacts,
     signals: generation.dossier.signals,
     contradictions: generation.dossier.contradictions,
     unknowns: generation.dossier.unknowns,
@@ -226,40 +239,11 @@ export async function rebuildContactMemory(input: {
 
   await upsertContactDossier(dossierInput);
 
-  const dossierForCard = {
-    contact_id: dossierInput.contactId,
-    dossier_version: dossierInput.dossierVersion,
-    generator_version: dossierInput.generatorVersion,
-    source_fingerprint: dossierInput.sourceFingerprint,
-    source_coverage: dossierInput.sourceCoverage,
-    facts_json: dossierInput.facts,
-    signals_json: dossierInput.signals,
-    contradictions_json: dossierInput.contradictions,
-    unknowns_json: dossierInput.unknowns,
-    evidence_anchors_json: dossierInput.evidenceAnchors,
-    short_summary: dossierInput.shortSummary,
-    medium_summary: dossierInput.mediumSummary,
-    confidence_json: dossierInput.confidence,
-    last_built_at: new Date().toISOString(),
-    stale_at: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  const adminNotesRecent = buildAdminNotesRecent({
-    applications: sources.applications,
-    contactNotes: sources.contactNotes,
-  });
-  await upsertRankingCard(
-    buildRankingCardFromDossier(dossierForCard, { adminNotesRecent }),
-  );
-
   return {
     contactId: input.contactId,
     status: "rebuilt",
     chunkCount: chunks.length,
     dossierUpserted: true,
-    rankingCardUpserted: true,
   };
 }
 
@@ -282,7 +266,6 @@ export async function backfillContactMemory(input: {
     skippedMissingSources: 0,
     chunksUpserted: 0,
     dossiersUpserted: 0,
-    rankingCardsUpserted: 0,
     failures: [],
   };
 
@@ -300,7 +283,6 @@ export async function backfillContactMemory(input: {
       stats.contactsSucceeded += 1;
       stats.chunksUpserted += result.chunkCount;
       if (result.dossierUpserted) stats.dossiersUpserted += 1;
-      if (result.rankingCardUpserted) stats.rankingCardsUpserted += 1;
       switch (result.status) {
         case "rebuilt":
           stats.contactsRebuilt += 1;

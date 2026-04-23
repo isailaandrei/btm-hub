@@ -15,7 +15,9 @@
 
 export type CrmAiChunkSourceType =
   | "application_answer"
+  | "application_structured_field"
   | "contact_note"
+  | "contact_tag"
   | "application_admin_note"
   | "whatsapp_message"
   | "instagram_message"
@@ -30,12 +32,14 @@ export type CrmAiEvidenceChunk = {
   contact_id: string;
   application_id: string | null;
   source_type: CrmAiChunkSourceType;
+  logical_source_id: string;
   source_id: string;
   source_timestamp: string | null;
   text: string;
   metadata_json: Record<string, unknown>;
   content_hash: string;
   chunk_version: number;
+  superseded_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -48,12 +52,92 @@ export type CrmAiEvidenceChunkInput = {
   contactId: string;
   applicationId: string | null;
   sourceType: CrmAiChunkSourceType;
+  logicalSourceId: string;
   sourceId: string;
   sourceTimestamp: string | null;
   text: string;
   metadata: Record<string, unknown>;
   contentHash: string;
   chunkVersion: number;
+};
+
+export type CrmAiEvidenceSubchunk = {
+  id: string;
+  parent_chunk_id: string;
+  contact_id: string;
+  application_id: string | null;
+  subchunk_index: number;
+  text: string;
+  content_hash: string;
+  token_estimate: number;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CrmAiEvidenceSubchunkInput = {
+  id: string;
+  parentChunkId: string;
+  contactId: string;
+  applicationId: string | null;
+  subchunkIndex: number;
+  text: string;
+  contentHash: string;
+  tokenEstimate: number;
+  metadata: Record<string, unknown>;
+};
+
+// ---------------------------------------------------------------------------
+// Fact observation types
+// ---------------------------------------------------------------------------
+
+export type CrmAiFactObservationType =
+  | "application_field"
+  | "contact_tag";
+
+export type CrmAiFactObservationValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "multiselect"
+  | "json"
+  | "tag";
+
+export type CrmAiFactObservationConfidence = "high" | "medium" | "low";
+
+export type CrmAiFactObservation = {
+  id: string;
+  contact_id: string;
+  observation_type: CrmAiFactObservationType;
+  field_key: string | null;
+  value_type: CrmAiFactObservationValueType;
+  value_text: string;
+  value_json: unknown;
+  confidence: CrmAiFactObservationConfidence;
+  source_chunk_ids: string[];
+  source_timestamp: string | null;
+  observed_at: string;
+  invalidated_at: string | null;
+  conflict_group: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type CrmAiFactObservationInput = {
+  id: string;
+  contactId: string;
+  observationType: CrmAiFactObservationType;
+  fieldKey: string | null;
+  valueType: CrmAiFactObservationValueType;
+  valueText: string;
+  valueJson: unknown;
+  confidence: CrmAiFactObservationConfidence;
+  sourceChunkIds: string[];
+  sourceTimestamp: string | null;
+  observedAt: string;
+  invalidatedAt: string | null;
+  conflictGroup: string | null;
+  metadata: Record<string, unknown>;
 };
 
 // ---------------------------------------------------------------------------
@@ -97,6 +181,7 @@ export type CrmAiContactDossier = {
   contact_id: string;
   dossier_version: number;
   generator_version: string;
+  generator_model?: string | null;
   source_fingerprint: string;
   source_coverage: DossierSourceCoverage;
   facts_json: Record<string, unknown>;
@@ -130,6 +215,7 @@ export type CrmAiContactDossierInput = {
   contactId: string;
   dossierVersion: number;
   generatorVersion: string;
+  generatorModel: string;
   sourceFingerprint: string;
   sourceCoverage: DossierSourceCoverage;
   facts: Record<string, unknown>;
@@ -144,88 +230,10 @@ export type CrmAiContactDossierInput = {
 };
 
 // ---------------------------------------------------------------------------
-// Ranking card types
-// ---------------------------------------------------------------------------
-
-/**
- * Compact raw admin-authored note carried on the ranking card.
- *
- * Produced deterministically (no AI) so admin tag/note workflows stay
- * free and the ranker gets fresh high-signal text without waiting on a
- * dossier rebuild.
- */
-export type AdminNoteRecent = {
-  /** Which source this note came from. */
-  kind: "contact_note" | "application_admin_note";
-  /** Raw admin text, truncated to a reasonable cap (ellipsis on truncation). */
-  text: string;
-  /** Author display name as recorded on the note. */
-  authorName: string | null;
-  /** ISO timestamp. Used for ordering; admins typically read newest-first. */
-  createdAt: string;
-  /** Populated for application admin notes so the UI can link back. */
-  applicationId?: string;
-};
-
-/**
- * Row shape from `crm_ai_contact_ranking_cards`.
- */
-export type CrmAiContactRankingCard = {
-  contact_id: string;
-  dossier_version: number;
-  source_fingerprint: string;
-  facts_json: Record<string, unknown>;
-  top_fit_signals_json: DossierSignalEntry[];
-  top_concerns_json: DossierSignalEntry[];
-  confidence_notes_json: string[];
-  short_summary: string;
-  /**
-   * Top-N raw admin-authored notes carried on the ranking card.
-   * Optional because the column was added in migration
-   * `20260417000001_admin_ai_ranking_card_admin_notes_recent.sql` —
-   * rows persisted before that migration won't have it, and test
-   * fixtures can omit it. Consumers should treat `undefined` as `[]`.
-   */
-  admin_notes_recent_json?: AdminNoteRecent[];
-  updated_at: string;
-  /**
-   * EPHEMERAL — populated by `assembleGlobalCohortMemory` at query time,
-   * NEVER persisted. Top FTS hits from `crm_ai_evidence_chunks` for the
-   * current question's text focus, keyed to this contact. Gives the
-   * ranker a raw-text shortcut so keyword-specific queries (e.g. "who
-   * mentioned National Geographic") surface contacts whose dossier
-   * summaries dropped the literal keyword during compression.
-   */
-  queryMatchingChunks?: QueryMatchingChunk[];
-};
-
-export type QueryMatchingChunk = {
-  /** Raw chunk text, truncated. */
-  text: string;
-  /** Origin label (`ultimate_vision`, `Contact note (…)`, etc.). */
-  sourceLabel: string;
-  /** Which source produced this chunk. */
-  sourceType: string;
-};
-
-export type CrmAiContactRankingCardInput = {
-  contactId: string;
-  dossierVersion: number;
-  sourceFingerprint: string;
-  facts: Record<string, unknown>;
-  topFitSignals: DossierSignalEntry[];
-  topConcerns: DossierSignalEntry[];
-  confidenceNotes: string[];
-  shortSummary: string;
-  /** Optional — defaults to `[]` if the builder isn't given a notes surface. */
-  adminNotesRecent?: AdminNoteRecent[];
-};
-
-// ---------------------------------------------------------------------------
 // Embedding types (schema only — retrieval not active in current CRM path)
 // ---------------------------------------------------------------------------
 
-export type CrmAiEmbeddingTargetType = "chunk" | "dossier";
+export type CrmAiEmbeddingTargetType = "chunk" | "dossier" | "subchunk";
 
 export type CrmAiEmbeddingRow = {
   id: string;
@@ -236,4 +244,13 @@ export type CrmAiEmbeddingRow = {
   content_hash: string;
   embedding: number[] | null;
   created_at: string;
+};
+
+export type CrmAiEmbeddingInput = {
+  targetType: CrmAiEmbeddingTargetType;
+  targetId: string;
+  embeddingModel: string;
+  embeddingVersion: string;
+  contentHash: string;
+  embedding: number[] | null;
 };

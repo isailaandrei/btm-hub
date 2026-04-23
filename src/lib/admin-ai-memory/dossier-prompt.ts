@@ -13,15 +13,29 @@
 
 import type { DossierChunkInput } from "./chunk-schemas";
 
-export const DOSSIER_GENERATOR_VERSION = "dossier-prompt-v1";
+export const DOSSIER_GENERATOR_VERSION = "dossier-prompt-v2";
+const LEGACY_COMPATIBLE_DOSSIER_GENERATOR_VERSIONS = [
+  "dossier-prompt-v1",
+] as const;
+
+export function isDossierGeneratorVersionCompatible(
+  version: string | null | undefined,
+  currentVersion = DOSSIER_GENERATOR_VERSION,
+): boolean {
+  if (typeof version !== "string" || version.length === 0) return false;
+  return version === currentVersion
+    || LEGACY_COMPATIBLE_DOSSIER_GENERATOR_VERSIONS.includes(
+      version as (typeof LEGACY_COMPATIBLE_DOSSIER_GENERATOR_VERSIONS)[number],
+    );
+}
 
 export function buildDossierSystemPrompt(): string {
   return [
     "You are the BTM Hub Admin AI dossier writer.",
     "You are building a persistent contact memory artifact, not a chat reply.",
     "Answer only from the supplied structured facts and evidence chunks.",
-    "Preserve fit signals, concerns, and motivation — these drive future ranking.",
-    "PRESERVE SPECIFICS VERBATIM: organization names (e.g. National Geographic, BBC, UNESCO), publication titles, brand names, specific places, people's names, certifications, quantified claims (years of experience, dive depth, trip counts), and exact program references must appear literally in signals, summaries, or facts — not abstracted away. A future ranker may be asked 'who mentioned National Geographic?' and the dossier is the only place it can look; 'aspires to nature documentary work' is NOT the same as 'wants to work at National Geographic'.",
+    "Preserve fit signals, concerns, and motivation — future whole-cohort questions will reason directly over this dossier.",
+    "PRESERVE SPECIFICS VERBATIM: organization names (e.g. National Geographic, BBC, UNESCO), publication titles, brand names, specific places, people's names, certifications, quantified claims (years of experience, dive depth, trip counts), and exact program references must appear literally in signals or summaries — not abstracted away. A future whole-cohort question may ask 'who mentioned National Geographic?' and the dossier is the only place it can look; 'aspires to nature documentary work' is NOT the same as 'wants to work at National Geographic'.",
     "Surface contradictions explicitly under `contradictions`.",
     "List things you do not know under `unknowns`.",
     "Every evidence anchor MUST cite one or more prompt-local chunk labels that appear exactly in the `chunks` array — e.g. `chunk_1`, `chunk_2`.",

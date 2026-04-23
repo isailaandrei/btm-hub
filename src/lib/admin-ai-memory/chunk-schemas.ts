@@ -13,7 +13,9 @@ import { CHUNK_SOURCE_TYPES } from "./source-types";
 
 const sourceTypeEnum = z.enum([
   CHUNK_SOURCE_TYPES.applicationAnswer,
+  CHUNK_SOURCE_TYPES.applicationStructuredField,
   CHUNK_SOURCE_TYPES.contactNote,
+  CHUNK_SOURCE_TYPES.contactTag,
   CHUNK_SOURCE_TYPES.applicationAdminNote,
   CHUNK_SOURCE_TYPES.whatsappMessage,
   CHUNK_SOURCE_TYPES.instagramMessage,
@@ -24,6 +26,7 @@ export const chunkInputSchema = z.object({
   contactId: z.string().min(1),
   applicationId: z.string().min(1).nullable(),
   sourceType: sourceTypeEnum,
+  logicalSourceId: z.string().min(1),
   sourceId: z.string().min(1),
   sourceTimestamp: z.string().min(1).nullable(),
   text: z.string().min(1),

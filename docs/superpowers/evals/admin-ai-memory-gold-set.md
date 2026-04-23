@@ -85,9 +85,9 @@ node --experimental-strip-types scripts/admin-ai-memory/eval.ts gold-set.json
   under `unknowns`, instead of guessing?
 - **evidenceGrounding** — Do the `evidenceAnchors` actually point to
   chunks that support the claim? Weak or missing anchors lower this.
-- **usefulnessForRanking** — Imagine this dossier sitting in the global
-  ranking pass. Does it give the ranker enough signal to make a good
-  call without re-reading the raw evidence?
+- **usefulnessForSelection** — Imagine this dossier sitting in the
+  global one-pass cohort prompt. Does it give the model enough signal to
+  make a good call without re-reading the raw evidence?
 
 ## Storing the gold set
 

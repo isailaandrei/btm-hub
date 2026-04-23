@@ -1,14 +1,14 @@
 import {
-  ADMIN_AI_RANKING_RESPONSE_JSON_SCHEMA,
+  buildAdminAiGlobalCohortSystemPrompt,
+  buildAdminAiGlobalCohortUserPrompt,
   ADMIN_AI_RESPONSE_JSON_SCHEMA,
-  buildAdminAiRankingSystemPrompt,
-  buildAdminAiRankingUserPrompt,
+  type AdminAiGlobalCohortInput,
   buildAdminAiSystemPrompt,
   buildAdminAiUserPrompt,
   normalizeProviderResponse,
-  type AdminAiRankingInput,
   type AdminAiSynthesisInput,
 } from "./prompt";
+import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
 import type { AdminAiResponse } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
@@ -19,32 +19,15 @@ const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 export interface AdminAiProvider {
   isConfigured(): boolean;
   getUnavailableReason(): string | null;
+  generateGlobalCohortResponse(input: AdminAiGlobalCohortInput): Promise<{
+    response: AdminAiResponse;
+    modelMetadata: Record<string, unknown>;
+  }>;
   generate(input: AdminAiSynthesisInput): Promise<{
     response: AdminAiResponse;
     modelMetadata: Record<string, unknown>;
   }>;
-}
-
-export type AdminAiRankingResult = {
-  shortlistedContactIds: string[];
-  reasons: Array<{ contactId: string; reason: string }>;
-  cohortNotes: string | null;
-  /**
-   * ContactIds the model attempted to shortlist but weren't in the
-   * ranking-card cohort (hallucinated or drawn from a nested field
-   * like `tagIds`). Silently dropped so one bad id doesn't kill the
-   * whole query, but surfaced here for observability. Optional for
-   * backwards-compat with existing test mocks.
-   */
-  droppedContactIds?: string[];
-  modelMetadata: Record<string, unknown>;
 };
-
-export interface AdminAiRankingProvider {
-  isConfigured(): boolean;
-  getUnavailableReason(): string | null;
-  generateRanking(input: AdminAiRankingInput): Promise<AdminAiRankingResult>;
-}
 
 export type AdminAiProviderAvailability = {
   isConfigured: boolean;
@@ -75,12 +58,16 @@ function getSynthesisModel(): string {
   return process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
 }
 
-function getRankingModel(): string {
+function getGlobalCohortModel(): string {
   return (
-    process.env.OPENAI_RANKING_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
-    DEFAULT_OPENAI_MODEL
+    process.env.OPENAI_GLOBAL_MODEL?.trim()
+    || process.env.OPENAI_MODEL?.trim()
+    || DEFAULT_OPENAI_MODEL
   );
+}
+
+function getGlobalPromptCacheRetention(): string | null {
+  return process.env.OPENAI_GLOBAL_PROMPT_CACHE_RETENTION?.trim() || null;
 }
 
 function extractResponseText(payload: OpenAiResponsesPayload): string {
@@ -126,10 +113,18 @@ async function callOpenAi(input: {
   userPrompt: string;
   schemaName: string;
   schema: object;
+  promptCacheKey?: string | null;
+  promptCacheRetention?: string | null;
 }): Promise<{
   payload: OpenAiResponsesPayload;
   rawText: string;
 }> {
+  const timer = startAdminAiDebugTimer("openai-call", {
+    model: input.model,
+    schemaName: input.schemaName,
+    systemPromptChars: input.systemPrompt.length,
+    userPromptChars: input.userPrompt.length,
+  });
   let response: Response;
   try {
     response = await fetch(OPENAI_API_URL, {
@@ -140,6 +135,10 @@ async function callOpenAi(input: {
       },
       body: JSON.stringify({
         model: input.model,
+        ...(input.promptCacheKey ? { prompt_cache_key: input.promptCacheKey } : {}),
+        ...(input.promptCacheRetention
+          ? { prompt_cache_retention: input.promptCacheRetention }
+          : {}),
         input: [
           { role: "system", content: input.systemPrompt },
           { role: "user", content: input.userPrompt },
@@ -157,19 +156,39 @@ async function callOpenAi(input: {
     });
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
+      timer.end({
+        status: "timeout",
+        timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+      });
       throw new Error(
         `OpenAI admin AI request timed out after ${OPENAI_REQUEST_TIMEOUT_MS / 1000}s`,
       );
     }
+    timer.end({
+      status: "network_error",
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 
   if (!response.ok) {
     const message = await parseErrorResponse(response);
+    timer.end({
+      status: "http_error",
+      httpStatus: response.status,
+      error: message,
+    });
     throw new Error(`OpenAI admin AI request failed: ${message}`);
   }
   const payload = (await response.json()) as OpenAiResponsesPayload;
-  return { payload, rawText: extractResponseText(payload) };
+  const rawText = extractResponseText(payload);
+  timer.end({
+    status: "ok",
+    responseId: payload.id ?? null,
+    usage: payload.usage ?? null,
+    outputChars: rawText.length,
+  });
+  return { payload, rawText };
 }
 
 const openAiAdminAiProvider: AdminAiProvider = {
@@ -201,9 +220,16 @@ const openAiAdminAiProvider: AdminAiProvider = {
       contactAssessment: AdminAiResponse["contactAssessment"] | null;
       uncertainty: string[];
     };
+    const normalized = normalizeProviderResponse(rawResponse, input.scope);
+    adminAiDebugLog("synthesis-response", {
+      scope: input.scope,
+      shortlistCount: normalized.shortlist?.length ?? 0,
+      hasContactAssessment: Boolean(normalized.contactAssessment),
+      uncertaintyCount: normalized.uncertainty.length,
+    });
 
     return {
-      response: normalizeProviderResponse(rawResponse, input.scope),
+      response: normalized,
       modelMetadata: {
         provider: "openai",
         responseId: payload.id ?? null,
@@ -212,65 +238,37 @@ const openAiAdminAiProvider: AdminAiProvider = {
       },
     };
   },
-};
 
-const openAiAdminAiRankingProvider: AdminAiRankingProvider = {
-  isConfigured() {
-    return Boolean(getApiKey());
-  },
-
-  getUnavailableReason() {
-    return this.isConfigured() ? null : PROVIDER_UNAVAILABLE_REASON;
-  },
-
-  async generateRanking(input) {
+  async generateGlobalCohortResponse(input) {
     const apiKey = getApiKey();
     if (!apiKey) {
       throw new Error(PROVIDER_UNAVAILABLE_REASON);
     }
-    const model = getRankingModel();
+    const model = getGlobalCohortModel();
     const { payload, rawText } = await callOpenAi({
       apiKey,
       model,
-      systemPrompt: buildAdminAiRankingSystemPrompt(),
-      userPrompt: buildAdminAiRankingUserPrompt(input),
-      schemaName: "admin_ai_ranking_response",
-      schema: ADMIN_AI_RANKING_RESPONSE_JSON_SCHEMA,
+      systemPrompt: buildAdminAiGlobalCohortSystemPrompt(),
+      userPrompt: buildAdminAiGlobalCohortUserPrompt(input),
+      schemaName: "admin_ai_response",
+      schema: ADMIN_AI_RESPONSE_JSON_SCHEMA,
+      promptCacheKey: input.promptCacheKey ?? null,
+      promptCacheRetention: getGlobalPromptCacheRetention(),
     });
 
-    const parsed = JSON.parse(rawText) as {
-      shortlistedContactIds: string[];
-      reasons: Array<{ contactId: string; reason: string }>;
-      cohortNotes: string | null;
+    const rawResponse = JSON.parse(rawText) as {
+      shortlist: AdminAiResponse["shortlist"] | [];
+      contactAssessment: AdminAiResponse["contactAssessment"] | null;
+      uncertainty: string[];
     };
-
-    // Defense-in-depth: shortlisted ids must come from the ranking-card
-    // pool. Filter foreign ids with a warning rather than throwing —
-    // one hallucinated UUID shouldn't kill the whole query. If the
-    // filter empties the shortlist, the orchestrator's existing
-    // empty-shortlist path will surface "insufficient evidence".
-    const allowed = new Set(input.rankingCards.map((c) => c.contact_id));
-    const droppedIds: string[] = [];
-    const cleanShortlist = parsed.shortlistedContactIds.filter((id) => {
-      if (allowed.has(id)) return true;
-      droppedIds.push(id);
-      return false;
+    const normalized = normalizeProviderResponse(rawResponse, "global");
+    adminAiDebugLog("global-cohort-response", {
+      shortlistCount: normalized.shortlist?.length ?? 0,
+      uncertaintyCount: normalized.uncertainty.length,
     });
-    const cleanReasons = parsed.reasons.filter((entry) =>
-      allowed.has(entry.contactId),
-    );
-    if (droppedIds.length > 0) {
-      console.warn(
-        "[admin-ai] ranking pass returned contactIds not in cohort — dropping",
-        { droppedIds, keptCount: cleanShortlist.length },
-      );
-    }
 
     return {
-      shortlistedContactIds: cleanShortlist,
-      reasons: cleanReasons,
-      cohortNotes: parsed.cohortNotes ?? null,
-      droppedContactIds: droppedIds,
+      response: normalized,
       modelMetadata: {
         provider: "openai",
         responseId: payload.id ?? null,
@@ -283,10 +281,6 @@ const openAiAdminAiRankingProvider: AdminAiRankingProvider = {
 
 export function getAdminAiProvider(): AdminAiProvider {
   return openAiAdminAiProvider;
-}
-
-export function getAdminAiRankingProvider(): AdminAiRankingProvider {
-  return openAiAdminAiRankingProvider;
 }
 
 export function getAdminAiProviderAvailability(): AdminAiProviderAvailability {

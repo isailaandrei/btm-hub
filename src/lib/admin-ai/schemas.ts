@@ -30,7 +30,6 @@ const adminAiScopeSchema = z.enum(["global", "contact"]);
 const adminAiModeSchema = z.enum([
   "global_search",
   "contact_synthesis",
-  "hybrid",
 ]);
 
 const adminAiFilterOpSchema = z.enum(["eq", "in", "contains"]);

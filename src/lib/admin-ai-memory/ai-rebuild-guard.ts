@@ -1,5 +1,5 @@
 /**
- * Kill switch for AI-driven dossier / ranking-card rebuilds.
+ * Kill switch for AI-driven dossier rebuilds.
  *
  * Set `ADMIN_AI_DISABLE_REBUILDS=1` (or `true` / `on` / `yes`) to
  * short-circuit every synchronous + background rebuild triggered from

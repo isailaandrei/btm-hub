@@ -55,37 +55,6 @@ const summarySchema = z.object({
   medium: z.string().min(1),
 });
 
-const dossierFactsSchema = z.object({
-  contact: z.object({
-    contactId: z.string().min(1),
-    contactName: z.string().nullable(),
-    contactEmail: z.string().nullable(),
-    contactPhone: z.string().nullable(),
-  }),
-  applications: z.object({
-    applicationCount: z.number().int().nonnegative(),
-    applicationIds: z.array(z.string().min(1)),
-    programHistory: z.array(z.string().min(1)),
-    statusHistory: z.array(z.string().min(1)),
-  }),
-  tags: z.object({
-    tagIds: z.array(z.string().min(1)),
-    tagNames: z.array(z.string().min(1)),
-  }),
-  structuredFacts: z.object({
-    budgetValues: z.array(z.string().min(1)),
-    timeAvailabilityValues: z.array(z.string().min(1)),
-    startTimelineValues: z.array(z.string().min(1)),
-    btmCategoryValues: z.array(z.string().min(1)),
-    travelWillingnessValues: z.array(z.string().min(1)),
-    languageValues: z.array(z.string().min(1)),
-    countryOfResidenceValues: z.array(z.string().min(1)),
-    certificationLevelValues: z.array(z.string().min(1)),
-    yearsExperienceValues: z.array(z.string().min(1)),
-    involvementLevelValues: z.array(z.string().min(1)),
-  }),
-});
-
 /**
  * Top-level dossier schema. The `superRefine` enforces a "summary cannot be
  * the only signal carrier" rule: we want at least one of signals, evidence
@@ -94,7 +63,6 @@ const dossierFactsSchema = z.object({
  */
 export const dossierResultSchema = z
   .object({
-    facts: dossierFactsSchema,
     signals: signalsSchema,
     contradictions: z.array(z.string()),
     unknowns: z.array(z.string()),
@@ -140,95 +108,6 @@ export const DOSSIER_RESPONSE_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    facts: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        contact: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            contactId: { type: "string" },
-            contactName: { type: ["string", "null"] },
-            contactEmail: { type: ["string", "null"] },
-            contactPhone: { type: ["string", "null"] },
-          },
-          required: ["contactId", "contactName", "contactEmail", "contactPhone"],
-        },
-        applications: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            applicationCount: { type: "integer", minimum: 0 },
-            applicationIds: { type: "array", items: { type: "string" } },
-            programHistory: { type: "array", items: { type: "string" } },
-            statusHistory: { type: "array", items: { type: "string" } },
-          },
-          required: [
-            "applicationCount",
-            "applicationIds",
-            "programHistory",
-            "statusHistory",
-          ],
-        },
-        tags: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            tagIds: { type: "array", items: { type: "string" } },
-            tagNames: { type: "array", items: { type: "string" } },
-          },
-          required: ["tagIds", "tagNames"],
-        },
-        structuredFacts: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            budgetValues: { type: "array", items: { type: "string" } },
-            timeAvailabilityValues: {
-              type: "array",
-              items: { type: "string" },
-            },
-            startTimelineValues: { type: "array", items: { type: "string" } },
-            btmCategoryValues: { type: "array", items: { type: "string" } },
-            travelWillingnessValues: {
-              type: "array",
-              items: { type: "string" },
-            },
-            languageValues: { type: "array", items: { type: "string" } },
-            countryOfResidenceValues: {
-              type: "array",
-              items: { type: "string" },
-            },
-            certificationLevelValues: {
-              type: "array",
-              items: { type: "string" },
-            },
-            yearsExperienceValues: {
-              type: "array",
-              items: { type: "string" },
-            },
-            involvementLevelValues: {
-              type: "array",
-              items: { type: "string" },
-            },
-          },
-          required: [
-            "budgetValues",
-            "timeAvailabilityValues",
-            "startTimelineValues",
-            "btmCategoryValues",
-            "travelWillingnessValues",
-            "languageValues",
-            "countryOfResidenceValues",
-            "certificationLevelValues",
-            "yearsExperienceValues",
-            "involvementLevelValues",
-          ],
-        },
-      },
-      required: ["contact", "applications", "tags", "structuredFacts"],
-    },
     signals: {
       type: "object",
       additionalProperties: false,
@@ -276,7 +155,6 @@ export const DOSSIER_RESPONSE_JSON_SCHEMA = {
     },
   },
   required: [
-    "facts",
     "signals",
     "contradictions",
     "unknowns",

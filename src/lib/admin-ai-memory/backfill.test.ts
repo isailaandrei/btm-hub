@@ -1,29 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Application, Contact, ContactNote } from "@/types/database";
-import type {
-  CrmAiContactDossier,
-  CrmAiContactRankingCard,
-} from "@/types/admin-ai-memory";
-import { buildStableChunkId } from "./chunk-identity";
+import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
+import { DOSSIER_GENERATOR_VERSION } from "./dossier-prompt";
 import { DOSSIER_SCHEMA_VERSION } from "./dossier-version";
 
 vi.mock("@/lib/data/admin-ai-memory", () => ({
   loadContactCrmSources: vi.fn(),
   listContactIdsForMemory: vi.fn(),
-  deleteStaleCurrentCrmEvidenceChunksForContact: vi.fn(),
+  supersedeStaleCurrentCrmEvidenceChunksForContact: vi.fn(),
   upsertEvidenceChunks: vi.fn(),
+  upsertEvidenceSubchunks: vi.fn(),
+  upsertEmbeddings: vi.fn(),
+  upsertFactObservations: vi.fn(),
+  listFactObservationsForContact: vi.fn(),
   upsertContactDossier: vi.fn(),
-  upsertRankingCard: vi.fn(),
   getContactDossier: vi.fn(),
-  listRankingCards: vi.fn(),
-}));
-
-vi.mock("@/lib/data/admin-ai-retrieval", () => ({
-  queryAdminAiContactFacts: vi.fn(),
 }));
 
 vi.mock("./dossier-generator", () => ({
   generateContactDossier: vi.fn(),
+}));
+
+vi.mock("./embeddings", () => ({
+  generateSubchunkEmbeddings: vi.fn(),
 }));
 
 const CONTACT_A = "11111111-1111-4111-8111-111111111111";
@@ -52,6 +51,9 @@ function makeApplication(contactId: string): Application {
     status: "reviewing",
     answers: {
       ultimate_vision: "ocean voice",
+      budget: "Medium",
+      travel_willingness: "Yes",
+      languages: ["English", "Portuguese"],
     },
     tags: [],
     admin_notes: [],
@@ -78,7 +80,7 @@ function makeDossier(
   return {
     contact_id: contactId,
     dossier_version: DOSSIER_SCHEMA_VERSION,
-    generator_version: "dossier-prompt-v1",
+    generator_version: DOSSIER_GENERATOR_VERSION,
     source_fingerprint: "fp",
     source_coverage: {
       applicationCount: 1,
@@ -124,18 +126,24 @@ function makeDossierFacts(contactId: string) {
       programHistory: [],
       statusHistory: [],
     },
-    tags: { tagIds: [], tagNames: [] },
-    structuredFacts: {
-      budgetValues: [],
-      timeAvailabilityValues: [],
-      startTimelineValues: [],
-      btmCategoryValues: [],
-      travelWillingnessValues: [],
-      languageValues: [],
-      countryOfResidenceValues: [],
-      certificationLevelValues: [],
-      yearsExperienceValues: [],
-      involvementLevelValues: [],
+    tags: {
+      tagIds: [],
+      tagNames: [],
+      observedTagIds: [],
+      observedTagNames: [],
+    },
+    structuredFieldDetails: {
+      budget: {
+        fieldLabel: "Budget",
+        valueType: "string",
+        rawValues: [],
+        normalizedValues: [],
+      },
+    },
+    observationSummary: {
+      fieldHistory: {},
+      conflictingFields: [],
+      tagHistory: [],
     },
   };
 }
@@ -146,42 +154,46 @@ describe("rebuildContactMemory", () => {
     vi.clearAllMocks();
   });
 
-  it("loads sources, normalizes chunks, generates dossier, builds ranking card", async () => {
+  it("loads sources, normalizes chunks, and generates a dossier", async () => {
     const dataMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
     const generatorMod = await import("./dossier-generator");
+    const embeddingsMod = await import("./embeddings");
 
     vi.mocked(dataMod.loadContactCrmSources).mockResolvedValue({
       contact: makeContact(CONTACT_A),
       applications: [makeApplication(CONTACT_A)],
       contactNotes: [makeNote(CONTACT_A)],
+      contactTags: [
+        {
+          tagId: "tag-1",
+          tagName: "Strong fit",
+          assignedAt: "2026-04-15T04:00:00Z",
+        },
+      ],
     });
-    vi.mocked(retrievalMod.queryAdminAiContactFacts).mockResolvedValue([
+    vi.mocked(dataMod.listFactObservationsForContact).mockResolvedValue([
       {
+        id: "obs-1",
         contact_id: CONTACT_A,
-        application_id: APP_ID,
-        contact_name: "Joana",
-        contact_email: "joana@example.com",
-        contact_phone: null,
-        program: "filmmaking",
-        status: "reviewing",
-        submitted_at: "2026-04-14T00:00:00Z",
-        tag_ids: ["tag-1"],
-        tag_names: ["Strong fit"],
-        budget: "Medium",
-        time_availability: "2-4 weeks",
-        start_timeline: "Within 3 months",
-        btm_category: "filmmaker",
-        travel_willingness: "Yes",
-        languages: "English, Portuguese",
-        country_of_residence: "Portugal",
-        certification_level: "Advanced",
-        years_experience: "3-5",
-        involvement_level: "Full-time",
+        observation_type: "application_field",
+        field_key: "budget",
+        value_type: "string",
+        value_text: "Medium",
+        value_json: "Medium",
+        confidence: "high",
+        source_chunk_ids: ["chunk-1"],
+        source_timestamp: "2026-04-14T00:00:00Z",
+        observed_at: "2026-04-14T00:00:00Z",
+        invalidated_at: null,
+        conflict_group: "application_field:budget",
+        metadata_json: {
+          fieldLabel: "Budget",
+          sensitivity: "default",
+        },
+        created_at: "2026-04-14T00:00:00Z",
       },
     ]);
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
       dossier: {
         facts: makeDossierFacts(CONTACT_A),
@@ -197,7 +209,7 @@ describe("rebuildContactMemory", () => {
         evidenceAnchors: [],
         summary: { short: "s", medium: "m" },
       },
-      generatorVersion: "dossier-prompt-v1",
+      generatorVersion: DOSSIER_GENERATOR_VERSION,
       modelMetadata: {
         provider: "openai",
         model: "gpt-test",
@@ -205,20 +217,58 @@ describe("rebuildContactMemory", () => {
         usage: null,
       },
     });
+    vi.mocked(embeddingsMod.generateSubchunkEmbeddings).mockResolvedValue({
+      rows: [
+        {
+          targetType: "subchunk",
+          targetId: "subchunk-1",
+          embeddingModel: "text-embedding-3-small",
+          embeddingVersion: "subchunk-context-v1",
+          contentHash: "embedding-hash",
+          embedding: [0.1, 0.2, 0.3],
+        },
+      ],
+      model: "text-embedding-3-small",
+      version: "subchunk-context-v1",
+      usage: { prompt_tokens: 12 },
+    });
 
     const { rebuildContactMemory } = await import("./backfill");
     const result = await rebuildContactMemory({ contactId: CONTACT_A });
 
-    expect(dataMod.deleteStaleCurrentCrmEvidenceChunksForContact).toHaveBeenCalledWith({
+    expect(dataMod.supersedeStaleCurrentCrmEvidenceChunksForContact).toHaveBeenCalledWith({
       contactId: CONTACT_A,
-      retainedSourceKeys: expect.arrayContaining([
-        `application_answer:${APP_ID}:ultimate_vision`,
-        `contact_note:note-${CONTACT_A}`,
+      chunks: expect.arrayContaining([
+        expect.objectContaining({
+          sourceType: "application_answer",
+          logicalSourceId: `${APP_ID}:ultimate_vision`,
+        }),
+        expect.objectContaining({
+          sourceType: "contact_tag",
+          logicalSourceId: `${CONTACT_A}:tag:tag-1`,
+        }),
       ]),
     });
     expect(dataMod.upsertEvidenceChunks).toHaveBeenCalledTimes(1);
+    expect(dataMod.upsertEvidenceSubchunks).toHaveBeenCalledTimes(1);
+    expect(embeddingsMod.generateSubchunkEmbeddings).toHaveBeenCalledTimes(1);
+    expect(dataMod.upsertEmbeddings).toHaveBeenCalledWith({
+      embeddings: [
+        expect.objectContaining({
+          targetType: "subchunk",
+          targetId: "subchunk-1",
+        }),
+      ],
+    });
+    expect(dataMod.upsertFactObservations).toHaveBeenCalledWith({
+      observations: expect.arrayContaining([
+        expect.objectContaining({
+          observationType: "contact_tag",
+          valueText: "Strong fit",
+        }),
+      ]),
+    });
     expect(dataMod.upsertContactDossier).toHaveBeenCalledTimes(1);
-    expect(dataMod.upsertRankingCard).toHaveBeenCalledTimes(1);
     expect(generatorMod.generateContactDossier).toHaveBeenCalledWith(
       expect.objectContaining({
         contactFacts: expect.objectContaining({
@@ -233,24 +283,100 @@ describe("rebuildContactMemory", () => {
           tags: expect.objectContaining({
             tagNames: ["Strong fit"],
           }),
-          structuredFacts: expect.objectContaining({
-            budgetValues: ["Medium"],
-            travelWillingnessValues: ["Yes"],
-            languageValues: ["English, Portuguese"],
+          structuredFieldDetails: expect.objectContaining({
+            budget: expect.objectContaining({
+              rawValues: ["Medium"],
+              normalizedValues: ["Medium"],
+            }),
+          }),
+          observationSummary: expect.objectContaining({
+            conflictingFields: [],
           }),
         }),
         chunks: expect.arrayContaining([
           expect.objectContaining({
-            chunkId: buildStableChunkId(
-              "application_answer",
-              `${APP_ID}:ultimate_vision`,
-            ),
+            chunkId: expect.any(String),
+            sourceType: "application_answer",
           }),
         ]),
       }),
     );
+    expect(dataMod.upsertContactDossier).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generatorModel: "gpt-test",
+        facts: expect.objectContaining({
+          structuredFieldDetails: expect.objectContaining({
+            budget: expect.objectContaining({
+              rawValues: ["Medium"],
+              normalizedValues: ["Medium"],
+            }),
+          }),
+          observationSummary: expect.objectContaining({
+            fieldHistory: expect.objectContaining({
+              budget: expect.any(Array),
+            }),
+          }),
+        }),
+      }),
+    );
     expect(result.status).toBe("rebuilt");
     expect(result.chunkCount).toBeGreaterThan(0);
+  });
+
+  it("keeps rebuilding even if embedding generation fails", async () => {
+    const dataMod = await import("@/lib/data/admin-ai-memory");
+    const generatorMod = await import("./dossier-generator");
+    const embeddingsMod = await import("./embeddings");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    vi.mocked(dataMod.loadContactCrmSources).mockResolvedValue({
+      contact: makeContact(CONTACT_A),
+      applications: [makeApplication(CONTACT_A)],
+      contactNotes: [makeNote(CONTACT_A)],
+      contactTags: [],
+    });
+    vi.mocked(dataMod.listFactObservationsForContact).mockResolvedValue([]);
+    vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
+    vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
+      dossier: {
+        facts: makeDossierFacts(CONTACT_A),
+        signals: {
+          motivation: [],
+          communicationStyle: [],
+          reliabilitySignals: [],
+          fitSignals: [],
+          concerns: [],
+        },
+        contradictions: [],
+        unknowns: [],
+        evidenceAnchors: [],
+        summary: { short: "s", medium: "m" },
+      },
+      generatorVersion: DOSSIER_GENERATOR_VERSION,
+      modelMetadata: {
+        provider: "openai",
+        model: "gpt-test",
+        responseId: null,
+        usage: null,
+      },
+    });
+    vi.mocked(embeddingsMod.generateSubchunkEmbeddings).mockRejectedValue(
+      new Error("embedding provider down"),
+    );
+
+    const { rebuildContactMemory } = await import("./backfill");
+    const result = await rebuildContactMemory({ contactId: CONTACT_A });
+
+    expect(result.status).toBe("rebuilt");
+    expect(dataMod.upsertEmbeddings).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[admin-ai-memory] subchunk embedding generation failed",
+      expect.objectContaining({
+        contactId: CONTACT_A,
+        error: "embedding provider down",
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it("skips rebuild when memory is already fresh", async () => {
@@ -262,31 +388,20 @@ describe("rebuildContactMemory", () => {
       contact: makeContact(CONTACT_A),
       applications: [makeApplication(CONTACT_A)],
       contactNotes: [makeNote(CONTACT_A)],
+      contactTags: [],
     });
     const chunkBuilder = await import("./chunk-builder");
     const expectedChunks = chunkBuilder.buildCurrentCrmChunksForContact({
       contact: makeContact(CONTACT_A),
       applications: [makeApplication(CONTACT_A)],
       contactNotes: [makeNote(CONTACT_A)],
+      contactTags: [],
     });
     const fingerprint = freshness.computeChunkSourceFingerprint(expectedChunks);
 
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(
       makeDossier(CONTACT_A, { source_fingerprint: fingerprint }),
     );
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([
-      {
-        contact_id: CONTACT_A,
-        dossier_version: DOSSIER_SCHEMA_VERSION,
-        source_fingerprint: fingerprint,
-        facts_json: {},
-        top_fit_signals_json: [],
-        top_concerns_json: [],
-        confidence_notes_json: [],
-        short_summary: "s",
-        updated_at: "2026-04-15T00:00:00Z",
-      } satisfies CrmAiContactRankingCard,
-    ]);
 
     const { rebuildContactMemory } = await import("./backfill");
     const result = await rebuildContactMemory({ contactId: CONTACT_A });
@@ -294,7 +409,6 @@ describe("rebuildContactMemory", () => {
     expect(result.status).toBe("fresh");
     expect(generatorMod.generateContactDossier).not.toHaveBeenCalled();
     expect(dataMod.upsertContactDossier).not.toHaveBeenCalled();
-    expect(dataMod.upsertRankingCard).not.toHaveBeenCalled();
   });
 
   it("returns missing_sources when contact does not exist", async () => {
@@ -307,7 +421,6 @@ describe("rebuildContactMemory", () => {
 
   it("truncates the dossier prompt chunk set when total chars exceeds the cap (full chunks still upserted)", async () => {
     const dataMod = await import("@/lib/data/admin-ai-memory");
-    const retrievalMod = await import("@/lib/data/admin-ai-retrieval");
     const generatorMod = await import("./dossier-generator");
 
     // Build an application with ~60KB of text across allowlisted fields —
@@ -329,10 +442,10 @@ describe("rebuildContactMemory", () => {
       contact: makeContact(CONTACT_A),
       applications: [hugeApplication],
       contactNotes: [makeNote(CONTACT_A)],
+      contactTags: [],
     });
-    vi.mocked(retrievalMod.queryAdminAiContactFacts).mockResolvedValue([]);
+    vi.mocked(dataMod.listFactObservationsForContact).mockResolvedValue([]);
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
       dossier: {
         facts: makeDossierFacts(CONTACT_A),
@@ -348,7 +461,7 @@ describe("rebuildContactMemory", () => {
         evidenceAnchors: [],
         summary: { short: "s", medium: "m" },
       },
-      generatorVersion: "dossier-prompt-v1",
+      generatorVersion: DOSSIER_GENERATOR_VERSION,
       modelMetadata: {
         provider: "openai",
         model: "gpt-test",
@@ -384,15 +497,16 @@ describe("rebuildContactMemory", () => {
       contact: makeContact(CONTACT_A),
       applications: [],
       contactNotes: [],
+      contactTags: [],
     });
     const { rebuildContactMemory } = await import("./backfill");
     const result = await rebuildContactMemory({ contactId: CONTACT_A });
     expect(result.status).toBe("no_chunks");
     expect(
-      dataMod.deleteStaleCurrentCrmEvidenceChunksForContact,
+      dataMod.supersedeStaleCurrentCrmEvidenceChunksForContact,
     ).toHaveBeenCalledWith({
       contactId: CONTACT_A,
-      retainedSourceKeys: [],
+      chunks: [],
     });
   });
 });
@@ -414,6 +528,7 @@ describe("backfillContactMemory", () => {
         contact: makeContact(contactId),
         applications: [],
         contactNotes: [],
+        contactTags: [],
       }),
     );
 
@@ -439,10 +554,11 @@ describe("backfillContactMemory", () => {
         contact: makeContact(contactId),
         applications: [makeApplication(contactId)],
         contactNotes: [],
+        contactTags: [],
       }),
     );
+    vi.mocked(dataMod.listFactObservationsForContact).mockResolvedValue([]);
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
-    vi.mocked(dataMod.listRankingCards).mockResolvedValue([]);
     vi.mocked(generatorMod.generateContactDossier)
       .mockRejectedValueOnce(new Error("model down"))
       .mockResolvedValueOnce({
@@ -460,7 +576,7 @@ describe("backfillContactMemory", () => {
           evidenceAnchors: [],
           summary: { short: "s", medium: "m" },
         },
-        generatorVersion: "dossier-prompt-v1",
+        generatorVersion: DOSSIER_GENERATOR_VERSION,
         modelMetadata: {
           provider: "openai",
           model: "gpt-test",
@@ -484,6 +600,7 @@ describe("backfillContactMemory", () => {
       contact: makeContact(CONTACT_A),
       applications: [],
       contactNotes: [],
+      contactTags: [],
     });
     const { backfillContactMemory } = await import("./backfill");
     const stats = await backfillContactMemory({ contactIds: [CONTACT_A] });

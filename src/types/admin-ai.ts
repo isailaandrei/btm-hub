@@ -7,13 +7,15 @@
  * `supabase/migrations/20260415000001_admin_ai_analyst.sql`.
  */
 
+import type { DossierSignals } from "@/types/admin-ai-memory";
+
 // ---------------------------------------------------------------------------
 // Scope, mode, and query plan
 // ---------------------------------------------------------------------------
 
 export type AdminAiScope = "global" | "contact";
 
-export type AdminAiMode = "global_search" | "contact_synthesis" | "hybrid";
+export type AdminAiMode = "global_search" | "contact_synthesis";
 
 /**
  * Phase 1 filter operators. The approved spec (2026-04-15) defines
@@ -40,12 +42,54 @@ export type AdminAiQueryPlan = {
 };
 
 // ---------------------------------------------------------------------------
+// Whole-cohort single-pass reasoning
+// ---------------------------------------------------------------------------
+
+export type GlobalCohortProjection = {
+  contactId: string;
+  contactName: string | null;
+  memoryStatus: "fresh" | "stale" | "missing";
+  coverage: {
+    applicationCount: number;
+    contactNoteCount: number;
+    applicationAdminNoteCount: number;
+  };
+  facts: {
+    programHistory: string[];
+    statusHistory: string[];
+    tagNames: string[];
+    budgetValues?: string[];
+    timeAvailabilityValues?: string[];
+    travelWillingnessValues?: string[];
+    languageValues?: string[];
+    countryOfResidenceValues?: string[];
+    currentStructuredFields?: Array<{
+      fieldKey: string;
+      rawValues: string[];
+      normalizedValues: string[];
+    }>;
+    conflictingFieldKeys?: string[];
+  };
+  signals?: DossierSignals;
+  summary: string | null;
+  supportRefs: Array<{
+    supportRef: string;
+    claim: string;
+    confidence: "high" | "medium" | "low";
+  }>;
+  contradictions: string[];
+  unknowns: string[];
+};
+
+// ---------------------------------------------------------------------------
 // Evidence retrieval
 // ---------------------------------------------------------------------------
 
 export type EvidenceSourceType =
   | "application_answer"
+  | "application_structured_field"
   | "contact_note"
+  | "contact_tag"
   | "application_admin_note";
 
 export type EvidenceItem = {

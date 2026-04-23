@@ -12,6 +12,9 @@ It is written for the current BTM Hub stack:
 - Supabase
 - OpenAI-backed admin AI
 
+For the current runtime architecture itself, read:
+- [docs/admin-ai-analyst-current-flow.md](../admin-ai-analyst-current-flow.md)
+
 ## The Short Answer
 
 If you want the best debugging setup for this feature, use these together:
@@ -25,7 +28,7 @@ If you want the best debugging setup for this feature, use these together:
 4. terminal logs from `npm run dev`
    - best for server actions, retrieval, provider calls, and DB-facing logic
 5. direct DB inspection
-   - best for checking persisted threads, messages, citations, chunks, dossiers, and ranking cards
+   - best for checking persisted threads, messages, citations, chunks, subchunks, fact observations, dossiers, and cohort coverage
 
 ## React-Specific Debuggers
 
@@ -160,7 +163,7 @@ For:
 - server actions
 - query planning
 - retrieval
-- dossier/ranking rebuilds
+- dossier rebuilds
 - provider calls
 - persistence
 
@@ -257,11 +260,12 @@ Files:
 
 Inspect:
 - was a dossier found
-- was a ranking card found
+- was a dossier projection included in the cohort
+- what projection compression level was used
+- were any contacts missing dossiers or served from soft-stale dossiers
 - did rebuild-on-read trigger
 - how many candidates were loaded
 - how many evidence rows were loaded
-- did recent-chunk fallback run
 
 Suggested temporary logs:
 
@@ -277,8 +281,12 @@ console.log("[admin-ai] contact memory", {
 ```ts
 console.log("[admin-ai] global memory", {
   candidateCount: candidates.length,
-  rankingCardCount: validRankingCards.length,
-  contactsMissingRankingCards,
+  projectionCount: projections.length,
+  contactsMissingDossiers,
+  contactsServingStaleDossiers,
+  compressionLevel,
+  wasCompressed,
+  cohortTokenEstimate,
 });
 ```
 
@@ -291,8 +299,9 @@ Files:
 Inspect:
 - which model was used
 - number of candidates
-- number of dossiers
-- number of evidence rows
+- number of cohort projections
+- number of profile support refs included as scaffold context
+- number of dynamically retrieved evidence rows
 - raw model output
 - token usage
 
@@ -302,8 +311,10 @@ Suggested temporary log:
 console.log("[admin-ai] provider input", {
   scope,
   candidates: input.candidates.length,
-  dossiers: input.dossiers.length,
+  cohort: input.cohort?.length,
+  supportRefs: input.cohort?.reduce((sum, entry) => sum + entry.supportRefs.length, 0),
   evidence: input.evidence.length,
+  promptCacheKey: input.promptCacheKey,
 });
 ```
 
@@ -312,9 +323,9 @@ console.log("[admin-ai] provider usage", modelMetadata?.usage);
 ```
 
 If something is wrong with grounding, this is where to check:
-- did the model receive raw evidence
-- did it return citations
-- did it return citations that actually exist
+- did the model receive the full cohort projections
+- did it return raw `evidenceId` citations from the evidence pack
+- did the evidence pack contain the supporting chunks you expected
 
 ### Step 6: Orchestration
 
@@ -324,14 +335,15 @@ File:
 Inspect:
 - which path ran: contact vs global
 - did insufficient-evidence short-circuit trigger
-- shortlist ids
+- shortlist entries returned by the one-pass cohort call
+- evidence-id citation stripping / pruning
 - citation resolution
 - whether final message persistence succeeded
 
 Suggested temporary logs:
 
 ```ts
-console.log("[admin-ai] finalists", shortlist);
+console.log("[admin-ai] global cohort response", response.shortlist);
 console.log("[admin-ai] citations resolved", citations.length);
 ```
 
@@ -343,7 +355,6 @@ Best source of truth after the request finishes:
 - `admin_ai_message_citations`
 - `crm_ai_evidence_chunks`
 - `crm_ai_contact_dossiers`
-- `crm_ai_contact_ranking_cards`
 
 This is how you answer questions like:
 - what exactly did the assistant return
@@ -372,13 +383,12 @@ Look for:
 Use these tables:
 - `crm_ai_evidence_chunks`
 - `crm_ai_contact_dossiers`
-- `crm_ai_contact_ranking_cards`
 
 Look for:
 - whether the contact has chunks
 - whether the contact has a dossier
-- whether the contact has a ranking card
 - whether `stale_at` is set
+- whether the dossier facts and summaries look current
 
 ## Practical Debug Order For This Feature
 
@@ -390,7 +400,7 @@ When something is wrong, use this order:
 4. Check Network tab timing / failures
 5. Inspect React state in React DevTools
 6. Inspect DB rows for thread/message/citation
-7. Inspect DB rows for chunks/dossier/ranking card
+7. Inspect DB rows for chunks/dossier
 8. Add one temporary log at the exact failing step
 
 That order is usually faster than trying to reason from the UI alone.
@@ -406,6 +416,27 @@ DEBUG_ADMIN_AI=1
 ```
 
 Then guard detailed logs behind it.
+
+Current debug events include:
+- `ask-action`
+- `query-plan`
+- `global-single-pass-cohort`
+- `global-single-pass-assembled`
+- `global-cohort-response`
+- `global-single-pass`
+- `global-single-pass-failed`
+- `contact-scoped-memory`
+- `final-synthesis`
+- `openai-call`
+
+The logs are intentionally metadata-only:
+- counts
+- token estimates
+- timing
+- model / response ids
+- failure reasons
+
+They do **not** dump full dossier text or raw evidence snippets by default.
 
 Even better, write step snapshots to a temp folder:
 

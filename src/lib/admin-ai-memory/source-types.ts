@@ -11,7 +11,9 @@ import type { CrmAiChunkSourceType } from "@/types/admin-ai-memory";
 
 export const CHUNK_SOURCE_TYPES = {
   applicationAnswer: "application_answer",
+  applicationStructuredField: "application_structured_field",
   contactNote: "contact_note",
+  contactTag: "contact_tag",
   applicationAdminNote: "application_admin_note",
   whatsappMessage: "whatsapp_message",
   instagramMessage: "instagram_message",
@@ -26,7 +28,9 @@ export const CHUNK_SOURCE_TYPES = {
 export const CURRENT_CRM_SOURCE_TYPES: ReadonlySet<CrmAiChunkSourceType> =
   new Set([
     CHUNK_SOURCE_TYPES.applicationAnswer,
+    CHUNK_SOURCE_TYPES.applicationStructuredField,
     CHUNK_SOURCE_TYPES.contactNote,
+    CHUNK_SOURCE_TYPES.contactTag,
     CHUNK_SOURCE_TYPES.applicationAdminNote,
   ]);
 

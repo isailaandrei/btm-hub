@@ -100,4 +100,34 @@ describe("buildAdminAiQueryPlan", () => {
     );
     expect(hasAgeFilter).toBe(false);
   });
+
+  it("only emits program filters for explicit program phrases", () => {
+    const plan = buildAdminAiQueryPlan({
+      scope: "global",
+      question:
+        "show me applicants in the filmmaking program who can travel internationally",
+      availableTags: [],
+    });
+
+    expect(plan.structuredFilters).toContainEqual({
+      field: "program",
+      op: "eq",
+      value: "filmmaking",
+    });
+  });
+
+  it("keeps adjective-style program mentions in textFocus", () => {
+    const plan = buildAdminAiQueryPlan({
+      scope: "global",
+      question:
+        "show me filmmaking applicants who can travel internationally",
+      availableTags: [],
+    });
+
+    const hasProgramFilter = plan.structuredFilters.some(
+      (f: AdminAiStructuredFilter) => f.field === "program",
+    );
+    expect(hasProgramFilter).toBe(false);
+    expect(plan.textFocus).toContain("filmmaking");
+  });
 });

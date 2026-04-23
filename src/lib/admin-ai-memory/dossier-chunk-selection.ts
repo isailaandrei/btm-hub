@@ -16,8 +16,10 @@
  * Priority (highest first):
  *   1. Contact notes — most recent first (admin-maintained narrative).
  *   2. Application admin notes — most recent first (admin's own read).
- *   3. Application answers — in `ADMIN_AI_TEXT_FIELDS` order.
- *   4. Any future source types in insertion order.
+ *   3. Structured application fields — concise typed profile facts.
+ *   4. Contact tags — admin-maintained categorical signal.
+ *   5. Application answers — in `ADMIN_AI_TEXT_FIELDS` order.
+ *   6. Any future source types in insertion order.
  */
 
 import { ADMIN_AI_TEXT_FIELDS } from "@/lib/admin-ai/field-config";
@@ -48,10 +50,12 @@ export type ChunkSelectionResult = {
 const SOURCE_TYPE_PRIORITY: Record<CrmAiChunkSourceType, number> = {
   [CHUNK_SOURCE_TYPES.contactNote]: 0,
   [CHUNK_SOURCE_TYPES.applicationAdminNote]: 1,
-  [CHUNK_SOURCE_TYPES.applicationAnswer]: 2,
-  [CHUNK_SOURCE_TYPES.whatsappMessage]: 3,
-  [CHUNK_SOURCE_TYPES.instagramMessage]: 3,
-  [CHUNK_SOURCE_TYPES.zoomTranscriptChunk]: 3,
+  [CHUNK_SOURCE_TYPES.applicationStructuredField]: 2,
+  [CHUNK_SOURCE_TYPES.contactTag]: 3,
+  [CHUNK_SOURCE_TYPES.applicationAnswer]: 4,
+  [CHUNK_SOURCE_TYPES.whatsappMessage]: 5,
+  [CHUNK_SOURCE_TYPES.instagramMessage]: 5,
+  [CHUNK_SOURCE_TYPES.zoomTranscriptChunk]: 5,
 };
 
 const TEXT_FIELD_ORDER = new Map<string, number>(

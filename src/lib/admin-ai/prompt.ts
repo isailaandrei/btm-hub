@@ -1,4 +1,5 @@
 import type {
+  GlobalCohortProjection,
   AdminAiQueryPlan,
   AdminAiResponse,
   AdminAiScope,
@@ -7,7 +8,6 @@ import type {
 } from "@/types/admin-ai";
 import type {
   CrmAiContactDossier,
-  CrmAiContactRankingCard,
 } from "@/types/admin-ai-memory";
 
 export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
@@ -18,7 +18,7 @@ export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
           "Return `contactAssessment` populated and `shortlist` as an empty array.",
         ].join(" ")
       : [
-          "This is the grounded-synthesis pass over a pre-shortlisted set of contacts.",
+          "This is a global admin-AI response over the supplied eligible cohort.",
           "Return `shortlist` populated and `contactAssessment` as null. Never emit a contactAssessment object on global-scope questions — it will be stripped server-side regardless.",
         ].join(" ");
 
@@ -179,101 +179,71 @@ export function normalizeProviderResponse(
 }
 
 // ---------------------------------------------------------------------------
-// Ranking pass
+// Global single-pass cohort response
 // ---------------------------------------------------------------------------
 
-/**
- * Ranking pass — internal-only. Output is NOT a user-visible answer; it is
- * the shortlist of contact ids the synthesis pass will deeply evaluate.
- */
+export type AdminAiGlobalCohortInput = {
+  question: string;
+  queryPlan: AdminAiQueryPlan;
+  cohort: GlobalCohortProjection[];
+  evidence: EvidenceItem[];
+  coverage: {
+    totalCandidates: number;
+    candidatesWithoutDossierCount: number;
+    staleDossierCount: number;
+    compressionLevel: "full" | "compact" | "minimal";
+    wasCompressed: boolean;
+  };
+  promptCacheKey?: string | null;
+};
 
-export function buildAdminAiRankingSystemPrompt(): string {
+export function buildAdminAiGlobalCohortSystemPrompt(): string {
   return [
-    "You are the BTM Hub Admin AI ranking pass.",
-    "Use the supplied ranking cards to shortlist the most plausible candidates for the question.",
-    "STRICT RULE: every contactId you return MUST appear in `rankingCards[].contactId`. Never invent contactIds. Never reuse a UUID from `facts`, `tagIds`, `applicationIds`, or any other nested field.",
-    "Each card carries `adminNotesRecent` — raw admin-authored notes, newest first. Treat these as the freshest admin read on that contact and weight them heavily, especially when they contradict the model-derived signals.",
-    "Each card may also carry `queryMatchingChunks` — raw application/note text that literally matches the user's keywords. When present, these are your strongest signal that the contact is directly relevant: a chunk containing the user's phrase almost always beats a dossier summary that only vaguely paraphrases it. Include the contact unless the quote appears unrelated to the user's intent.",
-    "Be conservative — fewer high-fit picks beat noisy long lists.",
-    "If the cohort has weak memory coverage (see `coverage.candidatesWithoutMemoryCount`), note that under `cohortNotes` — do NOT shortlist contacts whose memory is missing.",
+    "You are the BTM Hub Admin AI Analyst.",
+    "This is a single-pass global cohort reasoning call over cached profile scaffolds plus a dynamic evidence pack.",
+    "You must reason over the full supplied cohort directly. Do not invent contacts outside the cohort.",
+    "Profile supportRefs are memory hints only. Final citations must use only the supplied raw evidenceIds from the evidence pack.",
+    "Never invent evidence ids. Never cite dossier prose alone.",
+    "A contact can appear in the shortlist only if you can support that entry with at least one supplied raw evidence citation.",
+    "Contacts marked stale or missing may still be considered, but you must reflect lower confidence in `concerns` or `uncertainty` when evidence is thin.",
     "Return valid JSON matching the required schema.",
   ].join(" ");
 }
 
-export type AdminAiRankingInput = {
-  question: string;
-  queryPlan: AdminAiQueryPlan;
-  rankingCards: CrmAiContactRankingCard[];
-  /**
-   * Contacts in the cohort whose memory artifacts are missing. Surfaced
-   * to the model as a COUNT (not a UUID list) so it can flag weak
-   * cohort coverage under `cohortNotes` without being tempted to
-   * shortlist contacts it can't actually rank.
-   */
-  candidatesMissingMemory: string[];
-};
-
-export function buildAdminAiRankingUserPrompt(
-  input: AdminAiRankingInput,
+export function buildAdminAiGlobalCohortUserPrompt(
+  input: AdminAiGlobalCohortInput,
 ): string {
-  return JSON.stringify(
+  const stablePrefix = JSON.stringify(
+    {
+      coverage: input.coverage,
+      cohort: input.cohort,
+    },
+    null,
+    2,
+  );
+
+  const dynamicSuffix = JSON.stringify(
     {
       question: input.question,
       queryPlan: input.queryPlan,
-      rankingCards: input.rankingCards.map((card) => ({
-        contactId: card.contact_id,
-        facts: card.facts_json,
-        topFitSignals: card.top_fit_signals_json,
-        topConcerns: card.top_concerns_json,
-        confidenceNotes: card.confidence_notes_json,
-        shortSummary: card.short_summary,
-        // Raw admin-authored notes carried without AI interpretation.
-        // High-signal low-verbosity text that the ranker should treat
-        // as the freshest admin read on this contact.
-        adminNotesRecent: card.admin_notes_recent_json ?? [],
-        // Query-time FTS hits — chunks whose text literally matches the
-        // user's keywords. Attached at query time, never persisted.
-        // Present only for contacts where at least one chunk matched.
-        ...(card.queryMatchingChunks && card.queryMatchingChunks.length > 0
-          ? { queryMatchingChunks: card.queryMatchingChunks }
-          : {}),
-      })),
-      coverage: {
-        totalRankableCandidates: input.rankingCards.length,
-        candidatesWithoutMemoryCount: input.candidatesMissingMemory.length,
-      },
+      evidence: input.evidence,
       responseContract: {
-        shortlistedContactIds: ["uuid"],
-        reasons: [{ contactId: "uuid", reason: "string" }],
-        cohortNotes: "string | null",
+        shortlist: [
+          {
+            contactId: "uuid",
+            contactName: "string",
+            whyFit: ["string"],
+            concerns: ["string"],
+            citations: [{ evidenceId: "evidence-1", claimKey: "string" }],
+          },
+        ],
+        contactAssessment: null,
+        uncertainty: ["string"],
       },
     },
     null,
     2,
   );
-}
 
-export const ADMIN_AI_RANKING_RESPONSE_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    shortlistedContactIds: {
-      type: "array",
-      items: { type: "string", format: "uuid" },
-    },
-    reasons: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          contactId: { type: "string", format: "uuid" },
-          reason: { type: "string" },
-        },
-        required: ["contactId", "reason"],
-      },
-    },
-    cohortNotes: { anyOf: [{ type: "string" }, { type: "null" }] },
-  },
-  required: ["shortlistedContactIds", "reasons", "cohortNotes"],
-} as const;
+  return `${stablePrefix}\n${dynamicSuffix}`;
+}
