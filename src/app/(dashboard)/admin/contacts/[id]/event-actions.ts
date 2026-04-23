@@ -11,6 +11,7 @@ import {
   resolveContactEvent,
   unresolveContactEvent,
 } from "@/lib/data/contact-events";
+import { syncContactMemory } from "@/lib/admin-ai-memory/server-action-sync";
 import type { ContactEventType } from "@/types/database";
 import { bodyRequiredFor } from "./event-types";
 
@@ -100,6 +101,7 @@ export async function createEvent(args: CreateEventArgs) {
   });
   revalidatePath(`/admin/contacts/${args.contactId}`);
   revalidatePath("/admin");
+  await syncContactMemory(args.contactId);
   return created;
 }
 
@@ -151,6 +153,7 @@ export async function updateEvent(
   const updated = await updateContactEvent(eventId, parsed.data);
   revalidatePath(`/admin/contacts/${updated.contact_id}`);
   revalidatePath("/admin");
+  await syncContactMemory(updated.contact_id);
   return updated;
 }
 
@@ -159,6 +162,7 @@ export async function deleteEvent(eventId: string) {
   const deleted = await deleteContactEvent(eventId);
   revalidatePath(`/admin/contacts/${deleted.contact_id}`);
   revalidatePath("/admin");
+  await syncContactMemory(deleted.contact_id);
   return deleted;
 }
 
@@ -168,6 +172,7 @@ export async function resolveEvent(eventId: string) {
   const result = await resolveContactEvent(eventId, profile.id);
   revalidatePath(`/admin/contacts/${result.contact_id}`);
   revalidatePath("/admin");
+  await syncContactMemory(result.contact_id);
   return result;
 }
 
@@ -176,5 +181,6 @@ export async function unresolveEvent(eventId: string) {
   const result = await unresolveContactEvent(eventId);
   revalidatePath(`/admin/contacts/${result.contact_id}`);
   revalidatePath("/admin");
+  await syncContactMemory(result.contact_id);
   return result;
 }

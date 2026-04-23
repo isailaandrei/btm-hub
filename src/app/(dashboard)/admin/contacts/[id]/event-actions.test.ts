@@ -34,6 +34,11 @@ vi.mock("@/lib/data/contact-events", () => ({
 const mockRevalidatePath = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 
+const mockSyncContactMemory = vi.fn();
+vi.mock("@/lib/admin-ai-memory/server-action-sync", () => ({
+  syncContactMemory: mockSyncContactMemory,
+}));
+
 const {
   createEvent,
   updateEvent,
