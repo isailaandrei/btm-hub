@@ -84,6 +84,8 @@ ALTER TABLE contact_events REPLICA IDENTITY FULL;
 | `mentor_assigned` | No | Required | Text mentor name in body (until mentor feature lands) |
 | `custom` | No | Optional | Requires `custom_label` (≤ 80 chars) |
 
+The "Body" column is a **server-action-level** constraint, not a DB constraint. At the DB layer `body` is `NOT NULL DEFAULT ''` (empty string permitted). The server action rejects submissions that leave required bodies empty for the types marked "Required" above. This keeps the DB schema simple and the validation logic co-located with the form.
+
 No `direction` field on communication types (user decision). No separate `info_received` type — resolution is a state change on `info_requested`.
 
 ## Migration plan (lossless)
@@ -128,9 +130,9 @@ New migration: `supabase/migrations/<timestamp>_contact_events.sql`
 
 `contact_notes` is left untouched. Verify locally via `supabase db push --local` before prod.
 
-### Phase 2 — code cutover (same PR or immediately after Phase 1)
+### Phase 2 — code cutover (same PR as Phase 1)
 
-All reads/writes for notes switch from `contact_notes` → `contact_events` (filtered to `type='note'` where the UI specifically wants notes, though the unified timeline reads all types).
+In the same pull request that ships the migration, the application code stops reading from and writing to `contact_notes`. The existing notes card in the contact detail page and the existing note server actions are replaced by the unified Timeline component, which operates entirely on `contact_events`.
 
 `contact_notes` is now frozen (no new writes). If rollback is ever needed, the code revert is enough; any notes written during the broken window remain in `contact_events` and can be recovered ad-hoc via a copy query if needed — no pre-written script (user decision).
 
@@ -220,21 +222,16 @@ Single new column **"Last activity"** — always populated per row:
 
 Selecting one filters to open `info_requested` (awaiting applicant) or open `awaiting_btm_response` (we owe). Selecting both is a union. Composes with existing tag/category filters.
 
-Filtering and sorting remain **client-side**, in line with the existing contacts panel pattern. The initial page load fetches derived state alongside the contacts list:
+Filtering and sorting remain **client-side**, in line with the existing contacts panel pattern. The initial page load fetches derived state alongside the contacts list. Conceptually, each contact row is enriched with four fields:
 
-```sql
-SELECT
-  c.*,
-  max(e.happened_at) AS last_activity_at,
-  max(e.happened_at) FILTER (WHERE ...) AS last_activity_type, -- or compute via subquery
-  bool_or(e.type = 'info_requested'        AND e.resolved_at IS NULL) AS awaiting_applicant,
-  bool_or(e.type = 'awaiting_btm_response' AND e.resolved_at IS NULL) AS awaiting_btm
-FROM contacts c
-LEFT JOIN contact_events e ON e.contact_id = c.id
-GROUP BY c.id;
-```
+- `last_activity_at` — `MAX(happened_at)` across the contact's events.
+- `last_activity_type` — the `type` of the event holding that max.
+- `awaiting_applicant` — `TRUE` if any open `info_requested` event exists.
+- `awaiting_btm` — `TRUE` if any open `awaiting_btm_response` event exists.
 
-(Exact query shape is an implementation detail; the last-activity-type may be derived via a correlated subquery or lateral join.)
+These are not persisted on the contact. They are computed at fetch time. The exact SQL shape (aggregate + correlated subquery, lateral join, or a view) is an implementation detail for the plan phase. Whichever shape is picked, the partial index `idx_contact_events_open_pending` keeps the "awaiting" lookups cheap.
+
+When no events exist for a contact, `last_activity_at` falls back to the contact's most recent application's `created_at`, with `last_activity_type` rendered in the UI as the literal string "Application submitted".
 
 ## Edge cases and behaviors
 
