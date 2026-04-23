@@ -7,7 +7,6 @@ import type {
   Contact,
   TagCategory,
   Tag,
-  ContactNote,
 } from "@/types/database";
 
 // ---------------------------------------------------------------------------
@@ -323,37 +322,6 @@ export async function bulkUnassignTags(contactIds: string[], tagId: string) {
     .eq("tag_id", tagId);
 
   if (error) throw new Error(`Failed to bulk unassign tags: ${error.message}`);
-}
-
-// ---------------------------------------------------------------------------
-// Contact Notes
-// ---------------------------------------------------------------------------
-
-export const getContactNotes = cache(async function getContactNotes(contactId: string) {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("contact_notes")
-    .select("*")
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: true });
-
-  if (error) throw new Error(`Failed to load contact notes: ${error.message}`);
-  return data as ContactNote[];
-});
-
-export async function addContactNote(
-  contactId: string,
-  authorId: string,
-  authorName: string,
-  text: string,
-) {
-  await requireAdmin();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("contact_notes")
-    .insert({ contact_id: contactId, author_id: authorId, author_name: authorName, text });
-
-  if (error) throw new Error(`Failed to add note: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------

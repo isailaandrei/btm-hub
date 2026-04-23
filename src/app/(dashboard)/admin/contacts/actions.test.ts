@@ -20,7 +20,6 @@ vi.mock("@/lib/auth/require-admin", () => ({
 const mockUpdateContact = vi.fn();
 const mockAssignTag = vi.fn();
 const mockUnassignTag = vi.fn();
-const mockAddContactNote = vi.fn();
 const mockBulkAssignTags = vi.fn();
 const mockBulkUnassignTags = vi.fn();
 const mockDeleteApplication = vi.fn();
@@ -30,7 +29,6 @@ vi.mock("@/lib/data/contacts", () => ({
   updateContact: mockUpdateContact,
   assignTag: mockAssignTag,
   unassignTag: mockUnassignTag,
-  addContactNote: mockAddContactNote,
   bulkAssignTags: mockBulkAssignTags,
   bulkUnassignTags: mockBulkUnassignTags,
   deleteApplication: mockDeleteApplication,
@@ -60,7 +58,6 @@ const {
   bulkAssignTag,
   bulkUnassignTag,
   editContact,
-  submitContactNote,
   deleteApplication,
 } = await import(
   "./actions"
@@ -151,48 +148,6 @@ describe("editContact", () => {
   });
 });
 
-describe("submitContactNote", () => {
-  beforeEach(() => {
-    mockAddContactNote.mockResolvedValue(undefined);
-  });
-
-  it("returns field errors for a blank note", async () => {
-    const formData = new FormData();
-    formData.set("contactId", VALID_UUID);
-    formData.set("text", "   ");
-
-    await expect(
-      submitContactNote(
-        { errors: null, message: null, success: false, resetKey: 0 },
-        formData,
-      ),
-    ).resolves.toEqual({
-      errors: { text: ["Note text is required"] },
-      message: null,
-      success: false,
-      resetKey: 0,
-    });
-  });
-
-  it("increments resetKey after a successful note submission", async () => {
-    const formData = new FormData();
-    formData.set("contactId", VALID_UUID);
-    formData.set("text", "Followed up");
-
-    await expect(
-      submitContactNote(
-        { errors: null, message: null, success: false, resetKey: 3 },
-        formData,
-      ),
-    ).resolves.toEqual({
-      errors: null,
-      message: "Note added.",
-      success: true,
-      resetKey: 4,
-    });
-    expect(mockAddContactNote).toHaveBeenCalled();
-  });
-});
 
 describe("deleteApplication", () => {
   beforeEach(() => {

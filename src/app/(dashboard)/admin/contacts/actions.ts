@@ -8,7 +8,6 @@ import {
   updateContact,
   assignTag,
   unassignTag,
-  addContactNote,
   bulkAssignTags,
   bulkUnassignTags,
   deleteApplication as deleteApplicationData,
@@ -20,20 +19,6 @@ import {
 } from "@/lib/admin-ai-memory/server-action-sync";
 
 const contactEmailSchema = z.email("Please enter a valid email address");
-const contactNoteSchema = z.object({
-  text: z
-    .string()
-    .trim()
-    .min(1, "Note text is required")
-    .max(2000, "Note must be 2000 characters or fewer"),
-});
-
-export type ContactNoteFormState = {
-  errors: Record<string, string[]> | null;
-  message: string | null;
-  success: boolean;
-  resetKey: number;
-};
 
 export async function editContact(
   contactId: string,
@@ -75,65 +60,6 @@ export async function unassignContactTag(contactId: string, tagId: string) {
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
   await syncContactMemory(contactId);
-}
-
-export async function addNote(contactId: string, text: string) {
-  validateUUID(contactId);
-  const profile = await requireAdmin();
-  const trimmed = text.trim().slice(0, 2000);
-  if (!trimmed) return;
-  await addContactNote(contactId, profile.id, profile.display_name ?? profile.email, trimmed);
-  revalidatePath(`/admin/contacts/${contactId}`);
-  await syncContactMemory(contactId);
-}
-
-export async function submitContactNote(
-  prevState: ContactNoteFormState,
-  formData: FormData,
-): Promise<ContactNoteFormState> {
-  const contactId = String(formData.get("contactId") ?? "");
-  try {
-    validateUUID(contactId, "contact");
-  } catch {
-    return {
-      errors: null,
-      message: "Invalid contact.",
-      success: false,
-      resetKey: prevState.resetKey,
-    };
-  }
-
-  const parsed = contactNoteSchema.safeParse({
-    text: formData.get("text") ?? "",
-  });
-  if (!parsed.success) {
-    return {
-      errors: parsed.error.flatten().fieldErrors,
-      message: null,
-      success: false,
-      resetKey: prevState.resetKey,
-    };
-  }
-
-  try {
-    await addNote(contactId, parsed.data.text);
-    return {
-      errors: null,
-      message: "Note added.",
-      success: true,
-      resetKey: prevState.resetKey + 1,
-    };
-  } catch (error) {
-    return {
-      errors: null,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to add note. Please try again.",
-      success: false,
-      resetKey: prevState.resetKey,
-    };
-  }
 }
 
 export async function updatePreferences(patch: Record<string, unknown>) {
