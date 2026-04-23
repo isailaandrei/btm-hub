@@ -34,6 +34,7 @@ import { BulkActionBar } from "./bulk-action-bar";
 import { useContactsPanelState } from "./contacts-panel-state";
 import { useContactsPanelViewModel } from "./contacts-panel-view-model";
 import { useDebouncedValue } from "./use-debounced-value";
+import { LastActivityCell } from "./last-activity-cell";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 
@@ -102,6 +103,7 @@ export function ContactsPanel() {
     tagCategories,
     tags,
     contactTags,
+    contactEventSummaries,
     contactsError,
     ensureContacts,
   } = useAdminContactsData();
@@ -131,6 +133,7 @@ export function ContactsPanel() {
     applications,
     contacts,
     contactTags,
+    contactEventSummaries,
     tags,
     tagCategories,
     visibleColumns: state.visibleColumns,
@@ -138,6 +141,7 @@ export function ContactsPanel() {
     selectedProgram: state.selectedProgram,
     selectedTagIds: state.selectedTagIds,
     columnFilters: state.columnFilters,
+    pendingFilter: (state as unknown as { pendingFilter?: ("awaiting_applicant" | "awaiting_btm")[] }).pendingFilter ?? [],
     sortBy: state.sortBy,
     page: state.page,
     pageSize: state.pageSize,
@@ -444,6 +448,7 @@ export function ContactsPanel() {
                   contactApplications,
                   uniquePrograms,
                   contactTagEntries,
+                  derivation,
                 }) => {
                   const latestApplicationPhone = contactApplications.find(
                     (application) => typeof application.answers.phone === "string",
@@ -533,7 +538,11 @@ export function ContactsPanel() {
                           className="overflow-hidden whitespace-normal text-sm text-muted-foreground"
                         >
                           <div className="line-clamp-7 break-words">
-                            {renderFieldValue(contactApplications, field)}
+                            {field.key === "last_activity" ? (
+                              <LastActivityCell derivation={derivation} />
+                            ) : (
+                              renderFieldValue(contactApplications, field)
+                            )}
                           </div>
                         </TableCell>
                       ))}
