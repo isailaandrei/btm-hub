@@ -59,6 +59,18 @@ export function TimelineComposer({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (bodyRequired && body.trim().length === 0) {
+      setError(
+        `A "${EVENT_TYPE_META[type].label}" event needs a description before you can save.`,
+      );
+      return;
+    }
+    if (type === "custom" && customLabel.trim().length === 0) {
+      setError("Custom events need a label before you can save.");
+      return;
+    }
+
     startTransition(async () => {
       try {
         await createEvent({

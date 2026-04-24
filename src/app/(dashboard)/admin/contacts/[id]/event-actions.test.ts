@@ -129,7 +129,7 @@ describe("createEvent", () => {
         happenedAt: "2026-04-22T14:30:00.000Z",
         customLabel: null,
       }),
-    ).rejects.toThrow(/body/i);
+    ).rejects.toThrow(/needs a description/i);
   });
 
   it("allows empty body for call", async () => {

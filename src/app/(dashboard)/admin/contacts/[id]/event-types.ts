@@ -30,13 +30,13 @@ export const EVENT_TYPE_META: Record<ContactEventType, EventTypeMeta> = {
   info_requested: {
     value: "info_requested",
     label: "Info requested",
-    bodyRequired: true,
+    bodyRequired: false,
     resolvable: true,
   },
   awaiting_btm_response: {
     value: "awaiting_btm_response",
     label: "Waiting for BTM response",
-    bodyRequired: true,
+    bodyRequired: false,
     resolvable: true,
   },
   custom: { value: "custom", label: "Custom", bodyRequired: false, resolvable: false },

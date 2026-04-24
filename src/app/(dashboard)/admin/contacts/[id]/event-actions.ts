@@ -14,7 +14,7 @@ import {
 } from "@/lib/data/contact-events";
 import { syncContactMemory } from "@/lib/admin-ai-memory/server-action-sync";
 import type { ContactEventType } from "@/types/database";
-import { bodyRequiredFor } from "./event-types";
+import { bodyRequiredFor, EVENT_TYPE_META } from "./event-types";
 
 function scheduleNoteMemorySync(contactId: string): void {
   after(async () => {
@@ -57,7 +57,7 @@ const createSchema = z
       if (!data.customLabel || data.customLabel.length === 0) {
         ctx.addIssue({
           code: "custom",
-          message: "Custom label is required for custom events",
+          message: "Custom events need a label before you can save.",
           path: ["customLabel"],
         });
       }
@@ -65,7 +65,7 @@ const createSchema = z
     if (bodyRequiredFor(data.type) && data.body.trim().length === 0) {
       ctx.addIssue({
         code: "custom",
-        message: "Body is required for this event type",
+        message: `A "${EVENT_TYPE_META[data.type].label}" event needs a description before you can save.`,
         path: ["body"],
       });
     }
