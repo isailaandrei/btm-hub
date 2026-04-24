@@ -112,42 +112,6 @@ function makeDossier(
   };
 }
 
-function makeDossierFacts(contactId: string) {
-  return {
-    contact: {
-      contactId,
-      contactName: null,
-      contactEmail: null,
-      contactPhone: null,
-    },
-    applications: {
-      applicationCount: 0,
-      applicationIds: [],
-      programHistory: [],
-      statusHistory: [],
-    },
-    tags: {
-      tagIds: [],
-      tagNames: [],
-      observedTagIds: [],
-      observedTagNames: [],
-    },
-    structuredFieldDetails: {
-      budget: {
-        fieldLabel: "Budget",
-        valueType: "string",
-        rawValues: [],
-        normalizedValues: [],
-      },
-    },
-    observationSummary: {
-      fieldHistory: {},
-      conflictingFields: [],
-      tagHistory: [],
-    },
-  };
-}
-
 describe("rebuildContactMemory", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -196,7 +160,6 @@ describe("rebuildContactMemory", () => {
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
       dossier: {
-        facts: makeDossierFacts(CONTACT_A),
         signals: {
           motivation: [{ value: "ocean", confidence: "high" }],
           communicationStyle: [],
@@ -339,7 +302,6 @@ describe("rebuildContactMemory", () => {
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
       dossier: {
-        facts: makeDossierFacts(CONTACT_A),
         signals: {
           motivation: [],
           communicationStyle: [],
@@ -448,7 +410,6 @@ describe("rebuildContactMemory", () => {
     vi.mocked(dataMod.getContactDossier).mockResolvedValue(null);
     vi.mocked(generatorMod.generateContactDossier).mockResolvedValue({
       dossier: {
-        facts: makeDossierFacts(CONTACT_A),
         signals: {
           motivation: [{ value: "m", confidence: "high" }],
           communicationStyle: [],
@@ -563,7 +524,6 @@ describe("backfillContactMemory", () => {
       .mockRejectedValueOnce(new Error("model down"))
       .mockResolvedValueOnce({
         dossier: {
-          facts: makeDossierFacts(CONTACT_B),
           signals: {
             motivation: [{ value: "x", confidence: "high" }],
             communicationStyle: [],

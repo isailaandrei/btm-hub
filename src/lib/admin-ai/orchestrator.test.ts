@@ -86,7 +86,11 @@ function makeCandidate(contactId: string): ContactFactRow {
 function makeGlobalCohortProjection(
   contactId: string,
   options?: {
-    supportRefs?: Array<{ supportRef: string; claim: string }>;
+    supportRefs?: Array<{
+      supportRef: string;
+      claim: string;
+      confidence: "high" | "medium" | "low";
+    }>;
     memoryStatus?: "fresh" | "stale" | "missing";
   },
 ): GlobalCohortProjection {

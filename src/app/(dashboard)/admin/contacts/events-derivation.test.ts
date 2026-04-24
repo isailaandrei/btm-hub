@@ -5,6 +5,7 @@ import { deriveContactActivity } from "./events-derivation";
 
 function event(partial: Partial<ContactEventSummary>): ContactEventSummary {
   return {
+    id: "event-1",
     contact_id: "contact-1",
     type: "note",
     custom_label: null,

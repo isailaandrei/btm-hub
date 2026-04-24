@@ -16,6 +16,7 @@ function chunk(
     contactId: CONTACT_ID,
     applicationId: APP_ID,
     sourceType: "application_answer",
+    logicalSourceId: `${APP_ID}:ultimate_vision`,
     sourceId: `${APP_ID}:ultimate_vision`,
     sourceTimestamp: "2026-04-15T00:00:00Z",
     text: "ocean voice",
