@@ -84,7 +84,7 @@ const TAG_CATEGORY_SELECT =
 const TAG_SELECT =
   "id, category_id, name, sort_order, updated_at";
 const CONTACT_EVENT_SUMMARY_SELECT =
-  "contact_id, type, custom_label, happened_at, resolved_at";
+  "id, contact_id, type, custom_label, happened_at, resolved_at";
 const TAGS_REFETCH_DEBOUNCE_MS = 200;
 
 function sortContactsByName(items: Contact[]): Contact[] {
@@ -451,6 +451,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           (payload) => {
             const row = payload.new as ContactEvent;
             const summary: ContactEventSummary = {
+              id: row.id,
               contact_id: row.contact_id,
               type: row.type,
               custom_label: row.custom_label,
@@ -467,8 +468,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
             const row = payload.new as ContactEvent;
             setContactEventSummaries((prev) =>
               (prev ?? []).map((s) =>
-                s.contact_id === row.contact_id && s.happened_at === row.happened_at
+                s.id === row.id
                   ? {
+                      id: row.id,
                       contact_id: row.contact_id,
                       type: row.type,
                       custom_label: row.custom_label,
@@ -486,10 +488,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           (payload) => {
             const row = payload.old as ContactEvent;
             setContactEventSummaries((prev) =>
-              (prev ?? []).filter(
-                (s) =>
-                  !(s.contact_id === row.contact_id && s.happened_at === row.happened_at),
-              ),
+              (prev ?? []).filter((s) => s.id !== row.id),
             );
           },
         )

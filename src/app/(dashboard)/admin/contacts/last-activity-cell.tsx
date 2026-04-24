@@ -1,22 +1,7 @@
 "use client";
 
+import { formatRelative } from "@/lib/format-relative";
 import type { ContactActivityDerivation } from "./events-derivation";
-
-function formatRelative(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const abs = Math.abs(diffMs);
-  const days = Math.round(abs / 86_400_000);
-  if (days === 0) {
-    const hours = Math.round(abs / 3_600_000);
-    if (hours === 0) return "just now";
-    return `${hours}h ago`;
-  }
-  if (days < 30) return `${days}d ago`;
-  const months = Math.round(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  const years = Math.round(months / 12);
-  return `${years}y ago`;
-}
 
 interface LastActivityCellProps {
   derivation: ContactActivityDerivation;

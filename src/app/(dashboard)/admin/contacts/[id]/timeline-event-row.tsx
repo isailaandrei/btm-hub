@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ContactEvent } from "@/types/database";
+import { formatRelative } from "@/lib/format-relative";
 import { eventTypeLabel, isResolvable } from "./event-types";
 import { EVENT_TYPE_DISPLAY } from "./event-type-display";
 import {
@@ -12,20 +13,10 @@ import {
   unresolveEvent,
 } from "./event-actions";
 
-function formatRelative(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const abs = Math.abs(diffMs);
-  const minutes = Math.round(abs / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(abs / 3_600_000);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(abs / 86_400_000);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.round(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  const years = Math.round(months / 12);
-  return `${years}y ago`;
+function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function formatAbsolute(iso: string): string {
@@ -45,6 +36,9 @@ interface TimelineEventRowProps {
 export function TimelineEventRow({ event }: TimelineEventRowProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draftBody, setDraftBody] = useState(event.body);
+  const [draftHappenedAt, setDraftHappenedAt] = useState(toDatetimeLocal(event.happened_at));
+  const [draftCustomLabel, setDraftCustomLabel] = useState(event.custom_label ?? "");
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +53,11 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
     setError(null);
     startTransition(async () => {
       try {
-        await updateEvent(event.id, { body: draftBody });
+        await updateEvent(event.id, {
+          body: draftBody,
+          happenedAt: new Date(draftHappenedAt).toISOString(),
+          ...(event.type === "custom" ? { customLabel: draftCustomLabel || null } : {}),
+        });
         setIsEditing(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save");
@@ -68,12 +66,12 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
   }
 
   function handleDelete() {
-    if (!confirm("Delete this event? This cannot be undone.")) return;
     setError(null);
     startTransition(async () => {
       try {
         await deleteEvent(event.id);
       } catch (err) {
+        setIsConfirmingDelete(false);
         setError(err instanceof Error ? err.message : "Failed to delete");
       }
     });
@@ -133,6 +131,17 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
         </div>
         {isEditing ? (
           <div className="mt-2 flex flex-col gap-2">
+            {event.type === "custom" && (
+              <input
+                type="text"
+                value={draftCustomLabel}
+                onChange={(e) => setDraftCustomLabel(e.target.value)}
+                maxLength={80}
+                placeholder="Event label"
+                className="rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary"
+                disabled={isPending}
+              />
+            )}
             <textarea
               value={draftBody}
               onChange={(e) => setDraftBody(e.target.value)}
@@ -141,6 +150,17 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
               className="rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary"
               disabled={isPending}
             />
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground">When</label>
+              <input
+                type="datetime-local"
+                value={draftHappenedAt}
+                max={toDatetimeLocal(new Date().toISOString())}
+                onChange={(e) => setDraftHappenedAt(e.target.value)}
+                className="rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary"
+                disabled={isPending}
+              />
+            </div>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -154,6 +174,8 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
                 type="button"
                 onClick={() => {
                   setDraftBody(event.body);
+                  setDraftHappenedAt(toDatetimeLocal(event.happened_at));
+                  setDraftCustomLabel(event.custom_label ?? "");
                   setIsEditing(false);
                 }}
                 className="rounded border border-border px-3 py-1 text-xs font-medium"
@@ -189,33 +211,56 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
 
       {!isEditing && (
         <div className="flex flex-none items-start gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <button
-            type="button"
-            onClick={() => setIsEditing(true)}
-            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Edit"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          {isResolved && (
-            <button
-              type="button"
-              onClick={handleReopen}
-              disabled={isPending}
-              className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-              title="Reopen"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
+          {isConfirmingDelete ? (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">Delete?</span>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isPending}
+                className="rounded px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsConfirmingDelete(false)}
+                className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Edit"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              {isResolved && (
+                <button
+                  type="button"
+                  onClick={handleReopen}
+                  disabled={isPending}
+                  className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  title="Reopen"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsConfirmingDelete(true)}
+                className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-            title="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
         </div>
       )}
     </div>

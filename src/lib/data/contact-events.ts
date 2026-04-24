@@ -134,11 +134,12 @@ export async function unresolveContactEvent(eventId: string) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", eventId)
+    .in("type", ["info_requested", "awaiting_btm_response"])
     .select("id, contact_id")
     .maybeSingle();
 
   if (error) throw new Error(`Failed to reopen contact event: ${error.message}`);
-  if (!data) throw new Error("Contact event not found");
+  if (!data) throw new Error("Contact event not found or not resolvable");
   return data as { id: string; contact_id: string };
 }
 
@@ -147,6 +148,7 @@ export async function unresolveContactEvent(eventId: string) {
 // ---------------------------------------------------------------------------
 
 export interface ContactEventSummary {
+  id: string;
   contact_id: string;
   type: ContactEventType;
   custom_label: string | null;
@@ -159,7 +161,7 @@ export const getAllContactEventSummaries = cache(
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("contact_events")
-      .select("contact_id, type, custom_label, happened_at, resolved_at");
+      .select("id, contact_id, type, custom_label, happened_at, resolved_at");
 
     if (error) throw new Error(`Failed to load contact event summaries: ${error.message}`);
     return (data ?? []) as ContactEventSummary[];
