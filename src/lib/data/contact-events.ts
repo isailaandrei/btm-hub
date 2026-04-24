@@ -80,12 +80,12 @@ export async function updateContactEvent(
     .from("contact_events")
     .update(patch)
     .eq("id", eventId)
-    .select("id, contact_id")
+    .select("id, contact_id, type")
     .maybeSingle();
 
   if (error) throw new Error(`Failed to update contact event: ${error.message}`);
   if (!data) throw new Error("Contact event not found");
-  return data as { id: string; contact_id: string };
+  return data as { id: string; contact_id: string; type: ContactEventType };
 }
 
 export async function deleteContactEvent(eventId: string) {
@@ -95,12 +95,12 @@ export async function deleteContactEvent(eventId: string) {
     .from("contact_events")
     .delete()
     .eq("id", eventId)
-    .select("id, contact_id")
+    .select("id, contact_id, type")
     .maybeSingle();
 
   if (error) throw new Error(`Failed to delete contact event: ${error.message}`);
   if (!data) throw new Error("Contact event not found");
-  return data as { id: string; contact_id: string };
+  return data as { id: string; contact_id: string; type: ContactEventType };
 }
 
 export async function resolveContactEvent(eventId: string, resolverId: string) {
