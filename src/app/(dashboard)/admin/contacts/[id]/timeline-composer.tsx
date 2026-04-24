@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Clock } from "lucide-react";
 import type { ContactEventType } from "@/types/database";
 import {
   EVENT_TYPE_META,
   EVENT_TYPE_ORDER,
   bodyRequiredFor,
 } from "./event-types";
+import { EVENT_TYPE_DISPLAY } from "./event-type-display";
 import { createEvent } from "./event-actions";
 
 function nowIsoLocalInput(): string {
@@ -20,15 +22,34 @@ function nowIsoLocalInput(): string {
   return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
 }
 
-interface TimelineComposerProps {
-  contactId: string;
+function formatWhenLabel(isoLocal: string): string {
+  const asDate = new Date(isoLocal);
+  const now = Date.now();
+  if (Math.abs(now - asDate.getTime()) < 60_000) return "Now";
+  return asDate.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
-export function TimelineComposer({ contactId }: TimelineComposerProps) {
+interface TimelineComposerProps {
+  contactId: string;
+  onDismiss?: () => void;
+  onAdded?: () => void;
+}
+
+export function TimelineComposer({
+  contactId,
+  onDismiss,
+  onAdded,
+}: TimelineComposerProps) {
   const [type, setType] = useState<ContactEventType>("note");
   const [body, setBody] = useState("");
   const [customLabel, setCustomLabel] = useState("");
   const [happenedAt, setHappenedAt] = useState(nowIsoLocalInput());
+  const [timeEditing, setTimeEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -50,7 +71,9 @@ export function TimelineComposer({ contactId }: TimelineComposerProps) {
         setBody("");
         setCustomLabel("");
         setHappenedAt(nowIsoLocalInput());
+        setTimeEditing(false);
         setType("note");
+        onAdded?.();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to add event");
       }
@@ -58,27 +81,23 @@ export function TimelineComposer({ contactId }: TimelineComposerProps) {
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3"
-    >
-      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Add event
-      </p>
-      <div className="flex flex-wrap gap-1.5">
+    <form onSubmit={submit} className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-1">
         {EVENT_TYPE_ORDER.map((t) => {
+          const Icon = EVENT_TYPE_DISPLAY[t].icon;
           const active = t === type;
           return (
             <button
               key={t}
               type="button"
               onClick={() => setType(t)}
-              className={`rounded-full border px-3 py-0.5 text-xs transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition-colors ${
                 active
-                  ? "border-primary bg-primary text-white"
-                  : "border-border bg-background text-foreground hover:bg-muted"
+                  ? "bg-primary/10 font-medium text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
+              <Icon className="h-3 w-3" />
               {EVENT_TYPE_META[t].label}
             </button>
           );
@@ -105,7 +124,8 @@ export function TimelineComposer({ contactId }: TimelineComposerProps) {
         }
         rows={3}
         maxLength={5000}
-        className="resize-none rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary"
+        autoFocus
+        className="w-full resize-none bg-transparent px-1 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
         disabled={isPending}
       />
       {remaining < 500 && (
@@ -114,23 +134,44 @@ export function TimelineComposer({ contactId }: TimelineComposerProps) {
         </p>
       )}
 
-      <div className="flex items-center gap-2 text-sm">
-        <label className="flex items-center gap-1 text-xs text-muted-foreground">
-          When
+      <div className="flex items-center gap-2 border-t border-border pt-3">
+        {timeEditing ? (
           <input
             type="datetime-local"
             value={happenedAt}
             onChange={(e) => setHappenedAt(e.target.value)}
-            className="rounded border border-border bg-background px-1 py-0.5 text-xs"
+            onBlur={() => setTimeEditing(false)}
+            autoFocus
+            className="rounded border border-border bg-background px-2 py-1 text-xs"
             disabled={isPending}
           />
-        </label>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setTimeEditing(true)}
+            className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Clock className="h-3 w-3" />
+            {formatWhenLabel(happenedAt)}
+          </button>
+        )}
+        <div className="flex-1" />
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={isPending}
+            className="rounded border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        )}
         <button
           type="submit"
           disabled={isPending}
-          className="ml-auto rounded bg-primary px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="rounded bg-primary px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         >
-          {isPending ? "Adding…" : "Add to timeline"}
+          {isPending ? "Saving…" : "Save"}
         </button>
       </div>
 

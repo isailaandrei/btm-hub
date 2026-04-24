@@ -1,9 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ContactEvent } from "@/types/database";
 import { eventTypeLabel, isResolvable } from "./event-types";
-import { updateEvent, deleteEvent, resolveEvent, unresolveEvent } from "./event-actions";
+import { EVENT_TYPE_DISPLAY } from "./event-type-display";
+import {
+  updateEvent,
+  deleteEvent,
+  resolveEvent,
+  unresolveEvent,
+} from "./event-actions";
 
 function formatRelative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -42,7 +49,11 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
   const [error, setError] = useState<string | null>(null);
 
   const label = eventTypeLabel(event.type, event.custom_label);
-  const isOpen = isResolvable(event.type) && event.resolved_at === null;
+  const display = EVENT_TYPE_DISPLAY[event.type];
+  const Icon = display.icon;
+  const resolvable = isResolvable(event.type);
+  const isOpen = resolvable && event.resolved_at === null;
+  const isResolved = resolvable && event.resolved_at !== null;
 
   function handleSave() {
     setError(null);
@@ -92,28 +103,33 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
 
   return (
     <div
-      className={`flex gap-3 border-t border-border py-3 first:border-t-0 ${
-        isOpen ? "border-l-2 border-l-amber-500 pl-3" : ""
+      className={`group flex gap-3 px-2 py-2.5 transition-colors ${
+        isOpen
+          ? "border-l-2 border-amber-500 bg-amber-50 pl-3"
+          : "hover:bg-muted/40"
       }`}
     >
       <div
-        className={`flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-medium ${
-          isOpen ? "bg-amber-100 text-amber-900" : "bg-muted text-muted-foreground"
-        }`}
+        className={`flex h-7 w-7 flex-none items-center justify-center rounded-full text-white ${display.colorClass}`}
         aria-hidden
       >
-        {label.charAt(0)}
+        <Icon className="h-3.5 w-3.5" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="text-sm font-medium text-foreground">{label}</span>
-          <span className="text-xs text-muted-foreground">
-            {event.author_name} &middot; {formatRelative(event.happened_at)} &middot;{" "}
-            {formatAbsolute(event.happened_at)}
-            {event.edited_at && (
-              <> &middot; edited {formatRelative(event.edited_at)}</>
-            )}
+          <span
+            className="text-xs text-muted-foreground"
+            title={formatAbsolute(event.happened_at)}
+          >
+            {event.author_name} · {formatRelative(event.happened_at)}
+            {event.edited_at && <> · edited {formatRelative(event.edited_at)}</>}
           </span>
+          {isResolved && (
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+              Resolved
+            </span>
+          )}
         </div>
         {isEditing ? (
           <div className="mt-2 flex flex-col gap-2">
@@ -155,54 +171,53 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
         )}
 
         {isOpen && !isEditing && (
-          <div className="mt-2 flex items-center gap-2 rounded-md border border-dashed border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-900">
             <span>Awaiting response</span>
             <button
               type="button"
               onClick={handleResolve}
               disabled={isPending}
-              className="ml-auto rounded bg-amber-700 px-2 py-0.5 text-xs font-medium text-white disabled:opacity-50"
+              className="rounded bg-amber-900 px-2 py-0.5 text-xs font-medium text-white transition-colors hover:bg-amber-950 disabled:opacity-50"
             >
-              Mark resolved
+              Resolve
             </button>
           </div>
         )}
 
-        <div className="mt-1 flex gap-2 text-xs text-muted-foreground">
-          {!isEditing && (
-            <>
-              <button
-                type="button"
-                onClick={() => setIsEditing(true)}
-                className="text-primary hover:underline"
-              >
-                Edit
-              </button>
-              <span>&middot;</span>
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="text-primary hover:underline"
-              >
-                Delete
-              </button>
-              {isResolvable(event.type) && event.resolved_at && (
-                <>
-                  <span>&middot;</span>
-                  <button
-                    type="button"
-                    onClick={handleReopen}
-                    className="text-primary hover:underline"
-                  >
-                    Reopen
-                  </button>
-                </>
-              )}
-            </>
-          )}
-        </div>
         {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
       </div>
+
+      {!isEditing && (
+        <div className="flex flex-none items-start gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => setIsEditing(true)}
+            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Edit"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          {isResolved && (
+            <button
+              type="button"
+              onClick={handleReopen}
+              disabled={isPending}
+              className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+              title="Reopen"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

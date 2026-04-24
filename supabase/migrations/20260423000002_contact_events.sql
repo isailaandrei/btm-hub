@@ -10,7 +10,6 @@ CREATE TYPE contact_event_type AS ENUM (
   'message',
   'info_requested',
   'awaiting_btm_response',
-  'mentor_assigned',
   'custom'
 );
 

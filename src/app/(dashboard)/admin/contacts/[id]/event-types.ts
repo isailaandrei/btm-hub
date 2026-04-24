@@ -14,7 +14,6 @@ export const EVENT_TYPE_ORDER: ContactEventType[] = [
   "message",
   "info_requested",
   "awaiting_btm_response",
-  "mentor_assigned",
   "custom",
 ];
 
@@ -39,12 +38,6 @@ export const EVENT_TYPE_META: Record<ContactEventType, EventTypeMeta> = {
     label: "Waiting for BTM response",
     bodyRequired: true,
     resolvable: true,
-  },
-  mentor_assigned: {
-    value: "mentor_assigned",
-    label: "Mentor assigned",
-    bodyRequired: true,
-    resolvable: false,
   },
   custom: { value: "custom", label: "Custom", bodyRequired: false, resolvable: false },
 };
