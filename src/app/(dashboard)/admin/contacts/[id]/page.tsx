@@ -5,18 +5,18 @@ import {
   getContactById,
   getApplicationsByContactId,
   getContactTags,
-  getContactNotes,
   getTagCategories,
   getTags,
 } from "@/lib/data/contacts";
+import { getContactEvents } from "@/lib/data/contact-events";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { AdminAiPanel } from "../../admin-ai/panel";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
-import { ContactNoteForm } from "./contact-note-form";
 import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh";
+import { Timeline } from "./timeline";
+import { CollapsibleAiPanel } from "./collapsible-ai-panel";
 
 export default async function ContactDetailPage({
   params,
@@ -33,22 +33,21 @@ export default async function ContactDetailPage({
     contact,
     applications,
     contactTagRows,
-    notes,
+    events,
     categories,
     allTags,
     initialContactThreads,
     adminAiAvailability,
-  ] =
-    await Promise.all([
-      getContactById(id),
-      getApplicationsByContactId(id),
-      getContactTags(id),
-      getContactNotes(id),
-      getTagCategories(),
-      getTags(),
-      listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
-      getAdminAiProviderAvailability(),
-    ]);
+  ] = await Promise.all([
+    getContactById(id),
+    getApplicationsByContactId(id),
+    getContactTags(id),
+    getContactEvents(id),
+    getTagCategories(),
+    getTags(),
+    listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
+    getAdminAiProviderAvailability(),
+  ]);
 
   if (!contact) return notFound();
 
@@ -57,12 +56,13 @@ export default async function ContactDetailPage({
     latestApplication && typeof latestApplication.answers.phone === "string"
       ? latestApplication.answers.phone
       : null;
+  const displayPhone = latestApplicationPhone || contact.phone || null;
 
   return (
     <div className="mx-auto max-w-5xl">
       <ContactDetailRealtimeRefresh contactId={contact.id} />
 
-      {/* Header */}
+      {/* Header — absorbs Contact Info */}
       <div className="mb-8">
         <Link
           href="/admin"
@@ -73,64 +73,49 @@ export default async function ContactDetailPage({
         <h1 className="text-[length:var(--font-size-h2)] font-medium text-foreground">
           {contact.name}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{contact.email}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <span>
+            <span className="mr-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+              Email
+            </span>
+            <a
+              href={`mailto:${contact.email}`}
+              className="text-foreground transition-colors hover:text-primary"
+            >
+              {contact.email}
+            </a>
+          </span>
+          {displayPhone && (
+            <span>
+              <span className="mr-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+                Phone
+              </span>
+              <a
+                href={`tel:${displayPhone}`}
+                className="text-foreground transition-colors hover:text-primary"
+              >
+                {displayPhone}
+              </a>
+            </span>
+          )}
+        </div>
       </div>
 
+      {/* Two-column: applications + timeline left, tags right */}
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
-        {/* Left column — Applications */}
         <div className="flex flex-col gap-6">
           {applications.length === 0 ? (
             <p className="text-sm text-muted-foreground">No applications yet.</p>
-          ) : applications.length === 1 ? (
-            <ApplicationCard application={applications[0]} defaultOpen />
           ) : (
             applications.map((app) => (
               <ApplicationCard key={app.id} application={app} defaultOpen={false} />
             ))
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">AI Analyst</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Each question runs a fresh grounded search. Past questions below
-                are a log — they are not used as context.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <AdminAiPanel
-                scope="contact"
-                contactId={contact.id}
-                contactName={contact.name}
-                initialThreads={initialContactThreads}
-                providerAvailability={adminAiAvailability}
-              />
-            </CardContent>
-          </Card>
+          <Timeline contactId={contact.id} events={events} />
         </div>
 
-        {/* Right sidebar */}
         <div className="flex flex-col gap-6">
-          {/* Contact Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Contact Info</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="flex flex-col gap-2 text-sm">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Email</dt>
-                  <dd>{contact.email}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Phone</dt>
-                  <dd>{latestApplicationPhone || contact.phone || "—"}</dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
-
-          {/* Tags — overflow-visible so the tag assignment dropdown isn't clipped */}
           <Card className="overflow-visible">
             <CardHeader>
               <CardTitle className="text-sm text-muted-foreground">Tags</CardTitle>
@@ -144,35 +129,15 @@ export default async function ContactDetailPage({
               />
             </CardContent>
           </Card>
-
-          {/* Notes */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Admin Notes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {notes.length > 0 && (
-                <div className="mb-4 flex flex-col gap-3">
-                  {notes.map((note) => (
-                    <div
-                      key={note.id}
-                      className="rounded-md border border-border bg-muted/30 p-3"
-                    >
-                      <p className="text-sm text-foreground">{note.text}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {note.author_name} &middot;{" "}
-                        {new Date(note.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <ContactNoteForm contactId={contact.id} />
-            </CardContent>
-          </Card>
-
         </div>
       </div>
+
+      <CollapsibleAiPanel
+        contactId={contact.id}
+        contactName={contact.name}
+        initialThreads={initialContactThreads}
+        providerAvailability={adminAiAvailability}
+      />
     </div>
   );
 }

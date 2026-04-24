@@ -68,13 +68,13 @@ export function ContactDetailRealtimeRefresh({
         )
         .subscribe(),
       supabase
-        .channel(`contact-detail-contact-notes-${contactId}`)
+        .channel(`contact-detail-contact-events-${contactId}`)
         .on(
           "postgres_changes",
           {
             event: "*",
             schema: "public",
-            table: "contact_notes",
+            table: "contact_events",
             filter: `contact_id=eq.${contactId}`,
           },
           scheduleRefresh,

@@ -548,9 +548,11 @@ export async function loadContactCrmSources(input: {
       .eq("contact_id", input.contactId)
       .order("submitted_at", { ascending: false }),
     supabase
-      .from("contact_notes")
-      .select("*")
+      .from("contact_events")
+      .select("id, contact_id, author_id, author_name, body, created_at")
       .eq("contact_id", input.contactId)
+      .eq("type", "note")
+      .neq("body", "")
       .order("created_at", { ascending: true }),
     supabase
       .from("contact_tags")
@@ -590,7 +592,21 @@ export async function loadContactCrmSources(input: {
   return {
     contact: contactData as unknown as Contact,
     applications: (applicationData ?? []) as unknown as Application[],
-    contactNotes: (noteData ?? []) as unknown as ContactNote[],
+    contactNotes: ((noteData ?? []) as unknown as Array<{
+      id: string;
+      contact_id: string;
+      author_id: string;
+      author_name: string;
+      body: string;
+      created_at: string;
+    }>).map((row) => ({
+      id: row.id,
+      contact_id: row.contact_id,
+      author_id: row.author_id,
+      author_name: row.author_name,
+      text: row.body,
+      created_at: row.created_at,
+    })),
     contactTags,
   };
 }

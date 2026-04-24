@@ -15,6 +15,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PROGRAMS } from "../applications/constants";
 import { TAG_COLOR_CLASSES } from "../constants";
 import { ColumnPicker } from "./column-picker";
+import { PendingFilter } from "./pending-filter";
+import type { PendingFilterValue } from "./pending-filter";
 
 interface ContactsFiltersProps {
   search: string;
@@ -29,6 +31,8 @@ interface ContactsFiltersProps {
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
+  pendingFilter: PendingFilterValue[];
+  onPendingFilterChange: (next: PendingFilterValue[]) => void;
 }
 
 export const ContactsFilters = memo(function ContactsFilters({
@@ -44,6 +48,8 @@ export const ContactsFilters = memo(function ContactsFilters({
   onTagToggle,
   onClearTags,
   onColumnToggle,
+  pendingFilter,
+  onPendingFilterChange,
 }: ContactsFiltersProps) {
   const selectedTagIdsSet = useMemo(
     () => new Set(selectedTagIds),
@@ -94,6 +100,8 @@ export const ContactsFilters = memo(function ContactsFilters({
           previouslySelectedColumns={previouslySelectedColumns}
           onToggle={onColumnToggle}
         />
+
+        <PendingFilter value={pendingFilter} onChange={onPendingFilterChange} />
       </div>
 
       {tagCategories.length > 0 && (
