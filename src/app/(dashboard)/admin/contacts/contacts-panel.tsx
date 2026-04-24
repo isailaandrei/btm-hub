@@ -25,7 +25,8 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import type { Application } from "@/types/database";
+import type { Application, ProgramSlug } from "@/types/database";
+import { PROGRAMS } from "../applications/constants";
 import { type FieldRegistryEntry } from "./field-registry";
 import { ColumnFilterPopover } from "./column-filter-popover";
 import { ColumnSortToggle } from "./column-sort-toggle";
@@ -138,7 +139,7 @@ export function ContactsPanel() {
     tagCategories,
     visibleColumns: state.visibleColumns,
     search: debouncedSearch,
-    selectedProgram: state.selectedProgram,
+    programFilter: state.programFilter,
     selectedTagIds: state.selectedTagIds,
     columnFilters: state.columnFilters,
     pendingFilter: state.pendingFilter,
@@ -261,19 +262,15 @@ export function ContactsPanel() {
       <div className="mb-6">
         <ContactsFilters
           search={state.search}
-          selectedProgram={state.selectedProgram}
           selectedTagIds={state.selectedTagIds}
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
           visibleColumns={state.visibleColumns}
           previouslySelectedColumns={state.previouslySelectedColumns}
           onSearchChange={state.handleSearchChange}
-          onProgramChange={state.handleProgramChange}
           onTagToggle={state.handleTagToggle}
           onClearTags={state.handleClearTags}
           onColumnToggle={state.handleColumnToggle}
-          pendingFilter={state.pendingFilter}
-          onPendingFilterChange={state.handlePendingFilterChange}
         />
       </div>
 
@@ -361,7 +358,19 @@ export function ContactsPanel() {
                     className="relative overflow-hidden"
                     style={{ width }}
                   >
-                    Programs
+                    <span className="inline-flex items-center">
+                      Programs
+                      <ColumnFilterPopover
+                        label="Programs"
+                        options={[...PROGRAMS]}
+                        selected={state.programFilter}
+                        onToggle={(value) =>
+                          state.handleProgramFilterToggle(value as ProgramSlug)
+                        }
+                        onClear={state.handleProgramFilterClear}
+                        optionClassName="capitalize"
+                      />
+                    </span>
                     <div
                       className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
                       onMouseDown={(e) => handleResizeStart("_programs", e)}
@@ -399,7 +408,7 @@ export function ContactsPanel() {
                       {field.label}
                       {field.type !== "date" && field.type !== "text" && (
                         <ColumnFilterPopover
-                          field={field}
+                          label={field.label}
                           options={[
                             ...(field.canonical?.options ?? field.options),
                             "Other",

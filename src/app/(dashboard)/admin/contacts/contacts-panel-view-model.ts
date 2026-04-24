@@ -36,7 +36,7 @@ interface UseContactsPanelViewModelArgs {
   tagCategories: TagCategory[] | null;
   visibleColumns: string[];
   search: string;
-  selectedProgram: ProgramSlug | undefined;
+  programFilter: ProgramSlug[];
   selectedTagIds: string[];
   columnFilters: Record<string, string[]>;
   pendingFilter: ("awaiting_applicant" | "awaiting_btm")[];
@@ -54,7 +54,7 @@ export function useContactsPanelViewModel({
   tagCategories,
   visibleColumns,
   search,
-  selectedProgram,
+  programFilter,
   selectedTagIds,
   columnFilters,
   pendingFilter,
@@ -147,10 +147,11 @@ export function useContactsPanelViewModel({
       );
     }
 
-    if (selectedProgram) {
+    if (programFilter.length > 0) {
+      const programSet = new Set(programFilter);
       result = result.filter((contact) =>
         (appsByContact.get(contact.id) ?? EMPTY_APPLICATIONS).some(
-          (application) => application.program === selectedProgram,
+          (application) => programSet.has(application.program),
         ),
       );
     }
@@ -285,8 +286,8 @@ export function useContactsPanelViewModel({
     contacts,
     derivationsByContact,
     pendingFilter,
+    programFilter,
     search,
-    selectedProgram,
     selectedTagIds,
     sortBy,
     tagIdsByContactId,
@@ -295,7 +296,7 @@ export function useContactsPanelViewModel({
 
   const hasAnyFilter =
     Boolean(search) ||
-    Boolean(selectedProgram) ||
+    programFilter.length > 0 ||
     selectedTagIds.length > 0 ||
     Object.keys(columnFilters).length > 0 ||
     pendingFilter.length > 0;

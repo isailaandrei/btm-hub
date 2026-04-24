@@ -2,22 +2,23 @@
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { FieldRegistryEntry } from "./field-registry";
 
 interface ColumnFilterPopoverProps {
-  field: FieldRegistryEntry;
+  label: string;
   options: string[];
   selected: string[];
   onToggle: (value: string) => void;
   onClear: () => void;
+  optionClassName?: string;
 }
 
 export function ColumnFilterPopover({
-  field,
+  label,
   options,
   selected,
   onToggle,
   onClear,
+  optionClassName,
 }: ColumnFilterPopoverProps) {
   const hasActive = selected.length > 0;
 
@@ -31,7 +32,7 @@ export function ColumnFilterPopover({
               ? "text-primary"
               : "text-muted-foreground/50 hover:text-muted-foreground"
           }`}
-          aria-label={`Filter by ${field.label}`}
+          aria-label={`Filter by ${label}`}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
@@ -53,7 +54,7 @@ export function ColumnFilterPopover({
                 className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
               >
                 <Checkbox checked={checked} onCheckedChange={() => onToggle(option)} />
-                <span className="text-sm text-foreground">{option}</span>
+                <span className={`text-sm text-foreground ${optionClassName ?? ""}`}>{option}</span>
               </label>
             );
           })}

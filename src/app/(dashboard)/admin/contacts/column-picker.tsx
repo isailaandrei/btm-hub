@@ -85,7 +85,7 @@ export function ColumnPicker({
           type="button"
           className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
         >
-          Columns
+          Active Columns
           {visibleColumns.length > 0 && (
             <span className="ml-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
               {visibleColumns.length}

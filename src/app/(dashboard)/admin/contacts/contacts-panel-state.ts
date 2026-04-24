@@ -29,6 +29,7 @@ type ContactsTablePreferences = {
 type StoredFilters = {
   search?: string;
   selectedProgram?: ProgramSlug;
+  programFilter?: ProgramSlug[];
   selectedTagIds?: string[];
   columnFilters?: Record<string, string[]>;
   pendingFilter?: PendingFilterValue[];
@@ -69,8 +70,9 @@ export function useContactsPanelState({
   const [storedFilters] = useState<StoredFilters>(() => readStoredFilters());
 
   const [search, setSearch] = useState(storedFilters.search ?? "");
-  const [selectedProgram, setSelectedProgram] = useState<ProgramSlug | undefined>(
-    storedFilters.selectedProgram,
+  const [programFilter, setProgramFilter] = useState<ProgramSlug[]>(
+    storedFilters.programFilter ??
+      (storedFilters.selectedProgram ? [storedFilters.selectedProgram] : []),
   );
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     storedFilters.selectedTagIds ?? [],
@@ -134,7 +136,7 @@ export function useContactsPanelState({
         FILTERS_STORAGE_KEY,
         JSON.stringify({
           search,
-          selectedProgram,
+          programFilter,
           selectedTagIds,
           columnFilters,
           pendingFilter,
@@ -153,8 +155,8 @@ export function useContactsPanelState({
     page,
     pageSize,
     pendingFilter,
+    programFilter,
     search,
-    selectedProgram,
     selectedTagIds,
     sortBy,
   ]);
@@ -258,8 +260,18 @@ export function useContactsPanelState({
     clearSelection();
   }, [clearSelection]);
 
-  const handleProgramChange = useCallback((value: ProgramSlug | undefined) => {
-    setSelectedProgram(value);
+  const handleProgramFilterToggle = useCallback((program: ProgramSlug) => {
+    setProgramFilter((previous) =>
+      previous.includes(program)
+        ? previous.filter((p) => p !== program)
+        : [...previous, program],
+    );
+    setPage(1);
+    clearSelection();
+  }, [clearSelection]);
+
+  const handleProgramFilterClear = useCallback(() => {
+    setProgramFilter([]);
     setPage(1);
     clearSelection();
   }, [clearSelection]);
@@ -366,7 +378,7 @@ export function useContactsPanelState({
 
   const handleClearAllFilters = useCallback(() => {
     setSearch("");
-    setSelectedProgram(undefined);
+    setProgramFilter([]);
     setSelectedTagIds([]);
     setColumnFilters({});
     setPendingFilter([]);
@@ -385,16 +397,17 @@ export function useContactsPanelState({
     handleColumnFilterToggle,
     handleColumnToggle,
     handlePendingFilterChange,
-    handleProgramChange,
+    handleProgramFilterClear,
+    handleProgramFilterToggle,
     handleSearchChange,
     handleTagToggle,
     page,
     pageSize,
     pendingFilter,
     previouslySelectedColumns,
+    programFilter,
     search,
     selectedIds,
-    selectedProgram,
     selectedTagIds,
     setColumnWidths,
     setPage,

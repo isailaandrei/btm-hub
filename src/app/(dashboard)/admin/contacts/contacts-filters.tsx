@@ -1,55 +1,37 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import type { ProgramSlug, TagCategory, Tag } from "@/types/database";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import type { TagCategory, Tag } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { PROGRAMS } from "../applications/constants";
 import { TAG_COLOR_CLASSES } from "../constants";
 import { ColumnPicker } from "./column-picker";
-import { PendingFilter } from "./pending-filter";
-import type { PendingFilterValue } from "./pending-filter";
 
 interface ContactsFiltersProps {
   search: string;
-  selectedProgram: ProgramSlug | undefined;
   selectedTagIds: string[];
   tagCategories: TagCategory[];
   tags: Tag[];
   visibleColumns: string[];
   previouslySelectedColumns: string[];
   onSearchChange: (value: string) => void;
-  onProgramChange: (value: ProgramSlug | undefined) => void;
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
-  pendingFilter: PendingFilterValue[];
-  onPendingFilterChange: (next: PendingFilterValue[]) => void;
 }
 
 export const ContactsFilters = memo(function ContactsFilters({
   search,
-  selectedProgram,
   selectedTagIds,
   tagCategories,
   tags,
   visibleColumns,
   previouslySelectedColumns,
   onSearchChange,
-  onProgramChange,
   onTagToggle,
   onClearTags,
   onColumnToggle,
-  pendingFilter,
-  onPendingFilterChange,
 }: ContactsFiltersProps) {
   const selectedTagIdsSet = useMemo(
     () => new Set(selectedTagIds),
@@ -76,32 +58,11 @@ export const ContactsFilters = memo(function ContactsFilters({
           className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
         />
 
-        <Select
-          value={selectedProgram ?? "all"}
-          onValueChange={(v) =>
-            onProgramChange(v === "all" ? undefined : (v as ProgramSlug))
-          }
-        >
-          <SelectTrigger className="w-full capitalize sm:w-[180px]">
-            <SelectValue placeholder="All Programs" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Programs</SelectItem>
-            {PROGRAMS.map((p) => (
-              <SelectItem key={p} value={p} className="capitalize">
-                {p}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <ColumnPicker
           visibleColumns={visibleColumns}
           previouslySelectedColumns={previouslySelectedColumns}
           onToggle={onColumnToggle}
         />
-
-        <PendingFilter value={pendingFilter} onChange={onPendingFilterChange} />
       </div>
 
       {tagCategories.length > 0 && (
