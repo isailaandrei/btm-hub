@@ -36,6 +36,11 @@ import { useContactsPanelState } from "./contacts-panel-state";
 import { useContactsPanelViewModel } from "./contacts-panel-view-model";
 import { useDebouncedValue } from "./use-debounced-value";
 import { LastActivityCell } from "./last-activity-cell";
+import {
+  AcademyImportSyncButton,
+  AcademyImportSyncPanel,
+  useAcademyImportSync,
+} from "../imports/academy-import-sync";
 
 const PAGE_SIZES = [25, 50, 150] as const;
 
@@ -111,6 +116,7 @@ export function ContactsPanel() {
   const { applications, ensureApplications } = useAdminApplicationsData();
   const { preferences, setPreferences, ensurePreferences } =
     useAdminPreferencesData();
+  const sync = useAcademyImportSync();
 
   const state = useContactsPanelState({
     contacts,
@@ -271,8 +277,15 @@ export function ContactsPanel() {
           onTagToggle={state.handleTagToggle}
           onClearTags={state.handleClearTags}
           onColumnToggle={state.handleColumnToggle}
+          trailingSlot={<AcademyImportSyncButton controller={sync} />}
         />
       </div>
+
+      {sync.phase.kind !== "idle" && (
+        <div className="mb-6">
+          <AcademyImportSyncPanel controller={sync} />
+        </div>
+      )}
 
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
@@ -462,8 +475,8 @@ export function ContactsPanel() {
                   derivation,
                 }) => {
                   const latestApplicationPhone = contactApplications.find(
-                    (application) => typeof application.answers.phone === "string",
-                  )?.answers.phone;
+                    (application) => typeof application.answers?.phone === "string",
+                  )?.answers?.phone;
                   const displayPhone =
                     typeof latestApplicationPhone === "string"
                       ? latestApplicationPhone

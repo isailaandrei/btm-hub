@@ -86,3 +86,8 @@ supabase/import-*.sql
 # imported from partner A's Google Forms CSVs via
 # supabase/scripts/import-academy-applications.mjs)
 supabase/seed.*.local.sql
+# Local scratchpad — production memory snapshots, ad-hoc query JSON, etc.
+# May contain identifiable applicant data; never commit.
+/tmp/
+# Local Supabase Studio scratchpad (saved SQL snippets)
+supabase/snippets/

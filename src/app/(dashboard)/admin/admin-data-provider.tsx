@@ -227,10 +227,13 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "applications" },
           (payload) => {
+            // Merge instead of replace: Supabase Realtime can send a partial
+            // `new` payload (only the changed columns + PK) when the table's
+            // REPLICA IDENTITY isn't FULL, which would otherwise wipe fields
+            // like `answers` from our in-memory copy.
+            const next = payload.new as Partial<Application> & { id: string };
             setApplications((prev) =>
-              (prev ?? []).map((a) =>
-                a.id === (payload.new as Application).id ? (payload.new as Application) : a
-              )
+              (prev ?? []).map((a) => (a.id === next.id ? { ...a, ...next } : a)),
             );
           },
         )
