@@ -535,9 +535,24 @@ const FIELD_TYPE_MAPS = Object.fromEntries(
   ]),
 ) as Record<ProgramSlug, Record<string, ImportFieldType>>;
 
+// Headers we expect on the sheet but intentionally do not map to an
+// answer field:
+//   - "zeitstempel" — Google Forms timestamp; we use the typed
+//     `submittedAt` extracted upstream rather than the raw text column.
+//   - "column 53" — a trailing blank column that the freediving sheet
+//     emits because of a now-removed form question. If a sheet is later
+//     restructured and a real new column lands at this position, it will
+//     be silently dropped — revisit this set when adding form questions.
 const SKIPPED_HEADERS = new Set(["zeitstempel", "column 53"]);
 
 function parseGoogleFormsCsv(text: string): string[][] {
+  // Strip a leading UTF-8 BOM if present. Google Sheets currently does not
+  // include one, but other tools (and future Google changes) may, and the
+  // header parser otherwise sees "﻿zeitstempel" instead of
+  // "zeitstempel" and silently drops the timestamp column.
+  if (text.charCodeAt(0) === 0xfeff) {
+    text = text.slice(1);
+  }
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -697,6 +712,13 @@ export function normalizeImportAnswers(
     next.phone = trimmedPhone || undefined;
   }
 
+  // Historical-form typo corrections. The three rewrites below normalize
+  // option strings the Google Forms used to emit but later edited. They
+  // exist to keep older sheet rows hash-equal to today's form values, so
+  // re-running the import doesn't re-flag them as drift. Audit (and most
+  // likely delete) when the underlying form options are changed again, so
+  // we don't silently rewrite an option that legitimately ships with the
+  // old spelling.
   if (
     (program === "filmmaking" || program === "photography" || program === "freediving") &&
     next.age === "54+"

@@ -1,4 +1,16 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { executeAcademyImportRun } from "@/lib/academy/import-runner";
+
+function constantTimeAuthEqual(provided: string, expected: string): boolean {
+  // Use a constant-time compare so an attacker cannot probe the cron secret
+  // byte-by-byte via response timing. Lengths must match for the underlying
+  // buffer compare to be valid; differing lengths return false directly.
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -9,8 +21,8 @@ export async function GET(request: Request) {
     );
   }
 
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  if (!constantTimeAuthEqual(authHeader, `Bearer ${cronSecret}`)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
