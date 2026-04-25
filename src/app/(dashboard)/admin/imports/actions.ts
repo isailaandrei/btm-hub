@@ -92,6 +92,11 @@ export async function runAcademyImportAction(
     await requireAdmin();
     const result = await executeAcademyImportRun({
       dryRun: parsed.data.mode === "dry-run",
+      // Don't make the admin wait for the AI memory rebuild — that's an
+      // OpenAI-bound loop that can take 30s–2min for ~100 new contacts.
+      // The import itself returns immediately; memory rebuilds in the
+      // background via after().
+      deferMemorySync: parsed.data.mode === "sync",
     });
 
     return {

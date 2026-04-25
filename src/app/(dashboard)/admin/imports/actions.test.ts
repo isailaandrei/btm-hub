@@ -89,6 +89,7 @@ describe("runAcademyImportAction", () => {
     expect(mockRequireAdmin).toHaveBeenCalled();
     expect(mockExecuteAcademyImportRun).toHaveBeenCalledWith({
       dryRun: true,
+      deferMemorySync: false,
     });
     expect(result).toMatchObject({
       errors: null,
@@ -143,6 +144,7 @@ describe("runAcademyImportAction", () => {
 
     expect(mockExecuteAcademyImportRun).toHaveBeenCalledWith({
       dryRun: false,
+      deferMemorySync: true,
     });
     expect(result).toMatchObject({
       errors: null,

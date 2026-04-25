@@ -310,12 +310,16 @@ function SyncedView({
         </details>
       )}
 
-      {result.memorySync && (
+      {result.memorySync ? (
         <div className="mt-3 rounded-xl border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           AI memory refresh: {result.memorySync.succeeded} succeeded,{" "}
           {result.memorySync.failed} failed.
         </div>
-      )}
+      ) : summary && summary.inserted > 0 ? (
+        <div className="mt-3 rounded-xl border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          AI memory for the new contacts is rebuilding in the background.
+        </div>
+      ) : null}
     </div>
   );
 }
