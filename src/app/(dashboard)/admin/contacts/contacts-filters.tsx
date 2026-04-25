@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import type { TagCategory, Tag } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,6 +19,7 @@ interface ContactsFiltersProps {
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
+  trailingSlot?: ReactNode;
 }
 
 export const ContactsFilters = memo(function ContactsFilters({
@@ -32,6 +33,7 @@ export const ContactsFilters = memo(function ContactsFilters({
   onTagToggle,
   onClearTags,
   onColumnToggle,
+  trailingSlot,
 }: ContactsFiltersProps) {
   const selectedTagIdsSet = useMemo(
     () => new Set(selectedTagIds),
@@ -63,6 +65,8 @@ export const ContactsFilters = memo(function ContactsFilters({
           previouslySelectedColumns={previouslySelectedColumns}
           onToggle={onColumnToggle}
         />
+
+        {trailingSlot && <div className="ml-auto">{trailingSlot}</div>}
       </div>
 
       {tagCategories.length > 0 && (

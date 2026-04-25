@@ -227,10 +227,13 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "applications" },
           (payload) => {
+            // Merge instead of replace: Supabase Realtime can send a partial
+            // `new` payload (only the changed columns + PK) when the table's
+            // REPLICA IDENTITY isn't FULL, which would otherwise wipe fields
+            // like `answers` from our in-memory copy.
+            const next = payload.new as Partial<Application> & { id: string };
             setApplications((prev) =>
-              (prev ?? []).map((a) =>
-                a.id === (payload.new as Application).id ? (payload.new as Application) : a
-              )
+              (prev ?? []).map((a) => (a.id === next.id ? { ...a, ...next } : a)),
             );
           },
         )
@@ -287,10 +290,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "profiles" },
           (payload) => {
+            // Merge instead of replace — same partial-payload concern as the
+            // applications handler above (Supabase Realtime can omit unchanged
+            // columns when REPLICA IDENTITY isn't FULL).
+            const next = payload.new as Partial<Profile> & { id: string };
             setProfiles((prev) =>
-              (prev ?? []).map((p) =>
-                p.id === (payload.new as Profile).id ? (payload.new as Profile) : p
-              )
+              (prev ?? []).map((p) => (p.id === next.id ? { ...p, ...next } : p)),
             );
           },
         )
@@ -368,9 +373,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "contacts" },
           (payload) => {
-            setContacts((prev) =>
-              upsertSortedContact(prev, payload.new as Contact),
-            );
+            // Merge into the existing contact rather than overwriting; see
+            // applications/profiles handlers above for the rationale.
+            const next = payload.new as Partial<Contact> & { id: string };
+            setContacts((prev) => {
+              const existing = (prev ?? []).find((c) => c.id === next.id);
+              const merged = existing ? { ...existing, ...next } : (next as Contact);
+              return upsertSortedContact(prev, merged);
+            });
           },
         )
         .on(
@@ -465,20 +475,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "contact_events" },
           (payload) => {
-            const row = payload.new as ContactEvent;
+            // Merge in just the fields Realtime delivered. If the payload is
+            // partial (REPLICA IDENTITY non-FULL), unchanged fields stay
+            // intact instead of being overwritten with undefined.
+            const next = payload.new as Partial<ContactEvent> & { id: string };
             setContactEventSummaries((prev) =>
-              (prev ?? []).map((s) =>
-                s.id === row.id
-                  ? {
-                      id: row.id,
-                      contact_id: row.contact_id,
-                      type: row.type,
-                      custom_label: row.custom_label,
-                      happened_at: row.happened_at,
-                      resolved_at: row.resolved_at,
-                    }
-                  : s,
-              ),
+              (prev ?? []).map((s) => (s.id === next.id ? { ...s, ...next } : s)),
             );
           },
         )
