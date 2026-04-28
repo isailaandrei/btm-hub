@@ -303,6 +303,168 @@ describe("createImportedApplication", () => {
     expect(result).toEqual({ status: "would_backfill" });
   });
 
+  it("downgrades to duplicate when existing imported answers only differ by storage shape", async () => {
+    const client = {
+      from: vi.fn().mockReturnValue(
+        buildImportedLookup({
+          data: {
+            id: "app-1",
+            import_content_hash: "hash-old",
+            contact_id: "contact-1",
+            submitted_at: "2026-04-04T14:30:00.000Z",
+            answers: {
+              email: "ran9waves@protonmail.com",
+              last_dive_date: "18.09.2024",
+              online_presence: "Active social media",
+              certification_level: "Divemaster",
+              languages:
+                "English, Spanish, French, Mi inglés es bastante basico pero lo uso bien a la hora de trabajar. Intento practicar siempre",
+              photography_equipment:
+                "Sony Rx100 MIII, Insta360 X5, Insta360AcePro2",
+            },
+          },
+          error: null,
+        }),
+      ),
+      rpc: vi.fn(),
+    };
+
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { createImportedApplication } = await import("./application-imports");
+    const result = await createImportedApplication({
+      program: "photography",
+      answers: {
+        email: "ran9waves@protonmail.com",
+        last_dive_date: "2024-09-18",
+        online_presence: ["Active social media"],
+        certification_level: ["Divemaster"],
+        languages: [
+          "English",
+          "Spanish",
+          "French",
+          "Mi inglés es bastante basico pero lo uso bien a la hora de trabajar. Intento practicar siempre",
+        ],
+        photography_equipment:
+          "Sony Rx100 MIII, Insta360 X5, Insta360AcePro2,",
+      },
+      submittedAt: "2026-04-04T14:30:00.000Z",
+      importSource: "google_forms:photography",
+      importSubmissionId: "submission-1",
+      importContentHash: "hash-new",
+    });
+
+    expect(result).toEqual({
+      status: "duplicate",
+      applicationId: "app-1",
+      contactId: "contact-1",
+    });
+  });
+
+  it("ignores non-answer certification helper options when a concrete level is present", async () => {
+    const client = {
+      from: vi.fn().mockReturnValue(
+        buildImportedLookup({
+          data: {
+            id: "app-1",
+            import_content_hash: "hash-old",
+            contact_id: "contact-1",
+            submitted_at: "2026-04-13T20:05:00.000Z",
+            answers: {
+              email: "ana.purcari@gmail.com",
+              certification_level: [
+                "Open Water",
+                "Advanced Open Water",
+                "Rescue Diver",
+                "Divemaster",
+                "Certified Freediver",
+                "AIDA 2",
+              ],
+            },
+          },
+          error: null,
+        }),
+      ),
+      rpc: vi.fn(),
+    };
+
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { createImportedApplication } = await import("./application-imports");
+    const result = await createImportedApplication({
+      program: "internship",
+      answers: {
+        email: "ana.purcari@gmail.com",
+        certification_level: [
+          "Open Water",
+          "Advanced Open Water",
+          "Rescue Diver",
+          "Divemaster",
+          "Certified Freediver",
+          "specify level below",
+          "AIDA 2",
+        ],
+      },
+      submittedAt: "2026-04-13T20:05:00.000Z",
+      importSource: "google_forms:internship",
+      importSubmissionId: "submission-1",
+      importContentHash: "hash-new",
+    });
+
+    expect(result).toEqual({
+      status: "duplicate",
+      applicationId: "app-1",
+      contactId: "contact-1",
+    });
+  });
+
+  it("downgrades to duplicate when long narrative text only differs by punctuation", async () => {
+    const client = {
+      from: vi.fn().mockReturnValue(
+        buildImportedLookup({
+          data: {
+            id: "app-1",
+            import_content_hash: "hash-old",
+            contact_id: "contact-1",
+            submitted_at: "2026-04-13T05:46:50.000Z",
+            answers: {
+              email: "olgavideo@gmail.com",
+              ultimate_vision:
+                "oh long shot ok My ultimate vision is to become an underwater filmmaker who creates visually striking emotionally engaging documentaries that inspire people to care about the ocean I would love to create something that will make people stop and say wowo thats beautiful And wow this needs protection",
+            },
+          },
+          error: null,
+        }),
+      ),
+      rpc: vi.fn(),
+    };
+
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { createImportedApplication } = await import("./application-imports");
+    const result = await createImportedApplication({
+      program: "filmmaking",
+      answers: {
+        email: "olgavideo@gmail.com",
+        ultimate_vision:
+          'oh. long shot. ok. My ultimate vision is to become an underwater filmmaker who creates visually striking, emotionally engaging documentaries that inspire people to care about the ocean. I would love to create something that will make people stop and say" wowo thats beautiful". And, "wow this needs protection"',
+      },
+      submittedAt: "2026-04-13T05:46:50.000Z",
+      importSource: "google_forms:filmmaking",
+      importSubmissionId: "submission-1",
+      importContentHash: "hash-new",
+    });
+
+    expect(result).toEqual({
+      status: "duplicate",
+      applicationId: "app-1",
+      contactId: "contact-1",
+    });
+  });
+
   it("reports drift with a per-field diff when the submission id already exists with a different content hash", async () => {
     const client = {
       from: vi.fn().mockReturnValue(

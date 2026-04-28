@@ -1,8 +1,10 @@
 import type { ProgramSlug } from "@/types/database";
 import {
   buildAcademyImportContentHash,
+  getAcademyImportFieldType,
   normalizeImportedEmail,
   normalizeImportSubmittedAt,
+  splitMultiselectValue,
 } from "@/lib/academy/import";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -98,6 +100,108 @@ function buildApplicantName(answers: Record<string, unknown>): string {
   return email || "Unknown";
 }
 
+const IGNORED_MULTISELECT_TOKENS = new Set([
+  "please specify level below",
+  "please specify level below:",
+  "specify level below",
+]);
+
+const TOKENIZED_TEXT_DIFF_FIELDS = new Set([
+  "ultimate_vision",
+  "inspiration_to_apply",
+  "questions_or_concerns",
+  "anything_else",
+  "internship_hopes",
+  "candidacy_reason",
+]);
+
+function canonicalStringForDiff(value: string): string | undefined {
+  const cleaned = value
+    .normalize("NFKC")
+    .replace(/[\u200b\u200c\u200d\ufeff]/g, "")
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/^[\s"'`]+|[\s"'`,;]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return cleaned === "" ? undefined : cleaned;
+}
+
+function canonicalNarrativeTextForDiff(value: string): string | undefined {
+  const cleaned = canonicalStringForDiff(value);
+  if (!cleaned) return undefined;
+
+  const tokenized = cleaned
+    .replace(/'/g, "")
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return tokenized === "" ? undefined : tokenized;
+}
+
+function canonicalDateForDiff(value: unknown): unknown {
+  if (typeof value !== "string") return value ?? undefined;
+
+  const trimmed = value.trim();
+  const germanDate = trimmed.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (germanDate) {
+    const [, day, month, year] = germanDate;
+    return `${year}-${month}-${day}`;
+  }
+
+  const isoDate = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s].*)?$/);
+  if (isoDate) return isoDate[1];
+
+  return canonicalStringForDiff(trimmed);
+}
+
+function parseJsonArrayString(value: string): unknown[] | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function addCanonicalMultiselectToken(tokens: Set<string>, value: unknown) {
+  if (value === null || value === undefined) return;
+
+  if (typeof value !== "string") {
+    tokens.add(JSON.stringify(value));
+    return;
+  }
+
+  const cleaned = canonicalStringForDiff(value);
+  if (!cleaned) return;
+
+  for (const part of cleaned.split(",")) {
+    const token = canonicalStringForDiff(part);
+    if (!token || IGNORED_MULTISELECT_TOKENS.has(token)) continue;
+    tokens.add(token);
+  }
+}
+
+function canonicalMultiselectForDiff(value: unknown): unknown {
+  const rawItems = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? (parseJsonArrayString(value) ?? splitMultiselectValue(value))
+      : [value];
+
+  const tokens = new Set<string>();
+  for (const item of rawItems) {
+    addCanonicalMultiselectToken(tokens, item);
+  }
+
+  return tokens.size === 0 ? undefined : [...tokens].sort();
+}
+
 /**
  * Canonical form used ONLY for diff filtering — strictly looser than the
  * canonicalization fed into the import content hash. Two values that share
@@ -111,19 +215,27 @@ function buildApplicantName(answers: Record<string, unknown>): string {
  * If we ever surface a "real" diff to admins, that diff is something a
  * human would call meaningful — not "Max" vs "max" or "yes" vs " yes ".
  */
-function canonicalForDiff(value: unknown): unknown {
+function canonicalForDiff(
+  program: ProgramSlug,
+  field: string,
+  value: unknown,
+): unknown {
   if (value === null || value === undefined) return undefined;
+  const fieldType = getAcademyImportFieldType(program, field);
+
+  if (fieldType === "date") {
+    return canonicalDateForDiff(value);
+  }
+
+  if (fieldType === "multiselect") {
+    return canonicalMultiselectForDiff(value);
+  }
+
   if (typeof value === "string") {
-    const cleaned = value
-      .normalize("NFKC")
-      .replace(/[​‌‍﻿]/g, "")
-      .replace(/[‘’‚‛]/g, "'")
-      .replace(/[“”„‟]/g, '"')
-      .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase();
-    return cleaned === "" ? undefined : cleaned;
+    if (TOKENIZED_TEXT_DIFF_FIELDS.has(field)) {
+      return canonicalNarrativeTextForDiff(value);
+    }
+    return canonicalStringForDiff(value);
   }
   if (Array.isArray(value)) {
     // Multiselect arrays. Split every item on commas before deduping/sorting
@@ -136,7 +248,7 @@ function canonicalForDiff(value: unknown): unknown {
     // comma-separated tokens.
     const tokens = new Set<string>();
     for (const raw of value) {
-      const piece = canonicalForDiff(raw);
+      const piece = canonicalForDiff(program, field, raw);
       if (typeof piece === "string") {
         for (const part of piece.split(",")) {
           const trimmed = part.trim();
@@ -154,21 +266,41 @@ function canonicalForDiff(value: unknown): unknown {
   return value;
 }
 
-function isCosmeticallyEqual(a: unknown, b: unknown): boolean {
+function isCosmeticallyEqual(
+  program: ProgramSlug,
+  field: string,
+  a: unknown,
+  b: unknown,
+): boolean {
   return (
-    JSON.stringify(canonicalForDiff(a)) === JSON.stringify(canonicalForDiff(b))
+    JSON.stringify(canonicalForDiff(program, field, a)) ===
+    JSON.stringify(canonicalForDiff(program, field, b))
   );
 }
 
 function diffAnswers(
+  program: ProgramSlug,
   before: Record<string, unknown>,
   after: Record<string, unknown>,
 ): ApplicationImportFieldChange[] {
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
   const changes: ApplicationImportFieldChange[] = [];
   for (const key of keys) {
-    if (isCosmeticallyEqual(before[key], after[key])) continue;
-    changes.push({ field: key, before: before[key], after: after[key] });
+    if (
+      isCosmeticallyEqual(
+        program,
+        key,
+        before[key],
+        after[key],
+      )
+    ) {
+      continue;
+    }
+    changes.push({
+      field: key,
+      before: before[key],
+      after: after[key],
+    });
   }
   return changes.sort((a, b) => a.field.localeCompare(b.field));
 }
@@ -176,6 +308,7 @@ function diffAnswers(
 function classifyExistingApplication(
   existing: ExistingImportedApplication,
   next: {
+    program: ProgramSlug;
     contentHash: string;
     answers: Record<string, unknown>;
   },
@@ -189,7 +322,7 @@ function classifyExistingApplication(
   }
 
   const beforeAnswers = getAnswersRecord(existing.answers);
-  const changedFields = diffAnswers(beforeAnswers, next.answers);
+  const changedFields = diffAnswers(next.program, beforeAnswers, next.answers);
 
   // Hash differs but the diff is purely cosmetic (capitalization,
   // surrounding quotes, whitespace, smart vs straight punctuation).
@@ -306,8 +439,9 @@ function buildLegacyContentHash(
 
 export async function createImportedApplication(
   input: ImportedApplicationInput,
+  adminClient?: AdminClient,
 ): Promise<CreateImportedApplicationResult> {
-  const supabase = await createAdminClient();
+  const supabase = adminClient ?? await createAdminClient();
 
   const existingImported = await findImportedApplicationBySubmissionId(
     supabase,
@@ -315,6 +449,7 @@ export async function createImportedApplication(
   );
   if (existingImported) {
     return classifyExistingApplication(existingImported, {
+      program: input.program,
       contentHash: input.importContentHash,
       answers: input.answers,
     });
@@ -334,7 +469,11 @@ export async function createImportedApplication(
     const isExactMatch = legacyContentHash === input.importContentHash;
     const legacyChangedFields = isExactMatch
       ? []
-      : diffAnswers(getAnswersRecord(legacyMatch.answers), input.answers);
+      : diffAnswers(
+          input.program,
+          getAnswersRecord(legacyMatch.answers),
+          input.answers,
+        );
     // Cosmetic-only difference (case, quotes, whitespace) — treat as exact.
     const isCosmeticMatch = !isExactMatch && legacyChangedFields.length === 0;
 
@@ -366,6 +505,7 @@ export async function createImportedApplication(
       );
       if (conflictingImported) {
         return classifyExistingApplication(conflictingImported, {
+          program: input.program,
           contentHash: input.importContentHash,
           answers: input.answers,
         });
@@ -448,6 +588,7 @@ export async function createImportedApplication(
       );
       if (conflicting) {
         return classifyExistingApplication(conflicting, {
+          program: input.program,
           contentHash: input.importContentHash,
           answers: input.answers,
         });

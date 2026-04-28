@@ -68,9 +68,13 @@ describe("parseAcademyImportCsv", () => {
         ],
       },
     });
-    expect(result.rows[0]?.answers).not.toHaveProperty("azores_ties");
-    expect(result.rows[0]?.answers).not.toHaveProperty("hoped_gains");
-    expect(result.rows[0]?.answers).not.toHaveProperty("why_good_candidate");
+    expect(Object.keys(result.rows[0]?.answers ?? {})).toEqual(
+      expect.arrayContaining([
+        "accommodation_ties",
+        "internship_hopes",
+        "candidacy_reason",
+      ]),
+    );
   });
 
   it("surfaces unknown headers instead of silently dropping them", () => {

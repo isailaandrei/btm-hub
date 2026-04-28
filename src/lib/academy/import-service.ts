@@ -13,6 +13,7 @@ import {
   type ApplicationImportDriftDetail,
   type ApplicationImportInsertPreview,
 } from "@/lib/data/application-imports";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type {
   ApplicationImportAmbiguousDetail,
@@ -52,6 +53,40 @@ export type AcademySheetsImportSummary = {
   insertedContactIds: string[];
   sources: AcademySheetImportResult[];
 };
+
+const ROW_IMPORT_CONCURRENCY = 8;
+
+type ParsedImportRow = ReturnType<typeof parseAcademyImportCsv>["rows"][number];
+
+type ImportRowOutcome =
+  | { kind: "invalid"; row: ParsedImportRow; validationErrors: string[] }
+  | { kind: "failed"; row: ParsedImportRow; detail: string }
+  | {
+      kind: "persisted";
+      row: ParsedImportRow;
+      persisted: Awaited<ReturnType<typeof createImportedApplication>>;
+    };
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex] as T, currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
 
 function validateImportedAnswers(
   source: AcademyImportSource,
@@ -128,52 +163,77 @@ export async function importAcademySheetSource(
     return result;
   }
 
-  for (const row of parsed.rows) {
-    result.scanned += 1;
-    const importSource = buildAcademyImportSourceId(source);
+  const supabase = await createAdminClient();
+  const outcomes = await mapWithConcurrency(
+    parsed.rows,
+    ROW_IMPORT_CONCURRENCY,
+    async (row): Promise<ImportRowOutcome> => {
+      const importSource = buildAcademyImportSourceId(source);
 
-    const validationErrors = validateImportedAnswers(source, row.answers);
-    if (validationErrors.length > 0) {
+      const validationErrors = validateImportedAnswers(source, row.answers);
+      if (validationErrors.length > 0) {
+        return { kind: "invalid", row, validationErrors };
+      }
+
+      try {
+        const persisted = await createImportedApplication(
+          {
+            program: source.program,
+            answers: row.answers,
+            submittedAt: row.submittedAt,
+            importSource,
+            importSubmissionId: buildAcademyImportSubmissionId({
+              importSource,
+              submittedAt: row.submittedAt,
+              email: row.email,
+            }),
+            importContentHash: buildAcademyImportContentHash({
+              program: source.program,
+              submittedAt: row.submittedAt,
+              answers: row.answers,
+            }),
+            dryRun: options.dryRun,
+          },
+          supabase,
+        );
+
+        return { kind: "persisted", row, persisted };
+      } catch (error) {
+        // A single row failed to persist — most often because a legacy row
+        // had its `import_submission_id` set by a prior run under a different
+        // hash, so the legacy lookup found it but the conditional update
+        // returned no rows. Don't abandon the rest of the source: record the
+        // error and move on. The admin can inspect / repair the offending
+        // application manually.
+        return {
+          kind: "failed",
+          row,
+          detail: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+
+  for (const outcome of outcomes) {
+    result.scanned += 1;
+
+    if (outcome.kind === "invalid") {
       result.invalid += 1;
       result.errors.push(
-        `Row ${row.sourceRowNumber}: ${validationErrors.join("; ")}`,
+        `Row ${outcome.row.sourceRowNumber}: ${outcome.validationErrors.join("; ")}`,
       );
       continue;
     }
 
-    let persisted;
-    try {
-      persisted = await createImportedApplication({
-        program: source.program,
-        answers: row.answers,
-        submittedAt: row.submittedAt,
-        importSource,
-        importSubmissionId: buildAcademyImportSubmissionId({
-          importSource,
-          submittedAt: row.submittedAt,
-          email: row.email,
-        }),
-        importContentHash: buildAcademyImportContentHash({
-          program: source.program,
-          submittedAt: row.submittedAt,
-          answers: row.answers,
-        }),
-        dryRun: options.dryRun,
-      });
-    } catch (error) {
-      // A single row failed to persist — most often because a legacy row
-      // had its `import_submission_id` set by a prior run under a different
-      // hash, so the legacy lookup found it but the conditional update
-      // returned no rows. Don't abandon the rest of the source: record the
-      // error and move on. The admin can inspect / repair the offending
-      // application manually.
+    if (outcome.kind === "failed") {
       result.failedRows += 1;
-      const detail = error instanceof Error ? error.message : String(error);
       result.errors.push(
-        `Row ${row.sourceRowNumber} (${row.email}): ${detail}`,
+        `Row ${outcome.row.sourceRowNumber} (${outcome.row.email}): ${outcome.detail}`,
       );
       continue;
     }
+
+    const { persisted, row } = outcome;
 
     if (persisted.status === "inserted") {
       result.inserted += 1;

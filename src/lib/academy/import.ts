@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { ProgramSlug } from "@/types/database";
 
-type ImportFieldType = "text" | "multiselect" | "rating" | "date";
+export type ImportFieldType = "text" | "multiselect" | "rating" | "date";
 
 type HeaderSpec = {
   field: string;
@@ -534,6 +534,13 @@ const FIELD_TYPE_MAPS = Object.fromEntries(
     ),
   ]),
 ) as Record<ProgramSlug, Record<string, ImportFieldType>>;
+
+export function getAcademyImportFieldType(
+  program: ProgramSlug,
+  field: string,
+): ImportFieldType {
+  return FIELD_TYPE_MAPS[program]?.[field] ?? "text";
+}
 
 // Headers we expect on the sheet but intentionally do not map to an
 // answer field:

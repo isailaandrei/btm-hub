@@ -32,8 +32,6 @@ import {
 // Significant differences from the other 3 programs:
 //   - age is a short-answer text field (numeric), not a range select
 //   - current_occupation is REQUIRED (optional on the other 3 forms)
-//   - 3 field names differ from the old code: hoped_gains→internship_hopes,
-//     azores_ties→accommodation_ties, why_good_candidate→candidacy_reason
 //   - certification_level uses CERTIFICATION_LEVELS_SCUBA (shared with
 //     filmmaking/photography); discrepancies handled via allowOther
 //   - no btm_category / budget / time_availability / start_timeline /
