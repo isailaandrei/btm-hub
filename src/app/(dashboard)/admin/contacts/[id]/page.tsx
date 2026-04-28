@@ -10,6 +10,7 @@ import {
 } from "@/lib/data/contacts";
 import { getContactEvents } from "@/lib/data/contact-events";
 import { getEmailTimelineItems } from "@/lib/data/email-timeline";
+import { listEmailTemplates } from "@/lib/data/email-templates";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -19,6 +20,7 @@ import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh"
 import { Timeline } from "./timeline";
 import { CollapsibleAiPanel } from "./collapsible-ai-panel";
 import { SuppressionControl } from "../../email/suppression-control";
+import { ContactEmailLauncher } from "../../email/contact-email-launcher";
 
 export default async function ContactDetailPage({
   params,
@@ -39,6 +41,7 @@ export default async function ContactDetailPage({
     emailTimelineItems,
     categories,
     allTags,
+    emailTemplates,
     initialContactThreads,
     adminAiAvailability,
   ] = await Promise.all([
@@ -49,6 +52,7 @@ export default async function ContactDetailPage({
     getEmailTimelineItems(id),
     getTagCategories(),
     getTags(),
+    listEmailTemplates(),
     listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
     getAdminAiProviderAvailability(),
   ]);
@@ -141,7 +145,22 @@ export default async function ContactDetailPage({
           <Card>
             <CardHeader>
               <CardTitle className="text-sm text-muted-foreground">
-                Email controls
+                One-off email
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ContactEmailLauncher
+                contactId={contact.id}
+                contactName={contact.name}
+                templates={emailTemplates}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">
+                Email suppression
               </CardTitle>
             </CardHeader>
             <CardContent>

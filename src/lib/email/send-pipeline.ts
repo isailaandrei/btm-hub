@@ -37,6 +37,7 @@ export async function sendCampaignRecipients(input: {
             text: input.campaign.text_snapshot,
             metadata: {
               campaignId: input.campaign.id,
+              campaignKind: input.campaign.kind,
               recipientId: recipient.id,
               contactId: recipient.contact_id ?? "",
             },

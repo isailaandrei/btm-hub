@@ -195,4 +195,16 @@ describe("sendCampaignRecipients", () => {
       "r-recipient-1@replies.behind-the-mask.com",
     );
   });
+
+  it("passes campaign kind through provider metadata", async () => {
+    const { emailProvider, sentInputs } = provider();
+
+    await sendCampaignRecipients({
+      provider: emailProvider,
+      campaign: campaign({ kind: "outreach" }),
+      recipients: [recipient("recipient-1")],
+    });
+
+    expect(sentInputs[0]?.metadata.campaignKind).toBe("outreach");
+  });
 });
