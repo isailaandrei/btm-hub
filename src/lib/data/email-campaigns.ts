@@ -1,6 +1,12 @@
 import { cache } from "react";
 import { requireAdmin } from "@/lib/auth/require-admin";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import type {
+  EmailProvider,
+  NormalizedInboundReply,
+  NormalizedProviderEvent,
+} from "@/lib/email/provider/types";
 import type {
   EmailCampaign,
   EmailCampaignKind,
@@ -336,4 +342,107 @@ export async function listQueuedRecipients(
 
   if (error) throw new Error(`Failed to load queued recipients: ${error.message}`);
   return (data ?? []) as EmailCampaignRecipient[];
+}
+
+function statusPatchForEvent(type: EmailEventType, occurredAt: string) {
+  switch (type) {
+    case "delivered":
+      return { status: "delivered", delivered_at: occurredAt };
+    case "delivery_delayed":
+      return { status: "delivery_delayed" };
+    case "opened":
+      return { status: "opened", opened_at: occurredAt };
+    case "clicked":
+      return { status: "clicked", clicked_at: occurredAt };
+    case "bounced":
+      return { status: "bounced", bounced_at: occurredAt };
+    case "complained":
+      return { status: "complained", complained_at: occurredAt };
+    case "failed":
+      return { status: "failed", last_error: "Provider reported failure" };
+    case "reply_received":
+      return { status: "replied", replied_at: occurredAt };
+    default:
+      return null;
+  }
+}
+
+export async function applyProviderEvent(
+  event: NormalizedProviderEvent,
+): Promise<void> {
+  const supabase = await createAdminClient();
+  const recipient =
+    event.providerMessageId == null
+      ? null
+      : await supabase
+          .from("email_campaign_recipients")
+          .select("*")
+          .eq("provider", event.provider)
+          .eq("provider_message_id", event.providerMessageId)
+          .maybeSingle();
+
+  if (recipient?.error) {
+    throw new Error(`Failed to find email recipient: ${recipient.error.message}`);
+  }
+
+  const recipientData = recipient?.data as EmailCampaignRecipient | null | undefined;
+  const { error: eventError } = await supabase
+    .from("email_events")
+    .insert({
+      campaign_id: recipientData?.campaign_id ?? null,
+      recipient_id: recipientData?.id ?? null,
+      contact_id: recipientData?.contact_id ?? null,
+      type: event.type,
+      provider: event.provider,
+      provider_event_id: event.providerEventId,
+      provider_message_id: event.providerMessageId,
+      occurred_at: event.occurredAt,
+      payload: event.payload,
+    });
+
+  if (eventError?.code === "23505") return;
+  if (eventError) throw new Error(`Failed to append email event: ${eventError.message}`);
+
+  if (!recipientData) return;
+
+  const patch = statusPatchForEvent(event.type, event.occurredAt);
+  if (patch) {
+    const { error: updateError } = await supabase
+      .from("email_campaign_recipients")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", recipientData.id);
+
+    if (updateError) {
+      throw new Error(`Failed to update email recipient status: ${updateError.message}`);
+    }
+  }
+
+  if (event.type === "bounced" || event.type === "complained") {
+    const { error: suppressionError } = await supabase
+      .from("email_suppressions")
+      .insert({
+        contact_id: recipientData.contact_id,
+        email: recipientData.email,
+        reason: event.type === "bounced" ? "hard_bounce" : "spam_complaint",
+        detail:
+          event.type === "bounced"
+            ? "Provider reported hard bounce."
+            : "Provider reported spam complaint.",
+        provider: event.provider,
+        provider_event_id: event.providerEventId,
+      });
+
+    if (suppressionError && suppressionError.code !== "23505") {
+      throw new Error(`Failed to suppress email: ${suppressionError.message}`);
+    }
+  }
+}
+
+export async function storeInboundReplyAndForward(
+  _reply: NormalizedInboundReply,
+  _provider: EmailProvider,
+): Promise<void> {
+  void _reply;
+  void _provider;
+  throw new Error("Inbound reply forwarding is not implemented yet");
 }
