@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockVerifyWebhookSignature = vi.fn().mockResolvedValue(true);
 const mockParseWebhook = vi.fn().mockResolvedValue({
@@ -31,6 +31,11 @@ vi.mock("@/lib/data/email-campaigns", () => ({
 const { POST } = await import("./route");
 
 describe("email webhook route", () => {
+  beforeEach(() => {
+    mockApplyProviderEvent.mockClear();
+    mockStoreInboundReplyAndForward.mockClear();
+  });
+
   it("accepts verified provider events", async () => {
     const request = new Request("http://localhost/api/email/webhooks/fake", {
       method: "POST",
@@ -50,5 +55,39 @@ describe("email webhook route", () => {
       occurredAt: "2026-04-28T12:00:00.000Z",
       payload: { id: "evt-1" },
     });
+  });
+
+  it("routes inbound replies to the reply handler", async () => {
+    mockParseWebhook.mockResolvedValueOnce({
+      kind: "reply",
+      reply: {
+        provider: "fake",
+        providerEventId: "reply-1",
+        providerMessageId: "message-1",
+        inboundTo: "r-recipient-1@replies.behind-the-mask.com",
+        inboundFrom: "person@example.com",
+        subject: "Re: Hello",
+        textBody: "Thanks",
+        htmlBody: "",
+        attachmentMetadata: [],
+        receivedAt: "2026-04-28T12:00:00.000Z",
+        payload: { id: "reply-1" },
+      },
+    });
+
+    const request = new Request("http://localhost/api/email/webhooks/fake", {
+      method: "POST",
+      body: JSON.stringify({ id: "reply-1" }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ provider: "fake" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStoreInboundReplyAndForward).toHaveBeenCalledWith(
+      expect.objectContaining({ providerEventId: "reply-1" }),
+      expect.objectContaining({ name: "fake" }),
+    );
   });
 });

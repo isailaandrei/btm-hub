@@ -7,6 +7,7 @@ import type {
   NormalizedInboundReply,
   NormalizedProviderEvent,
 } from "@/lib/email/provider/types";
+import { extractRecipientIdFromReplyAddress } from "@/lib/email/reply-matching";
 import type {
   EmailCampaign,
   EmailCampaignKind,
@@ -439,10 +440,129 @@ export async function applyProviderEvent(
 }
 
 export async function storeInboundReplyAndForward(
-  _reply: NormalizedInboundReply,
-  _provider: EmailProvider,
+  reply: NormalizedInboundReply,
+  provider: EmailProvider,
 ): Promise<void> {
-  void _reply;
-  void _provider;
-  throw new Error("Inbound reply forwarding is not implemented yet");
+  const ownerMailbox = process.env.OWNER_EMAIL_FORWARD_TO?.trim();
+  if (!ownerMailbox) throw new Error("Missing OWNER_EMAIL_FORWARD_TO");
+
+  const supabase = await createAdminClient();
+  const recipientId = extractRecipientIdFromReplyAddress(reply.inboundTo);
+  const recipientResult = recipientId
+    ? await supabase
+        .from("email_campaign_recipients")
+        .select("*")
+        .eq("id", recipientId)
+        .maybeSingle()
+    : null;
+
+  if (recipientResult?.error) {
+    throw new Error(`Failed to load email recipient: ${recipientResult.error.message}`);
+  }
+
+  const recipient = recipientResult?.data as EmailCampaignRecipient | null | undefined;
+  const { data: storedReply, error: replyError } = await supabase
+    .from("email_replies")
+    .insert({
+      campaign_id: recipient?.campaign_id ?? null,
+      recipient_id: recipient?.id ?? null,
+      contact_id: recipient?.contact_id ?? null,
+      provider: reply.provider,
+      provider_message_id: reply.providerMessageId,
+      provider_event_id: reply.providerEventId,
+      inbound_to: reply.inboundTo,
+      inbound_from: reply.inboundFrom,
+      subject: reply.subject,
+      text_body: reply.textBody,
+      html_body: reply.htmlBody,
+      body_preview: reply.textBody.slice(0, 240),
+      attachment_metadata: reply.attachmentMetadata,
+      forwarded_to: ownerMailbox,
+      forwarded_at: null,
+      forward_status: "pending",
+      forward_error: null,
+      received_at: reply.receivedAt,
+    })
+    .select("*")
+    .maybeSingle();
+
+  if (replyError?.code === "23505") return;
+  if (replyError) throw new Error(`Failed to store email reply: ${replyError.message}`);
+  if (!storedReply) return;
+
+  await supabase.from("email_events").insert({
+    campaign_id: recipient?.campaign_id ?? null,
+    recipient_id: recipient?.id ?? null,
+    contact_id: recipient?.contact_id ?? null,
+    type: "reply_received",
+    provider: reply.provider,
+    provider_event_id: reply.providerEventId,
+    provider_message_id: reply.providerMessageId,
+    occurred_at: reply.receivedAt,
+    payload: reply.payload,
+  });
+
+  if (recipient) {
+    await supabase
+      .from("email_campaign_recipients")
+      .update({
+        status: "replied",
+        replied_at: reply.receivedAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", recipient.id);
+  }
+
+  try {
+    await provider.forwardInboundReply({
+      replyId: (storedReply as EmailReply).id,
+      to: ownerMailbox,
+      from: reply.inboundFrom,
+      subject: reply.subject,
+      textBody: reply.textBody,
+      htmlBody: reply.htmlBody,
+      attachmentMetadata: reply.attachmentMetadata,
+    });
+    const { error: forwardError } = await supabase
+      .from("email_replies")
+      .update({
+        forward_status: "forwarded",
+        forwarded_at: new Date().toISOString(),
+      })
+      .eq("id", (storedReply as EmailReply).id);
+    if (forwardError) {
+      throw new Error(`Failed to mark reply forwarded: ${forwardError.message}`);
+    }
+    await supabase.from("email_events").insert({
+      campaign_id: recipient?.campaign_id ?? null,
+      recipient_id: recipient?.id ?? null,
+      contact_id: recipient?.contact_id ?? null,
+      type: "reply_forwarded",
+      provider: reply.provider,
+      provider_event_id: `${reply.providerEventId}:forwarded`,
+      provider_message_id: reply.providerMessageId,
+      occurred_at: new Date().toISOString(),
+      payload: {},
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await supabase
+      .from("email_replies")
+      .update({
+        forward_status: "failed",
+        forward_error: message,
+      })
+      .eq("id", (storedReply as EmailReply).id);
+    await supabase.from("email_events").insert({
+      campaign_id: recipient?.campaign_id ?? null,
+      recipient_id: recipient?.id ?? null,
+      contact_id: recipient?.contact_id ?? null,
+      type: "reply_forward_failed",
+      provider: reply.provider,
+      provider_event_id: `${reply.providerEventId}:forward_failed`,
+      provider_message_id: reply.providerMessageId,
+      occurred_at: new Date().toISOString(),
+      payload: { error: message },
+    });
+  }
 }
