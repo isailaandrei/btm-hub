@@ -3,25 +3,34 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
+import type { EmailAsset, EmailCampaign, EmailTemplate } from "@/types/database";
 import type { AdminAiThreadSummary } from "@/types/admin-ai";
 import { ContactsPanel } from "./contacts/contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
 import { AdminAiPanel } from "./admin-ai/panel";
+import { EmailStudio } from "./email/email-studio";
 
-type Tab = "contacts" | "tags" | "ai";
+type Tab = "contacts" | "tags" | "ai" | "email";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
   { key: "ai", label: "AI Analyst" },
+  { key: "email", label: "Email" },
 ];
 
 export function AdminDashboard({
   initialGlobalThreads,
   adminAiAvailability,
+  emailTemplates,
+  emailCampaigns,
+  emailAssets,
 }: {
   initialGlobalThreads: AdminAiThreadSummary[];
   adminAiAvailability: AdminAiProviderAvailability;
+  emailTemplates: EmailTemplate[];
+  emailCampaigns: EmailCampaign[];
+  emailAssets: EmailAsset[];
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
 
@@ -47,6 +56,14 @@ export function AdminDashboard({
       {activeTab === "contacts" && <ContactsPanel />}
 
       {activeTab === "tags" && <TagsPanel />}
+
+      {activeTab === "email" && (
+        <EmailStudio
+          templates={emailTemplates}
+          campaigns={emailCampaigns}
+          assets={emailAssets}
+        />
+      )}
 
       {activeTab === "ai" && (
         <Card className="mx-auto max-w-7xl">

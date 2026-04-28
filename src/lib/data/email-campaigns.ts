@@ -8,7 +8,9 @@ import type {
   EmailEvent,
   EmailEventType,
   EmailReply,
+  EmailSuppression,
   EmailSuppressionReason,
+  ContactEmailPreference,
 } from "@/types/database";
 
 export const listEmailCampaigns = cache(
@@ -163,3 +165,32 @@ export async function insertEmailReply(
   if (error) throw new Error(`Failed to store email reply: ${error.message}`);
   return data as EmailReply | null;
 }
+
+export const listContactEmailPreferences = cache(
+  async function listContactEmailPreferences(): Promise<ContactEmailPreference[]> {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("contact_email_preferences")
+      .select("*");
+
+    if (error) {
+      throw new Error(`Failed to load contact email preferences: ${error.message}`);
+    }
+    return (data ?? []) as ContactEmailPreference[];
+  },
+);
+
+export const listActiveEmailSuppressions = cache(
+  async function listActiveEmailSuppressions(): Promise<EmailSuppression[]> {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("email_suppressions")
+      .select("*")
+      .is("lifted_at", null);
+
+    if (error) {
+      throw new Error(`Failed to load email suppressions: ${error.message}`);
+    }
+    return (data ?? []) as EmailSuppression[];
+  },
+);
