@@ -194,3 +194,146 @@ export const listActiveEmailSuppressions = cache(
     return (data ?? []) as EmailSuppression[];
   },
 );
+
+export async function markRecipientSent(
+  recipientId: string,
+  input: {
+    provider: string;
+    providerMessageId: string;
+    providerMetadata: Record<string, unknown>;
+  },
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("email_campaign_recipients")
+    .update({
+      status: "sent",
+      provider: input.provider,
+      provider_message_id: input.providerMessageId,
+      provider_metadata: input.providerMetadata,
+      sent_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", recipientId);
+
+  if (error) throw new Error(`Failed to mark email recipient sent: ${error.message}`);
+}
+
+export async function markRecipientFailed(
+  recipientId: string,
+  errorMessage: string,
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("email_campaign_recipients")
+    .update({
+      status: "failed",
+      last_error: errorMessage,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", recipientId);
+
+  if (error) throw new Error(`Failed to mark email recipient failed: ${error.message}`);
+}
+
+export async function updateCampaignSendCounts(campaignId: string): Promise<void> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_campaign_recipients")
+    .select("status")
+    .eq("campaign_id", campaignId);
+
+  if (error) throw new Error(`Failed to load email recipient counts: ${error.message}`);
+
+  const recipients = (data ?? []) as Array<{ status: string }>;
+  const count = (statuses: string[]) =>
+    recipients.filter((recipient) => statuses.includes(recipient.status)).length;
+
+  const failedCount = count(["failed"]);
+  const sentCount = count([
+    "sent",
+    "delivered",
+    "opened",
+    "clicked",
+    "replied",
+  ]);
+
+  const { error: updateError } = await supabase
+    .from("email_campaigns")
+    .update({
+      status:
+        failedCount > 0 && sentCount > 0
+          ? "partially_failed"
+          : failedCount > 0
+            ? "failed"
+            : "sent",
+      recipient_count: recipients.length,
+      sent_count: sentCount,
+      delivered_count: count(["delivered", "opened", "clicked", "replied"]),
+      opened_count: count(["opened", "clicked", "replied"]),
+      clicked_count: count(["clicked"]),
+      bounced_count: count(["bounced"]),
+      complained_count: count(["complained"]),
+      replied_count: count(["replied"]),
+      failed_count: failedCount,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", campaignId);
+
+  if (updateError) {
+    throw new Error(`Failed to update email campaign counts: ${updateError.message}`);
+  }
+}
+
+export async function queueCampaignForSending(
+  campaignId: string,
+): Promise<EmailCampaign> {
+  const profile = await requireAdmin();
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+
+  const { error: recipientsError } = await supabase
+    .from("email_campaign_recipients")
+    .update({
+      status: "queued",
+      queued_at: now,
+      updated_at: now,
+    })
+    .eq("campaign_id", campaignId)
+    .eq("status", "pending");
+
+  if (recipientsError) {
+    throw new Error(`Failed to queue email recipients: ${recipientsError.message}`);
+  }
+
+  const { data, error } = await supabase
+    .from("email_campaigns")
+    .update({
+      status: "sending",
+      confirmed_by: profile.id,
+      confirmed_at: now,
+      updated_by: profile.id,
+      updated_at: now,
+    })
+    .eq("id", campaignId)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(`Failed to queue email campaign: ${error.message}`);
+  return data as EmailCampaign;
+}
+
+export async function listQueuedRecipients(
+  campaignId: string,
+): Promise<EmailCampaignRecipient[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_campaign_recipients")
+    .select("*")
+    .eq("campaign_id", campaignId)
+    .eq("status", "queued")
+    .order("created_at", { ascending: true });
+
+  if (error) throw new Error(`Failed to load queued recipients: ${error.message}`);
+  return (data ?? []) as EmailCampaignRecipient[];
+}

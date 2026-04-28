@@ -7,7 +7,11 @@ const mockGetEmailTemplateVersion = vi.fn();
 const mockInsertEmailRecipients = vi.fn();
 const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
+const mockListQueuedRecipients = vi.fn();
+const mockQueueCampaignForSending = vi.fn();
 const mockRevalidatePath = vi.fn();
+const mockGetEmailProvider = vi.fn();
+const mockSendCampaignRecipients = vi.fn();
 
 vi.mock("@/lib/data/contacts", () => ({
   getContacts: mockGetContacts,
@@ -17,8 +21,10 @@ vi.mock("@/lib/data/contacts", () => ({
 vi.mock("@/lib/data/email-campaigns", () => ({
   createEmailCampaign: mockCreateEmailCampaign,
   insertEmailRecipients: mockInsertEmailRecipients,
+  listQueuedRecipients: mockListQueuedRecipients,
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
+  queueCampaignForSending: mockQueueCampaignForSending,
 }));
 
 vi.mock("@/lib/data/email-templates", () => ({
@@ -29,7 +35,16 @@ vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
 }));
 
+vi.mock("@/lib/email/provider", () => ({
+  getEmailProvider: mockGetEmailProvider,
+}));
+
+vi.mock("@/lib/email/send-pipeline", () => ({
+  sendCampaignRecipients: mockSendCampaignRecipients,
+}));
+
 const {
+  confirmCampaignSendAction,
   createCampaignDraftAction,
   previewCampaignAction,
 } = await import("./actions");
@@ -184,5 +199,32 @@ describe("createCampaignDraftAction", () => {
       ],
     });
     expect(result).toEqual({ campaignId: "campaign-1" });
+  });
+});
+
+describe("confirmCampaignSendAction", () => {
+  beforeEach(() => {
+    mockGetEmailProvider.mockReset().mockReturnValue({ name: "fake" });
+    mockQueueCampaignForSending.mockReset().mockResolvedValue({
+      id: "550e8400-e29b-41d4-a716-446655440020",
+    });
+    mockListQueuedRecipients.mockReset().mockResolvedValue([{ id: "recipient-1" }]);
+    mockSendCampaignRecipients.mockReset().mockResolvedValue(undefined);
+    mockRevalidatePath.mockReset();
+  });
+
+  it("queues the campaign and passes queued recipients to the send pipeline", async () => {
+    const campaignId = "550e8400-e29b-41d4-a716-446655440020";
+
+    await expect(confirmCampaignSendAction(campaignId)).resolves.toEqual({ ok: true });
+
+    expect(mockQueueCampaignForSending).toHaveBeenCalledWith(campaignId);
+    expect(mockListQueuedRecipients).toHaveBeenCalledWith(campaignId);
+    expect(mockSendCampaignRecipients).toHaveBeenCalledWith({
+      provider: { name: "fake" },
+      campaign: { id: campaignId },
+      recipients: [{ id: "recipient-1" }],
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
   });
 });

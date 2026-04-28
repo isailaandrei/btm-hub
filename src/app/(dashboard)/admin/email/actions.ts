@@ -6,11 +6,15 @@ import { getContactById, getContacts } from "@/lib/data/contacts";
 import {
   createEmailCampaign,
   insertEmailRecipients,
+  listQueuedRecipients,
   listActiveEmailSuppressions,
   listContactEmailPreferences,
+  queueCampaignForSending,
 } from "@/lib/data/email-campaigns";
 import { getEmailTemplateVersion } from "@/lib/data/email-templates";
 import { resolveEmailEligibility } from "@/lib/email/eligibility";
+import { getEmailProvider } from "@/lib/email/provider";
+import { sendCampaignRecipients } from "@/lib/email/send-pipeline";
 import {
   DEFAULT_EMAIL_FROM_NAME,
   DEFAULT_EMAIL_REPLY_DOMAIN,
@@ -139,4 +143,17 @@ export async function createCampaignDraftAction(input: {
 
   revalidatePath("/admin");
   return { campaignId: campaign.id };
+}
+
+export async function confirmCampaignSendAction(
+  campaignId: string,
+): Promise<{ ok: true }> {
+  validateUUID(campaignId, "campaign");
+  const provider = getEmailProvider();
+  const campaign = await queueCampaignForSending(campaignId);
+  const recipients = await listQueuedRecipients(campaignId);
+
+  await sendCampaignRecipients({ provider, campaign, recipients });
+  revalidatePath("/admin");
+  return { ok: true };
 }
