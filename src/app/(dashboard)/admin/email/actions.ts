@@ -10,6 +10,7 @@ import {
   listActiveEmailSuppressions,
   listContactEmailPreferences,
   queueCampaignForSending,
+  suppressEmail,
 } from "@/lib/data/email-campaigns";
 import { getEmailTemplateVersion } from "@/lib/data/email-templates";
 import { resolveEmailEligibility } from "@/lib/email/eligibility";
@@ -21,7 +22,11 @@ import {
   DEFAULT_EMAIL_SENDING_DOMAIN,
 } from "@/lib/email/types";
 import { validateUUID } from "@/lib/validation-helpers";
-import type { Contact, EmailCampaignKind } from "@/types/database";
+import type {
+  Contact,
+  EmailCampaignKind,
+  EmailSuppressionReason,
+} from "@/types/database";
 
 const campaignKindSchema = z.enum(["broadcast", "outreach", "one_off"]);
 
@@ -35,6 +40,13 @@ const previewCampaignSchema = z.object({
 
 const draftCampaignSchema = previewCampaignSchema.extend({
   name: z.string().trim().min(1, "Campaign name is required"),
+});
+
+const suppressContactEmailSchema = z.object({
+  contactId: z.string().min(1, "Contact is required"),
+  email: z.string().trim().pipe(z.email("Email address is invalid")),
+  reason: z.enum(["hard_bounce", "spam_complaint", "invalid_address", "manual", "do_not_contact"]),
+  detail: z.string().trim().max(1000, "Detail must be 1000 characters or fewer"),
 });
 
 async function loadContactsForCampaign(input: {
@@ -155,5 +167,23 @@ export async function confirmCampaignSendAction(
 
   await sendCampaignRecipients({ provider, campaign, recipients });
   revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function suppressContactEmailAction(input: {
+  contactId: string;
+  email: string;
+  reason: EmailSuppressionReason;
+  detail: string;
+}): Promise<{ ok: true }> {
+  const parsed = suppressContactEmailSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid suppression");
+  }
+  validateUUID(parsed.data.contactId, "contact");
+
+  await suppressEmail(parsed.data);
+  revalidatePath("/admin");
+  revalidatePath(`/admin/contacts/${parsed.data.contactId}`);
   return { ok: true };
 }

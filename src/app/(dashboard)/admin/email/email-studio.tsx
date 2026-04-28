@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { EmailAsset, EmailCampaign, EmailTemplate } from "@/types/database";
 import { AssetPicker } from "./assets/asset-picker";
 import { CampaignComposer } from "./campaign-composer";
+import { CampaignHistory } from "./campaign-history";
 import { TemplateEditor } from "./templates/template-editor";
 import { TemplateList } from "./templates/template-list";
 
@@ -73,24 +74,9 @@ export function EmailStudio({ templates, campaigns, assets }: EmailStudioProps) 
               <div className="border-b border-border px-3 py-2 text-sm font-medium">
                 Recent campaigns
               </div>
-              {campaigns.length === 0 ? (
-                <p className="p-3 text-sm text-muted-foreground">
-                  No campaigns yet.
-                </p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {campaigns.slice(0, 8).map((campaign) => (
-                    <div key={campaign.id} className="px-3 py-2">
-                      <div className="text-sm font-medium text-foreground">
-                        {campaign.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {campaign.kind} · {campaign.status} · {campaign.recipient_count} recipients
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="p-3">
+                <CampaignHistory campaigns={campaigns.slice(0, 8)} />
+              </div>
             </div>
           </div>
         )}

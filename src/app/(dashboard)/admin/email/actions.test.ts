@@ -9,6 +9,7 @@ const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
 const mockListQueuedRecipients = vi.fn();
 const mockQueueCampaignForSending = vi.fn();
+const mockSuppressEmail = vi.fn();
 const mockRevalidatePath = vi.fn();
 const mockGetEmailProvider = vi.fn();
 const mockSendCampaignRecipients = vi.fn();
@@ -25,6 +26,7 @@ vi.mock("@/lib/data/email-campaigns", () => ({
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
   queueCampaignForSending: mockQueueCampaignForSending,
+  suppressEmail: mockSuppressEmail,
 }));
 
 vi.mock("@/lib/data/email-templates", () => ({
@@ -47,6 +49,7 @@ const {
   confirmCampaignSendAction,
   createCampaignDraftAction,
   previewCampaignAction,
+  suppressContactEmailAction,
 } = await import("./actions");
 
 const CONTACT_ONE = {
@@ -226,5 +229,30 @@ describe("confirmCampaignSendAction", () => {
       recipients: [{ id: "recipient-1" }],
     });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+  });
+});
+
+describe("suppressContactEmailAction", () => {
+  beforeEach(() => {
+    mockSuppressEmail.mockReset().mockResolvedValue(undefined);
+    mockRevalidatePath.mockReset();
+  });
+
+  it("suppresses a contact email and revalidates admin views", async () => {
+    await suppressContactEmailAction({
+      contactId: CONTACT_ONE.id,
+      email: " One@Example.com ",
+      reason: "manual",
+      detail: "Owner request",
+    });
+
+    expect(mockSuppressEmail).toHaveBeenCalledWith({
+      contactId: CONTACT_ONE.id,
+      email: "One@Example.com",
+      reason: "manual",
+      detail: "Owner request",
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+    expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${CONTACT_ONE.id}`);
   });
 });
