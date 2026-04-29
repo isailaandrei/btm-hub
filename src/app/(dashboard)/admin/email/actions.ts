@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { getContactById, getContacts } from "@/lib/data/contacts";
+import { getContacts } from "@/lib/data/contacts";
 import {
   createEmailCampaign,
   insertEmailRecipients,
@@ -26,16 +26,16 @@ import {
 import { validateUUID } from "@/lib/validation-helpers";
 import type {
   Contact,
-  EmailCampaignKind,
   EmailSuppressionReason,
 } from "@/types/database";
 
-const campaignKindSchema = z.enum(["broadcast", "outreach", "one_off"]);
+type CampaignComposerKind = "broadcast" | "outreach";
+
+const campaignKindSchema = z.enum(["broadcast", "outreach"]);
 
 const previewCampaignSchema = z.object({
   kind: campaignKindSchema,
   contactIds: z.array(z.string()).optional(),
-  oneOffContactId: z.string().optional(),
   subject: z.string().trim().min(1, "Subject is required"),
   templateVersionId: z.string().min(1, "Template version is required"),
 });
@@ -52,20 +52,11 @@ const suppressContactEmailSchema = z.object({
 });
 
 async function loadContactsForCampaign(input: {
-  kind: EmailCampaignKind;
+  kind: CampaignComposerKind;
   contactIds?: string[];
-  oneOffContactId?: string;
 }): Promise<Contact[]> {
   if (input.kind === "broadcast") {
     return getContacts();
-  }
-
-  if (input.kind === "one_off") {
-    if (!input.oneOffContactId) throw new Error("Contact is required");
-    validateUUID(input.oneOffContactId, "contact");
-    const contact = await getContactById(input.oneOffContactId);
-    if (!contact) throw new Error("Contact not found");
-    return [contact];
   }
 
   const selectedIds = input.contactIds ?? [];
@@ -76,9 +67,8 @@ async function loadContactsForCampaign(input: {
 }
 
 async function resolvePreview(input: {
-  kind: EmailCampaignKind;
+  kind: CampaignComposerKind;
   contactIds?: string[];
-  oneOffContactId?: string;
 }) {
   const [contacts, preferences, suppressions] = await Promise.all([
     loadContactsForCampaign(input),
@@ -95,9 +85,8 @@ async function resolvePreview(input: {
 }
 
 export async function previewCampaignAction(input: {
-  kind: "broadcast" | "outreach" | "one_off";
+  kind: CampaignComposerKind;
   contactIds?: string[];
-  oneOffContactId?: string;
   subject: string;
   templateVersionId: string;
 }): Promise<{
@@ -119,12 +108,11 @@ export async function previewCampaignAction(input: {
 }
 
 export async function createCampaignDraftAction(input: {
-  kind: "broadcast" | "outreach" | "one_off";
+  kind: CampaignComposerKind;
   name: string;
   subject: string;
   templateVersionId: string;
   contactIds?: string[];
-  oneOffContactId?: string;
 }): Promise<{ campaignId: string }> {
   await requireAdmin();
   const parsed = draftCampaignSchema.safeParse(input);

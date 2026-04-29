@@ -28,11 +28,22 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
 
-  const parsed = await provider.parseWebhook(payload);
-  if (parsed.kind === "event") {
-    await applyProviderEvent(parsed.event);
-  } else {
-    await storeInboundReplyAndForward(parsed.reply, provider);
+  try {
+    const parsed = await provider.parseWebhook(payload);
+    if (parsed.kind === "event") {
+      await applyProviderEvent(parsed.event);
+    } else {
+      await storeInboundReplyAndForward(parsed.reply, provider);
+    }
+  } catch (error) {
+    console.error("[email-webhook] failed to handle provider webhook", {
+      provider: providerName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { error: "Webhook handling failed" },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true });

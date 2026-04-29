@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { useAdminContactsData } from "../admin-data-provider";
 import type { EmailAsset, EmailCampaign, EmailTemplate } from "@/types/database";
 import { AssetPicker } from "./assets/asset-picker";
 import { CampaignComposer } from "./campaign-composer";
@@ -15,6 +16,8 @@ interface EmailStudioProps {
   templates: EmailTemplate[];
   campaigns: EmailCampaign[];
   assets: EmailAsset[];
+  selectedContactIds?: string[];
+  onClearSelectedContacts?: () => void;
 }
 
 const EMAIL_TABS: { key: EmailStudioTab; label: string }[] = [
@@ -23,12 +26,33 @@ const EMAIL_TABS: { key: EmailStudioTab; label: string }[] = [
   { key: "assets", label: "Assets" },
 ];
 
-export function EmailStudio({ templates, campaigns, assets }: EmailStudioProps) {
+export function EmailStudio({
+  templates,
+  campaigns,
+  assets,
+  selectedContactIds = [],
+  onClearSelectedContacts,
+}: EmailStudioProps) {
   const [activeTab, setActiveTab] = useState<EmailStudioTab>("campaigns");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
     templates[0]?.id ?? null,
   );
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const { contacts, ensureContacts } = useAdminContactsData();
+  const selectedContactKey = selectedContactIds.join(",");
+
+  useEffect(() => {
+    if (selectedContactIds.length > 0) ensureContacts();
+  }, [ensureContacts, selectedContactIds.length, selectedContactKey]);
+
+  const selectedContacts = useMemo(() => {
+    if (!contacts) return [];
+    const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+    return selectedContactIds.flatMap((contactId) => {
+      const contact = contactsById.get(contactId);
+      return contact ? [contact] : [];
+    });
+  }, [contacts, selectedContactIds]);
 
   function toggleAsset(assetId: string) {
     setSelectedAssetIds((current) =>
@@ -69,7 +93,13 @@ export function EmailStudio({ templates, campaigns, assets }: EmailStudioProps) 
       <CardContent>
         {activeTab === "campaigns" && (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <CampaignComposer templates={templates} />
+            <CampaignComposer
+              key={selectedContactKey || "broadcast"}
+              templates={templates}
+              selectedContactIds={selectedContactIds}
+              selectedContacts={selectedContacts}
+              onClearSelectedContacts={onClearSelectedContacts}
+            />
             <div className="rounded-md border border-border">
               <div className="border-b border-border px-3 py-2 text-sm font-medium">
                 Recent campaigns

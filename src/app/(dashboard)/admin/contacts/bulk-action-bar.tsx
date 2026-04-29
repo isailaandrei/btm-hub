@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState, useTransition } from "react";
+import { Mail } from "lucide-react";
 import { toast } from "sonner";
 import type { TagCategory, Tag } from "@/types/database";
 import { TAG_COLOR_CLASSES } from "../constants";
@@ -11,6 +12,7 @@ interface BulkActionBarProps {
   selectedIds: string[];
   tagCategories: TagCategory[];
   tags: Tag[];
+  onSendEmail?: () => void;
   onClearSelection: () => void;
 }
 
@@ -19,6 +21,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   selectedIds,
   tagCategories,
   tags,
+  onSendEmail,
   onClearSelection,
 }: BulkActionBarProps) {
   const [categoryId, setCategoryId] = useState<string>("");
@@ -83,6 +86,17 @@ export const BulkActionBar = memo(function BulkActionBar({
       <span className="text-sm font-medium text-foreground">
         {selectedCount} selected
       </span>
+
+      {onSendEmail && (
+        <button
+          type="button"
+          onClick={onSendEmail}
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <Mail className="h-4 w-4" />
+          Send email
+        </button>
+      )}
 
       <select
         value={categoryId}

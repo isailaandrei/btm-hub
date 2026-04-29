@@ -153,14 +153,26 @@ describe("previewCampaignAction", () => {
     expect(result.skipped).toEqual([]);
   });
 
-  it("rejects one-off send preview when the contact is globally suppressed", async () => {
+  it("rejects the removed one-off campaign kind", async () => {
+    await expect(
+      previewCampaignAction({
+        kind: "one_off",
+        oneOffContactId: CONTACT_ONE.id,
+        subject: "Hello",
+        templateVersionId: TEMPLATE_VERSION_ID,
+      } as never),
+    ).rejects.toThrow("expected one of");
+    expect(mockGetContactById).not.toHaveBeenCalled();
+  });
+
+  it("treats single-recipient email as outreach", async () => {
     mockListActiveEmailSuppressions.mockResolvedValue([
       { contact_id: CONTACT_ONE.id, email: CONTACT_ONE.email },
     ]);
 
     const result = await previewCampaignAction({
-      kind: "one_off",
-      oneOffContactId: CONTACT_ONE.id,
+      kind: "outreach",
+      contactIds: [CONTACT_ONE.id],
       subject: "Hello",
       templateVersionId: TEMPLATE_VERSION_ID,
     });

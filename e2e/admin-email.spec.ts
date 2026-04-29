@@ -14,7 +14,7 @@ interface EmailFixture {
   templateId: string;
   templateVersionId: string;
   templateName: string;
-  oneOffSubject: string;
+  singleOutreachSubject: string;
   replyCampaignId: string;
   replyRecipientId: string;
   replyEventId: string;
@@ -69,7 +69,7 @@ function createFixture(): EmailFixture {
     templateId: randomUUID(),
     templateVersionId: randomUUID(),
     templateName: `E2E Email Template ${suffix}`,
-    oneOffSubject: `E2E one-off ${suffix}`,
+    singleOutreachSubject: `E2E single outreach ${suffix}`,
     replyCampaignId: randomUUID(),
     replyRecipientId: randomUUID(),
     replyEventId: `reply-${suffix}`,
@@ -219,7 +219,7 @@ async function seedSentRecipient(client: SupabaseClient, fixture: EmailFixture) 
   await expectNoDbError(
     await client.from("email_campaigns").insert({
       id: fixture.replyCampaignId,
-      kind: "one_off",
+      kind: "outreach",
       status: "sent",
       name: `E2E reply campaign ${fixture.suffix}`,
       subject: `E2E reply ${fixture.suffix}`,
@@ -285,12 +285,12 @@ async function sentRecipientCountForSubject(
   return recipients.count ?? 0;
 }
 
-async function sentOneOffRecipientCount(
+async function sentSingleOutreachRecipientCount(
   client: SupabaseClient,
   fixture: EmailFixture,
 ) {
   return sentRecipientCountForSubject(client, {
-    subject: fixture.oneOffSubject,
+    subject: fixture.singleOutreachSubject,
     contactId: fixture.eligibleContactId,
   });
 }
@@ -318,19 +318,24 @@ test.describe("Admin email", () => {
     await seedSuppression(client, fixture);
     await loginAsAdmin(page);
     await page.goto("/admin");
-    await page.getByRole("button", { name: /^email$/i }).click();
+    await page.getByPlaceholder("Search by name or email...").fill(fixture.suffix);
+    await page.getByLabel("Select E2E Eligible Contact").check();
+    await page.getByLabel("Select E2E Suppressed Contact").check();
+    await page.getByRole("button", { name: /^send email$/i }).click();
 
-    await page.getByLabel("Kind").selectOption("outreach");
+    await expect(page.getByText("Email Studio")).toBeVisible();
+    await expect(page.getByLabel("Kind")).toHaveValue("outreach");
+    await expect(page.getByText("2 selected recipients")).toBeVisible();
+    await expect(page.getByLabel("Contact IDs")).toBeHidden();
     await page.getByLabel("Template").selectOption({ label: fixture.templateName });
     await page.getByLabel("Campaign name").fill(`E2E Outreach ${fixture.suffix}`);
     await page.getByLabel("Subject").fill(`E2E outreach ${fixture.suffix}`);
-    await page
-      .getByLabel("Contact IDs")
-      .fill(`${fixture.eligibleContactId}\n${fixture.suppressedContactId}`);
     await page.getByRole("button", { name: /^preview$/i }).click();
 
     await expect(page.getByText("1 eligible, 1 skipped")).toBeVisible();
-    await expect(page.getByText(fixture.suppressedEmail)).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: fixture.suppressedEmail }),
+    ).toBeVisible();
     await expect(
       page.getByRole("cell", { name: "Suppressed", exact: true }),
     ).toBeVisible();
@@ -348,24 +353,27 @@ test.describe("Admin email", () => {
       .toBe(1);
   });
 
-  test("admin can send one-off email from a contact profile", async ({ page }) => {
+  test("admin can start single-contact outreach from a contact profile", async ({ page }) => {
     await loginAsAdmin(page);
     await page.goto(`/admin/contacts/${fixture.eligibleContactId}`);
 
-    await expect(page.getByText("One-off email")).toBeVisible();
-    await page.getByLabel("One-off template").selectOption({
-      label: fixture.templateName,
-    });
-    await page.getByLabel("One-off subject").fill(fixture.oneOffSubject);
-    await page.getByRole("button", { name: /^preview one-off$/i }).click();
+    await expect(page.getByText("Email outreach")).toBeVisible();
+    await page.getByRole("link", { name: /^send email$/i }).click();
+
+    await expect(page.getByText("Email Studio")).toBeVisible();
+    await expect(page.getByLabel("Kind")).toHaveValue("outreach");
+    await expect(page.getByText("1 selected recipient")).toBeVisible();
+    await page.getByLabel("Template").selectOption({ label: fixture.templateName });
+    await page.getByLabel("Subject").fill(fixture.singleOutreachSubject);
+    await page.getByRole("button", { name: /^preview$/i }).click();
     await expect(page.getByText("1 eligible, 0 skipped")).toBeVisible();
 
-    await page.getByRole("button", { name: /^create one-off draft$/i }).click();
+    await page.getByRole("button", { name: /^create draft$/i }).click();
     await expect(page.getByText("Draft ready to send.")).toBeVisible();
-    await page.getByRole("button", { name: /^send one-off now$/i }).click();
+    await page.getByRole("button", { name: /^send now$/i }).click();
 
     await expect
-      .poll(() => sentOneOffRecipientCount(client, fixture))
+      .poll(() => sentSingleOutreachRecipientCount(client, fixture))
       .toBe(1);
   });
 
@@ -387,7 +395,11 @@ test.describe("Admin email", () => {
         occurredAt: "2026-04-28T12:00:00.000Z",
       },
     });
-    expect(response.ok()).toBe(true);
+    const responseBody = await response.text();
+    expect(
+      response.ok(),
+      `status=${response.status()} body=${responseBody}`,
+    ).toBe(true);
 
     await expect
       .poll(async () => {

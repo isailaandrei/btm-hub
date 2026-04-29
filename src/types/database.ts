@@ -119,7 +119,7 @@ export interface ContactEvent {
 // Admin Email
 // ---------------------------------------------------------------------------
 
-export type EmailCampaignKind = "broadcast" | "outreach" | "one_off";
+export type EmailCampaignKind = "broadcast" | "outreach";
 
 export type EmailCampaignStatus =
   | "draft"

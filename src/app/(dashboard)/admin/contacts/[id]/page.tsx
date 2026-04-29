@@ -10,7 +10,6 @@ import {
 } from "@/lib/data/contacts";
 import { getContactEvents } from "@/lib/data/contact-events";
 import { getEmailTimelineItems } from "@/lib/data/email-timeline";
-import { listEmailTemplates } from "@/lib/data/email-templates";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -41,7 +40,6 @@ export default async function ContactDetailPage({
     emailTimelineItems,
     categories,
     allTags,
-    emailTemplates,
     initialContactThreads,
     adminAiAvailability,
   ] = await Promise.all([
@@ -52,7 +50,6 @@ export default async function ContactDetailPage({
     getEmailTimelineItems(id),
     getTagCategories(),
     getTags(),
-    listEmailTemplates(),
     listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
     getAdminAiProviderAvailability(),
   ]);
@@ -145,14 +142,13 @@ export default async function ContactDetailPage({
           <Card>
             <CardHeader>
               <CardTitle className="text-sm text-muted-foreground">
-                One-off email
+                Email outreach
               </CardTitle>
             </CardHeader>
             <CardContent>
               <ContactEmailLauncher
                 contactId={contact.id}
                 contactName={contact.name}
-                templates={emailTemplates}
               />
             </CardContent>
           </Card>

@@ -103,7 +103,11 @@ function renderFieldValue(
   );
 }
 
-export function ContactsPanel() {
+export function ContactsPanel({
+  onSendEmailToContacts,
+}: {
+  onSendEmailToContacts?: (contactIds: string[]) => void;
+}) {
   const {
     contacts,
     tagCategories,
@@ -585,6 +589,7 @@ export function ContactsPanel() {
           selectedIds={selectedIdsList}
           tagCategories={tagCategories ?? []}
           tags={tags ?? []}
+          onSendEmail={() => onSendEmailToContacts?.(selectedIdsList)}
           onClearSelection={state.clearSelection}
         />
       )}

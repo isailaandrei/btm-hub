@@ -106,4 +106,32 @@ describe("email webhook route", () => {
     expect(response.status).toBe(400);
     expect(mockParseWebhook).not.toHaveBeenCalledWith(expect.anything());
   });
+
+  it("returns 500 when webhook handling fails after verification", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mockApplyProviderEvent.mockRejectedValueOnce(new Error("database unavailable"));
+    const request = new Request("http://localhost/api/email/webhooks/fake", {
+      method: "POST",
+      body: JSON.stringify({ id: "evt-1" }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ provider: "fake" }),
+    });
+
+    await expect(response.json()).resolves.toEqual({
+      error: "Webhook handling failed",
+    });
+    expect(response.status).toBe(500);
+    expect(consoleError).toHaveBeenCalledWith(
+      "[email-webhook] failed to handle provider webhook",
+      expect.objectContaining({
+        provider: "fake",
+        error: "database unavailable",
+      }),
+    );
+    consoleError.mockRestore();
+  });
 });
