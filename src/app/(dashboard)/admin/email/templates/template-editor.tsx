@@ -1,34 +1,47 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
+import type { EmailAsset } from "@/types/database";
+import {
+  EmailDesigner,
+  type EmailDesignerHandle,
+} from "./email-designer";
+import {
+  DEFAULT_DESIGNER_MJML,
+  getAssetIdsForMjml,
+  normalizeGrapesMjml,
+} from "./designer-helpers";
 import { publishTemplateVersionAction } from "./actions";
 
 interface TemplateEditorProps {
   templateId: string | null;
-  assetIds: string[];
+  assets: EmailAsset[];
 }
 
-const EMPTY_MJML =
-  "<mjml><mj-body><mj-section><mj-column><mj-text>Hello {{contact.name}}</mj-text></mj-column></mj-section></mj-body></mjml>";
-
-export function TemplateEditor({ templateId, assetIds }: TemplateEditorProps) {
+export function TemplateEditor({ templateId, assets }: TemplateEditorProps) {
+  const designerRef = useRef<EmailDesignerHandle | null>(null);
   const [subject, setSubject] = useState("Hello {{contact.name}}");
   const [previewText, setPreviewText] = useState("");
-  const [mjml, setMjml] = useState(EMPTY_MJML);
+  const [mjml, setMjml] = useState(DEFAULT_DESIGNER_MJML);
+  const [isSourceOpen, setIsSourceOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   function handlePublish() {
     if (!templateId) return;
     startTransition(async () => {
       try {
+        const snapshot = designerRef.current?.getSnapshot() ?? {
+          mjml: normalizeGrapesMjml(mjml),
+          builderJson: { editor: "grapesjs-mjml", project: null },
+        };
         await publishTemplateVersionAction({
           templateId,
           subject,
           previewText,
-          builderJson: { editor: "textarea" },
-          mjml,
-          assetIds,
+          builderJson: snapshot.builderJson,
+          mjml: snapshot.mjml,
+          assetIds: getAssetIdsForMjml(snapshot.mjml, assets),
         });
         toast.success("Template version published.");
       } catch (error) {
@@ -67,15 +80,45 @@ export function TemplateEditor({ templateId, assetIds }: TemplateEditorProps) {
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-foreground">MJML</span>
-        <textarea
-          value={mjml}
-          onChange={(event) => setMjml(event.target.value)}
-          rows={12}
-          className="font-mono rounded-md border border-border bg-background px-3 py-2 text-xs"
-        />
-      </label>
+      <EmailDesigner
+        ref={designerRef}
+        assets={assets}
+        sourceMjml={mjml}
+        onSourceMjmlChange={setMjml}
+      />
+
+      <div className="rounded-md border border-border">
+        <button
+          type="button"
+          onClick={() => setIsSourceOpen((current) => !current)}
+          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium text-foreground hover:bg-muted/40"
+        >
+          MJML source
+          <span className="text-xs text-muted-foreground">
+            {isSourceOpen ? "Hide" : "Show"}
+          </span>
+        </button>
+        {isSourceOpen && (
+          <div className="border-t border-border p-3">
+            <label className="flex flex-col gap-2 text-sm">
+              <span className="font-medium text-foreground">MJML source</span>
+              <textarea
+                value={mjml}
+                onChange={(event) => setMjml(event.target.value)}
+                rows={10}
+                className="font-mono rounded-md border border-border bg-background px-3 py-2 text-xs"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => designerRef.current?.loadMjml(mjml)}
+              className="mt-3 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+            >
+              Load source into designer
+            </button>
+          </div>
+        )}
+      </div>
 
       <button
         type="button"

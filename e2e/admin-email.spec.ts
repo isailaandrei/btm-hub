@@ -14,6 +14,9 @@ interface EmailFixture {
   templateId: string;
   templateVersionId: string;
   templateName: string;
+  assetId: string;
+  assetFileName: string;
+  assetUrl: string;
   singleOutreachSubject: string;
   replyCampaignId: string;
   replyRecipientId: string;
@@ -69,6 +72,9 @@ function createFixture(): EmailFixture {
     templateId: randomUUID(),
     templateVersionId: randomUUID(),
     templateName: `E2E Email Template ${suffix}`,
+    assetId: randomUUID(),
+    assetFileName: `e2e-email-asset-${suffix}.jpg`,
+    assetUrl: `https://cdn.example.com/e2e-email-asset-${suffix}.jpg`,
     singleOutreachSubject: `E2E single outreach ${suffix}`,
     replyCampaignId: randomUUID(),
     replyRecipientId: randomUUID(),
@@ -150,6 +156,13 @@ async function cleanupFixture(client: SupabaseClient, fixture: EmailFixture) {
   }
   await expectNoDbError(
     await client
+      .from("email_assets")
+      .delete()
+      .or(`id.eq.${fixture.assetId},original_filename.ilike.%${fixture.suffix}%`),
+    "Delete email assets",
+  );
+  await expectNoDbError(
+    await client
       .from("contacts")
       .delete()
       .in("id", [fixture.eligibleContactId, fixture.suppressedContactId]),
@@ -214,6 +227,21 @@ async function seedFixture(client: SupabaseClient, fixture: EmailFixture) {
       .update({ current_version_id: fixture.templateVersionId })
       .eq("id", fixture.templateId),
     "Publish email template version",
+  );
+
+  await expectNoDbError(
+    await client.from("email_assets").insert({
+      id: fixture.assetId,
+      storage_path: `email-assets/${fixture.assetFileName}`,
+      public_url: fixture.assetUrl,
+      original_filename: fixture.assetFileName,
+      mime_type: "image/jpeg",
+      size_bytes: 1200,
+      width: 1200,
+      height: 800,
+      created_by: ADMIN_ID,
+    }),
+    "Insert email asset",
   );
 }
 
@@ -391,11 +419,14 @@ test.describe("Admin email", () => {
       .click();
 
     await expect(page.getByText("Template created.")).toBeVisible();
+    await expect(page.getByText("Visual designer")).toBeVisible();
     await page.getByLabel("Subject").fill(`E2E template ${fixture.suffix}`);
     await page.getByLabel("Preview text").fill("Template preview");
-    await page.getByLabel("MJML").fill(
-      "<mjml><mj-body><mj-section><mj-column><mj-text>Hello {{contact.name}}</mj-text></mj-column></mj-section></mj-body></mjml>",
-    );
+    await page.getByRole("button", { name: /^add header$/i }).click();
+    await page.getByRole("button", { name: /^add hero$/i }).click();
+    await page
+      .getByRole("button", { name: `Insert ${fixture.assetFileName}` })
+      .click();
     await page.getByRole("button", { name: /^publish version$/i }).click();
 
     await expect
@@ -409,6 +440,16 @@ test.describe("Admin email", () => {
         return Boolean(result.data?.current_version_id);
       })
       .toBe(true);
+
+    const version = await client
+      .from("email_template_versions")
+      .select("asset_ids,mjml")
+      .eq("created_by", ADMIN_ID)
+      .contains("asset_ids", [fixture.assetId])
+      .ilike("mjml", `%${fixture.assetUrl}%`)
+      .maybeSingle();
+    if (version.error) throw new Error(version.error.message);
+    expect(version.data?.asset_ids).toContain(fixture.assetId);
   });
 
   test("admin can start single-contact outreach from a contact profile", async ({ page }) => {

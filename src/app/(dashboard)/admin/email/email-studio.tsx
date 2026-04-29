@@ -38,7 +38,6 @@ export function EmailStudio({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
     templates[0]?.id ?? null,
   );
-  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const { contacts, ensureContacts } = useAdminContactsData();
   const selectedContactKey = selectedContactIds.join(",");
 
@@ -54,14 +53,6 @@ export function EmailStudio({
       return contact ? [contact] : [];
     });
   }, [contacts, selectedContactIds]);
-
-  function toggleAsset(assetId: string) {
-    setSelectedAssetIds((current) =>
-      current.includes(assetId)
-        ? current.filter((id) => id !== assetId)
-        : [...current, assetId],
-    );
-  }
 
   return (
     <Card className="mx-auto max-w-7xl">
@@ -124,18 +115,12 @@ export function EmailStudio({
             </div>
             <TemplateEditor
               templateId={selectedTemplateId}
-              assetIds={selectedAssetIds}
+              assets={assets}
             />
           </div>
         )}
 
-        {activeTab === "assets" && (
-          <AssetPicker
-            assets={assets}
-            selectedAssetIds={selectedAssetIds}
-            onToggleAsset={toggleAsset}
-          />
-        )}
+        {activeTab === "assets" && <AssetPicker assets={assets} />}
       </CardContent>
     </Card>
   );

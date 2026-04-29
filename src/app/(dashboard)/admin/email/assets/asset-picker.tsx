@@ -4,15 +4,9 @@ import type { EmailAsset } from "@/types/database";
 
 interface AssetPickerProps {
   assets: EmailAsset[];
-  selectedAssetIds: string[];
-  onToggleAsset: (assetId: string) => void;
 }
 
-export function AssetPicker({
-  assets,
-  selectedAssetIds,
-  onToggleAsset,
-}: AssetPickerProps) {
+export function AssetPicker({ assets }: AssetPickerProps) {
   if (assets.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
@@ -21,20 +15,12 @@ export function AssetPicker({
     );
   }
 
-  const selected = new Set(selectedAssetIds);
-
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {assets.map((asset) => (
-        <button
+        <div
           key={asset.id}
-          type="button"
-          onClick={() => onToggleAsset(asset.id)}
-          className={`overflow-hidden rounded-md border text-left transition-colors ${
-            selected.has(asset.id)
-              ? "border-primary bg-primary/10"
-              : "border-border hover:bg-muted/40"
-          }`}
+          className="overflow-hidden rounded-md border border-border text-left"
         >
           <img
             src={asset.public_url}
@@ -44,7 +30,7 @@ export function AssetPicker({
           <span className="block truncate px-3 py-2 text-xs text-muted-foreground">
             {asset.original_filename}
           </span>
-        </button>
+        </div>
       ))}
     </div>
   );
