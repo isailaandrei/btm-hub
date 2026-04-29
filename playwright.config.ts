@@ -19,7 +19,11 @@ try {
   }
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-    if (!process.env.CI) {
+    if (
+      !process.env.CI &&
+      (!process.env.NEXT_PUBLIC_SUPABASE_URL ||
+        !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
+    ) {
       throw new Error(
         "Missing .env.local — create it with NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       );
@@ -54,6 +58,12 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
         process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+      SUPABASE_LOCAL_SERVICE_ROLE_KEY:
+        process.env.SUPABASE_LOCAL_SERVICE_ROLE_KEY ?? "",
+      EMAIL_PROVIDER: "fake",
+      OWNER_EMAIL_FORWARD_TO:
+        process.env.OWNER_EMAIL_FORWARD_TO ?? "owner@behind-the-mask.com",
     },
   },
 

@@ -9,6 +9,7 @@ import {
   getTags,
 } from "@/lib/data/contacts";
 import { getContactEvents } from "@/lib/data/contact-events";
+import { getEmailTimelineItems } from "@/lib/data/email-timeline";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -17,6 +18,8 @@ import { ContactTagManager } from "./contact-tag-manager";
 import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh";
 import { Timeline } from "./timeline";
 import { CollapsibleAiPanel } from "./collapsible-ai-panel";
+import { SuppressionControl } from "../../email/suppression-control";
+import { ContactEmailLauncher } from "../../email/contact-email-launcher";
 
 export default async function ContactDetailPage({
   params,
@@ -34,6 +37,7 @@ export default async function ContactDetailPage({
     applications,
     contactTagRows,
     events,
+    emailTimelineItems,
     categories,
     allTags,
     initialContactThreads,
@@ -43,6 +47,7 @@ export default async function ContactDetailPage({
     getApplicationsByContactId(id),
     getContactTags(id),
     getContactEvents(id),
+    getEmailTimelineItems(id),
     getTagCategories(),
     getTags(),
     listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
@@ -112,7 +117,11 @@ export default async function ContactDetailPage({
             ))
           )}
 
-          <Timeline contactId={contact.id} events={events} />
+          <Timeline
+            contactId={contact.id}
+            events={events}
+            emailItems={emailTimelineItems}
+          />
         </div>
 
         <div className="flex flex-col gap-6">
@@ -127,6 +136,31 @@ export default async function ContactDetailPage({
                 categories={categories}
                 allTags={allTags}
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">
+                Email outreach
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ContactEmailLauncher
+                contactId={contact.id}
+                contactName={contact.name}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">
+                Email suppression
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SuppressionControl contactId={contact.id} email={contact.email} />
             </CardContent>
           </Card>
         </div>
