@@ -38,7 +38,7 @@ describe("createTemplateAction", () => {
     formData.set("category", "general");
 
     const result = await createTemplateAction(
-      { errors: {}, message: "" },
+      { errors: {}, message: "", templateId: null, success: false, resetKey: 0 },
       formData,
     );
 
@@ -46,7 +46,7 @@ describe("createTemplateAction", () => {
     expect(mockCreateEmailTemplate).not.toHaveBeenCalled();
   });
 
-  it("creates a template and revalidates admin", async () => {
+  it("creates a template, returns its id, and revalidates admin", async () => {
     mockCreateEmailTemplate.mockResolvedValue({ id: "template-1" });
     const formData = new FormData();
     formData.set("name", "Newsletter");
@@ -54,7 +54,7 @@ describe("createTemplateAction", () => {
     formData.set("category", "broadcast");
 
     const result = await createTemplateAction(
-      { errors: {}, message: "" },
+      { errors: {}, message: "", templateId: null, success: false, resetKey: 0 },
       formData,
     );
 
@@ -64,7 +64,13 @@ describe("createTemplateAction", () => {
       category: "broadcast",
     });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
-    expect(result).toEqual({ errors: {}, message: "Template created." });
+    expect(result).toEqual({
+      errors: {},
+      message: "Template created.",
+      templateId: "template-1",
+      success: true,
+      resetKey: 1,
+    });
   });
 });
 

@@ -115,24 +115,39 @@ async function cleanupFixture(client: SupabaseClient, fixture: EmailFixture) {
       .in("contact_id", [fixture.eligibleContactId, fixture.suppressedContactId]),
     "Delete email preferences",
   );
-  await expectNoDbError(
-    await client
-      .from("email_templates")
-      .update({ current_version_id: null })
-      .eq("id", fixture.templateId),
-    "Clear template current version",
-  );
-  await expectNoDbError(
-    await client
-      .from("email_template_versions")
-      .delete()
-      .eq("template_id", fixture.templateId),
-    "Delete template versions",
-  );
-  await expectNoDbError(
-    await client.from("email_templates").delete().eq("id", fixture.templateId),
-    "Delete email template",
-  );
+  const templatesResult = await client
+    .from("email_templates")
+    .select("id")
+    .ilike("name", `%${fixture.suffix}%`);
+  if (templatesResult.error) {
+    throw new Error(`Find email templates: ${templatesResult.error.message}`);
+  }
+  const templateIds = [
+    ...new Set([
+      fixture.templateId,
+      ...(templatesResult.data ?? []).map((template) => template.id as string),
+    ]),
+  ];
+  if (templateIds.length > 0) {
+    await expectNoDbError(
+      await client
+        .from("email_templates")
+        .update({ current_version_id: null })
+        .in("id", templateIds),
+      "Clear template current versions",
+    );
+    await expectNoDbError(
+      await client
+        .from("email_template_versions")
+        .delete()
+        .in("template_id", templateIds),
+      "Delete template versions",
+    );
+    await expectNoDbError(
+      await client.from("email_templates").delete().in("id", templateIds),
+      "Delete email templates",
+    );
+  }
   await expectNoDbError(
     await client
       .from("contacts")
@@ -351,6 +366,49 @@ test.describe("Admin email", () => {
         }),
       )
       .toBe(1);
+  });
+
+  test("admin can create a template and publish its first version", async ({
+    page,
+  }) => {
+    const templateName = `E2E Created Template ${fixture.suffix}`;
+
+    await loginAsAdmin(page);
+    await page.goto("/admin");
+    await page.getByRole("button", { name: /^email$/i }).click();
+    await page.getByRole("button", { name: /^templates$/i }).click();
+
+    const createTemplateForm = page.getByRole("form", {
+      name: "Create email template",
+    });
+    await createTemplateForm.getByLabel("Name").fill(templateName);
+    await createTemplateForm.getByLabel("Category").fill("outreach");
+    await createTemplateForm
+      .getByLabel("Description")
+      .fill("Template created from E2E.");
+    await createTemplateForm
+      .getByRole("button", { name: /^create template$/i })
+      .click();
+
+    await expect(page.getByText("Template created.")).toBeVisible();
+    await page.getByLabel("Subject").fill(`E2E template ${fixture.suffix}`);
+    await page.getByLabel("Preview text").fill("Template preview");
+    await page.getByLabel("MJML").fill(
+      "<mjml><mj-body><mj-section><mj-column><mj-text>Hello {{contact.name}}</mj-text></mj-column></mj-section></mj-body></mjml>",
+    );
+    await page.getByRole("button", { name: /^publish version$/i }).click();
+
+    await expect
+      .poll(async () => {
+        const result = await client
+          .from("email_templates")
+          .select("current_version_id")
+          .eq("name", templateName)
+          .maybeSingle();
+        if (result.error) throw new Error(result.error.message);
+        return Boolean(result.data?.current_version_id);
+      })
+      .toBe(true);
   });
 
   test("admin can start single-contact outreach from a contact profile", async ({ page }) => {

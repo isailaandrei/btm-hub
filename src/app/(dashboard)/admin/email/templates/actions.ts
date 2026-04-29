@@ -12,6 +12,9 @@ import { validateUUID } from "@/lib/validation-helpers";
 export type EmailTemplateFormState = {
   errors: Record<string, string[]>;
   message: string;
+  templateId: string | null;
+  success: boolean;
+  resetKey: number;
 };
 
 const templateSchema = z.object({
@@ -61,12 +64,21 @@ export async function createTemplateAction(
     return {
       errors: parsed.error.flatten().fieldErrors,
       message: "",
+      templateId: null,
+      success: false,
+      resetKey: _previousState.resetKey,
     };
   }
 
-  await createEmailTemplate(parsed.data);
+  const template = await createEmailTemplate(parsed.data);
   revalidatePath("/admin");
-  return { errors: {}, message: "Template created." };
+  return {
+    errors: {},
+    message: "Template created.",
+    templateId: template.id,
+    success: true,
+    resetKey: _previousState.resetKey + 1,
+  };
 }
 
 export async function publishTemplateVersionAction(input: {

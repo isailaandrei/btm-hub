@@ -7,6 +7,7 @@ import type { EmailAsset, EmailCampaign, EmailTemplate } from "@/types/database"
 import { AssetPicker } from "./assets/asset-picker";
 import { CampaignComposer } from "./campaign-composer";
 import { CampaignHistory } from "./campaign-history";
+import { CreateTemplateForm } from "./templates/create-template-form";
 import { TemplateEditor } from "./templates/template-editor";
 import { TemplateList } from "./templates/template-list";
 
@@ -113,11 +114,14 @@ export function EmailStudio({
 
         {activeTab === "templates" && (
           <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-            <TemplateList
-              templates={templates}
-              selectedTemplateId={selectedTemplateId}
-              onSelectTemplate={setSelectedTemplateId}
-            />
+            <div className="flex flex-col gap-4">
+              <CreateTemplateForm onTemplateCreated={setSelectedTemplateId} />
+              <TemplateList
+                templates={templates}
+                selectedTemplateId={selectedTemplateId}
+                onSelectTemplate={setSelectedTemplateId}
+              />
+            </div>
             <TemplateEditor
               templateId={selectedTemplateId}
               assetIds={selectedAssetIds}
