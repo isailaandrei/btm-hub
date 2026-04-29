@@ -21,14 +21,14 @@ export function CampaignComposer({ templates }: CampaignComposerProps) {
   const [kind, setKind] = useState<"broadcast" | "outreach" | "one_off">("broadcast");
   const [name, setName] = useState("New email campaign");
   const [subject, setSubject] = useState("");
-  const [templateVersionId, setTemplateVersionId] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [contactIdsText, setContactIdsText] = useState("");
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [draftCampaignId, setDraftCampaignId] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const selectedTemplate = templates.find((template) => template.id === templateVersionId);
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
   const selectedTemplateVersionId = selectedTemplate?.current_version_id ?? "";
   const contactIds = contactIdsText
     .split(/[\s,]+/)
@@ -113,9 +113,9 @@ export function CampaignComposer({ templates }: CampaignComposerProps) {
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium text-foreground">Template</span>
           <select
-            value={templateVersionId}
+            value={selectedTemplateId}
             onChange={(event) => {
-              setTemplateVersionId(event.target.value);
+              setSelectedTemplateId(event.target.value);
               setPreview(null);
               setDraftCampaignId(null);
               setSent(false);

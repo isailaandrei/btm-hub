@@ -13,6 +13,8 @@ const mockSuppressEmail = vi.fn();
 const mockRevalidatePath = vi.fn();
 const mockGetEmailProvider = vi.fn();
 const mockSendCampaignRecipients = vi.fn();
+const mockRequireAdmin = vi.fn();
+const mockAfter = vi.fn();
 
 vi.mock("@/lib/data/contacts", () => ({
   getContacts: mockGetContacts,
@@ -35,6 +37,14 @@ vi.mock("@/lib/data/email-templates", () => ({
 
 vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
+}));
+
+vi.mock("next/server", () => ({
+  after: mockAfter,
+}));
+
+vi.mock("@/lib/auth/require-admin", () => ({
+  requireAdmin: mockRequireAdmin,
 }));
 
 vi.mock("@/lib/email/provider", () => ({
@@ -65,6 +75,20 @@ const CONTACT_TWO = {
 };
 
 const TEMPLATE_VERSION_ID = "550e8400-e29b-41d4-a716-446655440010";
+
+beforeEach(() => {
+  mockRequireAdmin.mockReset().mockResolvedValue({
+    id: "admin-1",
+    email: "admin@example.com",
+    display_name: "Admin",
+    bio: null,
+    avatar_url: null,
+    role: "admin",
+    preferences: {},
+    created_at: "2026-04-28T00:00:00.000Z",
+    updated_at: "2026-04-28T00:00:00.000Z",
+  });
+});
 
 describe("previewCampaignAction", () => {
   beforeEach(() => {
@@ -107,6 +131,7 @@ describe("previewCampaignAction", () => {
         reason: "newsletter_unsubscribed",
       },
     ]);
+    expect(mockRequireAdmin).toHaveBeenCalled();
   });
 
   it("allows newsletter-unsubscribed contacts for outreach", async () => {
@@ -159,6 +184,7 @@ describe("createCampaignDraftAction", () => {
       id: TEMPLATE_VERSION_ID,
       html: "<p>Hello</p>",
       text: "Hello",
+      mjml: "<mjml><mj-body><mj-section><mj-column><mj-text>Hello</mj-text></mj-column></mj-section></mj-body></mjml>",
       preview_text: "Preview",
     });
     mockListActiveEmailSuppressions.mockReset().mockResolvedValue([]);
@@ -182,6 +208,8 @@ describe("createCampaignDraftAction", () => {
         subject: "Hello",
         htmlSnapshot: "<p>Hello</p>",
         textSnapshot: "Hello",
+        mjmlSnapshot:
+          "<mjml><mj-body><mj-section><mj-column><mj-text>Hello</mj-text></mj-column></mj-section></mj-body></mjml>",
       }),
     );
     expect(mockInsertEmailRecipients).toHaveBeenCalledWith({
@@ -202,6 +230,7 @@ describe("createCampaignDraftAction", () => {
       ],
     });
     expect(result).toEqual({ campaignId: "campaign-1" });
+    expect(mockRequireAdmin).toHaveBeenCalled();
   });
 });
 
@@ -213,22 +242,30 @@ describe("confirmCampaignSendAction", () => {
     });
     mockListQueuedRecipients.mockReset().mockResolvedValue([{ id: "recipient-1" }]);
     mockSendCampaignRecipients.mockReset().mockResolvedValue(undefined);
+    mockAfter.mockReset();
     mockRevalidatePath.mockReset();
   });
 
-  it("queues the campaign and passes queued recipients to the send pipeline", async () => {
+  it("queues the campaign and schedules queued recipients for sending after the response", async () => {
     const campaignId = "550e8400-e29b-41d4-a716-446655440020";
 
     await expect(confirmCampaignSendAction(campaignId)).resolves.toEqual({ ok: true });
 
     expect(mockQueueCampaignForSending).toHaveBeenCalledWith(campaignId);
     expect(mockListQueuedRecipients).toHaveBeenCalledWith(campaignId);
+    expect(mockAfter).toHaveBeenCalledTimes(1);
+    expect(mockSendCampaignRecipients).not.toHaveBeenCalled();
+
+    const scheduledSend = mockAfter.mock.calls[0]?.[0] as () => Promise<void>;
+    await scheduledSend();
+
     expect(mockSendCampaignRecipients).toHaveBeenCalledWith({
       provider: { name: "fake" },
       campaign: { id: campaignId },
       recipients: [{ id: "recipient-1" }],
     });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+    expect(mockRequireAdmin).toHaveBeenCalled();
   });
 });
 
@@ -254,5 +291,6 @@ describe("suppressContactEmailAction", () => {
     });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
     expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${CONTACT_ONE.id}`);
+    expect(mockRequireAdmin).toHaveBeenCalled();
   });
 });

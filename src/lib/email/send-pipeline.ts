@@ -6,11 +6,60 @@ import {
 } from "@/lib/data/email-campaigns";
 import type { EmailCampaign, EmailCampaignRecipient } from "@/types/database";
 import type { EmailProvider } from "./provider/types";
+import { renderMjmlEmail } from "./rendering/mjml";
+import type { EmailRenderVariables } from "./rendering/variables";
 
 const SEND_CHUNK_SIZE = 25;
 
 function buildReplyTo(recipientId: string): string {
   return `r-${recipientId}@replies.behind-the-mask.com`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function buildRenderVariables(
+  recipient: EmailCampaignRecipient,
+): EmailRenderVariables {
+  const personalization = asRecord(recipient.personalization_snapshot);
+  const contact = asRecord(personalization.contact);
+
+  return {
+    ...personalization,
+    contact: {
+      id:
+        typeof contact.id === "string"
+          ? contact.id
+          : (recipient.contact_id ?? undefined),
+      name:
+        typeof contact.name === "string"
+          ? contact.name
+          : recipient.contact_name_snapshot,
+      email: typeof contact.email === "string" ? contact.email : recipient.email,
+    },
+  };
+}
+
+async function renderRecipientEmail(
+  campaign: EmailCampaign,
+  recipient: EmailCampaignRecipient,
+) {
+  if (!campaign.mjml_snapshot.trim()) {
+    return {
+      subject: campaign.subject,
+      html: campaign.html_snapshot,
+      text: campaign.text_snapshot,
+    };
+  }
+
+  return renderMjmlEmail({
+    subject: campaign.subject,
+    mjml: campaign.mjml_snapshot,
+    variables: buildRenderVariables(recipient),
+  });
 }
 
 export async function sendCampaignRecipients(input: {
@@ -27,14 +76,15 @@ export async function sendCampaignRecipients(input: {
     await Promise.all(
       chunk.map(async (recipient) => {
         try {
+          const rendered = await renderRecipientEmail(input.campaign, recipient);
           const result = await input.provider.sendEmail({
             recipientId: recipient.id,
             to: recipient.email,
             from: `${input.campaign.from_name} <${input.campaign.from_email}>`,
             replyTo: buildReplyTo(recipient.id),
-            subject: input.campaign.subject,
-            html: input.campaign.html_snapshot,
-            text: input.campaign.text_snapshot,
+            subject: rendered.subject,
+            html: rendered.html,
+            text: rendered.text,
             metadata: {
               campaignId: input.campaign.id,
               campaignKind: input.campaign.kind,

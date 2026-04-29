@@ -25,4 +25,14 @@ describe("email rendering", () => {
     expect(result.html).toContain("Hello Alex");
     expect(result.text).toContain("Hello Alex");
   });
+
+  it("decodes common HTML entities in plain-text output", async () => {
+    const result = await renderMjmlEmail({
+      subject: "Entity test",
+      mjml: "<mjml><mj-body><mj-section><mj-column><mj-text>Research &amp; outreach&nbsp;&lt;ready&gt;</mj-text></mj-column></mj-section></mj-body></mjml>",
+      variables: {},
+    });
+
+    expect(result.text).toContain("Research & outreach <ready>");
+  });
 });

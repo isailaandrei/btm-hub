@@ -21,7 +21,14 @@ export async function POST(
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  const parsed = await provider.parseWebhook(JSON.parse(rawBody));
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+  }
+
+  const parsed = await provider.parseWebhook(payload);
   if (parsed.kind === "event") {
     await applyProviderEvent(parsed.event);
   } else {

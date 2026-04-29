@@ -42,6 +42,7 @@ export async function createEmailCampaign(input: {
   fromName: string;
   replyToEmail: string;
   templateVersionId: string | null;
+  mjmlSnapshot: string;
   htmlSnapshot: string;
   textSnapshot: string;
 }): Promise<EmailCampaign> {
@@ -58,6 +59,7 @@ export async function createEmailCampaign(input: {
       from_name: input.fromName,
       reply_to_email: input.replyToEmail,
       template_version_id: input.templateVersionId,
+      mjml_snapshot: input.mjmlSnapshot,
       html_snapshot: input.htmlSnapshot,
       text_snapshot: input.textSnapshot,
       created_by: profile.id,
@@ -80,7 +82,7 @@ export async function insertEmailRecipients(input: {
   }>;
 }): Promise<EmailCampaignRecipient[]> {
   await requireAdmin();
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const rows = input.recipients.map((recipient) => ({
     campaign_id: input.campaignId,
     contact_id: recipient.contactId,
@@ -109,7 +111,7 @@ export async function appendEmailEvent(input: {
   occurredAt: string;
   payload: Record<string, unknown>;
 }): Promise<EmailEvent | null> {
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const { data, error } = await supabase
     .from("email_events")
     .insert({
@@ -140,7 +142,7 @@ export async function suppressEmail(input: {
   providerEventId?: string;
 }): Promise<void> {
   const profile = await requireAdmin();
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const { error } = await supabase
     .from("email_suppressions")
     .insert({
@@ -161,7 +163,7 @@ export async function suppressEmail(input: {
 export async function insertEmailReply(
   input: Omit<EmailReply, "id" | "created_at">,
 ): Promise<EmailReply | null> {
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const { data, error } = await supabase
     .from("email_replies")
     .insert(input)
@@ -210,7 +212,7 @@ export async function markRecipientSent(
     providerMetadata: Record<string, unknown>;
   },
 ): Promise<void> {
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const { error } = await supabase
     .from("email_campaign_recipients")
     .update({
@@ -230,7 +232,7 @@ export async function markRecipientFailed(
   recipientId: string,
   errorMessage: string,
 ): Promise<void> {
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const { error } = await supabase
     .from("email_campaign_recipients")
     .update({
@@ -244,7 +246,7 @@ export async function markRecipientFailed(
 }
 
 export async function updateCampaignSendCounts(campaignId: string): Promise<void> {
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const { data, error } = await supabase
     .from("email_campaign_recipients")
     .select("status")

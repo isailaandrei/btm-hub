@@ -6,12 +6,13 @@ import { publishTemplateVersionAction } from "./actions";
 
 interface TemplateEditorProps {
   templateId: string | null;
+  assetIds: string[];
 }
 
 const EMPTY_MJML =
   "<mjml><mj-body><mj-section><mj-column><mj-text>Hello {{contact.name}}</mj-text></mj-column></mj-section></mj-body></mjml>";
 
-export function TemplateEditor({ templateId }: TemplateEditorProps) {
+export function TemplateEditor({ templateId, assetIds }: TemplateEditorProps) {
   const [subject, setSubject] = useState("Hello {{contact.name}}");
   const [previewText, setPreviewText] = useState("");
   const [mjml, setMjml] = useState(EMPTY_MJML);
@@ -27,7 +28,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
           previewText,
           builderJson: { editor: "textarea" },
           mjml,
-          assetIds: [],
+          assetIds,
         });
         toast.success("Template version published.");
       } catch (error) {

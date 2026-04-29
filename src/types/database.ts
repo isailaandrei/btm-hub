@@ -245,6 +245,7 @@ export interface EmailCampaign {
   from_name: string;
   reply_to_email: string;
   template_version_id: string | null;
+  mjml_snapshot: string;
   html_snapshot: string;
   text_snapshot: string;
   created_by: string;

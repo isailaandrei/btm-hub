@@ -88,7 +88,10 @@ export function EmailStudio({ templates, campaigns, assets }: EmailStudioProps) 
               selectedTemplateId={selectedTemplateId}
               onSelectTemplate={setSelectedTemplateId}
             />
-            <TemplateEditor templateId={selectedTemplateId} />
+            <TemplateEditor
+              templateId={selectedTemplateId}
+              assetIds={selectedAssetIds}
+            />
           </div>
         )}
 

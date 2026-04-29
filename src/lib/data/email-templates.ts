@@ -39,57 +39,20 @@ export async function createEmailTemplateVersion(input: {
   const profile = await requireAdmin();
   const supabase = await createClient();
 
-  const { data: latestVersion, error: latestError } = await supabase
-    .from("email_template_versions")
-    .select("version_number")
-    .eq("template_id", input.templateId)
-    .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (latestError) {
-    throw new Error(`Failed to load template version: ${latestError.message}`);
-  }
-
-  const currentVersionNumber =
-    typeof latestVersion?.version_number === "number"
-      ? latestVersion.version_number
-      : 0;
-
-  const { data, error } = await supabase
-    .from("email_template_versions")
-    .insert({
-      template_id: input.templateId,
-      version_number: currentVersionNumber + 1,
-      subject: input.subject,
-      preview_text: input.previewText,
-      builder_json: input.builderJson,
-      mjml: input.mjml,
-      html: input.html,
-      text: input.text,
-      asset_ids: input.assetIds,
-      created_by: profile.id,
-    })
-    .select("*")
-    .single();
+  const { data, error } = await supabase.rpc("create_email_template_version", {
+    p_template_id: input.templateId,
+    p_subject: input.subject,
+    p_preview_text: input.previewText,
+    p_builder_json: input.builderJson,
+    p_mjml: input.mjml,
+    p_html: input.html,
+    p_text: input.text,
+    p_asset_ids: input.assetIds,
+    p_user_id: profile.id,
+  });
 
   if (error) throw new Error(`Failed to create email template version: ${error.message}`);
-
-  const version = data as EmailTemplateVersion;
-  const { error: updateError } = await supabase
-    .from("email_templates")
-    .update({
-      current_version_id: version.id,
-      updated_by: profile.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.templateId);
-
-  if (updateError) {
-    throw new Error(`Failed to update email template: ${updateError.message}`);
-  }
-
-  return version;
+  return data as EmailTemplateVersion;
 }
 
 export const listEmailTemplates = cache(

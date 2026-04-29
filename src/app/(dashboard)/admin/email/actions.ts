@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod/v4";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { getContactById, getContacts } from "@/lib/data/contacts";
 import {
   createEmailCampaign,
@@ -102,6 +104,7 @@ export async function previewCampaignAction(input: {
   eligibleCount: number;
   skipped: Array<{ contactId: string; email: string; name: string; reason: string }>;
 }> {
+  await requireAdmin();
   const parsed = previewCampaignSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid campaign preview");
@@ -123,6 +126,7 @@ export async function createCampaignDraftAction(input: {
   contactIds?: string[];
   oneOffContactId?: string;
 }): Promise<{ campaignId: string }> {
+  await requireAdmin();
   const parsed = draftCampaignSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid campaign draft");
@@ -144,6 +148,7 @@ export async function createCampaignDraftAction(input: {
     fromName: DEFAULT_EMAIL_FROM_NAME,
     replyToEmail: `reply@${DEFAULT_EMAIL_REPLY_DOMAIN}`,
     templateVersionId: templateVersion.id,
+    mjmlSnapshot: templateVersion.mjml,
     htmlSnapshot: templateVersion.html,
     textSnapshot: templateVersion.text,
   });
@@ -160,12 +165,15 @@ export async function createCampaignDraftAction(input: {
 export async function confirmCampaignSendAction(
   campaignId: string,
 ): Promise<{ ok: true }> {
+  await requireAdmin();
   validateUUID(campaignId, "campaign");
   const provider = getEmailProvider();
   const campaign = await queueCampaignForSending(campaignId);
   const recipients = await listQueuedRecipients(campaignId);
 
-  await sendCampaignRecipients({ provider, campaign, recipients });
+  after(async () => {
+    await sendCampaignRecipients({ provider, campaign, recipients });
+  });
   revalidatePath("/admin");
   return { ok: true };
 }
@@ -176,6 +184,7 @@ export async function suppressContactEmailAction(input: {
   reason: EmailSuppressionReason;
   detail: string;
 }): Promise<{ ok: true }> {
+  await requireAdmin();
   const parsed = suppressContactEmailSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid suppression");

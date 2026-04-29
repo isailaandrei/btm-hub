@@ -5,6 +5,10 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: vi.fn(),
+}));
+
 vi.mock("@/lib/auth/require-admin", () => ({
   requireAdmin: vi.fn(),
 }));
@@ -16,8 +20,10 @@ describe("email campaign data access", () => {
     vi.resetModules();
     mockSupabase = createMockSupabaseClient();
     const { createClient } = await import("@/lib/supabase/server");
+    const { createAdminClient } = await import("@/lib/supabase/admin");
     const { requireAdmin } = await import("@/lib/auth/require-admin");
     vi.mocked(createClient).mockResolvedValue(mockSupabase.client as never);
+    vi.mocked(createAdminClient).mockResolvedValue(mockSupabase.client as never);
     vi.mocked(requireAdmin).mockResolvedValue({
       id: "admin-1",
       email: "admin@example.com",
@@ -45,6 +51,7 @@ describe("email campaign data access", () => {
       fromName: "Behind The Mask",
       replyToEmail: "reply@replies.behind-the-mask.com",
       templateVersionId: null,
+      mjmlSnapshot: "<mjml></mjml>",
       htmlSnapshot: "<p>Hello</p>",
       textSnapshot: "Hello",
     });
@@ -56,6 +63,7 @@ describe("email campaign data access", () => {
         name: "Newsletter",
         subject: "Hello",
         preview_text: "Preview",
+        mjml_snapshot: "<mjml></mjml>",
         created_by: "admin-1",
         updated_by: "admin-1",
       }),
@@ -80,6 +88,29 @@ describe("email campaign data access", () => {
     });
 
     expect(result).toBeNull();
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { createClient } = await import("@/lib/supabase/server");
+    expect(createAdminClient).toHaveBeenCalled();
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it("marks sent recipients with the admin client for background sends", async () => {
+    mockSupabase.mockQueryResult(null);
+
+    const { markRecipientSent } = await import("./email-campaigns");
+    await markRecipientSent("recipient-1", {
+      provider: "fake",
+      providerMessageId: "message-1",
+      providerMetadata: { accepted: true },
+    });
+
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { createClient } = await import("@/lib/supabase/server");
+    expect(createAdminClient).toHaveBeenCalled();
+    expect(createClient).not.toHaveBeenCalled();
+    expect(mockSupabase.client.from).toHaveBeenCalledWith(
+      "email_campaign_recipients",
+    );
   });
 
   it("inserts campaign recipients with contact and personalization snapshots", async () => {

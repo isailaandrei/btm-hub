@@ -30,6 +30,7 @@ function campaign(overrides: Partial<EmailCampaign> = {}): EmailCampaign {
     template_version_id: null,
     html_snapshot: "<p>Hello</p>",
     text_snapshot: "Hello",
+    mjml_snapshot: "",
     created_by: "admin-1",
     updated_by: "admin-1",
     confirmed_by: "admin-1",
@@ -206,5 +207,38 @@ describe("sendCampaignRecipients", () => {
     });
 
     expect(sentInputs[0]?.metadata.campaignKind).toBe("outreach");
+  });
+
+  it("renders campaign MJML separately for each recipient personalization snapshot", async () => {
+    const { emailProvider, sentInputs } = provider();
+
+    await sendCampaignRecipients({
+      provider: emailProvider,
+      campaign: campaign({
+        subject: "Hello {{contact.name}}",
+        html_snapshot: "<p>Hello Alex</p>",
+        text_snapshot: "Hello Alex",
+        mjml_snapshot:
+          "<mjml><mj-body><mj-section><mj-column><mj-text>Hello {{contact.name}} at {{contact.email}}</mj-text></mj-column></mj-section></mj-body></mjml>",
+      }),
+      recipients: [
+        {
+          ...recipient("recipient-1"),
+          email: "maria@example.com",
+          contact_name_snapshot: "Maria",
+          personalization_snapshot: {
+            contact: {
+              id: "contact-1",
+              name: "Maria",
+              email: "maria@example.com",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(sentInputs[0]?.subject).toBe("Hello Maria");
+    expect(sentInputs[0]?.html).toContain("Hello Maria at maria@example.com");
+    expect(sentInputs[0]?.text).toContain("Hello Maria at maria@example.com");
   });
 });

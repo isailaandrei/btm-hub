@@ -54,6 +54,21 @@ function resolveMessageStream(input: ProviderSendEmailInput): string {
   );
 }
 
+function toPostmarkMessage(input: ProviderSendEmailInput) {
+  return {
+    From: input.from,
+    To: input.to,
+    ReplyTo: input.replyTo,
+    Subject: input.subject,
+    HtmlBody: input.html,
+    TextBody: input.text,
+    MessageStream: resolveMessageStream(input),
+    Metadata: input.metadata,
+    TrackOpens: true,
+    TrackLinks: Models.LinkTrackingOptions.HtmlAndText,
+  };
+}
+
 function toPostmarkSendResult(response: unknown): ProviderSendEmailResult {
   const record = asRecord(response);
   return {
@@ -234,34 +249,23 @@ async function verifyPostmarkWebhook(headers: Headers): Promise<boolean> {
     return basicAuthMatches(headers, username ?? "", password ?? "");
   }
 
-  return true;
+  return false;
 }
 
 export function createPostmarkEmailProvider(): EmailProvider {
   const provider: EmailProvider = {
     name: POSTMARK_PROVIDER,
     async sendEmail(input: ProviderSendEmailInput): Promise<ProviderSendEmailResult> {
-      const response = await getPostmarkClient().sendEmail({
-        From: input.from,
-        To: input.to,
-        ReplyTo: input.replyTo,
-        Subject: input.subject,
-        HtmlBody: input.html,
-        TextBody: input.text,
-        MessageStream: resolveMessageStream(input),
-        Metadata: input.metadata,
-        TrackOpens: true,
-        TrackLinks: Models.LinkTrackingOptions.HtmlAndText,
-      });
+      const response = await getPostmarkClient().sendEmail(toPostmarkMessage(input));
 
       return toPostmarkSendResult(response);
     },
     async sendBatch(inputs: ProviderSendEmailInput[]) {
-      const results: ProviderSendEmailResult[] = [];
-      for (const input of inputs) {
-        results.push(await provider.sendEmail(input));
-      }
-      return results;
+      if (inputs.length === 0) return [];
+      const responses = await getPostmarkClient().sendEmailBatch(
+        inputs.map((input) => toPostmarkMessage(input)),
+      );
+      return responses.map((response) => toPostmarkSendResult(response));
     },
     async parseWebhook(payload: unknown): Promise<ProviderWebhookResult> {
       return normalizePostmarkWebhook(payload);

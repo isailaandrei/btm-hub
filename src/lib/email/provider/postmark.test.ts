@@ -1,6 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getEmailProvider } from "./index";
 import { createPostmarkEmailProvider, normalizePostmarkWebhook } from "./postmark";
+
+const { mockSendEmailBatch } = vi.hoisted(() => ({
+  mockSendEmailBatch: vi.fn(),
+}));
+
+vi.mock("postmark", () => ({
+  Models: {
+    LinkTrackingOptions: {
+      HtmlAndText: "HtmlAndText",
+    },
+  },
+  ServerClient: vi.fn().mockImplementation(function ServerClient() {
+    return {
+      sendEmailBatch: mockSendEmailBatch,
+    };
+  }),
+}));
 
 function restoreEnv(name: string, value: string | undefined) {
   if (value == null) delete process.env[name];
@@ -8,6 +25,10 @@ function restoreEnv(name: string, value: string | undefined) {
 }
 
 describe("postmark email provider", () => {
+  beforeEach(() => {
+    mockSendEmailBatch.mockReset();
+  });
+
   it("normalizes delivery webhooks", async () => {
     await expect(
       normalizePostmarkWebhook({
@@ -202,6 +223,81 @@ describe("postmark email provider", () => {
     ).resolves.toBe(false);
 
     restoreEnv("POSTMARK_WEBHOOK_TOKEN", previousToken);
+  });
+
+  it("rejects webhooks when no verification credentials are configured", async () => {
+    const previousToken = process.env.POSTMARK_WEBHOOK_TOKEN;
+    const previousUser = process.env.POSTMARK_WEBHOOK_BASIC_AUTH_USER;
+    const previousPassword = process.env.POSTMARK_WEBHOOK_BASIC_AUTH_PASSWORD;
+    delete process.env.POSTMARK_WEBHOOK_TOKEN;
+    delete process.env.POSTMARK_WEBHOOK_BASIC_AUTH_USER;
+    delete process.env.POSTMARK_WEBHOOK_BASIC_AUTH_PASSWORD;
+
+    const provider = createPostmarkEmailProvider();
+    await expect(
+      provider.verifyWebhookSignature("", new Headers()),
+    ).resolves.toBe(false);
+
+    restoreEnv("POSTMARK_WEBHOOK_TOKEN", previousToken);
+    restoreEnv("POSTMARK_WEBHOOK_BASIC_AUTH_USER", previousUser);
+    restoreEnv("POSTMARK_WEBHOOK_BASIC_AUTH_PASSWORD", previousPassword);
+  });
+
+  it("sends Postmark batches with the SDK batch API", async () => {
+    const previousToken = process.env.POSTMARK_SERVER_TOKEN;
+    process.env.POSTMARK_SERVER_TOKEN = "server-token";
+    mockSendEmailBatch.mockResolvedValue([
+      {
+        MessageID: "message-1",
+        SubmittedAt: "2026-04-28T12:00:00.000Z",
+      },
+      {
+        MessageID: "message-2",
+        SubmittedAt: "2026-04-28T12:00:01.000Z",
+      },
+    ]);
+
+    const provider = createPostmarkEmailProvider();
+    const result = await provider.sendBatch([
+      {
+        recipientId: "recipient-1",
+        to: "one@example.com",
+        from: "BTM <hello@mail.behind-the-mask.com>",
+        replyTo: "r-recipient-1@replies.behind-the-mask.com",
+        subject: "Hello",
+        html: "<p>Hello</p>",
+        text: "Hello",
+        metadata: { campaignKind: "broadcast" },
+      },
+      {
+        recipientId: "recipient-2",
+        to: "two@example.com",
+        from: "BTM <hello@mail.behind-the-mask.com>",
+        replyTo: "r-recipient-2@replies.behind-the-mask.com",
+        subject: "Hi",
+        html: "<p>Hi</p>",
+        text: "Hi",
+        metadata: { campaignKind: "outreach" },
+      },
+    ]);
+
+    expect(mockSendEmailBatch).toHaveBeenCalledTimes(1);
+    expect(mockSendEmailBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        To: "one@example.com",
+        MessageStream: "broadcast",
+      }),
+      expect.objectContaining({
+        To: "two@example.com",
+        MessageStream: "outbound",
+      }),
+    ]);
+    expect(result.map((item) => item.providerMessageId)).toEqual([
+      "message-1",
+      "message-2",
+    ]);
+
+    restoreEnv("POSTMARK_SERVER_TOKEN", previousToken);
   });
 
   it("is selected by the provider factory", () => {

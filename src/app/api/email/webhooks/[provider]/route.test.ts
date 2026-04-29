@@ -34,6 +34,8 @@ describe("email webhook route", () => {
   beforeEach(() => {
     mockApplyProviderEvent.mockClear();
     mockStoreInboundReplyAndForward.mockClear();
+    mockParseWebhook.mockClear();
+    mockVerifyWebhookSignature.mockClear();
   });
 
   it("accepts verified provider events", async () => {
@@ -89,5 +91,19 @@ describe("email webhook route", () => {
       expect.objectContaining({ providerEventId: "reply-1" }),
       expect.objectContaining({ name: "fake" }),
     );
+  });
+
+  it("returns 400 for malformed JSON payloads", async () => {
+    const request = new Request("http://localhost/api/email/webhooks/fake", {
+      method: "POST",
+      body: "{not-json",
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ provider: "fake" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(mockParseWebhook).not.toHaveBeenCalledWith(expect.anything());
   });
 });
