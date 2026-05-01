@@ -1,4 +1,4 @@
-import type { ContactEventType } from "@/types/database";
+import type { ContactEvent, ContactEventType } from "@/types/database";
 import {
   Clock,
   HelpCircle,
@@ -26,3 +26,17 @@ export const EVENT_TYPE_DISPLAY: Record<ContactEventType, EventTypeDisplay> = {
   tag_assigned: { icon: Tag, colorClass: "bg-sky-600" },
   custom: { icon: MoreHorizontal, colorClass: "bg-gray-500" },
 };
+
+type EventDisplayInput = Pick<ContactEvent, "type" | "metadata">;
+
+export function isTagAssignmentEvent(event: EventDisplayInput): boolean {
+  if (event.type === "tag_assigned") return true;
+
+  const source = event.metadata?.source;
+  return source === "contact_tags" || source === "contact_tags_backfill";
+}
+
+export function eventTypeDisplayFor(event: EventDisplayInput): EventTypeDisplay {
+  if (isTagAssignmentEvent(event)) return EVENT_TYPE_DISPLAY.tag_assigned;
+  return EVENT_TYPE_DISPLAY[event.type];
+}

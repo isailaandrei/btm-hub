@@ -5,7 +5,7 @@ import { Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ContactEvent } from "@/types/database";
 import { formatRelative } from "@/lib/format-relative";
 import { eventTypeLabel, isResolvable } from "./event-types";
-import { EVENT_TYPE_DISPLAY } from "./event-type-display";
+import { eventTypeDisplayFor, isTagAssignmentEvent } from "./event-type-display";
 import {
   updateEvent,
   deleteEvent,
@@ -43,12 +43,12 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
   const [error, setError] = useState<string | null>(null);
 
   const label = eventTypeLabel(event.type, event.custom_label);
-  const display = EVENT_TYPE_DISPLAY[event.type];
+  const display = eventTypeDisplayFor(event);
   const Icon = display.icon;
   const resolvable = isResolvable(event.type);
   const isOpen = resolvable && event.resolved_at === null;
   const isResolved = resolvable && event.resolved_at !== null;
-  const isDerivedTagAssignment = event.type === "tag_assigned";
+  const isDerivedTagAssignment = isTagAssignmentEvent(event);
 
   function handleSave() {
     setError(null);
