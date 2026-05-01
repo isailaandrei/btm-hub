@@ -39,6 +39,12 @@ export const EVENT_TYPE_META: Record<ContactEventType, EventTypeMeta> = {
     bodyRequired: false,
     resolvable: true,
   },
+  tag_assigned: {
+    value: "tag_assigned",
+    label: "Tag assigned",
+    bodyRequired: false,
+    resolvable: false,
+  },
   custom: { value: "custom", label: "Custom", bodyRequired: false, resolvable: false },
 };
 

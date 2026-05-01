@@ -96,6 +96,7 @@ export type ContactEventType =
   | "message"
   | "info_requested"
   | "awaiting_btm_response"
+  | "tag_assigned"
   | "custom";
 
 export interface ContactEvent {

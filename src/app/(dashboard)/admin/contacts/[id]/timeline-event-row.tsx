@@ -48,6 +48,7 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
   const resolvable = isResolvable(event.type);
   const isOpen = resolvable && event.resolved_at === null;
   const isResolved = resolvable && event.resolved_at !== null;
+  const isDerivedTagAssignment = event.type === "tag_assigned";
 
   function handleSave() {
     setError(null);
@@ -209,7 +210,7 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
         {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
       </div>
 
-      {!isEditing && (
+      {!isEditing && !isDerivedTagAssignment && (
         <div className="flex flex-none items-start gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           {isConfirmingDelete ? (
             <div className="flex items-center gap-1">

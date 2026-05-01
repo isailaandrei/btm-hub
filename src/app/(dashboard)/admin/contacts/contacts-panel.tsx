@@ -36,6 +36,7 @@ import { useContactsPanelState } from "./contacts-panel-state";
 import { useContactsPanelViewModel } from "./contacts-panel-view-model";
 import { useDebouncedValue } from "./use-debounced-value";
 import { LastActivityCell } from "./last-activity-cell";
+import { parseSocialLinkText } from "./social-links";
 import {
   AcademyImportSyncButton,
   AcademyImportSyncPanel,
@@ -69,6 +70,26 @@ function formatDate(iso: string): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function renderSocialLinkText(value: string): ReactNode {
+  const parts = parseSocialLinkText(value);
+  if (parts.length === 0) return "—";
+
+  return parts.map((part, index) => {
+    if (part.type === "text") return <span key={index}>{part.text}</span>;
+    return (
+      <a
+        key={index}
+        href={part.href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-foreground underline-offset-2 hover:underline"
+      >
+        {part.text}
+      </a>
+    );
+  });
+}
+
 function renderFieldValue(
   contactApps: Application[],
   field: FieldRegistryEntry,
@@ -91,12 +112,17 @@ function renderFieldValue(
   }
 
   if (entries.length === 0) return "—";
-  if (entries.length === 1) return entries[0].value;
+  if (entries.length === 1) {
+    return field.key === "online_links"
+      ? renderSocialLinkText(entries[0].value)
+      : entries[0].value;
+  }
   return (
     <div className="flex flex-col gap-0.5">
       {entries.map((e, i) => (
         <div key={i}>
-          <span className="text-muted-foreground/60">{e.program}:</span> {e.value}
+          <span className="text-muted-foreground/60">{e.program}:</span>{" "}
+          {field.key === "online_links" ? renderSocialLinkText(e.value) : e.value}
         </div>
       ))}
     </div>
@@ -518,7 +544,12 @@ export function ContactsPanel() {
                             : "—"}
                       </TableCell>
                       <TableCell className={WRAPPING_CELL_CLASS}>
-                        {contact.email}
+                        <a
+                          href={`mailto:${contact.email}`}
+                          className="text-foreground underline-offset-2 hover:underline"
+                        >
+                          {contact.email}
+                        </a>
                       </TableCell>
                       <TableCell className={WRAPPING_CELL_CLASS}>
                         {displayPhone || "—"}

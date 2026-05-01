@@ -255,13 +255,7 @@ export const getContactTags = cache(async function getContactTags(contactId: str
 });
 
 export async function assignTag(contactId: string, tagId: string) {
-  await requireAdmin();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("contact_tags")
-    .upsert({ contact_id: contactId, tag_id: tagId }, { onConflict: "contact_id,tag_id" });
-
-  if (error) throw new Error(`Failed to assign tag: ${error.message}`);
+  await assignTagsWithTimeline([contactId], tagId, "assign tag");
 }
 
 export async function unassignTag(contactId: string, tagId: string) {
@@ -280,14 +274,24 @@ export async function bulkAssignTags(
   contactIds: string[],
   tagId: string,
 ): Promise<BulkAssignTagsResult> {
-  await requireAdmin();
+  return assignTagsWithTimeline(contactIds, tagId, "bulk assign tags");
+}
+
+async function assignTagsWithTimeline(
+  contactIds: string[],
+  tagId: string,
+  errorContext: string,
+): Promise<BulkAssignTagsResult> {
+  const profile = await requireAdmin();
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("bulk_assign_contact_tags", {
     p_contact_ids: contactIds,
     p_tag_id: tagId,
+    p_author_id: profile.id,
+    p_author_name: profile.display_name ?? profile.email,
   });
 
-  if (error) throw new Error(`Failed to bulk assign tags: ${error.message}`);
+  if (error) throw new Error(`Failed to ${errorContext}: ${error.message}`);
   const result = (data ?? {}) as Record<string, unknown>;
   return {
     requested: Number(result.requested ?? contactIds.length),
