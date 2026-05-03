@@ -72,4 +72,25 @@ describe("createBrevoEmailProvider", () => {
     expect(events[0]?.providerEventId).not.toBe("12345");
     expect(events[0]?.providerEventId).not.toBe(events[1]?.providerEventId);
   });
+
+  it("ignores open tracking events because they are not reliable CRM metrics", () => {
+    const provider = createBrevoEmailProvider("brevo-key");
+
+    expect(
+      provider.parseWebhook([
+        {
+          event: "opened",
+          email: "maya@example.com",
+          "message-id": "message-1@relay.example.com",
+          ts_event: 1604933654,
+        },
+        {
+          event: "unique_proxy_open",
+          email: "maya@example.com",
+          "message-id": "message-1@relay.example.com",
+          ts_event: 1604933655,
+        },
+      ]),
+    ).toEqual([]);
+  });
 });

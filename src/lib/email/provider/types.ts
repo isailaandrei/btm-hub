@@ -22,7 +22,6 @@ export type NormalizedProviderEventType =
   | "sent"
   | "delivered"
   | "delivery_delayed"
-  | "opened"
   | "clicked"
   | "bounced"
   | "complained"

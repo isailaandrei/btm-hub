@@ -13,7 +13,6 @@ CREATE TYPE email_recipient_status AS ENUM (
   'sending',
   'sent',
   'delivered',
-  'opened',
   'clicked',
   'bounced',
   'complained',
@@ -29,7 +28,6 @@ CREATE TYPE email_event_type AS ENUM (
   'sent',
   'delivered',
   'delivery_delayed',
-  'opened',
   'clicked',
   'bounced',
   'complained',
@@ -138,11 +136,11 @@ CREATE TABLE email_sends (
   skipped_count integer NOT NULL DEFAULT 0,
   sent_count integer NOT NULL DEFAULT 0,
   delivered_count integer NOT NULL DEFAULT 0,
-  opened_count integer NOT NULL DEFAULT 0,
   clicked_count integer NOT NULL DEFAULT 0,
   bounced_count integer NOT NULL DEFAULT 0,
   complained_count integer NOT NULL DEFAULT 0,
   failed_count integer NOT NULL DEFAULT 0,
+  unsubscribed_count integer NOT NULL DEFAULT 0,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -170,7 +168,6 @@ CREATE TABLE email_send_recipients (
   sending_started_at timestamptz,
   sent_at timestamptz,
   delivered_at timestamptz,
-  opened_at timestamptz,
   clicked_at timestamptz,
   bounced_at timestamptz,
   complained_at timestamptz,
@@ -606,10 +603,6 @@ BEGIN
       WHEN p_timestamp_field = 'delivered_at' THEN coalesce(r.delivered_at, p_occurred_at)
       ELSE r.delivered_at
     END,
-    opened_at = CASE
-      WHEN p_timestamp_field = 'opened_at' THEN coalesce(r.opened_at, p_occurred_at)
-      ELSE r.opened_at
-    END,
     clicked_at = CASE
       WHEN p_timestamp_field = 'clicked_at' THEN coalesce(r.clicked_at, p_occurred_at)
       ELSE r.clicked_at
@@ -639,8 +632,7 @@ BEGIN
       WHEN p_status = 'unsubscribed' THEN 'unsubscribed'::email_recipient_status
       WHEN r.status = 'unsubscribed' THEN r.status
       WHEN p_status = 'clicked' THEN 'clicked'::email_recipient_status
-      WHEN p_status = 'opened' AND r.status <> 'clicked' THEN 'opened'::email_recipient_status
-      WHEN p_status = 'delivered' AND r.status NOT IN ('opened', 'clicked') THEN 'delivered'::email_recipient_status
+      WHEN p_status = 'delivered' AND r.status <> 'clicked' THEN 'delivered'::email_recipient_status
       WHEN p_status = 'sent' AND r.status IN ('pending', 'queued', 'sending') THEN 'sent'::email_recipient_status
       ELSE r.status
     END,
@@ -758,11 +750,11 @@ BEGIN
     count(*) FILTER (WHERE status IN ('skipped_unsubscribed', 'skipped_suppressed')) AS skipped_count,
     count(*) FILTER (WHERE sent_at IS NOT NULL) AS sent_count,
     count(*) FILTER (WHERE delivered_at IS NOT NULL) AS delivered_count,
-    count(*) FILTER (WHERE opened_at IS NOT NULL) AS opened_count,
     count(*) FILTER (WHERE clicked_at IS NOT NULL) AS clicked_count,
     count(*) FILTER (WHERE bounced_at IS NOT NULL OR status = 'bounced') AS bounced_count,
     count(*) FILTER (WHERE complained_at IS NOT NULL OR status = 'complained') AS complained_count,
     count(*) FILTER (WHERE status = 'failed') AS failed_count,
+    count(*) FILTER (WHERE unsubscribed_at IS NOT NULL OR status = 'unsubscribed') AS unsubscribed_count,
     count(*) FILTER (WHERE status IN ('pending', 'queued', 'sending')) = 0 AS terminal
   INTO v_counts
   FROM email_send_recipients
@@ -776,11 +768,11 @@ BEGIN
     skipped_count = coalesce(v_counts.skipped_count, 0),
     sent_count = coalesce(v_counts.sent_count, 0),
     delivered_count = coalesce(v_counts.delivered_count, 0),
-    opened_count = coalesce(v_counts.opened_count, 0),
     clicked_count = coalesce(v_counts.clicked_count, 0),
     bounced_count = coalesce(v_counts.bounced_count, 0),
     complained_count = coalesce(v_counts.complained_count, 0),
     failed_count = coalesce(v_counts.failed_count, 0),
+    unsubscribed_count = coalesce(v_counts.unsubscribed_count, 0),
     status = CASE
       WHEN NOT v_terminal THEN status
       WHEN coalesce(v_counts.failed_count, 0) > 0 AND coalesce(v_counts.sent_count, 0) = 0 THEN 'failed'::email_send_status

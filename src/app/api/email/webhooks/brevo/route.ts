@@ -51,7 +51,6 @@ async function applyEvent(event: NormalizedProviderEvent) {
 
   const mapping = {
     delivered: ["delivered", "delivered_at"],
-    opened: ["opened", "opened_at"],
     clicked: ["clicked", "clicked_at"],
     bounced: ["bounced", "bounced_at"],
     complained: ["complained", "complained_at"],

@@ -41,11 +41,6 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
       return "delivered";
     case "deferred":
       return "delivery_delayed";
-    case "opened":
-    case "unique_opened":
-    case "proxy_open":
-    case "unique_proxy_open":
-      return "opened";
     case "click":
       return "clicked";
     case "hard_bounce":

@@ -18,6 +18,10 @@ import {
   type EmailSendDiagnostics,
 } from "./actions";
 import { EmailComposer } from "./compose/email-composer";
+import {
+  buildEmailSendMetrics,
+  type EmailSendMetricTone,
+} from "./sent-metrics";
 import { TemplateEditor } from "./templates/template-editor";
 
 type EmailTab = "compose" | "templates" | "sent";
@@ -33,6 +37,46 @@ function isRemovableSend(send: EmailSend) {
     send.status === "queued" ||
     send.status === "failed"
   );
+}
+
+function metricToneClass(tone: EmailSendMetricTone) {
+  switch (tone) {
+    case "positive":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "warning":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "danger":
+      return "border-destructive/30 bg-destructive/10 text-destructive";
+    default:
+      return "border-border bg-background text-muted-foreground";
+  }
+}
+
+function formatEventTime(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function buildRecipientActivity(
+  recipient: EmailSendDiagnostics["recipients"][number],
+) {
+  return [
+    ["Sent", recipient.sentAt],
+    ["Delivered", recipient.deliveredAt],
+    ["Clicked", recipient.clickedAt],
+    ["Bounced", recipient.bouncedAt],
+    ["Complained", recipient.complainedAt],
+    ["Unsubscribed", recipient.unsubscribedAt],
+  ]
+    .map(([label, value]) => ({ label, value: formatEventTime(value) }))
+    .filter((item): item is { label: string; value: string } =>
+      Boolean(item.value),
+    );
 }
 
 export function EmailStudio({
@@ -210,15 +254,31 @@ export function EmailStudio({
                 const diagnostics = diagnosticsBySendId[send.id];
                 const isLoadingThis =
                   isLoadingDiagnostics && loadingDiagnosticsId === send.id;
+                const metrics = buildEmailSendMetrics(send);
 
                 return (
                   <Fragment key={send.id}>
-                    <div className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[minmax(180px,1fr)_120px_140px_120px_auto]">
+                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(260px,1fr)_110px_140px_auto]">
                       <div>
                         <p className="font-medium text-foreground">{send.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {send.subject_template}
                         </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {metrics.map((metric) => (
+                            <span
+                              key={metric.key}
+                              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${metricToneClass(
+                                metric.tone,
+                              )}`}
+                            >
+                              <span>{metric.label}</span>
+                              <span className="text-foreground">
+                                {metric.value}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
                       </div>
                       <span className="capitalize text-muted-foreground">
                         {send.kind}
@@ -234,9 +294,6 @@ export function EmailStudio({
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         )}
                         {send.status.replace("_", " ")}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {send.sent_count}/{send.recipient_count} sent
                       </span>
                       <div className="flex flex-wrap justify-start gap-2 md:justify-end">
                         <button
@@ -285,62 +342,77 @@ export function EmailStudio({
                           </div>
                         ) : diagnostics ? (
                           <div className="space-y-3">
-                            {diagnostics.recipients.map((recipient) => (
-                              <div
-                                key={recipient.id}
-                                className="rounded-md border border-border bg-background p-3 text-sm"
-                              >
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <div>
-                                    <p className="font-medium text-foreground">
-                                      {recipient.name || recipient.email}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      CRM recipient: {recipient.email}
-                                    </p>
+                            {diagnostics.recipients.map((recipient) => {
+                              const activity = buildRecipientActivity(recipient);
+                              return (
+                                <div
+                                  key={recipient.id}
+                                  className="rounded-md border border-border bg-background p-3 text-sm"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                      <p className="font-medium text-foreground">
+                                        {recipient.name || recipient.email}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        CRM recipient: {recipient.email}
+                                      </p>
+                                    </div>
+                                    <span
+                                      className={`rounded border px-2 py-1 text-xs capitalize ${
+                                        recipient.status === "failed"
+                                          ? "border-destructive/40 text-destructive"
+                                          : "border-border text-muted-foreground"
+                                      }`}
+                                    >
+                                      {recipient.status.replace("_", " ")}
+                                    </span>
                                   </div>
-                                  <span
-                                    className={`rounded border px-2 py-1 text-xs capitalize ${
-                                      recipient.status === "failed"
-                                        ? "border-destructive/40 text-destructive"
-                                        : "border-border text-muted-foreground"
-                                    }`}
-                                  >
-                                    {recipient.status.replace("_", " ")}
-                                  </span>
+                                  {activity.length > 0 && (
+                                    <div className="mt-3 flex flex-wrap gap-1.5">
+                                      {activity.map((item) => (
+                                        <span
+                                          key={item.label}
+                                          className="rounded border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground"
+                                        >
+                                          {item.label}: {item.value}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {(recipient.lastError ||
+                                    recipient.skipReason ||
+                                    recipient.providerMessageId) && (
+                                    <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                                      {recipient.lastError && (
+                                        <p className="text-destructive">
+                                          {recipient.lastError}
+                                        </p>
+                                      )}
+                                      {recipient.providerRecipientEmail && (
+                                        <p>
+                                          Provider recipient:{" "}
+                                          {recipient.providerRecipientEmail}
+                                          {recipient.testRecipientOverride
+                                            ? " (test override)"
+                                            : ""}
+                                        </p>
+                                      )}
+                                      {recipient.skipReason && (
+                                        <p>Skip reason: {recipient.skipReason}</p>
+                                      )}
+                                      {recipient.providerMessageId && (
+                                        <p>
+                                          Provider message ID:{" "}
+                                          {recipient.providerMessageId}
+                                        </p>
+                                      )}
+                                      <p>Attempts: {recipient.attempts}</p>
+                                    </div>
+                                  )}
                                 </div>
-                                {(recipient.lastError ||
-                                  recipient.skipReason ||
-                                  recipient.providerMessageId) && (
-                                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                                    {recipient.lastError && (
-                                      <p className="text-destructive">
-                                        {recipient.lastError}
-                                      </p>
-                                    )}
-                                    {recipient.providerRecipientEmail && (
-                                      <p>
-                                        Provider recipient:{" "}
-                                        {recipient.providerRecipientEmail}
-                                        {recipient.testRecipientOverride
-                                          ? " (test override)"
-                                          : ""}
-                                      </p>
-                                    )}
-                                    {recipient.skipReason && (
-                                      <p>Skip reason: {recipient.skipReason}</p>
-                                    )}
-                                    {recipient.providerMessageId && (
-                                      <p>
-                                        Provider message ID:{" "}
-                                        {recipient.providerMessageId}
-                                      </p>
-                                    )}
-                                    <p>Attempts: {recipient.attempts}</p>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <p className="text-sm text-muted-foreground">

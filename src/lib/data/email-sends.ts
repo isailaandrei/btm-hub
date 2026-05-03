@@ -333,7 +333,6 @@ export async function updateRecipientForProviderEvent(input: {
   status: EmailSendRecipient["status"];
   timestampField:
     | "delivered_at"
-    | "opened_at"
     | "clicked_at"
     | "bounced_at"
     | "complained_at"

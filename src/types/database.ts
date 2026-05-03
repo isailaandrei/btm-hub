@@ -138,7 +138,6 @@ export type EmailRecipientStatus =
   | "sending"
   | "sent"
   | "delivered"
-  | "opened"
   | "clicked"
   | "bounced"
   | "complained"
@@ -154,7 +153,6 @@ export type EmailEventType =
   | "sent"
   | "delivered"
   | "delivery_delayed"
-  | "opened"
   | "clicked"
   | "bounced"
   | "complained"
@@ -254,11 +252,11 @@ export interface EmailSend {
   skipped_count: number;
   sent_count: number;
   delivered_count: number;
-  opened_count: number;
   clicked_count: number;
   bounced_count: number;
   complained_count: number;
   failed_count: number;
+  unsubscribed_count: number;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -286,7 +284,6 @@ export interface EmailSendRecipient {
   sending_started_at: string | null;
   sent_at: string | null;
   delivered_at: string | null;
-  opened_at: string | null;
   clicked_at: string | null;
   bounced_at: string | null;
   complained_at: string | null;

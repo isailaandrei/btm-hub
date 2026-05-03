@@ -271,6 +271,12 @@ export type EmailSendDiagnostics = {
     testRecipientOverride: boolean;
     attempts: number;
     lastError: string | null;
+    sentAt: string | null;
+    deliveredAt: string | null;
+    clickedAt: string | null;
+    bouncedAt: string | null;
+    complainedAt: string | null;
+    unsubscribedAt: string | null;
     updatedAt: string;
   }>;
 };
@@ -308,6 +314,12 @@ export async function getEmailSendDiagnosticsAction(
         ...providerMetadata,
         attempts: recipient.send_attempts,
         lastError: recipient.last_error,
+        sentAt: recipient.sent_at,
+        deliveredAt: recipient.delivered_at,
+        clickedAt: recipient.clicked_at,
+        bouncedAt: recipient.bounced_at,
+        complainedAt: recipient.complained_at,
+        unsubscribedAt: recipient.unsubscribed_at,
         updatedAt: recipient.updated_at,
       };
     }),
