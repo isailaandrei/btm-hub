@@ -4,26 +4,39 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiThreadSummary } from "@/types/admin-ai";
+import type { EmailSend, EmailTemplate } from "@/types/database";
 import { ContactsPanel } from "./contacts/contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
 import { AdminAiPanel } from "./admin-ai/panel";
+import { EmailStudio } from "./email/email-studio";
 
-type Tab = "contacts" | "tags" | "ai";
+type Tab = "contacts" | "tags" | "email" | "ai";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
+  { key: "email", label: "Email" },
   { key: "ai", label: "AI Analyst" },
 ];
 
 export function AdminDashboard({
   initialGlobalThreads,
   adminAiAvailability,
+  emailTemplates,
+  emailSends,
 }: {
   initialGlobalThreads: AdminAiThreadSummary[];
   adminAiAvailability: AdminAiProviderAvailability;
+  emailTemplates: EmailTemplate[];
+  emailSends: EmailSend[];
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
+  const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
+
+  function handleSendEmail(contactIds: string[]) {
+    setEmailContactIds(contactIds);
+    setActiveTab("email");
+  }
 
   return (
     <div>
@@ -44,9 +57,19 @@ export function AdminDashboard({
         ))}
       </nav>
 
-      {activeTab === "contacts" && <ContactsPanel />}
+      {activeTab === "contacts" && (
+        <ContactsPanel onSendEmail={handleSendEmail} />
+      )}
 
       {activeTab === "tags" && <TagsPanel />}
+
+      {activeTab === "email" && (
+        <EmailStudio
+          templates={emailTemplates}
+          sends={emailSends}
+          selectedContactIds={emailContactIds}
+        />
+      )}
 
       {activeTab === "ai" && (
         <Card className="mx-auto max-w-7xl">

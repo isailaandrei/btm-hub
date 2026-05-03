@@ -1,0 +1,248 @@
+import { createHash, randomBytes } from "node:crypto";
+import {
+  appendEmailEvent,
+  claimQueuedEmailRecipients,
+  getEmailSendForWorker,
+  getEmailSendQueueState,
+  markEmailRecipientFailed,
+  markEmailRecipientPrepared,
+  markEmailRecipientReconciliationNeeded,
+  markEmailRecipientSent,
+  updateEmailSendCounts,
+} from "@/lib/data/email-sends";
+import type { EmailSend, EmailSendRecipient } from "@/types/database";
+import type { EmailProvider, ProviderSendEmailResult } from "./provider/types";
+import {
+  assertMailyDocument,
+  renderMailyEmail,
+} from "./rendering/maily";
+import { type EmailRenderVariables } from "./rendering/variables";
+import { getPublicSiteUrl } from "./settings";
+
+const DEFAULT_CHUNK_SIZE = 25;
+const DEFAULT_MAX_CHUNKS = 20;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function buildRenderVariables(
+  recipient: EmailSendRecipient,
+  unsubscribeUrl: string | null,
+): EmailRenderVariables {
+  const personalization = asRecord(recipient.personalization_snapshot);
+  const contact = asRecord(personalization.contact);
+  return {
+    ...personalization,
+    contact: {
+      id:
+        typeof contact.id === "string"
+          ? contact.id
+          : (recipient.contact_id ?? undefined),
+      name:
+        typeof contact.name === "string"
+          ? contact.name
+          : recipient.contact_name_snapshot,
+      email: typeof contact.email === "string" ? contact.email : recipient.email,
+    },
+    unsubscribe: {
+      url: unsubscribeUrl ?? "",
+    },
+  };
+}
+
+function createUnsubscribeToken(): { token: string; hash: string } {
+  const token = randomBytes(32).toString("base64url");
+  const hash = createHash("sha256").update(token).digest("hex");
+  return { token, hash };
+}
+
+function appendBroadcastUnsubscribe(input: {
+  html: string;
+  text: string;
+  unsubscribeUrl: string | null;
+}) {
+  if (!input.unsubscribeUrl) return input;
+  return {
+    html: `${input.html}
+<p style="font-size:12px;line-height:18px;color:#64748b;margin-top:24px">You are receiving this newsletter from Behind The Mask. <a href="${input.unsubscribeUrl}">Unsubscribe from newsletters</a>.</p>`,
+    text: `${input.text}
+
+Unsubscribe from newsletters: ${input.unsubscribeUrl}`,
+  };
+}
+
+function getProviderRecipientEmail(recipient: EmailSendRecipient): string {
+  return process.env.EMAIL_TEST_RECIPIENT_OVERRIDE?.trim() || recipient.email;
+}
+
+function hasTestRecipientOverride(): boolean {
+  return Boolean(process.env.EMAIL_TEST_RECIPIENT_OVERRIDE?.trim());
+}
+
+async function renderRecipient(input: {
+  send: EmailSend;
+  recipient: EmailSendRecipient;
+  unsubscribeUrl: string | null;
+}) {
+  const document = assertMailyDocument(input.send.builder_json_snapshot);
+  const rendered = await renderMailyEmail({
+    subject: input.send.subject_template,
+    previewText: input.send.preview_text,
+    document,
+    variables: buildRenderVariables(input.recipient, input.unsubscribeUrl),
+  });
+  const withComplianceFooter =
+    input.send.kind === "broadcast"
+      ? appendBroadcastUnsubscribe({
+          html: rendered.html,
+          text: rendered.text,
+          unsubscribeUrl: input.unsubscribeUrl,
+        })
+      : rendered;
+  return {
+    subject: rendered.subject,
+    html: withComplianceFooter.html,
+    text: withComplianceFooter.text,
+  };
+}
+
+async function processRecipient(input: {
+  send: EmailSend;
+  recipient: EmailSendRecipient;
+  provider: EmailProvider;
+}) {
+  let acceptedResult: ProviderSendEmailResult | null = null;
+  try {
+    const unsubscribe =
+      input.send.kind === "broadcast" ? createUnsubscribeToken() : null;
+    const unsubscribeUrl = unsubscribe
+      ? `${getPublicSiteUrl()}/email/unsubscribe/${unsubscribe.token}`
+      : null;
+    const rendered = await renderRecipient({
+      send: input.send,
+        recipient: input.recipient,
+        unsubscribeUrl,
+      });
+    const providerRecipientEmail = getProviderRecipientEmail(input.recipient);
+    const testRecipientOverride = hasTestRecipientOverride();
+    await markEmailRecipientPrepared(input.recipient.id, {
+      provider: input.provider.name,
+      providerRecipientEmail,
+      testRecipientOverride,
+      renderedSubject: rendered.subject,
+      renderedHtml: rendered.html,
+      renderedText: rendered.text,
+      unsubscribeTokenHash: unsubscribe?.hash ?? null,
+    });
+    const result = await input.provider.sendEmail({
+      recipientId: input.recipient.id,
+      sendId: input.send.id,
+      contactId: input.recipient.contact_id,
+      to: providerRecipientEmail,
+      fromEmail: input.send.from_email,
+      fromName: input.send.from_name,
+      replyTo: input.send.reply_to_email,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      metadata: {
+        sendId: input.send.id,
+        recipientId: input.recipient.id,
+        contactId: input.recipient.contact_id ?? "",
+      },
+    });
+    acceptedResult = result;
+
+    await markEmailRecipientSent(input.recipient.id, {
+      provider: result.provider,
+      providerMessageId: result.providerMessageId,
+      providerMetadata: result.raw,
+      renderedSubject: rendered.subject,
+      renderedHtml: rendered.html,
+      renderedText: rendered.text,
+      unsubscribeTokenHash: unsubscribe?.hash ?? null,
+    });
+    await appendEmailEvent({
+      sendId: input.send.id,
+      recipientId: input.recipient.id,
+      contactId: input.recipient.contact_id,
+      type: "sent",
+      provider: result.provider,
+      providerEventId: null,
+      providerMessageId: result.providerMessageId,
+      eventFingerprint: `${result.provider}:sent:${result.providerMessageId}`,
+      occurredAt: new Date().toISOString(),
+      payload: result.raw,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const providerRecipientEmail = getProviderRecipientEmail(input.recipient);
+    if (!acceptedResult) {
+      console.error("Email send failed before provider acceptance", {
+        sendId: input.send.id,
+        recipientId: input.recipient.id,
+        provider: input.provider.name,
+        providerRecipientEmail,
+        message,
+      });
+    }
+    if (acceptedResult) {
+      try {
+        await markEmailRecipientReconciliationNeeded(input.recipient.id, {
+          provider: acceptedResult.provider,
+          providerMessageId: acceptedResult.providerMessageId,
+          providerMetadata: acceptedResult.raw,
+          message,
+        });
+      } catch {
+        // The provider already accepted the email; avoid marking it as failed.
+      }
+      return;
+    }
+    await markEmailRecipientFailed(
+      input.recipient.id,
+      `${message} (provider recipient: ${providerRecipientEmail})`,
+    );
+  }
+}
+
+export async function processEmailSendChunks(input: {
+  sendId: string;
+  provider: EmailProvider;
+  chunkSize?: number;
+  maxChunks?: number;
+}): Promise<{ processed: number; hasMore: boolean }> {
+  const send = await getEmailSendForWorker(input.sendId);
+  if (!send) throw new Error("Email send not found");
+
+  const chunkSize = input.chunkSize ?? DEFAULT_CHUNK_SIZE;
+  const maxChunks = input.maxChunks ?? DEFAULT_MAX_CHUNKS;
+  let processed = 0;
+  for (let index = 0; index < maxChunks; index += 1) {
+    const recipients = await claimQueuedEmailRecipients({
+      sendId: input.sendId,
+      limit: chunkSize,
+    });
+    if (recipients.length === 0) break;
+    processed += recipients.length;
+    await Promise.all(
+      recipients.map((recipient) =>
+        processRecipient({
+          send,
+          recipient,
+          provider: input.provider,
+        }),
+      ),
+    );
+  }
+
+  await updateEmailSendCounts(input.sendId);
+  const state = await getEmailSendQueueState(input.sendId);
+  return {
+    processed,
+    hasMore: state.pending + state.queued > 0,
+  };
+}
