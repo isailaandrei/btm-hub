@@ -59,4 +59,15 @@ describe("buildEmailSendMetrics", () => {
     );
     expect(metrics.some((metric) => metric.label === "Opened")).toBe(false);
   });
+
+  it("defaults missing newer counters to zero for older local rows", () => {
+    const legacySend = send() as Partial<EmailSend>;
+    delete legacySend.unsubscribed_count;
+
+    const metrics = buildEmailSendMetrics(legacySend as EmailSend);
+
+    expect(metrics.find((metric) => metric.label === "Unsubscribed")?.value).toBe(
+      "0",
+    );
+  });
 });

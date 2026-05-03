@@ -9,55 +9,66 @@ export interface EmailSendMetric {
   tone: EmailSendMetricTone;
 }
 
+function count(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 export function buildEmailSendMetrics(send: EmailSend): EmailSendMetric[] {
+  const clickedCount = count(send.clicked_count);
+  const bouncedCount = count(send.bounced_count);
+  const complainedCount = count(send.complained_count);
+  const failedCount = count(send.failed_count);
+  const skippedCount = count(send.skipped_count);
+  const unsubscribedCount = count(send.unsubscribed_count);
+
   return [
     {
       key: "sent",
       label: "Sent",
-      value: `${send.sent_count}/${send.recipient_count}`,
+      value: `${count(send.sent_count)}/${count(send.recipient_count)}`,
       tone: "neutral",
     },
     {
       key: "delivered",
       label: "Delivered",
-      value: String(send.delivered_count),
+      value: String(count(send.delivered_count)),
       tone: "positive",
     },
     {
       key: "clicked",
       label: "Clicked",
-      value: String(send.clicked_count),
-      tone: send.clicked_count > 0 ? "positive" : "neutral",
+      value: String(clickedCount),
+      tone: clickedCount > 0 ? "positive" : "neutral",
     },
     {
       key: "bounced",
       label: "Bounced",
-      value: String(send.bounced_count),
-      tone: send.bounced_count > 0 ? "danger" : "neutral",
+      value: String(bouncedCount),
+      tone: bouncedCount > 0 ? "danger" : "neutral",
     },
     {
       key: "complained",
       label: "Complaints",
-      value: String(send.complained_count),
-      tone: send.complained_count > 0 ? "danger" : "neutral",
+      value: String(complainedCount),
+      tone: complainedCount > 0 ? "danger" : "neutral",
     },
     {
       key: "failed",
       label: "Failed",
-      value: String(send.failed_count),
-      tone: send.failed_count > 0 ? "danger" : "neutral",
+      value: String(failedCount),
+      tone: failedCount > 0 ? "danger" : "neutral",
     },
     {
       key: "skipped",
       label: "Skipped",
-      value: String(send.skipped_count),
-      tone: send.skipped_count > 0 ? "warning" : "neutral",
+      value: String(skippedCount),
+      tone: skippedCount > 0 ? "warning" : "neutral",
     },
     {
       key: "unsubscribed",
       label: "Unsubscribed",
-      value: String(send.unsubscribed_count),
-      tone: send.unsubscribed_count > 0 ? "warning" : "neutral",
+      value: String(unsubscribedCount),
+      tone: unsubscribedCount > 0 ? "warning" : "neutral",
     },
   ];
 }
