@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   EmailProvider,
   NormalizedProviderEvent,
@@ -10,6 +11,19 @@ const BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email";
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readScalarString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function normalizeBrevoMessageId(value: unknown): string | null {
+  const messageId = readString(value);
+  if (!messageId) return null;
+  const normalized = messageId.replace(/^<+/, "").replace(/>+$/, "").trim();
+  return normalized || null;
 }
 
 function timestampToIso(value: unknown): string {
@@ -49,6 +63,28 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
   }
 }
 
+function buildBrevoProviderEventId(input: {
+  eventPayload: Record<string, unknown>;
+  providerMessageId: string | null;
+  rawEvent: string;
+}): string {
+  const identity = {
+    event: input.rawEvent,
+    messageId: input.providerMessageId,
+    email: readString(input.eventPayload.email),
+    tsEvent: readScalarString(input.eventPayload.ts_event),
+    ts: readScalarString(input.eventPayload.ts),
+    tsEpoch: readScalarString(input.eventPayload.ts_epoch),
+    link: readString(input.eventPayload.link),
+    reason: readString(input.eventPayload.reason),
+    webhookId: readScalarString(input.eventPayload.id),
+  };
+  const hash = createHash("sha256")
+    .update(JSON.stringify(identity))
+    .digest("hex");
+  return `${input.rawEvent}:${hash}`;
+}
+
 export function createBrevoEmailProvider(
   apiKey = process.env.BREVO_API_KEY?.trim(),
 ): EmailProvider {
@@ -77,6 +113,7 @@ export function createBrevoEmailProvider(
           htmlContent: input.html,
           textContent: input.text,
           headers: {
+            "Idempotency-Key": `${input.sendId}:${input.recipientId}`,
             "X-Mailin-custom": JSON.stringify(input.metadata),
           },
           tags: ["btm-admin-email", input.sendId],
@@ -98,8 +135,8 @@ export function createBrevoEmailProvider(
       return {
         provider: "brevo",
         providerMessageId:
-          readString(raw.messageId) ??
-          readString(raw["message-id"]) ??
+          normalizeBrevoMessageId(raw.messageId) ??
+          normalizeBrevoMessageId(raw["message-id"]) ??
           `brevo-${input.recipientId}`,
         raw,
       };
@@ -113,8 +150,14 @@ export function createBrevoEmailProvider(
         if (!rawEvent) return [];
         const type = mapBrevoEvent(rawEvent);
         if (!type) return [];
-        const providerEventId = readString(eventPayload.id);
-        const providerMessageId = readString(eventPayload["message-id"]);
+        const providerMessageId = normalizeBrevoMessageId(
+          eventPayload["message-id"],
+        );
+        const providerEventId = buildBrevoProviderEventId({
+          eventPayload,
+          providerMessageId,
+          rawEvent,
+        });
 
         return [
           {

@@ -59,15 +59,31 @@ function createUnsubscribeToken(): { token: string; hash: string } {
   return { token, hash };
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function insertBeforeBodyEnd(html: string, fragment: string): string {
+  const closingBodyIndex = html.toLowerCase().lastIndexOf("</body>");
+  if (closingBodyIndex === -1) return `${html}\n${fragment}`;
+  return `${html.slice(0, closingBodyIndex)}${fragment}\n${html.slice(
+    closingBodyIndex,
+  )}`;
+}
+
 function appendBroadcastUnsubscribe(input: {
   html: string;
   text: string;
   unsubscribeUrl: string | null;
 }) {
   if (!input.unsubscribeUrl) return input;
+  const footerHtml = `<p style="font-size:12px;line-height:18px;color:#64748b;margin:24px 0 0">You are receiving this newsletter from Behind The Mask. <a href="${escapeHtmlAttribute(input.unsubscribeUrl)}">Unsubscribe from newsletters</a>.</p>`;
   return {
-    html: `${input.html}
-<p style="font-size:12px;line-height:18px;color:#64748b;margin-top:24px">You are receiving this newsletter from Behind The Mask. <a href="${input.unsubscribeUrl}">Unsubscribe from newsletters</a>.</p>`,
+    html: insertBeforeBodyEnd(input.html, footerHtml),
     text: `${input.text}
 
 Unsubscribe from newsletters: ${input.unsubscribeUrl}`,

@@ -420,6 +420,28 @@ export async function suppressEmailFromProvider(input: {
   }
 }
 
+export async function recordProviderNewsletterUnsubscribe(input: {
+  contactId: string | null;
+  source: string;
+}): Promise<void> {
+  if (!input.contactId) return;
+  const now = new Date().toISOString();
+  const supabase = await createAdminClient();
+  const { error } = await supabase.from("contact_email_preferences").upsert({
+    contact_id: input.contactId,
+    newsletter_unsubscribed_at: now,
+    newsletter_unsubscribed_source: input.source,
+    updated_by: null,
+    updated_at: now,
+  });
+
+  if (error) {
+    throw new Error(
+      `Failed to update provider unsubscribe preference: ${error.message}`,
+    );
+  }
+}
+
 export const listContactEmailPreferences = cache(
   async function listContactEmailPreferences(): Promise<ContactEmailPreference[]> {
     const supabase = await createClient();

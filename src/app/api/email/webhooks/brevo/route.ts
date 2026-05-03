@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   appendEmailEvent,
   getEmailRecipientByProviderMessage,
+  recordProviderNewsletterUnsubscribe,
   suppressEmailFromProvider,
   updateEmailSendCounts,
   updateRecipientForProviderEvent,
@@ -103,6 +104,12 @@ async function applyEvent(event: NormalizedProviderEvent) {
           : `Brevo ${event.rawEvent ?? "bounce"}`,
       provider: event.provider,
       providerEventId: event.providerEventId,
+    });
+  }
+  if (recipient && event.type === "unsubscribed") {
+    await recordProviderNewsletterUnsubscribe({
+      contactId: recipient.contact_id,
+      source: `provider:${event.provider}`,
     });
   }
 

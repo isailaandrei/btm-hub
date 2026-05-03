@@ -265,4 +265,38 @@ describe("processEmailSendChunks", () => {
     );
     expect(mockMarkEmailRecipientFailed).not.toHaveBeenCalled();
   });
+
+  it("places broadcast unsubscribe footer inside the rendered HTML document", async () => {
+    const { emailProvider, sentInputs } = provider();
+    mockGetEmailSendForWorker.mockResolvedValue(
+      send({
+        kind: "broadcast",
+        builder_json_snapshot: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "News" }],
+            },
+          ],
+        },
+      }),
+    );
+    mockClaimQueuedEmailRecipients
+      .mockResolvedValueOnce([recipient()])
+      .mockResolvedValueOnce([]);
+
+    await processEmailSendChunks({
+      sendId: "send-1",
+      provider: emailProvider,
+      chunkSize: 25,
+      maxChunks: 2,
+    });
+
+    const html = sentInputs[0]?.html ?? "";
+    expect(html).toContain("Unsubscribe from newsletters");
+    expect(html.indexOf("Unsubscribe from newsletters")).toBeLessThan(
+      html.toLowerCase().lastIndexOf("</body>"),
+    );
+  });
 });
