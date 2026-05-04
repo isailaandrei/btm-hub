@@ -1,6 +1,53 @@
 import { describe, it, expect } from "vitest";
 import { schemaTypes } from "./index";
 
+function fieldsFor(name: string) {
+  const schema = schemaTypes.find((s) => s.name === name) as
+    | {
+        fields?: {
+          name: string;
+          type: string;
+          validation?: unknown;
+          of?: { type: string; to?: { type: string }[] }[];
+        }[];
+      }
+    | undefined;
+  return schema?.fields ?? [];
+}
+
+type CustomValidator = (values: unknown) => true | string;
+
+type FakeRule = {
+  required: () => FakeRule;
+  min: () => FakeRule;
+  max: () => FakeRule;
+  unique: () => FakeRule;
+  custom: (validator: CustomValidator) => FakeRule;
+};
+
+function customValidatorFor(schemaName: string, fieldName: string) {
+  const validation = fieldsFor(schemaName).find(
+    (field) => field.name === fieldName,
+  )?.validation;
+  expect(validation).toBeTypeOf("function");
+
+  let customValidator: CustomValidator | undefined;
+  const rule: FakeRule = {
+    required: () => rule,
+    min: () => rule,
+    max: () => rule,
+    unique: () => rule,
+    custom: (validator) => {
+      customValidator = validator;
+      return rule;
+    },
+  };
+
+  (validation as (rule: FakeRule) => unknown)(rule);
+  expect(customValidator).toBeTypeOf("function");
+  return customValidator;
+}
+
 describe("sanity schemas", () => {
   it("exports all expected schema types", () => {
     const names = schemaTypes.map((s) => s.name);
@@ -10,18 +57,86 @@ describe("sanity schemas", () => {
     expect(names).toContain("faq");
     expect(names).toContain("testimonial");
     expect(names).toContain("film");
+    expect(names).toContain("filmCollection");
     expect(names).toContain("program");
     expect(names).toContain("teamMember");
     expect(names).toContain("partner");
   });
 
-  it("has 9 total schema types (5 objects + 4 documents)", () => {
-    expect(schemaTypes).toHaveLength(9);
+  it("has 10 total schema types (5 objects + 5 documents)", () => {
+    expect(schemaTypes).toHaveLength(10);
   });
 
-  it("film schema is a document type", () => {
+  it("film schema exposes browsing metadata fields", () => {
     const film = schemaTypes.find((s) => s.name === "film");
     expect(film?.type).toBe("document");
+    const fieldNames = fieldsFor("film").map((f) => f.name);
+
+    expect(fieldNames).toEqual(
+      expect.arrayContaining([
+        "thumbnailImage",
+        "locations",
+        "subjects",
+        "formats",
+        "skills",
+        "displayTags",
+      ]),
+    );
+    for (const metadataField of [
+      "locations",
+      "subjects",
+      "formats",
+      "skills",
+      "displayTags",
+    ]) {
+      expect(
+        fieldsFor("film").find((field) => field.name === metadataField)
+          ?.validation,
+      ).toBeTypeOf("function");
+    }
+  });
+
+  it("filmCollection schema references ordered films", () => {
+    const collection = schemaTypes.find((s) => s.name === "filmCollection");
+    expect(collection?.type).toBe("document");
+    const fields = fieldsFor("filmCollection");
+    const filmsField = fields.find((f) => f.name === "films");
+
+    expect(fields.map((f) => f.name)).toEqual(
+      expect.arrayContaining([
+        "title",
+        "slug",
+        "description",
+        "films",
+        "sortOrder",
+        "enabled",
+      ]),
+    );
+    expect(filmsField?.type).toBe("array");
+    expect(filmsField?.of?.[0]?.type).toBe("reference");
+    expect(filmsField?.of?.[0]?.to?.[0]?.type).toBe("film");
+    expect(filmsField?.validation).toBeTypeOf("function");
+  });
+
+  it("film metadata validators reject normalized duplicate blanks and tags", () => {
+    const metadataValidator = customValidatorFor("film", "locations");
+    const displayTagsValidator = customValidatorFor("film", "displayTags");
+
+    expect({
+      metadataBlankDuplicate: metadataValidator?.(["", " "]),
+      metadataCaseDuplicate: metadataValidator?.(["Shark", " shark "]),
+      displayTagsBlankDuplicate: displayTagsValidator?.(["", " "]),
+      displayTagsCaseDuplicate: displayTagsValidator?.(["Shark", " shark "]),
+    }).toEqual({
+      metadataBlankDuplicate:
+        "Values must be unique after trimming and case normalization.",
+      metadataCaseDuplicate:
+        "Values must be unique after trimming and case normalization.",
+      displayTagsBlankDuplicate:
+        "Display tags must be unique after trimming and case normalization.",
+      displayTagsCaseDuplicate:
+        "Display tags must be unique after trimming and case normalization.",
+    });
   });
 
   it("portableText schema is an array type", () => {
@@ -32,9 +147,8 @@ describe("sanity schemas", () => {
   it("program schema uses string enum for slug (not slug type)", () => {
     const program = schemaTypes.find((s) => s.name === "program");
     expect(program?.type).toBe("document");
-    const fields = (program as { fields?: { name: string; type: string }[] })
-      ?.fields;
-    const slugField = fields?.find((f) => f.name === "slug");
+    const fields = fieldsFor("program");
+    const slugField = fields.find((f) => f.name === "slug");
     expect(slugField?.type).toBe("string");
   });
 });
