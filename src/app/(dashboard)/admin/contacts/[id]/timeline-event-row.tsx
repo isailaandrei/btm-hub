@@ -5,7 +5,11 @@ import { Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ContactEvent } from "@/types/database";
 import { formatRelative } from "@/lib/format-relative";
 import { eventTypeLabel, isResolvable } from "./event-types";
-import { eventTypeDisplayFor, isTagAssignmentEvent } from "./event-type-display";
+import {
+  eventTypeDisplayFor,
+  isEmailSentEvent,
+  isTagAssignmentEvent,
+} from "./event-type-display";
 import {
   updateEvent,
   deleteEvent,
@@ -49,6 +53,7 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
   const isOpen = resolvable && event.resolved_at === null;
   const isResolved = resolvable && event.resolved_at !== null;
   const isDerivedTagAssignment = isTagAssignmentEvent(event);
+  const isDerivedEmailEvent = isEmailSentEvent(event);
 
   function handleSave() {
     setError(null);
@@ -210,7 +215,7 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
         {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
       </div>
 
-      {!isEditing && !isDerivedTagAssignment && (
+      {!isEditing && !isDerivedTagAssignment && !isDerivedEmailEvent && (
         <div className="flex flex-none items-start gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           {isConfirmingDelete ? (
             <div className="flex items-center gap-1">

@@ -43,6 +43,16 @@ describe("eventTypeDisplayFor", () => {
     expect(eventTypeDisplayFor(backfilledEvent)).toBe(EVENT_TYPE_DISPLAY.tag_assigned);
   });
 
+  it("uses the email display for sent email timeline events", () => {
+    const sentEmailEvent = event({
+      type: "custom",
+      custom_label: "Email sent",
+      metadata: { source: "email_sends", send_id: "send-1" },
+    });
+
+    expect(eventTypeDisplayFor(sentEmailEvent)).toBe(EVENT_TYPE_DISPLAY.email_sent);
+  });
+
   it("keeps the normal display for regular note events", () => {
     expect(eventTypeDisplayFor(event({ type: "note" }))).toBe(EVENT_TYPE_DISPLAY.note);
   });

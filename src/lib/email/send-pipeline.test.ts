@@ -11,6 +11,7 @@ const mockMarkEmailRecipientReconciliationNeeded = vi.fn();
 const mockMarkEmailRecipientSent = vi.fn();
 const mockAppendEmailEvent = vi.fn();
 const mockUpdateEmailSendCounts = vi.fn();
+const mockCreateSystemContactEvent = vi.fn();
 
 vi.mock("@/lib/data/email-sends", () => ({
   appendEmailEvent: mockAppendEmailEvent,
@@ -22,6 +23,10 @@ vi.mock("@/lib/data/email-sends", () => ({
   markEmailRecipientReconciliationNeeded: mockMarkEmailRecipientReconciliationNeeded,
   markEmailRecipientSent: mockMarkEmailRecipientSent,
   updateEmailSendCounts: mockUpdateEmailSendCounts,
+}));
+
+vi.mock("@/lib/data/contact-events", () => ({
+  createSystemContactEvent: mockCreateSystemContactEvent,
 }));
 
 const { processEmailSendChunks } = await import("./send-pipeline");
@@ -146,6 +151,7 @@ describe("processEmailSendChunks", () => {
     mockMarkEmailRecipientSent.mockReset();
     mockAppendEmailEvent.mockReset();
     mockUpdateEmailSendCounts.mockReset();
+    mockCreateSystemContactEvent.mockReset();
   });
 
   it("renders Maily JSON per recipient and stores rendered audit output", async () => {
@@ -182,6 +188,38 @@ describe("processEmailSendChunks", () => {
       }),
     );
     expect(mockUpdateEmailSendCounts).toHaveBeenCalledWith("send-1");
+  });
+
+  it("adds a contact timeline event after an email is accepted", async () => {
+    const { emailProvider } = provider();
+    mockClaimQueuedEmailRecipients
+      .mockResolvedValueOnce([recipient()])
+      .mockResolvedValueOnce([]);
+
+    await processEmailSendChunks({
+      sendId: "send-1",
+      provider: emailProvider,
+      chunkSize: 25,
+      maxChunks: 2,
+    });
+
+    expect(mockCreateSystemContactEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactId: "contact-1",
+        type: "custom",
+        customLabel: "Email sent",
+        authorId: "admin-1",
+        authorName: "BTM Hub",
+        body: 'Sent email "Outreach" to maya@example.com.\nSubject: Hello Maya',
+        metadata: expect.objectContaining({
+          source: "email_sends",
+          send_id: "send-1",
+          recipient_id: "recipient-1",
+          provider: "fake",
+          provider_message_id: "message-recipient-1",
+        }),
+      }),
+    );
   });
 
   it("reports when more recipients remain after the current worker run", async () => {

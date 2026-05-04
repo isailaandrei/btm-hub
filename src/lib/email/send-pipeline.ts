@@ -10,6 +10,7 @@ import {
   markEmailRecipientSent,
   updateEmailSendCounts,
 } from "@/lib/data/email-sends";
+import { createSystemContactEvent } from "@/lib/data/contact-events";
 import type { EmailSend, EmailSendRecipient } from "@/types/database";
 import type { EmailProvider, ProviderSendEmailResult } from "./provider/types";
 import {
@@ -98,6 +99,38 @@ function hasTestRecipientOverride(): boolean {
   return Boolean(process.env.EMAIL_TEST_RECIPIENT_OVERRIDE?.trim());
 }
 
+async function createSentEmailTimelineEvent(input: {
+  send: EmailSend;
+  recipient: EmailSendRecipient;
+  renderedSubject: string;
+  provider: string;
+  providerMessageId: string;
+  occurredAt: string;
+}) {
+  if (!input.recipient.contact_id) return;
+
+  await createSystemContactEvent({
+    contactId: input.recipient.contact_id,
+    type: "custom",
+    customLabel: "Email sent",
+    body: `Sent email "${input.send.name}" to ${input.recipient.email}.\nSubject: ${input.renderedSubject}`,
+    happenedAt: input.occurredAt,
+    authorId:
+      input.send.confirmed_by ?? input.send.updated_by ?? input.send.created_by,
+    authorName: "BTM Hub",
+    metadata: {
+      source: "email_sends",
+      send_id: input.send.id,
+      recipient_id: input.recipient.id,
+      provider: input.provider,
+      provider_message_id: input.providerMessageId,
+      subject: input.renderedSubject,
+      email: input.recipient.email,
+      kind: input.send.kind,
+    },
+  });
+}
+
 async function renderRecipient(input: {
   send: EmailSend;
   recipient: EmailSendRecipient;
@@ -139,9 +172,9 @@ async function processRecipient(input: {
       : null;
     const rendered = await renderRecipient({
       send: input.send,
-        recipient: input.recipient,
-        unsubscribeUrl,
-      });
+      recipient: input.recipient,
+      unsubscribeUrl,
+    });
     const providerRecipientEmail = getProviderRecipientEmail(input.recipient);
     const testRecipientOverride = hasTestRecipientOverride();
     await markEmailRecipientPrepared(input.recipient.id, {
@@ -171,6 +204,7 @@ async function processRecipient(input: {
       },
     });
     acceptedResult = result;
+    const occurredAt = new Date().toISOString();
 
     await markEmailRecipientSent(input.recipient.id, {
       provider: result.provider,
@@ -190,8 +224,16 @@ async function processRecipient(input: {
       providerEventId: null,
       providerMessageId: result.providerMessageId,
       eventFingerprint: `${result.provider}:sent:${result.providerMessageId}`,
-      occurredAt: new Date().toISOString(),
+      occurredAt,
       payload: result.raw,
+    });
+    await createSentEmailTimelineEvent({
+      send: input.send,
+      recipient: input.recipient,
+      renderedSubject: rendered.subject,
+      provider: result.provider,
+      providerMessageId: result.providerMessageId,
+      occurredAt,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import type { ContactEvent, ContactEventType } from "@/types/database";
 
@@ -35,6 +36,10 @@ export interface CreateContactEventInput {
   authorName: string;
 }
 
+export interface CreateSystemContactEventInput extends CreateContactEventInput {
+  metadata?: Record<string, unknown>;
+}
+
 export async function createContactEvent(input: CreateContactEventInput) {
   await requireAdmin();
   const supabase = await createClient();
@@ -48,6 +53,29 @@ export async function createContactEvent(input: CreateContactEventInput) {
       happened_at: input.happenedAt,
       author_id: input.authorId,
       author_name: input.authorName,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new Error(`Failed to create contact event: ${error.message}`);
+  return data as ContactEvent;
+}
+
+export async function createSystemContactEvent(
+  input: CreateSystemContactEventInput,
+) {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("contact_events")
+    .insert({
+      contact_id: input.contactId,
+      type: input.type,
+      custom_label: input.customLabel,
+      body: input.body,
+      happened_at: input.happenedAt,
+      author_id: input.authorId,
+      author_name: input.authorName,
+      metadata: input.metadata ?? {},
     })
     .select("*")
     .single();
