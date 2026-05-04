@@ -46,7 +46,6 @@ describe("buildEmailSendMetrics", () => {
       "Delivered",
       "Clicked",
       "Bounced",
-      "Complaints",
       "Failed",
       "Skipped",
       "Unsubscribed",
@@ -58,6 +57,7 @@ describe("buildEmailSendMetrics", () => {
       "2",
     );
     expect(metrics.some((metric) => metric.label === "Opened")).toBe(false);
+    expect(metrics.some((metric) => metric.label === "Complaints")).toBe(false);
   });
 
   it("defaults missing newer counters to zero for older local rows", () => {

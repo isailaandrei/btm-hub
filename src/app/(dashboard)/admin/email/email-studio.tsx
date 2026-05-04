@@ -258,27 +258,24 @@ export function EmailStudio({
 
                 return (
                   <Fragment key={send.id}>
-                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(260px,1fr)_110px_140px_auto]">
-                      <div>
-                        <p className="font-medium text-foreground">{send.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {send.subject_template}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {metrics.map((metric) => (
-                            <span
-                              key={metric.key}
-                              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${metricToneClass(
-                                metric.tone,
-                              )}`}
-                            >
-                              <span>{metric.label}</span>
-                              <span className="text-foreground">
-                                {metric.value}
-                              </span>
+                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(220px,0.9fr)_minmax(460px,2fr)_100px_120px_auto] md:items-center">
+                      <p className="min-w-0 truncate font-medium text-foreground">
+                        {send.name}
+                      </p>
+                      <div className="flex min-w-0 flex-wrap gap-1.5">
+                        {metrics.map((metric) => (
+                          <span
+                            key={metric.key}
+                            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${metricToneClass(
+                              metric.tone,
+                            )}`}
+                          >
+                            <span>{metric.label}</span>
+                            <span className="text-foreground">
+                              {metric.value}
                             </span>
-                          ))}
-                        </div>
+                          </span>
+                        ))}
                       </div>
                       <span className="capitalize text-muted-foreground">
                         {send.kind}

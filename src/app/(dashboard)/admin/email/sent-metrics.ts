@@ -16,7 +16,6 @@ function count(value: number | undefined): number {
 export function buildEmailSendMetrics(send: EmailSend): EmailSendMetric[] {
   const clickedCount = count(send.clicked_count);
   const bouncedCount = count(send.bounced_count);
-  const complainedCount = count(send.complained_count);
   const failedCount = count(send.failed_count);
   const skippedCount = count(send.skipped_count);
   const unsubscribedCount = count(send.unsubscribed_count);
@@ -45,12 +44,6 @@ export function buildEmailSendMetrics(send: EmailSend): EmailSendMetric[] {
       label: "Bounced",
       value: String(bouncedCount),
       tone: bouncedCount > 0 ? "danger" : "neutral",
-    },
-    {
-      key: "complained",
-      label: "Complaints",
-      value: String(complainedCount),
-      tone: complainedCount > 0 ? "danger" : "neutral",
     },
     {
       key: "failed",
