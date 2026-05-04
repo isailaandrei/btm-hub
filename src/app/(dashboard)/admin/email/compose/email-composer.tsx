@@ -216,7 +216,7 @@ export function EmailComposer({
           type="button"
           onClick={handleSendNow}
           disabled={isSending || isLoadingTemplate}
-          className="justify-self-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="h-[50px] w-[200px] justify-self-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
           {isSending ? "Sending..." : "Send now"}
         </button>
