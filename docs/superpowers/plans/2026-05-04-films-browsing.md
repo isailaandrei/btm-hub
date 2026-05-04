@@ -10,6 +10,15 @@
 
 ---
 
+## Implementation Decisions
+
+- Public film cards require `slug.current`. This preserves the current `/films` behavior and keeps every playable card eligible for a detail page link.
+- `filmCollection.films` rejects duplicate film references in Sanity. Repeating the same film in one row is editorial noise, not a required feature.
+- Metadata arrays remain editor-managed Sanity tag arrays, but the schema rejects duplicate values and the UI helper trims/case-normalizes values to prevent public filter fragmentation.
+- When search or filters are active, the browser collapses results into one `Matching Films` row. This avoids repeating the same filtered result set under Featured, Latest, and All Films.
+
+---
+
 ## File Structure
 
 ### Sanity Schema and Queries
@@ -121,7 +130,7 @@ import { schemaTypes } from "./index";
 
 function fieldsFor(name: string) {
   const schema = schemaTypes.find((s) => s.name === name) as
-    | { fields?: { name: string; type: string; of?: { type: string; to?: { type: string }[] }[] }[] }
+    | { fields?: { name: string; type: string; validation?: unknown; of?: { type: string; to?: { type: string }[] }[] }[] }
     | undefined;
   return schema?.fields ?? [];
 }
@@ -160,6 +169,9 @@ describe("sanity schemas", () => {
         "displayTags",
       ]),
     );
+    for (const metadataField of ["locations", "subjects", "formats", "skills", "displayTags"]) {
+      expect(fieldsFor("film").find((field) => field.name === metadataField)?.validation).toBeTypeOf("function");
+    }
   });
 
   it("filmCollection schema references ordered films", () => {
@@ -174,6 +186,7 @@ describe("sanity schemas", () => {
     expect(filmsField?.type).toBe("array");
     expect(filmsField?.of?.[0]?.type).toBe("reference");
     expect(filmsField?.of?.[0]?.to?.[0]?.type).toBe("film");
+    expect(filmsField?.validation).toBeTypeOf("function");
   });
 
   it("portableText schema is an array type", () => {
@@ -217,6 +230,16 @@ const metadataField = (name: string, title: string, description: string) =>
     description,
     of: [{ type: "string" }],
     options: { layout: "tags" },
+    validation: (rule) =>
+      rule.unique().custom((values) => {
+        if (!Array.isArray(values)) return true;
+        const normalized = values
+          .map((value) => String(value).trim().toLowerCase())
+          .filter(Boolean);
+        return new Set(normalized).size === normalized.length
+          ? true
+          : "Values must be unique after trimming and case normalization.";
+      }),
   });
 
 export const film = defineType({
@@ -356,8 +379,21 @@ export const film = defineType({
       type: "array",
       group: "metadata",
       description: "Short editorial chips shown on cards and in the player modal.",
-      of: [{ type: "string" }],
+      of: [{ type: "string", validation: (rule) => rule.max(32) }],
       options: { layout: "tags" },
+      validation: (rule) =>
+        rule
+          .unique()
+          .max(6)
+          .custom((values) => {
+            if (!Array.isArray(values)) return true;
+            const normalized = values
+              .map((value) => String(value).trim().toLowerCase())
+              .filter(Boolean);
+            return new Set(normalized).size === normalized.length
+              ? true
+              : "Display tags must be unique after trimming and case normalization.";
+          }),
     }),
     defineField({
       name: "featured",
@@ -423,7 +459,20 @@ export const filmCollection = defineType({
       title: "Films",
       type: "array",
       of: [{ type: "reference", to: [{ type: "film" }] }],
-      validation: (rule) => rule.required().min(1),
+      validation: (rule) =>
+        rule
+          .required()
+          .min(1)
+          .unique()
+          .custom((values) => {
+            if (!Array.isArray(values)) return true;
+            const refs = values
+              .map((value) => (typeof value === "object" && value && "_ref" in value ? String(value._ref) : ""))
+              .filter(Boolean);
+            return new Set(refs).size === refs.length
+              ? true
+              : "A film can only appear once in a collection.";
+          }),
     }),
     defineField({
       name: "sortOrder",
@@ -598,7 +647,7 @@ const FILM_CARD_FIELDS = `
 `;
 
 export const FILMS_QUERY = defineQuery(`
-  *[_type == "film"] | order(sortOrder asc, releaseYear desc) {
+  *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {
     ${FILM_CARD_FIELDS}
   }
 `);
@@ -612,7 +661,7 @@ export const FILM_BY_SLUG_QUERY = defineQuery(`
 `);
 
 export const FEATURED_FILMS_QUERY = defineQuery(`
-  *[_type == "film" && featured == true] | order(sortOrder asc) {
+  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {
     ${FILM_CARD_FIELDS}
   }
 `);
@@ -828,12 +877,25 @@ describe("getSafeFilmEmbedUrl", () => {
     );
   });
 
+  it("trims surrounding whitespace and strips query/hash from canonical output", () => {
+    expect(getSafeFilmEmbedUrl(" https://youtu.be/abc123DEF45?t=12#clip ")).toBe(
+      "https://www.youtube.com/embed/abc123DEF45",
+    );
+  });
+
   it("rejects non-https URLs", () => {
     expect(getSafeFilmEmbedUrl("http://www.youtube.com/watch?v=abc123DEF45")).toBeNull();
   });
 
   it("rejects unsupported hosts", () => {
     expect(getSafeFilmEmbedUrl("https://example.com/video")).toBeNull();
+  });
+
+  it("rejects allowlisted hosts with missing or malformed IDs", () => {
+    expect(getSafeFilmEmbedUrl("https://www.youtube.com/watch")).toBeNull();
+    expect(getSafeFilmEmbedUrl("https://www.youtube.com/embed/abc123DEF45/extra")).toBeNull();
+    expect(getSafeFilmEmbedUrl("https://vimeo.com/not-a-number")).toBeNull();
+    expect(getSafeFilmEmbedUrl("https://player.vimeo.com/video/123456789/extra")).toBeNull();
   });
 });
 ```
@@ -857,7 +919,7 @@ export function getSafeFilmEmbedUrl(input: string | null | undefined): string | 
 
   let url: URL;
   try {
-    url = new URL(input);
+    url = new URL(input.trim());
   } catch {
     return null;
   }
@@ -869,29 +931,33 @@ export function getSafeFilmEmbedUrl(input: string | null | undefined): string | 
 
   if (hostname === "www.youtube.com" || hostname === "youtube.com") {
     const embedId =
-      segments[0] === "embed"
+      segments[0] === "embed" && segments.length === 2
         ? cleanSegment(segments[1])
-        : segments[0] === "shorts"
+        : segments[0] === "shorts" && segments.length === 2
           ? cleanSegment(segments[1])
-          : cleanSegment(url.searchParams.get("v") ?? undefined);
+          : segments.length === 0
+            ? cleanSegment(url.searchParams.get("v") ?? undefined)
+            : null;
 
     if (!embedId || !YOUTUBE_ID_PATTERN.test(embedId)) return null;
     return `https://www.youtube.com/embed/${embedId}`;
   }
 
   if (hostname === "youtu.be") {
+    if (segments.length !== 1) return null;
     const embedId = cleanSegment(segments[0]);
     if (!embedId || !YOUTUBE_ID_PATTERN.test(embedId)) return null;
     return `https://www.youtube.com/embed/${embedId}`;
   }
 
   if (hostname === "player.vimeo.com") {
-    const videoId = segments[0] === "video" ? cleanSegment(segments[1]) : null;
+    const videoId = segments[0] === "video" && segments.length === 2 ? cleanSegment(segments[1]) : null;
     if (!videoId || !VIMEO_ID_PATTERN.test(videoId)) return null;
     return `https://player.vimeo.com/video/${videoId}`;
   }
 
   if (hostname === "vimeo.com") {
+    if (segments.length !== 1) return null;
     const videoId = cleanSegment(segments[0]);
     if (!videoId || !VIMEO_ID_PATTERN.test(videoId)) return null;
     return `https://player.vimeo.com/video/${videoId}`;
@@ -921,8 +987,8 @@ const films: FilmBrowserFilm[] = [
     _id: "film-1",
     title: "Whales of Faial",
     tagline: "A blue-water documentary",
-    locations: ["Azores"],
-    subjects: ["Whales", "Conservation"],
+    locations: [" Azores ", "azores"],
+    subjects: ["Whales", "Conservation", " whales "],
     formats: ["Documentary"],
     skills: ["Filming"],
     displayTags: ["Ocean story"],
@@ -1023,11 +1089,30 @@ export function createEmptyFilmFilters(): FilmFilterState {
 }
 
 function normalizeText(value: string): string {
-  return value.trim().toLowerCase();
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function cleanMetadataValue(value: string): string | null {
+  const cleaned = value.trim().replace(/\s+/g, " ");
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 function valuesFor(film: FilmBrowserFilm, key: FilmMetadataKey): string[] {
-  return film[key]?.filter((value): value is string => Boolean(value?.trim())) ?? [];
+  const values = film[key] ?? [];
+  const seen = new Set<string>();
+  const cleanedValues: string[] = [];
+
+  for (const value of values) {
+    if (!value) continue;
+    const cleaned = cleanMetadataValue(value);
+    if (!cleaned) continue;
+    const normalized = normalizeText(cleaned);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    cleanedValues.push(cleaned);
+  }
+
+  return cleanedValues;
 }
 
 function searchableValues(film: FilmBrowserFilm): string[] {
@@ -1043,8 +1128,11 @@ function searchableValues(film: FilmBrowserFilm): string[] {
 
 export function buildFilmFilterOptions(films: FilmBrowserFilm[]): FilmFilterOptions {
   return FILM_METADATA_KEYS.reduce((options, key) => {
-    options[key] = Array.from(new Set(films.flatMap((film) => valuesFor(film, key))))
-      .sort((a, b) => a.localeCompare(b));
+    const byNormalized = new Map<string, string>();
+    for (const value of films.flatMap((film) => valuesFor(film, key))) {
+      byNormalized.set(normalizeText(value), value);
+    }
+    options[key] = Array.from(byNormalized.values()).sort((a, b) => a.localeCompare(b));
     return options;
   }, createEmptyFilmFilters());
 }
@@ -1082,8 +1170,8 @@ function filmMatchesFilters(film: FilmBrowserFilm, filters: FilmFilterState): bo
   return FILM_METADATA_KEYS.every((key) => {
     const selected = filters[key];
     if (selected.length === 0) return true;
-    const filmValues = new Set(valuesFor(film, key));
-    return selected.some((value) => filmValues.has(value));
+    const filmValues = new Set(valuesFor(film, key).map(normalizeText));
+    return selected.some((value) => filmValues.has(normalizeText(value)));
   });
 }
 
@@ -1599,6 +1687,7 @@ export function FilmCard({ film, onSelect }: FilmCardProps) {
   return (
     <button
       type="button"
+      aria-label={`Play ${film.title ?? "Untitled film"}`}
       onClick={() => onSelect(film)}
       className={cn(
         "group relative w-[78vw] max-w-[320px] shrink-0 overflow-hidden rounded-lg bg-background text-left shadow-sm ring-1 ring-border transition-transform duration-200 hover:z-10 hover:scale-[1.03] focus-visible:z-10 focus-visible:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-[300px]",
@@ -1977,8 +2066,16 @@ export function FilmsBrowser({ films, collections }: FilmsBrowserProps) {
 
   const filterOptions = useMemo(() => buildFilmFilterOptions(films), [films]);
   const visibleFilms = useMemo(() => filterFilms(films, search, filters), [films, search, filters]);
-  const rows = useMemo(() => buildFilmRows(visibleFilms, collections), [visibleFilms, collections]);
   const hasActiveQuery = search.trim().length > 0 || Object.values(filters).some((values) => values.length > 0);
+  const rows = useMemo(
+    () =>
+      hasActiveQuery
+        ? visibleFilms.length > 0
+          ? [{ id: "matches", title: "Matching Films", films: visibleFilms }]
+          : []
+        : buildFilmRows(visibleFilms, collections),
+    [collections, hasActiveQuery, visibleFilms],
+  );
 
   return (
     <div className="space-y-10">
@@ -2031,15 +2128,16 @@ export function FilmsBrowser({ films, collections }: FilmsBrowserProps) {
 }
 ```
 
-- [ ] **Step 5.7: Run TypeScript/lint feedback**
+- [ ] **Step 5.7: Run lint and build feedback**
 
 Run:
 
 ```bash
 npm run lint -- src/components/films src/components/ui/dialog.tsx src/components/ui/sheet.tsx
+npm run build
 ```
 
-Expected: PASS. If TypeScript reports that `SanityImageSource` import path is not exported, replace it in `src/lib/films/types.ts` with `unknown` for image fields and keep narrowing at render sites through existing `SanityImage` props.
+Expected: PASS.
 
 - [ ] **Step 5.8: Commit films components**
 
@@ -2156,6 +2254,7 @@ Run:
 ```bash
 npm run test:unit -- src/lib/films/embed.test.ts src/lib/films/filtering.test.ts src/lib/films/rows.test.ts src/lib/data/sanity.test.ts
 npm run lint -- src/app/\(marketing\)/films src/components/films src/lib/films
+npm run build
 ```
 
 Expected: all commands PASS.
@@ -2218,6 +2317,28 @@ test("films page filter controls remain usable", async ({ page }) => {
 
   await page.getByRole("button", { name: /filters/i }).click();
   await expect(page.getByRole("dialog", { name: /filter films/i })).toBeVisible();
+});
+```
+
+Add this test in the same block to cover the hybrid playback interaction when the CMS environment has films:
+
+```ts
+test("films page opens and closes the playback modal", async ({ page }) => {
+  await page.goto("/films");
+
+  const playButtons = page.getByRole("button", { name: /play .+/i });
+  if ((await playButtons.count()) === 0) {
+    test.skip(true, "No Sanity films are available in this environment.");
+  }
+
+  await playButtons.first().click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("link", { name: /more details/i }).or(dialog.getByText(/video unavailable/i))).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 });
 ```
 
