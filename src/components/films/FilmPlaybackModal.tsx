@@ -79,6 +79,7 @@ export function FilmPlaybackModal({
                   className="h-full w-full"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   sandbox="allow-scripts allow-same-origin allow-presentation"
+                  tabIndex={-1}
                   allowFullScreen
                 />
               ) : (
