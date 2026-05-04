@@ -8,6 +8,7 @@ import {
   updateEmailSendCounts,
   updateRecipientForProviderEvent,
 } from "@/lib/data/email-sends";
+import { updateEmailSentContactEventDeliveryStatus } from "@/lib/data/contact-events";
 import { createBrevoEmailProvider } from "@/lib/email/provider/brevo";
 import type { NormalizedProviderEvent } from "@/lib/email/provider/types";
 import { getBrevoWebhookToken } from "@/lib/email/settings";
@@ -29,6 +30,14 @@ function fingerprint(event: NormalizedProviderEvent): string {
     .update(JSON.stringify(event.payload))
     .digest("hex");
   return `${event.provider}:payload:${hash}`;
+}
+
+function deliveryStatusForEvent(event: NormalizedProviderEvent) {
+  if (event.type === "delivered" || event.type === "clicked") {
+    return "delivered" as const;
+  }
+  if (event.type === "bounced") return "not_delivered" as const;
+  return null;
 }
 
 async function applyEvent(event: NormalizedProviderEvent) {
@@ -83,6 +92,15 @@ async function applyEvent(event: NormalizedProviderEvent) {
     occurredAt: event.occurredAt,
     payload: event.payload,
   });
+
+  const deliveryStatus = deliveryStatusForEvent(event);
+  if (recipient && deliveryStatus) {
+    await updateEmailSentContactEventDeliveryStatus({
+      recipientId: recipient.id,
+      deliveryStatus,
+      occurredAt: event.occurredAt,
+    });
+  }
 
   const shouldSuppressBounce =
     event.type === "bounced" &&

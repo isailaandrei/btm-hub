@@ -210,13 +210,14 @@ describe("processEmailSendChunks", () => {
         customLabel: "Email sent",
         authorId: "admin-1",
         authorName: "BTM Hub",
-        body: 'Sent email "Outreach" to maya@example.com.\nSubject: Hello Maya',
+        body: "Subject: Hello Maya\nDelivery: Not delivered yet",
         metadata: expect.objectContaining({
           source: "email_sends",
           send_id: "send-1",
           recipient_id: "recipient-1",
           provider: "fake",
           provider_message_id: "message-recipient-1",
+          delivery_status: "pending",
         }),
       }),
     );

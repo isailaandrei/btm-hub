@@ -113,7 +113,7 @@ async function createSentEmailTimelineEvent(input: {
     contactId: input.recipient.contact_id,
     type: "custom",
     customLabel: "Email sent",
-    body: `Sent email "${input.send.name}" to ${input.recipient.email}.\nSubject: ${input.renderedSubject}`,
+    body: `Subject: ${input.renderedSubject}\nDelivery: Not delivered yet`,
     happenedAt: input.occurredAt,
     authorId:
       input.send.confirmed_by ?? input.send.updated_by ?? input.send.created_by,
@@ -127,6 +127,7 @@ async function createSentEmailTimelineEvent(input: {
       subject: input.renderedSubject,
       email: input.recipient.email,
       kind: input.send.kind,
+      delivery_status: "pending",
     },
   });
 }

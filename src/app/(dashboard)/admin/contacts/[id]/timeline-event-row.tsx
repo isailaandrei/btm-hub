@@ -5,6 +5,7 @@ import { Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ContactEvent } from "@/types/database";
 import { formatRelative } from "@/lib/format-relative";
 import { eventTypeLabel, isResolvable } from "./event-types";
+import { timelineEventBody } from "./timeline-event-body";
 import {
   eventTypeDisplayFor,
   isEmailSentEvent,
@@ -54,6 +55,7 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
   const isResolved = resolvable && event.resolved_at !== null;
   const isDerivedTagAssignment = isTagAssignmentEvent(event);
   const isDerivedEmailEvent = isEmailSentEvent(event);
+  const displayBody = timelineEventBody(event);
 
   function handleSave() {
     setError(null);
@@ -191,9 +193,9 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
             </div>
           </div>
         ) : (
-          event.body && (
+          displayBody && (
             <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
-              {event.body}
+              {displayBody}
             </p>
           )
         )}
