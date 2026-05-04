@@ -55,6 +55,10 @@ test.describe("CMS pages", () => {
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
+    const iframe = dialog.locator("iframe");
+    if ((await iframe.count()) > 0) {
+      await expect(iframe.first()).not.toHaveAttribute("tabindex", "-1");
+    }
     await expect(
       dialog
         .getByRole("link", { name: /more details/i })

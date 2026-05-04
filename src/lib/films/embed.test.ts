@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSafeFilmEmbedUrl } from "./embed";
+import { getFilmEmbedState, getSafeFilmEmbedUrl } from "./embed";
 
 describe("getSafeFilmEmbedUrl", () => {
   it("normalizes YouTube watch URLs", () => {
@@ -57,5 +57,18 @@ describe("getSafeFilmEmbedUrl", () => {
     expect(getSafeFilmEmbedUrl("https://www.youtube.com/embed/abc123DEF45/extra")).toBeNull();
     expect(getSafeFilmEmbedUrl("https://vimeo.com/not-a-number")).toBeNull();
     expect(getSafeFilmEmbedUrl("https://player.vimeo.com/video/123456789/extra")).toBeNull();
+  });
+});
+
+describe("getFilmEmbedState", () => {
+  it("distinguishes missing, invalid, and playable embed URLs", () => {
+    expect(getFilmEmbedState(null)).toEqual({ status: "missing" });
+    expect(getFilmEmbedState("https://example.com/video")).toEqual({
+      status: "unavailable",
+    });
+    expect(getFilmEmbedState("https://youtu.be/abc123DEF45")).toEqual({
+      status: "available",
+      url: "https://www.youtube.com/embed/abc123DEF45",
+    });
   });
 });

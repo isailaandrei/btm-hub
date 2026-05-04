@@ -1,6 +1,11 @@
 const YOUTUBE_ID_PATTERN = /^[a-zA-Z0-9_-]{6,}$/;
 const VIMEO_ID_PATTERN = /^[0-9]+$/;
 
+export type FilmEmbedState =
+  | { status: "missing" }
+  | { status: "unavailable" }
+  | { status: "available"; url: string };
+
 function cleanSegment(segment: string | undefined): string | null {
   if (!segment) return null;
   const value = segment.trim();
@@ -57,4 +62,11 @@ export function getSafeFilmEmbedUrl(input: string | null | undefined): string | 
   }
 
   return null;
+}
+
+export function getFilmEmbedState(input: string | null | undefined): FilmEmbedState {
+  if (!input?.trim()) return { status: "missing" };
+
+  const url = getSafeFilmEmbedUrl(input);
+  return url ? { status: "available", url } : { status: "unavailable" };
 }

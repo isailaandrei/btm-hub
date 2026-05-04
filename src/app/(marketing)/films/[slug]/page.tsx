@@ -5,7 +5,7 @@ import { PortableText } from "@portabletext/react";
 import { SanityImage } from "@/components/sanity/SanityImage";
 import { portableTextComponents } from "@/lib/sanity/portable-text";
 import { getFilmBySlug, getAllFilmSlugs } from "@/lib/data/sanity";
-import { getSafeFilmEmbedUrl } from "@/lib/films/embed";
+import { getFilmEmbedState } from "@/lib/films/embed";
 
 export async function generateStaticParams() {
   const slugs = await getAllFilmSlugs();
@@ -34,7 +34,7 @@ export default async function FilmPage({
   const { slug } = await params;
   const film = await getFilmBySlug(slug);
   if (!film) return notFound();
-  const embedUrl = getSafeFilmEmbedUrl(film.videoEmbed);
+  const embedState = getFilmEmbedState(film.videoEmbed);
 
   return (
     <div className="min-h-screen bg-muted">
@@ -65,16 +65,22 @@ export default async function FilmPage({
 
       <div className="mx-auto max-w-4xl px-5 py-12 md:px-0">
         {/* Video embed */}
-        {embedUrl && (
+        {embedState.status !== "missing" && (
           <div className="mb-12 aspect-video overflow-hidden rounded-xl">
-            <iframe
-              src={embedUrl}
-              title={film.title ?? "Video"}
-              className="h-full w-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              sandbox="allow-scripts allow-same-origin allow-presentation"
-              allowFullScreen
-            />
+            {embedState.status === "available" ? (
+              <iframe
+                src={embedState.url}
+                title={film.title ?? "Video"}
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                sandbox="allow-scripts allow-same-origin allow-presentation"
+                allowFullScreen
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center bg-neutral-950 px-6 text-center text-sm text-neutral-300">
+                Video unavailable. Check the film embed URL in Sanity.
+              </div>
+            )}
           </div>
         )}
 

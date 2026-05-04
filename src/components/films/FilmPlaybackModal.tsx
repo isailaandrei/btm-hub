@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { getSafeFilmEmbedUrl } from "@/lib/films/embed"
+import { getFilmEmbedState } from "@/lib/films/embed"
 import type { FilmBrowserFilm } from "@/lib/films/types"
 
 type FilmPlaybackModalProps = {
@@ -62,24 +62,23 @@ export function FilmPlaybackModal({
   onOpenChange,
 }: FilmPlaybackModalProps) {
   const open = Boolean(film)
-  const embedUrl = getSafeFilmEmbedUrl(film?.videoEmbed)
+  const embedState = getFilmEmbedState(film?.videoEmbed)
   const href = film ? filmHref(film) : null
   const tags = film ? tagsFor(film) : []
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden bg-neutral-950 text-white sm:rounded-lg">
+      <DialogContent className="bg-neutral-950 text-white sm:rounded-lg">
         {film && (
           <div>
             <div className="aspect-video bg-black">
-              {embedUrl ? (
+              {embedState.status === "available" ? (
                 <iframe
-                  src={embedUrl}
+                  src={embedState.url}
                   title={film.title ?? "Film video"}
                   className="h-full w-full"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   sandbox="allow-scripts allow-same-origin allow-presentation"
-                  tabIndex={-1}
                   allowFullScreen
                 />
               ) : (
