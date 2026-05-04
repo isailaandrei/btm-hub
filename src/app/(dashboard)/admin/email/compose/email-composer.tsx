@@ -14,6 +14,10 @@ import {
 } from "../templates/email-designer";
 import { getTemplateVersionForEditorAction } from "../templates/actions";
 import { sendEmailNowAction } from "../actions";
+import {
+  BROADCAST_CONFIRMATION_MESSAGE,
+  requiresBroadcastConfirmation,
+} from "./broadcast-confirmation";
 import { getRecipientSummary } from "./recipient-summary";
 
 export function EmailComposer({
@@ -40,6 +44,7 @@ export function EmailComposer({
   const [document, setDocument] = useState<MailyDocument>(() =>
     createDefaultMailyDocument(),
   );
+  const [isBroadcastConfirmOpen, setIsBroadcastConfirmOpen] = useState(false);
   const [isLoadingTemplate, startLoadTransition] = useTransition();
   const [isSending, startSendTransition] = useTransition();
   const designerRef = useRef<EmailDesignerHandle>(null);
@@ -70,7 +75,7 @@ export function EmailComposer({
     });
   }, [selectedTemplateVersionId]);
 
-  function handleSendNow() {
+  function startSendNow() {
     if (!selectedTemplateVersionId) {
       toast.error("Select a published template first.");
       return;
@@ -97,6 +102,23 @@ export function EmailComposer({
         );
       }
     });
+  }
+
+  function handleSendNow() {
+    if (!selectedTemplateVersionId) {
+      toast.error("Select a published template first.");
+      return;
+    }
+    if (requiresBroadcastConfirmation(kind)) {
+      setIsBroadcastConfirmOpen(true);
+      return;
+    }
+    startSendNow();
+  }
+
+  function handleConfirmBroadcastSend() {
+    setIsBroadcastConfirmOpen(false);
+    startSendNow();
   }
 
   const recipientSummary = getRecipientSummary({
@@ -198,6 +220,48 @@ export function EmailComposer({
         sourceDocument={document}
         onDocumentChange={setDocument}
       />
+
+      {isBroadcastConfirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="broadcast-confirm-title"
+            className="w-full max-w-md rounded-md border border-border bg-background p-5 shadow-lg"
+          >
+            <h2
+              id="broadcast-confirm-title"
+              className="text-base font-medium text-foreground"
+            >
+              Confirm broadcast
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              {BROADCAST_CONFIRMATION_MESSAGE}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBroadcastConfirmOpen(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground"
+                disabled={isSending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBroadcastSend}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                disabled={isSending}
+              >
+                {isSending ? "Sending..." : "Send broadcast"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
