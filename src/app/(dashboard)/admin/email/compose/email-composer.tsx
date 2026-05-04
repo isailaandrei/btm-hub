@@ -63,8 +63,6 @@ export function EmailComposer({
         );
         if (!version) return;
         const nextDocument = parseMailyDocumentOrDefault(version.builderJson);
-        setSubject(version.subject);
-        setPreviewText(version.previewText);
         setDocument(nextDocument);
         designerRef.current?.loadDocument(nextDocument);
       } catch (error) {

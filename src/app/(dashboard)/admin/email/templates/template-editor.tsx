@@ -8,7 +8,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { EmailTemplate } from "@/types/database";
 import {
@@ -16,8 +16,8 @@ import {
   parseMailyDocumentOrDefault,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
-import { CreateTemplateForm } from "./create-template-form";
 import {
+  createAndPublishTemplateAction,
   deleteTemplateAction,
   getTemplateVersionForEditorAction,
   publishTemplateVersionAction,
@@ -37,8 +37,9 @@ export function TemplateEditor({
   const [selectedTemplateId, setSelectedTemplateId] = useState(
     templates[0]?.id ?? "",
   );
-  const [subject, setSubject] = useState("Hello {{contact.name}}");
-  const [previewText, setPreviewText] = useState("");
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
   const [document, setDocument] = useState<MailyDocument>(() =>
     createDefaultMailyDocument(),
   );
@@ -53,62 +54,83 @@ export function TemplateEditor({
   );
 
   useEffect(() => {
+    if (isCreatingTemplate) return;
     if (!selectedTemplate?.current_version_id) return;
+    let isActive = true;
 
     startLoadTransition(async () => {
       try {
         const version = await getTemplateVersionForEditorAction(
           selectedTemplate.current_version_id!,
         );
-        if (!version) return;
+        if (!isActive || !version) return;
         const nextDocument = parseMailyDocumentOrDefault(version.builderJson);
-        setSubject(version.subject);
-        setPreviewText(version.previewText);
         setDocument(nextDocument);
         designerRef.current?.loadDocument(nextDocument);
       } catch (error) {
+        if (!isActive) return;
         toast.error(
           error instanceof Error ? error.message : "Failed to load template.",
         );
       }
     });
-  }, [selectedTemplate?.current_version_id]);
+
+    return () => {
+      isActive = false;
+    };
+  }, [isCreatingTemplate, selectedTemplate?.current_version_id]);
 
   const resetEditor = useCallback(() => {
     const fresh = createDefaultMailyDocument();
-    setSubject("Hello {{contact.name}}");
-    setPreviewText("");
     setDocument(fresh);
     designerRef.current?.loadDocument(fresh);
   }, []);
 
   function handleSelectTemplate(template: EmailTemplate) {
+    setIsCreatingTemplate(false);
     setSelectedTemplateId(template.id);
     if (!template.current_version_id) {
       resetEditor();
     }
   }
 
-  const handleCreated = useCallback((template: EmailTemplate) => {
-    setLocalTemplates((current) => prependTemplateOnce(current, template));
-    setSelectedTemplateId(template.id);
+  const handleAddTemplate = useCallback(() => {
+    setIsCreatingTemplate(true);
+    setSelectedTemplateId("");
+    setDraftName("");
+    setDraftDescription("");
     resetEditor();
   }, [resetEditor]);
 
   function handlePublish() {
-    if (!selectedTemplateId) {
-      toast.error("Create or select a template first.");
-      return;
-    }
-
     startPublishTransition(async () => {
       try {
         const snapshot = designerRef.current?.getSnapshot();
+        const builderJson = snapshot?.builderJson ?? document;
+
+        if (isCreatingTemplate) {
+          const result = await createAndPublishTemplateAction({
+            name: draftName,
+            description: draftDescription,
+            builderJson,
+          });
+          setLocalTemplates((current) =>
+            prependTemplateOnce(current, result.template),
+          );
+          setSelectedTemplateId(result.template.id);
+          setIsCreatingTemplate(false);
+          toast.success("Template created.");
+          return;
+        }
+
+        if (!selectedTemplateId) {
+          toast.error("Create or select a template first.");
+          return;
+        }
+
         const result = await publishTemplateVersionAction({
           templateId: selectedTemplateId,
-          subject,
-          previewText,
-          builderJson: snapshot?.builderJson ?? document,
+          builderJson,
         });
         setLocalTemplates((current) =>
           current.map((template) =>
@@ -155,17 +177,27 @@ export function TemplateEditor({
 
   return (
     <div className="flex flex-col gap-5">
-      <CreateTemplateForm onCreated={handleCreated} />
-
       <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="rounded-md border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
             <h3 className="text-sm font-medium text-foreground">Templates</h3>
+            <button
+              type="button"
+              onClick={handleAddTemplate}
+              className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                isCreatingTemplate
+                  ? "bg-primary text-primary-foreground"
+                  : "border border-border bg-background text-foreground hover:bg-muted"
+              }`}
+            >
+              <Plus className="h-4 w-4" />
+              Add new template
+            </button>
           </div>
           <div className="max-h-[760px] overflow-auto p-2">
             {localTemplates.length === 0 ? (
               <p className="px-2 py-6 text-sm text-muted-foreground">
-                Create a template to start designing.
+                Add a template to start designing.
               </p>
             ) : (
               localTemplates.map((template) => (
@@ -189,57 +221,97 @@ export function TemplateEditor({
           </div>
         </aside>
 
-        <section className="min-w-0 rounded-md border border-border bg-card p-4">
-          <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(240px,1fr)_minmax(240px,1fr)_auto_auto]">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                Subject
-              </span>
-              <input
-                value={subject}
-                onChange={(event) => setSubject(event.target.value)}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                Preview text
-              </span>
-              <input
-                value={previewText}
-                onChange={(event) => setPreviewText(event.target.value)}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              />
-            </label>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={handlePublish}
-                disabled={isPublishing || isLoadingVersion}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {isPublishing ? "Publishing..." : "Publish"}
-              </button>
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={!selectedTemplateId || isDeleting}
-                className="inline-flex items-center gap-2 rounded-md border border-destructive/60 px-3 py-2 text-sm font-medium text-destructive disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </button>
-            </div>
-          </div>
+        {!isCreatingTemplate && !selectedTemplate ? (
+          <section className="flex min-h-[760px] min-w-0 items-center justify-center rounded-md border border-border bg-card p-6">
+            <p className="text-sm text-muted-foreground">
+              Select a template or add a new one.
+            </p>
+          </section>
+        ) : (
+          <section className="min-w-0 rounded-md border border-border bg-card p-4">
+            <div className="mb-4 flex flex-col gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-medium text-foreground">
+                    {isCreatingTemplate
+                      ? "New template"
+                      : selectedTemplate?.name}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isCreatingTemplate
+                      ? "Name the reusable design and build the email body."
+                      : selectedTemplate?.description ||
+                        "Reusable visual email design."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={
+                      isPublishing ||
+                      isLoadingVersion ||
+                      (isCreatingTemplate && !draftName.trim())
+                    }
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                  >
+                    {isPublishing
+                      ? isCreatingTemplate
+                        ? "Creating..."
+                        : "Publishing..."
+                      : isCreatingTemplate
+                        ? "Create template"
+                        : "Publish changes"}
+                  </button>
+                  {!isCreatingTemplate && (
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={!selectedTemplateId || isDeleting}
+                      className="inline-flex items-center gap-2 rounded-md border border-destructive/60 px-3 py-2 text-sm font-medium text-destructive disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
 
-          <EmailDesigner
-            ref={designerRef}
-            sourceDocument={document}
-            onDocumentChange={setDocument}
-          />
-        </section>
+              {isCreatingTemplate && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                      Name
+                    </span>
+                    <input
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                      Description
+                    </span>
+                    <input
+                      value={draftDescription}
+                      onChange={(event) =>
+                        setDraftDescription(event.target.value)
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <EmailDesigner
+              ref={designerRef}
+              sourceDocument={document}
+              onDocumentChange={setDocument}
+            />
+          </section>
+        )}
       </div>
     </div>
   );
