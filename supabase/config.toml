@@ -120,6 +120,11 @@ allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
 public = true
 file_size_limit = "20MiB"
 
+[storage.buckets.email-assets]
+public = true
+file_size_limit = "5MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
 enabled = true

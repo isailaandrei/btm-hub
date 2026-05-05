@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import type { ContactEvent, ContactEventType } from "@/types/database";
 
@@ -35,6 +36,12 @@ export interface CreateContactEventInput {
   authorName: string;
 }
 
+export interface CreateSystemContactEventInput extends CreateContactEventInput {
+  metadata?: Record<string, unknown>;
+}
+
+export type EmailTimelineDeliveryStatus = "pending" | "delivered" | "not_delivered";
+
 export async function createContactEvent(input: CreateContactEventInput) {
   await requireAdmin();
   const supabase = await createClient();
@@ -54,6 +61,71 @@ export async function createContactEvent(input: CreateContactEventInput) {
 
   if (error) throw new Error(`Failed to create contact event: ${error.message}`);
   return data as ContactEvent;
+}
+
+export async function createSystemContactEvent(
+  input: CreateSystemContactEventInput,
+) {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("contact_events")
+    .insert({
+      contact_id: input.contactId,
+      type: input.type,
+      custom_label: input.customLabel,
+      body: input.body,
+      happened_at: input.happenedAt,
+      author_id: input.authorId,
+      author_name: input.authorName,
+      metadata: input.metadata ?? {},
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new Error(`Failed to create contact event: ${error.message}`);
+  return data as ContactEvent;
+}
+
+export async function updateEmailSentContactEventDeliveryStatus(input: {
+  recipientId: string;
+  deliveryStatus: EmailTimelineDeliveryStatus;
+  occurredAt: string;
+}): Promise<void> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("contact_events")
+    .select("id, metadata")
+    .eq("type", "custom")
+    .eq("metadata->>source", "email_sends")
+    .eq("metadata->>recipient_id", input.recipientId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load email contact event: ${error.message}`);
+  }
+  if (!data) return;
+
+  const metadata =
+    data.metadata && typeof data.metadata === "object" && !Array.isArray(data.metadata)
+      ? (data.metadata as Record<string, unknown>)
+      : {};
+  const { error: updateError } = await supabase
+    .from("contact_events")
+    .update({
+      metadata: {
+        ...metadata,
+        delivery_status: input.deliveryStatus,
+        delivery_status_at: input.occurredAt,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", data.id);
+
+  if (updateError) {
+    throw new Error(
+      `Failed to update email contact event: ${updateError.message}`,
+    );
+  }
 }
 
 export interface UpdateContactEventInput {

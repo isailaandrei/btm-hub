@@ -1,0 +1,368 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockGetContacts = vi.fn();
+const mockCreateEmailSendWithRecipients = vi.fn();
+const mockListEmailEventsForSend = vi.fn();
+const mockListEmailSendRecipients = vi.fn();
+const mockListActiveEmailSuppressions = vi.fn();
+const mockListContactEmailPreferences = vi.fn();
+const mockDeleteRemovableEmailSend = vi.fn();
+const mockQueueEmailSend = vi.fn();
+const mockGetEmailTemplateVersion = vi.fn();
+const mockRenderMailyDocument = vi.fn();
+const mockAssertMailyDocument = vi.fn((document: unknown) => document);
+const mockGetEmailProvider = vi.fn();
+const mockGetEmailWorkerSecret = vi.fn();
+const mockProcessEmailSendChunks = vi.fn();
+const mockTriggerEmailWorker = vi.fn();
+const mockAfter = vi.fn();
+const mockRequireAdmin = vi.fn();
+const mockRevalidatePath = vi.fn();
+
+vi.mock("@/lib/data/contacts", () => ({
+  getContacts: mockGetContacts,
+}));
+
+vi.mock("@/lib/data/email-sends", () => ({
+  createEmailSendWithRecipients: mockCreateEmailSendWithRecipients,
+  deleteRemovableEmailSend: mockDeleteRemovableEmailSend,
+  listEmailEventsForSend: mockListEmailEventsForSend,
+  listEmailSendRecipients: mockListEmailSendRecipients,
+  listActiveEmailSuppressions: mockListActiveEmailSuppressions,
+  listContactEmailPreferences: mockListContactEmailPreferences,
+  queueEmailSend: mockQueueEmailSend,
+}));
+
+vi.mock("@/lib/data/email-templates", () => ({
+  getEmailTemplateVersion: mockGetEmailTemplateVersion,
+}));
+
+vi.mock("@/lib/email/rendering/maily", () => ({
+  assertMailyDocument: mockAssertMailyDocument,
+  renderMailyDocument: mockRenderMailyDocument,
+}));
+
+vi.mock("@/lib/email/provider", () => ({
+  getEmailProvider: mockGetEmailProvider,
+}));
+
+vi.mock("@/lib/email/settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/email/settings")>()),
+  getEmailWorkerSecret: mockGetEmailWorkerSecret,
+}));
+
+vi.mock("@/lib/email/send-pipeline", () => ({
+  processEmailSendChunks: mockProcessEmailSendChunks,
+}));
+
+vi.mock("@/lib/email/worker-trigger", () => ({
+  triggerEmailWorker: mockTriggerEmailWorker,
+}));
+
+vi.mock("@/lib/auth/require-admin", () => ({
+  requireAdmin: mockRequireAdmin,
+}));
+
+vi.mock("next/cache", () => ({
+  revalidatePath: mockRevalidatePath,
+}));
+
+vi.mock("next/server", () => ({
+  after: mockAfter,
+}));
+
+const {
+  createEmailDraftAction,
+  getEmailSendDiagnosticsAction,
+  previewEmailAction,
+  sendEmailNowAction,
+} = await import("./actions");
+
+const CONTACT_ONE = {
+  id: "550e8400-e29b-41d4-a716-446655440001",
+  email: "one@example.com",
+  name: "One",
+  phone: null,
+  profile_id: null,
+  created_at: "2026-05-01T00:00:00.000Z",
+  updated_at: "2026-05-01T00:00:00.000Z",
+};
+
+const CONTACT_TWO = {
+  id: "550e8400-e29b-41d4-a716-446655440002",
+  email: "two@example.com",
+  name: "Two",
+  phone: null,
+  profile_id: null,
+  created_at: "2026-05-01T00:00:00.000Z",
+  updated_at: "2026-05-01T00:00:00.000Z",
+};
+
+const TEMPLATE_VERSION_ID = "550e8400-e29b-41d4-a716-446655440010";
+
+beforeEach(() => {
+  delete process.env.EMAIL_FROM_EMAIL;
+  delete process.env.EMAIL_FROM_NAME;
+  delete process.env.EMAIL_REPLY_TO_EMAIL;
+  mockGetContacts.mockReset().mockResolvedValue([CONTACT_ONE, CONTACT_TWO]);
+  mockListActiveEmailSuppressions.mockReset().mockResolvedValue([]);
+  mockListContactEmailPreferences.mockReset().mockResolvedValue([]);
+  mockGetEmailTemplateVersion.mockReset().mockResolvedValue({
+    id: TEMPLATE_VERSION_ID,
+    builder_json: { type: "doc", content: [] },
+  });
+  mockRenderMailyDocument.mockReset().mockResolvedValue({
+    html: "<p>Hello {{contact.name}}</p>",
+    text: "Hello {{contact.name}}",
+  });
+  mockCreateEmailSendWithRecipients.mockReset().mockResolvedValue({
+    id: "send-1",
+  });
+  mockListEmailEventsForSend.mockReset().mockResolvedValue([]);
+  mockListEmailSendRecipients.mockReset().mockResolvedValue([]);
+  mockDeleteRemovableEmailSend.mockReset().mockResolvedValue(true);
+  mockQueueEmailSend.mockReset().mockResolvedValue({ id: "send-1" });
+  mockGetEmailProvider.mockReset().mockReturnValue({ name: "fake" });
+  mockGetEmailWorkerSecret.mockReset().mockReturnValue("worker-secret");
+  mockProcessEmailSendChunks.mockReset().mockResolvedValue({
+    processed: 1,
+    hasMore: false,
+  });
+  mockTriggerEmailWorker.mockReset();
+  mockAfter.mockReset();
+  mockRequireAdmin.mockReset().mockResolvedValue({ id: "admin-1" });
+  mockRevalidatePath.mockReset();
+});
+
+describe("previewEmailAction", () => {
+  it("previews selected outreach recipients and skipped suppressions", async () => {
+    mockListActiveEmailSuppressions.mockResolvedValue([
+      {
+        contact_id: CONTACT_TWO.id,
+        email: CONTACT_TWO.email,
+        lifted_at: null,
+      },
+    ]);
+
+    const result = await previewEmailAction({
+      kind: "outreach",
+      contactIds: [CONTACT_ONE.id, CONTACT_TWO.id],
+      subject: "Hello",
+      templateVersionId: TEMPLATE_VERSION_ID,
+    });
+
+    expect(result.eligibleCount).toBe(1);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        contactId: CONTACT_TWO.id,
+        reason: "suppressed",
+      }),
+    ]);
+    expect(mockRequireAdmin).toHaveBeenCalled();
+  });
+});
+
+describe("createEmailDraftAction", () => {
+  it("creates a draft send with eligible and skipped recipient rows", async () => {
+    mockListContactEmailPreferences.mockResolvedValue([
+      {
+        contact_id: CONTACT_TWO.id,
+        newsletter_unsubscribed_at: "2026-05-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await createEmailDraftAction({
+      kind: "broadcast",
+      subject: "Hello {{contact.name}}",
+      templateVersionId: TEMPLATE_VERSION_ID,
+      builderJson: { type: "doc", content: [] },
+    });
+
+    expect(mockCreateEmailSendWithRecipients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "broadcast",
+        name: "Hello {{contact.name}}",
+        subjectTemplate: "Hello {{contact.name}}",
+        builderJsonSnapshot: { type: "doc", content: [] },
+        recipients: [
+          expect.objectContaining({
+            contactId: CONTACT_ONE.id,
+            status: "pending",
+          }),
+          expect.objectContaining({
+            contactId: CONTACT_TWO.id,
+            status: "skipped_unsubscribed",
+            skipReason: "newsletter_unsubscribed",
+          }),
+        ],
+      }),
+    );
+    expect(result).toEqual({ sendId: "send-1" });
+  });
+});
+
+describe("sendEmailNowAction", () => {
+  it("creates and queues an email send in one action", async () => {
+    const result = await sendEmailNowAction({
+      kind: "outreach",
+      subject: "Hello {{contact.name}}",
+      templateVersionId: TEMPLATE_VERSION_ID,
+      builderJson: { type: "doc", content: [] },
+      contactIds: [CONTACT_ONE.id],
+    });
+
+    expect(mockCreateEmailSendWithRecipients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "outreach",
+        subjectTemplate: "Hello {{contact.name}}",
+      }),
+    );
+    expect(mockQueueEmailSend).toHaveBeenCalledWith("send-1");
+    expect(mockAfter).toHaveBeenCalled();
+    expect(result).toEqual({ sendId: "send-1" });
+  });
+
+  it("fails before creating large sends when worker continuation is disabled", async () => {
+    mockGetEmailWorkerSecret.mockReturnValue(null);
+    mockGetContacts.mockResolvedValue(
+      Array.from({ length: 501 }, (_, index) => ({
+        ...CONTACT_ONE,
+        id: `550e8400-e29b-41d4-a716-44665544${String(index).padStart(4, "0")}`,
+        email: `contact-${index}@example.com`,
+      })),
+    );
+
+    await expect(
+      sendEmailNowAction({
+        kind: "broadcast",
+        subject: "Hello {{contact.name}}",
+        templateVersionId: TEMPLATE_VERSION_ID,
+        builderJson: { type: "doc", content: [] },
+      }),
+    ).rejects.toThrow("EMAIL_WORKER_SECRET must be set");
+
+    expect(mockCreateEmailSendWithRecipients).not.toHaveBeenCalled();
+  });
+});
+
+describe("getEmailSendDiagnosticsAction", () => {
+  it("returns recipient statuses and provider errors for troubleshooting", async () => {
+    const sendId = "550e8400-e29b-41d4-a716-446655440020";
+    mockListEmailSendRecipients.mockResolvedValue([
+      {
+        id: "recipient-1",
+        email: "test@example.com",
+        contact_name_snapshot: "Test Contact",
+        status: "failed",
+        skip_reason: null,
+        provider: "brevo",
+        provider_message_id: null,
+        provider_metadata: {
+          providerRecipientEmail: "isailaandrei.i@gmail.com",
+          testRecipientOverride: true,
+        },
+        send_attempts: 3,
+        last_error: "Brevo send failed: sender not verified",
+        sent_at: "2026-05-01T00:00:00.000Z",
+        delivered_at: null,
+        opened_at: "2026-05-01T00:02:00.000Z",
+        clicked_at: "2026-05-01T00:03:00.000Z",
+        bounced_at: null,
+        complained_at: null,
+        unsubscribed_at: null,
+        updated_at: "2026-05-01T00:00:00.000Z",
+      },
+      {
+        id: "recipient-2",
+        email: "bounce@example.com",
+        contact_name_snapshot: "Bounced Contact",
+        status: "bounced",
+        skip_reason: null,
+        provider: "brevo",
+        provider_message_id: "message-2",
+        provider_metadata: {},
+        send_attempts: 1,
+        last_error: null,
+        sent_at: "2026-05-01T00:00:00.000Z",
+        delivered_at: null,
+        opened_at: null,
+        clicked_at: null,
+        bounced_at: "2026-05-01T00:04:00.000Z",
+        complained_at: null,
+        unsubscribed_at: null,
+        updated_at: "2026-05-01T00:04:00.000Z",
+      },
+    ]);
+    mockListEmailEventsForSend.mockResolvedValue([
+      {
+        id: "event-1",
+        send_id: sendId,
+        recipient_id: "recipient-2",
+        contact_id: "contact-2",
+        type: "bounced",
+        provider: "brevo",
+        provider_event_id: "bounce-event-1",
+        provider_message_id: "message-2",
+        event_fingerprint: "fingerprint-1",
+        occurred_at: "2026-05-01T00:04:00.000Z",
+        payload: {
+          event: "hard_bounce",
+          reason: "mailbox does not exist",
+        },
+        created_at: "2026-05-01T00:04:00.000Z",
+      },
+    ]);
+
+    const result = await getEmailSendDiagnosticsAction(sendId);
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockListEmailSendRecipients).toHaveBeenCalledWith(sendId);
+    expect(mockListEmailEventsForSend).toHaveBeenCalledWith(sendId);
+    expect(result.recipients).toEqual([
+      {
+        id: "recipient-1",
+        email: "test@example.com",
+        name: "Test Contact",
+        status: "failed",
+        skipReason: null,
+        provider: "brevo",
+        providerMessageId: null,
+        providerRecipientEmail: "isailaandrei.i@gmail.com",
+        testRecipientOverride: true,
+        attempts: 3,
+        lastError: "Brevo send failed: sender not verified",
+        failureReason: "Brevo send failed: sender not verified",
+        sentAt: "2026-05-01T00:00:00.000Z",
+        deliveredAt: null,
+        openedAt: "2026-05-01T00:02:00.000Z",
+        clickedAt: "2026-05-01T00:03:00.000Z",
+        bouncedAt: null,
+        complainedAt: null,
+        unsubscribedAt: null,
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      },
+      {
+        id: "recipient-2",
+        email: "bounce@example.com",
+        name: "Bounced Contact",
+        status: "bounced",
+        skipReason: null,
+        provider: "brevo",
+        providerMessageId: "message-2",
+        providerRecipientEmail: null,
+        testRecipientOverride: false,
+        attempts: 1,
+        lastError: null,
+        failureReason: "Brevo hard bounce: mailbox does not exist",
+        sentAt: "2026-05-01T00:00:00.000Z",
+        deliveredAt: null,
+        openedAt: null,
+        clickedAt: null,
+        bouncedAt: "2026-05-01T00:04:00.000Z",
+        complainedAt: null,
+        unsubscribedAt: null,
+        updatedAt: "2026-05-01T00:04:00.000Z",
+      },
+    ]);
+  });
+});

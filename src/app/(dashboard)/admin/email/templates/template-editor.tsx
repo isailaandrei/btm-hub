@@ -1,0 +1,343 @@
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import type { EmailTemplate } from "@/types/database";
+import {
+  assertMailyDocument,
+  createDefaultMailyDocument,
+  type MailyDocument,
+} from "@/lib/email/rendering/maily";
+import {
+  createAndPublishTemplateAction,
+  deleteTemplateAction,
+  getTemplateVersionForEditorAction,
+  publishTemplateVersionAction,
+} from "./actions";
+import {
+  EmailDesigner,
+  type EmailDesignerHandle,
+} from "./email-designer";
+import { prependTemplateOnce } from "./template-list-state";
+
+export function TemplateEditor({
+  templates,
+}: {
+  templates: EmailTemplate[];
+}) {
+  const [localTemplates, setLocalTemplates] = useState(templates);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(
+    templates[0]?.id ?? "",
+  );
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [document, setDocument] = useState<MailyDocument>(() =>
+    createDefaultMailyDocument(),
+  );
+  const [templateLoadError, setTemplateLoadError] = useState<{
+    versionId: string;
+    message: string;
+  } | null>(null);
+  const [isLoadingVersion, startLoadTransition] = useTransition();
+  const [isPublishing, startPublishTransition] = useTransition();
+  const [isDeleting, startDeleteTransition] = useTransition();
+  const designerRef = useRef<EmailDesignerHandle>(null);
+
+  const selectedTemplate = useMemo(
+    () => localTemplates.find((template) => template.id === selectedTemplateId),
+    [localTemplates, selectedTemplateId],
+  );
+  const selectedTemplateVersionId = selectedTemplate?.current_version_id ?? "";
+  const activeTemplateLoadError =
+    templateLoadError?.versionId === selectedTemplateVersionId
+      ? templateLoadError.message
+      : null;
+
+  useEffect(() => {
+    if (isCreatingTemplate) return;
+    if (!selectedTemplateVersionId) return;
+    let isActive = true;
+
+    startLoadTransition(async () => {
+      try {
+        const version = await getTemplateVersionForEditorAction(
+          selectedTemplateVersionId,
+        );
+        if (!isActive || !version) return;
+        const nextDocument = assertMailyDocument(version.builderJson);
+        setDocument(nextDocument);
+        setTemplateLoadError(null);
+        designerRef.current?.loadDocument(nextDocument);
+      } catch (error) {
+        if (!isActive) return;
+        const message =
+          error instanceof Error ? error.message : "Failed to load template.";
+        setTemplateLoadError({
+          versionId: selectedTemplateVersionId,
+          message,
+        });
+        toast.error(
+          message,
+        );
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isCreatingTemplate, selectedTemplateVersionId]);
+
+  const resetEditor = useCallback(() => {
+    const fresh = createDefaultMailyDocument();
+    setDocument(fresh);
+    designerRef.current?.loadDocument(fresh);
+  }, []);
+
+  function handleSelectTemplate(template: EmailTemplate) {
+    setIsCreatingTemplate(false);
+    setTemplateLoadError(null);
+    setSelectedTemplateId(template.id);
+    if (!template.current_version_id) {
+      resetEditor();
+    }
+  }
+
+  const handleAddTemplate = useCallback(() => {
+    setIsCreatingTemplate(true);
+    setTemplateLoadError(null);
+    setSelectedTemplateId("");
+    setDraftName("");
+    setDraftDescription("");
+    resetEditor();
+  }, [resetEditor]);
+
+  function handlePublish() {
+    startPublishTransition(async () => {
+      try {
+        const snapshot = designerRef.current?.getSnapshot();
+        const builderJson = snapshot?.builderJson ?? document;
+
+        if (isCreatingTemplate) {
+          const result = await createAndPublishTemplateAction({
+            name: draftName,
+            description: draftDescription,
+            builderJson,
+          });
+          setLocalTemplates((current) =>
+            prependTemplateOnce(current, result.template),
+          );
+          setSelectedTemplateId(result.template.id);
+          setIsCreatingTemplate(false);
+          toast.success("Template created.");
+          return;
+        }
+
+        if (!selectedTemplateId) {
+          toast.error("Create or select a template first.");
+          return;
+        }
+
+        const result = await publishTemplateVersionAction({
+          templateId: selectedTemplateId,
+          builderJson,
+        });
+        setLocalTemplates((current) =>
+          current.map((template) =>
+            template.id === selectedTemplateId
+              ? {
+                  ...template,
+                  status: "published",
+                  current_version_id: result.versionId,
+                  updated_at: new Date().toISOString(),
+                }
+              : template,
+          ),
+        );
+        toast.success("Template published.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to publish template.",
+        );
+      }
+    });
+  }
+
+  function handleDelete() {
+    if (!selectedTemplateId) return;
+    startDeleteTransition(async () => {
+      try {
+        await deleteTemplateAction(selectedTemplateId);
+        setLocalTemplates((current) =>
+          current.filter((template) => template.id !== selectedTemplateId),
+        );
+        const nextTemplate = localTemplates.find(
+          (template) => template.id !== selectedTemplateId,
+        );
+        setSelectedTemplateId(nextTemplate?.id ?? "");
+        if (!nextTemplate?.current_version_id) resetEditor();
+        toast.success("Template deleted.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to delete template.",
+        );
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="rounded-md border border-border bg-card">
+          <div className="border-b border-border px-4 py-3">
+            <h3 className="text-sm font-medium text-foreground">Templates</h3>
+            <button
+              type="button"
+              onClick={handleAddTemplate}
+              className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                isCreatingTemplate
+                  ? "bg-primary text-primary-foreground"
+                  : "border border-border bg-background text-foreground hover:bg-muted"
+              }`}
+            >
+              <Plus className="h-4 w-4" />
+              Add new template
+            </button>
+          </div>
+          <div className="max-h-[760px] overflow-auto p-2">
+            {localTemplates.length === 0 ? (
+              <p className="px-2 py-6 text-sm text-muted-foreground">
+                Add a template to start designing.
+              </p>
+            ) : (
+              localTemplates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => handleSelectTemplate(template)}
+                  className={`mb-1 w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                    template.id === selectedTemplateId
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted"
+                  }`}
+                >
+                  <span className="block font-medium">{template.name}</span>
+                  <span className="block truncate text-xs opacity-75">
+                    {template.description || template.category}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+
+        {!isCreatingTemplate && !selectedTemplate ? (
+          <section className="flex min-h-[760px] min-w-0 items-center justify-center rounded-md border border-border bg-card p-6">
+            <p className="text-sm text-muted-foreground">
+              Select a template or add a new one.
+            </p>
+          </section>
+        ) : (
+          <section className="min-w-0 rounded-md border border-border bg-card p-4">
+            <div className="mb-4 flex flex-col gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-medium text-foreground">
+                    {isCreatingTemplate
+                      ? "New template"
+                      : selectedTemplate?.name}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isCreatingTemplate
+                      ? "Name the reusable design and build the email body."
+                      : selectedTemplate?.description ||
+                        "Reusable visual email design."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={
+                      isPublishing ||
+                      isLoadingVersion ||
+                      Boolean(activeTemplateLoadError) ||
+                      (isCreatingTemplate && !draftName.trim())
+                    }
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                  >
+                    {isPublishing
+                      ? isCreatingTemplate
+                        ? "Creating..."
+                        : "Publishing..."
+                      : isCreatingTemplate
+                        ? "Create template"
+                        : "Publish changes"}
+                  </button>
+                  {!isCreatingTemplate && (
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={!selectedTemplateId || isDeleting}
+                      className="inline-flex items-center gap-2 rounded-md border border-destructive/60 px-3 py-2 text-sm font-medium text-destructive disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {isCreatingTemplate && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                      Name
+                    </span>
+                    <input
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                      Description
+                    </span>
+                    <input
+                      value={draftDescription}
+                      onChange={(event) =>
+                        setDraftDescription(event.target.value)
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <EmailDesigner
+              ref={designerRef}
+              sourceDocument={document}
+              onDocumentChange={setDocument}
+            />
+            {activeTemplateLoadError && (
+              <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                This saved template version is invalid. Select another template
+                or create a new one.
+              </p>
+            )}
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
