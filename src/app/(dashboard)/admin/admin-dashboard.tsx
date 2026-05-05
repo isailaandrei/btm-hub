@@ -16,7 +16,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
   { key: "email", label: "Email" },
-  { key: "ai", label: "AI Analyst" },
 ];
 
 export function AdminDashboard({
