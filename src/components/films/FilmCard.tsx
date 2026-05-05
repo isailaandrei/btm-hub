@@ -52,7 +52,7 @@ export function FilmCard({ film, onSelect }: FilmCardProps) {
   return (
     <article
       className={cn(
-        "group relative aspect-video w-[78vw] max-w-[340px] shrink-0 overflow-hidden rounded-lg bg-neutral-900 text-left shadow-sm ring-1 ring-white/10 transition-transform duration-200 hover:z-10 hover:scale-[1.03] focus-within:z-10 focus-within:scale-[1.03] focus-within:ring-2 focus-within:ring-ring sm:w-[320px]"
+        "group relative aspect-video w-[78vw] max-w-[340px] shrink-0 transform-gpu overflow-hidden rounded-lg bg-neutral-900 text-left shadow-sm ring-1 ring-white/10 transition-transform duration-300 ease-out hover:z-10 hover:scale-[1.08] focus-within:z-10 focus-within:scale-[1.08] focus-within:ring-2 focus-within:ring-ring sm:w-[320px]"
       )}
     >
       <button

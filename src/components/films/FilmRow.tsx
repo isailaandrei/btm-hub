@@ -64,7 +64,7 @@ export function FilmRow({ row, onSelectFilm }: FilmRowProps) {
 
       <div
         ref={scrollerRef}
-        className="-mx-5 flex gap-4 overflow-x-auto px-5 pb-5 pt-1 [scrollbar-width:none] md:-mx-8 md:px-8 [&::-webkit-scrollbar]:hidden"
+        className="-mx-5 flex gap-5 overflow-x-auto px-5 pb-8 pt-4 [scrollbar-width:none] md:-mx-8 md:px-8 [&::-webkit-scrollbar]:hidden"
       >
         {row.films.map((film) => (
           <FilmCard key={film._id} film={film} onSelect={onSelectFilm} />
