@@ -13,7 +13,6 @@ type Tab = "contacts" | "tags" | "ai";
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
-  { key: "ai", label: "AI Analyst" },
 ];
 
 export function AdminDashboard({
