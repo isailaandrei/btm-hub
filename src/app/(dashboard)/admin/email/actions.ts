@@ -10,6 +10,7 @@ import {
   deleteRemovableEmailSend,
   listActiveEmailSuppressions,
   listContactEmailPreferences,
+  listEmailEventsForSend,
   listEmailSendRecipients,
   queueEmailSend,
 } from "@/lib/data/email-sends";
@@ -23,14 +24,16 @@ import {
   getEmailFromEmail,
   getEmailFromName,
   getEmailReplyToEmail,
+  getEmailWorkerSecret,
 } from "@/lib/email/settings";
 import { getEmailProvider } from "@/lib/email/provider";
 import { processEmailSendChunks } from "@/lib/email/send-pipeline";
 import { triggerEmailWorker } from "@/lib/email/worker-trigger";
 import { validateUUID } from "@/lib/validation-helpers";
-import type { EmailSendKind } from "@/types/database";
+import type { EmailEvent, EmailSendKind } from "@/types/database";
 
 const emailKindSchema = z.enum(["broadcast", "outreach"]);
+const INLINE_SEND_CAPACITY = 25 * 20;
 
 const previewEmailSchema = z.object({
   kind: emailKindSchema,
@@ -136,9 +139,14 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     resolvePreview(input),
   ]);
   if (!templateVersion) throw new Error("Template version not found");
+  if (preview.eligible.length > INLINE_SEND_CAPACITY && !getEmailWorkerSecret()) {
+    throw new Error(
+      "EMAIL_WORKER_SECRET must be set before sending more than 500 recipients.",
+    );
+  }
 
   const document = assertMailyDocument(input.builderJson);
-  const previewText = input.previewText ?? templateVersion.preview_text;
+  const previewText = input.previewText ?? "";
   const rendered = await renderMailyDocument(document, {
     previewText,
   });
@@ -271,8 +279,10 @@ export type EmailSendDiagnostics = {
     testRecipientOverride: boolean;
     attempts: number;
     lastError: string | null;
+    failureReason: string | null;
     sentAt: string | null;
     deliveredAt: string | null;
+    openedAt: string | null;
     clickedAt: string | null;
     bouncedAt: string | null;
     complainedAt: string | null;
@@ -291,13 +301,65 @@ function readProviderRecipientMetadata(metadata: Record<string, unknown>) {
   };
 }
 
+function readStringPayloadField(
+  payload: Record<string, unknown>,
+  keys: string[],
+) {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return null;
+}
+
+function formatProviderEventName(event: EmailEvent) {
+  const rawEvent = readStringPayloadField(event.payload, ["event"]) ?? event.type;
+  return rawEvent.replaceAll("_", " ");
+}
+
+function formatProviderName(provider: string | null) {
+  if (provider === "brevo") return "Brevo";
+  return provider ?? "Provider";
+}
+
+function formatProviderFailureReason(event: EmailEvent) {
+  const reason = readStringPayloadField(event.payload, [
+    "reason",
+    "description",
+    "message",
+    "error",
+    "error_code",
+  ]);
+  if (!reason) return null;
+  return `${formatProviderName(event.provider)} ${formatProviderEventName(
+    event,
+  )}: ${reason}`;
+}
+
+function buildFailureReasonsByRecipient(events: EmailEvent[]) {
+  const reasons = new Map<string, string>();
+  for (const event of events) {
+    if (!event.recipient_id || reasons.has(event.recipient_id)) continue;
+    const reason = formatProviderFailureReason(event);
+    if (reason) reasons.set(event.recipient_id, reason);
+  }
+  return reasons;
+}
+
 export async function getEmailSendDiagnosticsAction(
   sendId: string,
 ): Promise<EmailSendDiagnostics> {
   await requireAdmin();
   validateUUID(sendId, "email send");
 
-  const recipients = await listEmailSendRecipients(sendId);
+  const [recipients, events] = await Promise.all([
+    listEmailSendRecipients(sendId),
+    listEmailEventsForSend(sendId),
+  ]);
+  const failureReasons = buildFailureReasonsByRecipient(events);
   return {
     recipients: recipients.map((recipient) => {
       const providerMetadata = readProviderRecipientMetadata(
@@ -314,8 +376,11 @@ export async function getEmailSendDiagnosticsAction(
         ...providerMetadata,
         attempts: recipient.send_attempts,
         lastError: recipient.last_error,
+        failureReason:
+          recipient.last_error ?? failureReasons.get(recipient.id) ?? null,
         sentAt: recipient.sent_at,
         deliveredAt: recipient.delivered_at,
+        openedAt: recipient.opened_at,
         clickedAt: recipient.clicked_at,
         bouncedAt: recipient.bounced_at,
         complainedAt: recipient.complained_at,

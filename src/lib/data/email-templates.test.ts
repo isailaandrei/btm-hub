@@ -84,8 +84,6 @@ describe("email template data access", () => {
     const { createEmailTemplateVersion } = await import("./email-templates");
     const result = await createEmailTemplateVersion({
       templateId: "template-1",
-      subject: "Hello {{contact.name}}",
-      previewText: "Preview",
       builderJson: { type: "doc", content: [] },
       html: "<p>Hello {{contact.name}}</p>",
       text: "Hello {{contact.name}}",
@@ -96,8 +94,6 @@ describe("email template data access", () => {
       "create_email_template_version",
       {
         p_template_id: "template-1",
-        p_subject: "Hello {{contact.name}}",
-        p_preview_text: "Preview",
         p_builder_json: { type: "doc", content: [] },
         p_html: "<p>Hello {{contact.name}}</p>",
         p_text: "Hello {{contact.name}}",

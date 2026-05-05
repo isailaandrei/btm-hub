@@ -123,6 +123,27 @@ describe("email send data access", () => {
     expect(result).toBe(recipients);
   });
 
+  it("loads email events for send diagnostics ordered newest first", async () => {
+    const events = [{ id: "event-1", type: "bounced" }];
+    mockSupabase.mockQueryResult(events);
+
+    const { listEmailEventsForSend } = await import("./email-sends");
+    const result = await listEmailEventsForSend("send-1");
+
+    expect(mockSupabase.client.from).toHaveBeenCalledWith("email_events");
+    expect(mockSupabase.query.select).toHaveBeenCalledWith("*");
+    expect(mockSupabase.query.eq).toHaveBeenCalledWith("send_id", "send-1");
+    expect(mockSupabase.query.in).toHaveBeenCalledWith("type", [
+      "bounced",
+      "failed",
+      "delivery_delayed",
+    ]);
+    expect(mockSupabase.query.order).toHaveBeenCalledWith("occurred_at", {
+      ascending: false,
+    });
+    expect(result).toBe(events);
+  });
+
   it("deletes only removable email sends", async () => {
     mockSupabase.mockQueryResult({ id: "send-1" });
 

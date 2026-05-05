@@ -41,6 +41,9 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
       return "delivered";
     case "deferred":
       return "delivery_delayed";
+    case "opened":
+    case "unique_opened":
+      return "opened";
     case "click":
       return "clicked";
     case "hard_bounce":
@@ -48,7 +51,8 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
       return "bounced";
     case "soft_bounce":
     case "blocked":
-      return "delivery_delayed";
+    case "error":
+      return "failed";
     case "spam":
       return "complained";
     case "unsubscribed":
@@ -108,7 +112,7 @@ export function createBrevoEmailProvider(
           htmlContent: input.html,
           textContent: input.text,
           headers: {
-            "Idempotency-Key": `${input.sendId}:${input.recipientId}`,
+            idempotencyKey: input.recipientId,
             "X-Mailin-custom": JSON.stringify(input.metadata),
           },
           tags: ["btm-admin-email", input.sendId],

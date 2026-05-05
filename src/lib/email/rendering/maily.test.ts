@@ -84,4 +84,29 @@ describe("Maily rendering", () => {
       "550e8400-e29b-41d4-a716-446655440001",
     ]);
   });
+
+  it("extracts referenced asset public URLs from uploaded image nodes", async () => {
+    const { getAssetPublicUrlsForMailyDocument } = await import("./maily");
+    const document = {
+      type: "doc",
+      content: [
+        {
+          type: "image",
+          attrs: {
+            src: "https://cdn.example.com/email-assets/header.png",
+          },
+        },
+        {
+          type: "image",
+          attrs: {
+            src: "",
+          },
+        },
+      ],
+    };
+
+    expect(
+      getAssetPublicUrlsForMailyDocument(assertMailyDocument(document)),
+    ).toEqual(["https://cdn.example.com/email-assets/header.png"]);
+  });
 });

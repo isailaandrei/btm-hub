@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
+import { listEmailAssetIdsByPublicUrls } from "@/lib/data/email-assets";
 import {
   archiveEmailTemplate,
   createEmailTemplate,
@@ -12,6 +13,7 @@ import {
 import {
   assertMailyDocument,
   getAssetIdsForMailyDocument,
+  getAssetPublicUrlsForMailyDocument,
   renderMailyDocument,
 } from "@/lib/email/rendering/maily";
 import { validateUUID } from "@/lib/validation-helpers";
@@ -36,9 +38,6 @@ const publishTemplateVersionSchema = z.object({
   templateId: z.string().min(1, "Template is required"),
   builderJson: z.unknown(),
 });
-
-const TEMPLATE_VERSION_SUBJECT = "";
-const TEMPLATE_VERSION_PREVIEW_TEXT = "";
 
 export async function publishTemplateVersionAction(input: {
   templateId: string;
@@ -125,17 +124,17 @@ async function createVisualTemplateVersion(
 ) {
   validateUUID(templateId, "template");
   const document = assertMailyDocument(builderJson);
-  const assetIds = getAssetIdsForMailyDocument(document);
+  const explicitAssetIds = getAssetIdsForMailyDocument(document);
+  const uploadedAssetIds = await listEmailAssetIdsByPublicUrls(
+    getAssetPublicUrlsForMailyDocument(document),
+  );
+  const assetIds = [...new Set([...explicitAssetIds, ...uploadedAssetIds])];
   for (const assetId of assetIds) validateUUID(assetId, "asset");
 
-  const rendered = await renderMailyDocument(document, {
-    previewText: TEMPLATE_VERSION_PREVIEW_TEXT,
-  });
+  const rendered = await renderMailyDocument(document);
 
   return createEmailTemplateVersion({
     templateId,
-    subject: TEMPLATE_VERSION_SUBJECT,
-    previewText: TEMPLATE_VERSION_PREVIEW_TEXT,
     builderJson: document as Record<string, unknown>,
     html: rendered.html,
     text: rendered.text,

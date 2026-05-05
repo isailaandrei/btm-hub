@@ -4,8 +4,10 @@ const mockArchiveEmailTemplate = vi.fn();
 const mockCreateEmailTemplate = vi.fn();
 const mockCreateEmailTemplateVersion = vi.fn();
 const mockGetEmailTemplateVersion = vi.fn();
+const mockListEmailAssetIdsByPublicUrls = vi.fn();
 const mockAssertMailyDocument = vi.fn((document: unknown) => document);
 const mockGetAssetIdsForMailyDocument = vi.fn();
+const mockGetAssetPublicUrlsForMailyDocument = vi.fn();
 const mockRenderMailyDocument = vi.fn();
 const mockRequireAdmin = vi.fn();
 const mockRevalidatePath = vi.fn();
@@ -17,9 +19,14 @@ vi.mock("@/lib/data/email-templates", () => ({
   getEmailTemplateVersion: mockGetEmailTemplateVersion,
 }));
 
+vi.mock("@/lib/data/email-assets", () => ({
+  listEmailAssetIdsByPublicUrls: mockListEmailAssetIdsByPublicUrls,
+}));
+
 vi.mock("@/lib/email/rendering/maily", () => ({
   assertMailyDocument: mockAssertMailyDocument,
   getAssetIdsForMailyDocument: mockGetAssetIdsForMailyDocument,
+  getAssetPublicUrlsForMailyDocument: mockGetAssetPublicUrlsForMailyDocument,
   renderMailyDocument: mockRenderMailyDocument,
 }));
 
@@ -57,11 +64,11 @@ beforeEach(() => {
   mockGetEmailTemplateVersion.mockReset().mockResolvedValue({
     id: VERSION_ID,
     builder_json: BUILDER_JSON,
-    subject: "Legacy template subject",
-    preview_text: "Legacy preview",
   });
   mockAssertMailyDocument.mockClear();
   mockGetAssetIdsForMailyDocument.mockReset().mockReturnValue([]);
+  mockGetAssetPublicUrlsForMailyDocument.mockReset().mockReturnValue([]);
+  mockListEmailAssetIdsByPublicUrls.mockReset().mockResolvedValue([]);
   mockRenderMailyDocument.mockReset().mockResolvedValue({
     html: "<p>Hello</p>",
     text: "Hello",
@@ -80,14 +87,10 @@ describe("publishTemplateVersionAction", () => {
     expect(mockCreateEmailTemplateVersion).toHaveBeenCalledWith(
       expect.objectContaining({
         templateId: TEMPLATE_ID,
-        subject: "",
-        previewText: "",
         builderJson: BUILDER_JSON,
       }),
     );
-    expect(mockRenderMailyDocument).toHaveBeenCalledWith(BUILDER_JSON, {
-      previewText: "",
-    });
+    expect(mockRenderMailyDocument).toHaveBeenCalledWith(BUILDER_JSON);
     expect(result).toEqual({ ok: true, versionId: VERSION_ID });
   });
 });
@@ -108,8 +111,6 @@ describe("createAndPublishTemplateAction", () => {
     expect(mockCreateEmailTemplateVersion).toHaveBeenCalledWith(
       expect.objectContaining({
         templateId: TEMPLATE_ID,
-        subject: "",
-        previewText: "",
         builderJson: BUILDER_JSON,
       }),
     );
@@ -135,6 +136,26 @@ describe("createAndPublishTemplateAction", () => {
       description: undefined,
       category: "general",
     });
+  });
+
+  it("resolves uploaded image URLs into template asset ids", async () => {
+    mockGetAssetPublicUrlsForMailyDocument.mockReturnValue([
+      "https://cdn.example.com/email-assets/header.png",
+    ]);
+    mockListEmailAssetIdsByPublicUrls.mockResolvedValue([
+      "550e8400-e29b-41d4-a716-446655440041",
+    ]);
+
+    await createAndPublishTemplateAction({
+      name: "Image frame",
+      builderJson: BUILDER_JSON,
+    });
+
+    expect(mockCreateEmailTemplateVersion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetIds: ["550e8400-e29b-41d4-a716-446655440041"],
+      }),
+    );
   });
 });
 

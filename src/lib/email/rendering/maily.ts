@@ -212,3 +212,23 @@ export function getAssetIdsForMailyDocument(document: MailyDocument): string[] {
   visit(document);
   return [...ids];
 }
+
+export function getAssetPublicUrlsForMailyDocument(
+  document: MailyDocument,
+): string[] {
+  const urls = new Set<string>();
+
+  function visit(node: unknown) {
+    if (!isRecord(node)) return;
+    const attrs = isRecord(node.attrs) ? node.attrs : null;
+    if (typeof attrs?.src === "string" && attrs.src.trim()) {
+      urls.add(attrs.src.trim());
+    }
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) visit(child);
+    }
+  }
+
+  visit(document);
+  return [...urls];
+}

@@ -28,6 +28,7 @@ CREATE TYPE email_event_type AS ENUM (
   'sent',
   'delivered',
   'delivery_delayed',
+  'opened',
   'clicked',
   'bounced',
   'complained',
@@ -61,8 +62,6 @@ CREATE TABLE email_template_versions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   template_id uuid NOT NULL REFERENCES email_templates(id) ON DELETE CASCADE,
   version_number integer NOT NULL,
-  subject text NOT NULL CHECK (char_length(trim(subject)) > 0 AND char_length(subject) <= 200),
-  preview_text text NOT NULL DEFAULT '' CHECK (char_length(preview_text) <= 200),
   builder_json jsonb NOT NULL,
   html text NOT NULL,
   text text NOT NULL,
@@ -136,6 +135,7 @@ CREATE TABLE email_sends (
   skipped_count integer NOT NULL DEFAULT 0,
   sent_count integer NOT NULL DEFAULT 0,
   delivered_count integer NOT NULL DEFAULT 0,
+  opened_count integer NOT NULL DEFAULT 0,
   clicked_count integer NOT NULL DEFAULT 0,
   bounced_count integer NOT NULL DEFAULT 0,
   complained_count integer NOT NULL DEFAULT 0,
@@ -168,6 +168,7 @@ CREATE TABLE email_send_recipients (
   sending_started_at timestamptz,
   sent_at timestamptz,
   delivered_at timestamptz,
+  opened_at timestamptz,
   clicked_at timestamptz,
   bounced_at timestamptz,
   complained_at timestamptz,
@@ -307,8 +308,6 @@ CREATE POLICY "Admins can delete email assets" ON storage.objects
 
 CREATE OR REPLACE FUNCTION create_email_template_version(
   p_template_id uuid,
-  p_subject text,
-  p_preview_text text,
   p_builder_json jsonb,
   p_html text,
   p_text text,
@@ -335,8 +334,6 @@ BEGIN
   INSERT INTO email_template_versions (
     template_id,
     version_number,
-    subject,
-    preview_text,
     builder_json,
     html,
     text,
@@ -346,8 +343,6 @@ BEGIN
   VALUES (
     p_template_id,
     v_version_number,
-    p_subject,
-    p_preview_text,
     p_builder_json,
     p_html,
     p_text,
@@ -600,8 +595,12 @@ BEGIN
   UPDATE email_send_recipients r
   SET
     delivered_at = CASE
-      WHEN p_timestamp_field = 'delivered_at' THEN coalesce(r.delivered_at, p_occurred_at)
+      WHEN p_timestamp_field IN ('delivered_at', 'opened_at', 'clicked_at') THEN coalesce(r.delivered_at, p_occurred_at)
       ELSE r.delivered_at
+    END,
+    opened_at = CASE
+      WHEN p_timestamp_field = 'opened_at' THEN coalesce(r.opened_at, p_occurred_at)
+      ELSE r.opened_at
     END,
     clicked_at = CASE
       WHEN p_timestamp_field = 'clicked_at' THEN coalesce(r.clicked_at, p_occurred_at)
@@ -622,6 +621,14 @@ BEGIN
     status = CASE
       WHEN p_status = 'complained' THEN 'complained'::email_recipient_status
       WHEN p_status = 'bounced' AND r.status <> 'complained' THEN 'bounced'::email_recipient_status
+      WHEN p_status = 'failed'
+        AND r.status NOT IN (
+          'complained',
+          'bounced',
+          'unsubscribed',
+          'skipped_unsubscribed',
+          'skipped_suppressed'
+        ) THEN 'failed'::email_recipient_status
       WHEN r.status IN (
         'complained',
         'bounced',
@@ -750,6 +757,7 @@ BEGIN
     count(*) FILTER (WHERE status IN ('skipped_unsubscribed', 'skipped_suppressed')) AS skipped_count,
     count(*) FILTER (WHERE sent_at IS NOT NULL) AS sent_count,
     count(*) FILTER (WHERE delivered_at IS NOT NULL) AS delivered_count,
+    count(*) FILTER (WHERE opened_at IS NOT NULL) AS opened_count,
     count(*) FILTER (WHERE clicked_at IS NOT NULL) AS clicked_count,
     count(*) FILTER (WHERE bounced_at IS NOT NULL OR status = 'bounced') AS bounced_count,
     count(*) FILTER (WHERE complained_at IS NOT NULL OR status = 'complained') AS complained_count,
@@ -768,6 +776,7 @@ BEGIN
     skipped_count = coalesce(v_counts.skipped_count, 0),
     sent_count = coalesce(v_counts.sent_count, 0),
     delivered_count = coalesce(v_counts.delivered_count, 0),
+    opened_count = coalesce(v_counts.opened_count, 0),
     clicked_count = coalesce(v_counts.clicked_count, 0),
     bounced_count = coalesce(v_counts.bounced_count, 0),
     complained_count = coalesce(v_counts.complained_count, 0),

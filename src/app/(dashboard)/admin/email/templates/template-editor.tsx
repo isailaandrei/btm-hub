@@ -12,8 +12,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { EmailTemplate } from "@/types/database";
 import {
+  assertMailyDocument,
   createDefaultMailyDocument,
-  parseMailyDocumentOrDefault,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import {
@@ -43,6 +43,10 @@ export function TemplateEditor({
   const [document, setDocument] = useState<MailyDocument>(() =>
     createDefaultMailyDocument(),
   );
+  const [templateLoadError, setTemplateLoadError] = useState<{
+    versionId: string;
+    message: string;
+  } | null>(null);
   const [isLoadingVersion, startLoadTransition] = useTransition();
   const [isPublishing, startPublishTransition] = useTransition();
   const [isDeleting, startDeleteTransition] = useTransition();
@@ -52,25 +56,37 @@ export function TemplateEditor({
     () => localTemplates.find((template) => template.id === selectedTemplateId),
     [localTemplates, selectedTemplateId],
   );
+  const selectedTemplateVersionId = selectedTemplate?.current_version_id ?? "";
+  const activeTemplateLoadError =
+    templateLoadError?.versionId === selectedTemplateVersionId
+      ? templateLoadError.message
+      : null;
 
   useEffect(() => {
     if (isCreatingTemplate) return;
-    if (!selectedTemplate?.current_version_id) return;
+    if (!selectedTemplateVersionId) return;
     let isActive = true;
 
     startLoadTransition(async () => {
       try {
         const version = await getTemplateVersionForEditorAction(
-          selectedTemplate.current_version_id!,
+          selectedTemplateVersionId,
         );
         if (!isActive || !version) return;
-        const nextDocument = parseMailyDocumentOrDefault(version.builderJson);
+        const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
+        setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
       } catch (error) {
         if (!isActive) return;
+        const message =
+          error instanceof Error ? error.message : "Failed to load template.";
+        setTemplateLoadError({
+          versionId: selectedTemplateVersionId,
+          message,
+        });
         toast.error(
-          error instanceof Error ? error.message : "Failed to load template.",
+          message,
         );
       }
     });
@@ -78,7 +94,7 @@ export function TemplateEditor({
     return () => {
       isActive = false;
     };
-  }, [isCreatingTemplate, selectedTemplate?.current_version_id]);
+  }, [isCreatingTemplate, selectedTemplateVersionId]);
 
   const resetEditor = useCallback(() => {
     const fresh = createDefaultMailyDocument();
@@ -88,6 +104,7 @@ export function TemplateEditor({
 
   function handleSelectTemplate(template: EmailTemplate) {
     setIsCreatingTemplate(false);
+    setTemplateLoadError(null);
     setSelectedTemplateId(template.id);
     if (!template.current_version_id) {
       resetEditor();
@@ -96,6 +113,7 @@ export function TemplateEditor({
 
   const handleAddTemplate = useCallback(() => {
     setIsCreatingTemplate(true);
+    setTemplateLoadError(null);
     setSelectedTemplateId("");
     setDraftName("");
     setDraftDescription("");
@@ -251,6 +269,7 @@ export function TemplateEditor({
                     disabled={
                       isPublishing ||
                       isLoadingVersion ||
+                      Boolean(activeTemplateLoadError) ||
                       (isCreatingTemplate && !draftName.trim())
                     }
                     className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
@@ -310,6 +329,12 @@ export function TemplateEditor({
               sourceDocument={document}
               onDocumentChange={setDocument}
             />
+            {activeTemplateLoadError && (
+              <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                This saved template version is invalid. Select another template
+                or create a new one.
+              </p>
+            )}
           </section>
         )}
       </div>

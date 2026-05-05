@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetContacts = vi.fn();
 const mockCreateEmailSendWithRecipients = vi.fn();
+const mockListEmailEventsForSend = vi.fn();
 const mockListEmailSendRecipients = vi.fn();
 const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
@@ -11,6 +12,7 @@ const mockGetEmailTemplateVersion = vi.fn();
 const mockRenderMailyDocument = vi.fn();
 const mockAssertMailyDocument = vi.fn((document: unknown) => document);
 const mockGetEmailProvider = vi.fn();
+const mockGetEmailWorkerSecret = vi.fn();
 const mockProcessEmailSendChunks = vi.fn();
 const mockTriggerEmailWorker = vi.fn();
 const mockAfter = vi.fn();
@@ -24,6 +26,7 @@ vi.mock("@/lib/data/contacts", () => ({
 vi.mock("@/lib/data/email-sends", () => ({
   createEmailSendWithRecipients: mockCreateEmailSendWithRecipients,
   deleteRemovableEmailSend: mockDeleteRemovableEmailSend,
+  listEmailEventsForSend: mockListEmailEventsForSend,
   listEmailSendRecipients: mockListEmailSendRecipients,
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
@@ -41,6 +44,11 @@ vi.mock("@/lib/email/rendering/maily", () => ({
 
 vi.mock("@/lib/email/provider", () => ({
   getEmailProvider: mockGetEmailProvider,
+}));
+
+vi.mock("@/lib/email/settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/email/settings")>()),
+  getEmailWorkerSecret: mockGetEmailWorkerSecret,
 }));
 
 vi.mock("@/lib/email/send-pipeline", () => ({
@@ -101,7 +109,6 @@ beforeEach(() => {
   mockListContactEmailPreferences.mockReset().mockResolvedValue([]);
   mockGetEmailTemplateVersion.mockReset().mockResolvedValue({
     id: TEMPLATE_VERSION_ID,
-    preview_text: "Preview",
     builder_json: { type: "doc", content: [] },
   });
   mockRenderMailyDocument.mockReset().mockResolvedValue({
@@ -111,10 +118,12 @@ beforeEach(() => {
   mockCreateEmailSendWithRecipients.mockReset().mockResolvedValue({
     id: "send-1",
   });
+  mockListEmailEventsForSend.mockReset().mockResolvedValue([]);
   mockListEmailSendRecipients.mockReset().mockResolvedValue([]);
   mockDeleteRemovableEmailSend.mockReset().mockResolvedValue(true);
   mockQueueEmailSend.mockReset().mockResolvedValue({ id: "send-1" });
   mockGetEmailProvider.mockReset().mockReturnValue({ name: "fake" });
+  mockGetEmailWorkerSecret.mockReset().mockReturnValue("worker-secret");
   mockProcessEmailSendChunks.mockReset().mockResolvedValue({
     processed: 1,
     hasMore: false,
@@ -212,6 +221,28 @@ describe("sendEmailNowAction", () => {
     expect(mockAfter).toHaveBeenCalled();
     expect(result).toEqual({ sendId: "send-1" });
   });
+
+  it("fails before creating large sends when worker continuation is disabled", async () => {
+    mockGetEmailWorkerSecret.mockReturnValue(null);
+    mockGetContacts.mockResolvedValue(
+      Array.from({ length: 501 }, (_, index) => ({
+        ...CONTACT_ONE,
+        id: `550e8400-e29b-41d4-a716-44665544${String(index).padStart(4, "0")}`,
+        email: `contact-${index}@example.com`,
+      })),
+    );
+
+    await expect(
+      sendEmailNowAction({
+        kind: "broadcast",
+        subject: "Hello {{contact.name}}",
+        templateVersionId: TEMPLATE_VERSION_ID,
+        builderJson: { type: "doc", content: [] },
+      }),
+    ).rejects.toThrow("EMAIL_WORKER_SECRET must be set");
+
+    expect(mockCreateEmailSendWithRecipients).not.toHaveBeenCalled();
+  });
 });
 
 describe("getEmailSendDiagnosticsAction", () => {
@@ -234,11 +265,51 @@ describe("getEmailSendDiagnosticsAction", () => {
         last_error: "Brevo send failed: sender not verified",
         sent_at: "2026-05-01T00:00:00.000Z",
         delivered_at: null,
+        opened_at: "2026-05-01T00:02:00.000Z",
         clicked_at: "2026-05-01T00:03:00.000Z",
         bounced_at: null,
         complained_at: null,
         unsubscribed_at: null,
         updated_at: "2026-05-01T00:00:00.000Z",
+      },
+      {
+        id: "recipient-2",
+        email: "bounce@example.com",
+        contact_name_snapshot: "Bounced Contact",
+        status: "bounced",
+        skip_reason: null,
+        provider: "brevo",
+        provider_message_id: "message-2",
+        provider_metadata: {},
+        send_attempts: 1,
+        last_error: null,
+        sent_at: "2026-05-01T00:00:00.000Z",
+        delivered_at: null,
+        opened_at: null,
+        clicked_at: null,
+        bounced_at: "2026-05-01T00:04:00.000Z",
+        complained_at: null,
+        unsubscribed_at: null,
+        updated_at: "2026-05-01T00:04:00.000Z",
+      },
+    ]);
+    mockListEmailEventsForSend.mockResolvedValue([
+      {
+        id: "event-1",
+        send_id: sendId,
+        recipient_id: "recipient-2",
+        contact_id: "contact-2",
+        type: "bounced",
+        provider: "brevo",
+        provider_event_id: "bounce-event-1",
+        provider_message_id: "message-2",
+        event_fingerprint: "fingerprint-1",
+        occurred_at: "2026-05-01T00:04:00.000Z",
+        payload: {
+          event: "hard_bounce",
+          reason: "mailbox does not exist",
+        },
+        created_at: "2026-05-01T00:04:00.000Z",
       },
     ]);
 
@@ -246,6 +317,7 @@ describe("getEmailSendDiagnosticsAction", () => {
 
     expect(mockRequireAdmin).toHaveBeenCalled();
     expect(mockListEmailSendRecipients).toHaveBeenCalledWith(sendId);
+    expect(mockListEmailEventsForSend).toHaveBeenCalledWith(sendId);
     expect(result.recipients).toEqual([
       {
         id: "recipient-1",
@@ -259,13 +331,37 @@ describe("getEmailSendDiagnosticsAction", () => {
         testRecipientOverride: true,
         attempts: 3,
         lastError: "Brevo send failed: sender not verified",
+        failureReason: "Brevo send failed: sender not verified",
         sentAt: "2026-05-01T00:00:00.000Z",
         deliveredAt: null,
+        openedAt: "2026-05-01T00:02:00.000Z",
         clickedAt: "2026-05-01T00:03:00.000Z",
         bouncedAt: null,
         complainedAt: null,
         unsubscribedAt: null,
         updatedAt: "2026-05-01T00:00:00.000Z",
+      },
+      {
+        id: "recipient-2",
+        email: "bounce@example.com",
+        name: "Bounced Contact",
+        status: "bounced",
+        skipReason: null,
+        provider: "brevo",
+        providerMessageId: "message-2",
+        providerRecipientEmail: null,
+        testRecipientOverride: false,
+        attempts: 1,
+        lastError: null,
+        failureReason: "Brevo hard bounce: mailbox does not exist",
+        sentAt: "2026-05-01T00:00:00.000Z",
+        deliveredAt: null,
+        openedAt: null,
+        clickedAt: null,
+        bouncedAt: "2026-05-01T00:04:00.000Z",
+        complainedAt: null,
+        unsubscribedAt: null,
+        updatedAt: "2026-05-01T00:04:00.000Z",
       },
     ]);
   });

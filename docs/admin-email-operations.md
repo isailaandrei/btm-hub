@@ -20,6 +20,9 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 for local testing only and is rejected when `VERCEL_ENV=production` or
 `EMAIL_REQUIRE_REAL_PROVIDER=true`.
 
+`EMAIL_TEST_RECIPIENT_OVERRIDE` may be used locally to route all provider sends
+to one inbox. It is rejected in production and real-provider mode.
+
 Required for Brevo testing:
 
 ```bash
@@ -39,8 +42,17 @@ deployment URL when available.
 Configure the Brevo transactional webhook URL as:
 
 ```text
-https://<domain>/api/email/webhooks/brevo?token=<BREVO_WEBHOOK_TOKEN>
+https://<domain>/api/email/webhooks/brevo
 ```
+
+Configure Brevo to send this header:
+
+```text
+x-brevo-webhook-token: <BREVO_WEBHOOK_TOKEN>
+```
+
+Query-string webhook tokens are accepted for local tunnel testing only. They are
+rejected in production.
 
 The route fails closed:
 
@@ -49,12 +61,29 @@ The route fails closed:
 - malformed JSON: `400`
 
 Brevo events are correlated by provider message ID. Do not rely on email +
-subject matching.
+subject matching. The webhook can also reconcile early events from the
+`X-Mailin-custom` metadata sent with each message.
+
+Recommended transactional email events:
+
+- Delivered
+- Clicked
+- First opening / Unique opened
+- Hard bounced
+- Soft bounced
+- Invalid
+- Blocked
+- Error
+- Unsubscribed
+- Complaint
+
+Leave regular opened and proxy-open events disabled unless you intentionally
+want noisier open metrics.
 
 ## Sending
 
-The admin UI saves an email draft first. Sending queues recipient rows and then
-processes claimed chunks idempotently:
+The admin UI creates the send record and queues recipient rows in one action.
+The worker then processes claimed chunks idempotently:
 
 ```text
 pending -> queued -> sending -> sent/failed

@@ -68,6 +68,7 @@ function send(overrides: Partial<EmailSend> = {}): EmailSend {
     skipped_count: 0,
     sent_count: 0,
     delivered_count: 0,
+    opened_count: 0,
     clicked_count: 0,
     bounced_count: 0,
     complained_count: 0,
@@ -105,6 +106,7 @@ function recipient(overrides: Partial<EmailSendRecipient> = {}): EmailSendRecipi
     sending_started_at: "2026-05-01T00:00:00.000Z",
     sent_at: null,
     delivered_at: null,
+    opened_at: null,
     clicked_at: null,
     bounced_at: null,
     complained_at: null,
@@ -138,6 +140,8 @@ function provider() {
 describe("processEmailSendChunks", () => {
   beforeEach(() => {
     delete process.env.EMAIL_TEST_RECIPIENT_OVERRIDE;
+    delete process.env.EMAIL_REQUIRE_REAL_PROVIDER;
+    delete process.env.VERCEL_ENV;
     mockClaimQueuedEmailRecipients.mockReset();
     mockGetEmailSendQueueState.mockReset().mockResolvedValue({
       pending: 0,
@@ -259,6 +263,68 @@ describe("processEmailSendChunks", () => {
     expect(sentInputs[0]?.to).toBe("andrei@example.com");
   });
 
+  it("rejects the test recipient override in real-provider mode", async () => {
+    process.env.EMAIL_TEST_RECIPIENT_OVERRIDE = "andrei@example.com";
+    process.env.EMAIL_REQUIRE_REAL_PROVIDER = "true";
+    const { emailProvider } = provider();
+    mockClaimQueuedEmailRecipients
+      .mockResolvedValueOnce([recipient()])
+      .mockResolvedValueOnce([]);
+
+    await processEmailSendChunks({
+      sendId: "send-1",
+      provider: emailProvider,
+      chunkSize: 25,
+      maxChunks: 2,
+    });
+
+    expect(mockMarkEmailRecipientFailed).toHaveBeenCalledWith(
+      "recipient-1",
+      expect.stringContaining(
+        "EMAIL_TEST_RECIPIENT_OVERRIDE is not allowed in production",
+      ),
+    );
+  });
+
+  it("provides owner variables at render time", async () => {
+    const { emailProvider, sentInputs } = provider();
+    mockGetEmailSendForWorker.mockResolvedValue(
+      send({
+        from_name: "BTM Owner",
+        from_email: "owner@example.com",
+        subject_template: "A note from {{owner.name}}",
+        builder_json_snapshot: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "Reply to " },
+                {
+                  type: "variable",
+                  attrs: { id: "owner.email", fallback: "the owner" },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    mockClaimQueuedEmailRecipients
+      .mockResolvedValueOnce([recipient()])
+      .mockResolvedValueOnce([]);
+
+    await processEmailSendChunks({
+      sendId: "send-1",
+      provider: emailProvider,
+      chunkSize: 25,
+      maxChunks: 2,
+    });
+
+    expect(sentInputs[0]?.subject).toBe("A note from BTM Owner");
+    expect(sentInputs[0]?.text).toContain("owner@example.com");
+  });
+
   it("does not request immediate continuation for non-stale sending rows", async () => {
     const { emailProvider } = provider();
     mockClaimQueuedEmailRecipients.mockResolvedValueOnce([]);
@@ -297,7 +363,11 @@ describe("processEmailSendChunks", () => {
       {
         provider: "fake",
         providerMessageId: "message-recipient-1",
-        providerMetadata: { accepted: true },
+        providerMetadata: {
+          providerRecipientEmail: "maya@example.com",
+          providerResponse: { accepted: true },
+          testRecipientOverride: false,
+        },
         message: "database write failed",
       },
     );

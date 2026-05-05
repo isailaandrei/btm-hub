@@ -80,6 +80,21 @@ export const listEmailSendRecipients = cache(
   },
 );
 
+export const listEmailEventsForSend = cache(
+  async function listEmailEventsForSend(sendId: string): Promise<EmailEvent[]> {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("email_events")
+      .select("*")
+      .eq("send_id", sendId)
+      .in("type", ["bounced", "failed", "delivery_delayed"])
+      .order("occurred_at", { ascending: false });
+
+    if (error) throw new Error(`Failed to load email events: ${error.message}`);
+    return (data ?? []) as EmailEvent[];
+  },
+);
+
 export async function createEmailSendWithRecipients(input: {
   kind: EmailSendKind;
   name: string;
@@ -182,13 +197,17 @@ export async function markEmailRecipientSent(
   },
 ): Promise<void> {
   const supabase = await createAdminClient();
+  const providerMetadata = await readRecipientProviderMetadata(recipientId);
   const { error } = await supabase
     .from("email_send_recipients")
     .update({
       status: "sent",
       provider: input.provider,
       provider_message_id: input.providerMessageId,
-      provider_metadata: input.providerMetadata,
+      provider_metadata: {
+        ...providerMetadata,
+        ...input.providerMetadata,
+      },
       rendered_subject: input.renderedSubject,
       rendered_html: input.renderedHtml,
       rendered_text: input.renderedText,
@@ -200,6 +219,27 @@ export async function markEmailRecipientSent(
     .eq("id", recipientId);
 
   if (error) throw new Error(`Failed to mark email recipient sent: ${error.message}`);
+}
+
+async function readRecipientProviderMetadata(
+  recipientId: string,
+): Promise<Record<string, unknown>> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("email_send_recipients")
+    .select("provider_metadata")
+    .eq("id", recipientId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load email recipient metadata: ${error.message}`);
+  }
+
+  const metadata = (data as { provider_metadata?: unknown } | null)
+    ?.provider_metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : {};
 }
 
 export async function markEmailRecipientPrepared(
@@ -263,13 +303,17 @@ export async function markEmailRecipientReconciliationNeeded(
   },
 ): Promise<void> {
   const supabase = await createAdminClient();
+  const providerMetadata = await readRecipientProviderMetadata(recipientId);
   const { error } = await supabase
     .from("email_send_recipients")
     .update({
       status: "sent",
       provider: input.provider,
       provider_message_id: input.providerMessageId,
-      provider_metadata: input.providerMetadata,
+      provider_metadata: {
+        ...providerMetadata,
+        ...input.providerMetadata,
+      },
       sent_at: new Date().toISOString(),
       last_error: input.message,
       updated_at: new Date().toISOString(),
@@ -281,6 +325,62 @@ export async function markEmailRecipientReconciliationNeeded(
       `Failed to mark email recipient for reconciliation: ${error.message}`,
     );
   }
+}
+
+export async function attachProviderMessageToRecipient(input: {
+  provider: string;
+  providerMessageId: string;
+  recipientId: string;
+  sendId: string | null;
+  contactId: string | null;
+}): Promise<EmailSendRecipient | null> {
+  const supabase = await createAdminClient();
+  let selectQuery = supabase
+    .from("email_send_recipients")
+    .select("*")
+    .eq("id", input.recipientId);
+  if (input.sendId) selectQuery = selectQuery.eq("send_id", input.sendId);
+  if (input.contactId) {
+    selectQuery = selectQuery.eq("contact_id", input.contactId);
+  }
+
+  const { data: existing, error: selectError } = await selectQuery.maybeSingle();
+  if (selectError) {
+    throw new Error(
+      `Failed to load email recipient for webhook reconciliation: ${selectError.message}`,
+    );
+  }
+  if (!existing) return null;
+
+  const current = existing as EmailSendRecipient;
+  if (
+    current.provider_message_id &&
+    current.provider_message_id !== input.providerMessageId
+  ) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("email_send_recipients")
+    .update({
+      provider: input.provider,
+      provider_message_id: input.providerMessageId,
+      provider_metadata: {
+        ...current.provider_metadata,
+        reconciledFromWebhook: true,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", current.id)
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Failed to attach provider message to recipient: ${error.message}`,
+    );
+  }
+  return data as EmailSendRecipient | null;
 }
 
 export async function appendEmailEvent(input: {
@@ -333,6 +433,7 @@ export async function updateRecipientForProviderEvent(input: {
   status: EmailSendRecipient["status"];
   timestampField:
     | "delivered_at"
+    | "opened_at"
     | "clicked_at"
     | "bounced_at"
     | "complained_at"

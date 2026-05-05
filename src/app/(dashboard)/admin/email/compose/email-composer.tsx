@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { EmailSendKind, EmailTemplate } from "@/types/database";
 import {
+  assertMailyDocument,
   createDefaultMailyDocument,
   type MailyDocument,
-  parseMailyDocumentOrDefault,
 } from "@/lib/email/rendering/maily";
 import {
   EmailDesigner,
@@ -44,6 +44,11 @@ export function EmailComposer({
   const [document, setDocument] = useState<MailyDocument>(() =>
     createDefaultMailyDocument(),
   );
+  const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState("");
+  const [templateLoadError, setTemplateLoadError] = useState<{
+    versionId: string;
+    message: string;
+  } | null>(null);
   const [isBroadcastConfirmOpen, setIsBroadcastConfirmOpen] = useState(false);
   const [isLoadingTemplate, startLoadTransition] = useTransition();
   const [isSending, startSendTransition] = useTransition();
@@ -53,29 +58,65 @@ export function EmailComposer({
     (template) => template.id === selectedTemplateId,
   );
   const selectedTemplateVersionId = selectedTemplate?.current_version_id ?? "";
+  const activeTemplateLoadError =
+    templateLoadError?.versionId === selectedTemplateVersionId
+      ? templateLoadError.message
+      : null;
 
   useEffect(() => {
     if (!selectedTemplateVersionId) return;
+    let isActive = true;
+
     startLoadTransition(async () => {
       try {
         const version = await getTemplateVersionForEditorAction(
           selectedTemplateVersionId,
         );
-        if (!version) return;
-        const nextDocument = parseMailyDocumentOrDefault(version.builderJson);
+        if (!isActive || !version) return;
+        const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
+        setLoadedTemplateVersionId(selectedTemplateVersionId);
+        setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
       } catch (error) {
+        if (!isActive) return;
+        const message =
+          error instanceof Error ? error.message : "Failed to load template.";
+        setTemplateLoadError({
+          versionId: selectedTemplateVersionId,
+          message,
+        });
         toast.error(
-          error instanceof Error ? error.message : "Failed to load template.",
+          message,
         );
       }
     });
+
+    return () => {
+      isActive = false;
+    };
   }, [selectedTemplateVersionId]);
+
+  const isTemplateReady =
+    Boolean(selectedTemplateVersionId) &&
+    loadedTemplateVersionId === selectedTemplateVersionId &&
+    !activeTemplateLoadError;
+  const isOutreachWithoutRecipients =
+    kind === "outreach" && selectedContactIds.length === 0;
 
   function startSendNow() {
     if (!selectedTemplateVersionId) {
       toast.error("Select a published template first.");
+      return;
+    }
+    if (!isTemplateReady) {
+      toast.error(
+        activeTemplateLoadError ?? "Wait for the selected template to load.",
+      );
+      return;
+    }
+    if (isOutreachWithoutRecipients) {
+      toast.error("Select at least one contact before sending outreach.");
       return;
     }
     startSendTransition(async () => {
@@ -105,6 +146,16 @@ export function EmailComposer({
   function handleSendNow() {
     if (!selectedTemplateVersionId) {
       toast.error("Select a published template first.");
+      return;
+    }
+    if (!isTemplateReady) {
+      toast.error(
+        activeTemplateLoadError ?? "Wait for the selected template to load.",
+      );
+      return;
+    }
+    if (isOutreachWithoutRecipients) {
+      toast.error("Select at least one contact before sending outreach.");
       return;
     }
     if (requiresBroadcastConfirmation(kind)) {
@@ -199,6 +250,12 @@ export function EmailComposer({
         sourceDocument={document}
         onDocumentChange={setDocument}
       />
+      {activeTemplateLoadError && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          This template could not be loaded. Select another template or open it
+          in Templates to repair it.
+        </p>
+      )}
 
       <div className="grid gap-4 rounded-md border border-border bg-card p-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
         <div className="min-w-0">
@@ -213,7 +270,12 @@ export function EmailComposer({
         <button
           type="button"
           onClick={handleSendNow}
-          disabled={isSending || isLoadingTemplate}
+          disabled={
+            isSending ||
+            isLoadingTemplate ||
+            !isTemplateReady ||
+            isOutreachWithoutRecipients
+          }
           className="h-[50px] w-[200px] justify-self-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
           {isSending ? "Sending..." : "Send now"}

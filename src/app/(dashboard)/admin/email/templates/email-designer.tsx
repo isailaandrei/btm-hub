@@ -64,6 +64,7 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
             { name: "contact.name", required: false },
             { name: "contact.email", required: false },
             { name: "owner.name", required: false },
+            { name: "owner.email", required: false },
           ],
         }),
         ImageUploadExtension.configure({

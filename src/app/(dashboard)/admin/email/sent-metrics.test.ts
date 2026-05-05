@@ -25,6 +25,7 @@ function send(overrides: Partial<EmailSend> = {}): EmailSend {
     skipped_count: 2,
     sent_count: 10,
     delivered_count: 9,
+    opened_count: 5,
     clicked_count: 3,
     bounced_count: 1,
     complained_count: 1,
@@ -38,14 +39,14 @@ function send(overrides: Partial<EmailSend> = {}): EmailSend {
 }
 
 describe("buildEmailSendMetrics", () => {
-  it("surfaces actionable send metrics and intentionally excludes opens", () => {
+  it("surfaces owner-facing send metrics", () => {
     const metrics = buildEmailSendMetrics(send());
 
     expect(metrics.map((metric) => metric.label)).toEqual([
       "Sent",
       "Delivered",
-      "Clicked",
-      "Bounced",
+      "Opened",
+      "Button clicked",
       "Failed",
       "Skipped",
       "Unsubscribed",
@@ -56,18 +57,30 @@ describe("buildEmailSendMetrics", () => {
     expect(metrics.find((metric) => metric.label === "Unsubscribed")?.value).toBe(
       "2",
     );
-    expect(metrics.some((metric) => metric.label === "Opened")).toBe(false);
+    expect(metrics.find((metric) => metric.label === "Opened")?.value).toBe("5");
+    expect(metrics.find((metric) => metric.label === "Button clicked")?.value).toBe(
+      "3",
+    );
+    expect(metrics.find((metric) => metric.label === "Failed")?.value).toBe(
+      "2",
+    );
+    expect(metrics.some((metric) => metric.label === "Clicked")).toBe(false);
+    expect(metrics.some((metric) => metric.label === "Clicked link")).toBe(false);
+    expect(metrics.some((metric) => metric.label === "Bounced")).toBe(false);
+    expect(metrics.some((metric) => metric.label === "Not received")).toBe(false);
     expect(metrics.some((metric) => metric.label === "Complaints")).toBe(false);
   });
 
   it("defaults missing newer counters to zero for older local rows", () => {
     const legacySend = send() as Partial<EmailSend>;
     delete legacySend.unsubscribed_count;
+    delete legacySend.opened_count;
 
     const metrics = buildEmailSendMetrics(legacySend as EmailSend);
 
     expect(metrics.find((metric) => metric.label === "Unsubscribed")?.value).toBe(
       "0",
     );
+    expect(metrics.find((metric) => metric.label === "Opened")?.value).toBe("0");
   });
 });

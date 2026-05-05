@@ -22,6 +22,7 @@ import {
   buildEmailSendMetrics,
   type EmailSendMetricTone,
 } from "./sent-metrics";
+import { formatEmailSendTiming } from "./sent-date";
 import { TemplateEditor } from "./templates/template-editor";
 
 type EmailTab = "compose" | "templates" | "sent";
@@ -68,8 +69,9 @@ function buildRecipientActivity(
   return [
     ["Sent", recipient.sentAt],
     ["Delivered", recipient.deliveredAt],
-    ["Clicked", recipient.clickedAt],
-    ["Bounced", recipient.bouncedAt],
+    ["Opened", recipient.openedAt],
+    ["Button clicked", recipient.clickedAt],
+    ["Failed", recipient.bouncedAt],
     ["Complained", recipient.complainedAt],
     ["Unsubscribed", recipient.unsubscribedAt],
   ]
@@ -77,6 +79,15 @@ function buildRecipientActivity(
     .filter((item): item is { label: string; value: string } =>
       Boolean(item.value),
     );
+}
+
+function isNotReceivedRecipientStatus(status: string) {
+  return status === "bounced" || status === "failed";
+}
+
+function formatRecipientStatus(status: string) {
+  if (isNotReceivedRecipientStatus(status)) return "failed";
+  return status.replace("_", " ");
 }
 
 export function EmailStudio({
@@ -104,6 +115,7 @@ export function EmailStudio({
 
   useEffect(() => {
     setLocalSends(sends);
+    setDiagnosticsBySendId({});
   }, [sends]);
 
   const hasActiveSends = localSends.some(isActiveSend);
@@ -117,6 +129,7 @@ export function EmailStudio({
   }, [activeTab, hasActiveSends, router]);
 
   function refreshStatuses() {
+    setDiagnosticsBySendId({});
     startRefreshTransition(() => {
       router.refresh();
     });
@@ -255,13 +268,16 @@ export function EmailStudio({
                 const isLoadingThis =
                   isLoadingDiagnostics && loadingDiagnosticsId === send.id;
                 const metrics = buildEmailSendMetrics(send);
+                const sentOn = formatEmailSendTiming(send);
 
                 return (
                   <Fragment key={send.id}>
-                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(220px,0.9fr)_minmax(460px,2fr)_100px_120px_auto] md:items-center">
-                      <p className="min-w-0 truncate font-medium text-foreground">
-                        {send.name}
-                      </p>
+                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(220px,0.9fr)_minmax(460px,2fr)_minmax(190px,auto)_auto] md:items-center">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">
+                          {send.name}
+                        </p>
+                      </div>
                       <div className="flex min-w-0 flex-wrap gap-1.5">
                         {metrics.map((metric) => (
                           <span
@@ -277,20 +293,8 @@ export function EmailStudio({
                           </span>
                         ))}
                       </div>
-                      <span className="capitalize text-muted-foreground">
-                        {send.kind}
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-2 capitalize ${
-                          send.status === "failed"
-                            ? "text-destructive"
-                            : "text-muted-foreground"
-                        }`}
-                      >
-                        {isActiveSend(send) && (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        )}
-                        {send.status.replace("_", " ")}
+                      <span className="text-xs text-muted-foreground">
+                        {sentOn}
                       </span>
                       <div className="flex flex-wrap justify-start gap-2 md:justify-end">
                         <button
@@ -357,12 +361,14 @@ export function EmailStudio({
                                     </div>
                                     <span
                                       className={`rounded border px-2 py-1 text-xs capitalize ${
-                                        recipient.status === "failed"
+                                        isNotReceivedRecipientStatus(
+                                          recipient.status,
+                                        )
                                           ? "border-destructive/40 text-destructive"
                                           : "border-border text-muted-foreground"
                                       }`}
                                     >
-                                      {recipient.status.replace("_", " ")}
+                                      {formatRecipientStatus(recipient.status)}
                                     </span>
                                   </div>
                                   {activity.length > 0 && (
@@ -377,13 +383,14 @@ export function EmailStudio({
                                       ))}
                                     </div>
                                   )}
-                                  {(recipient.lastError ||
+                                  {(recipient.failureReason ||
                                     recipient.skipReason ||
                                     recipient.providerMessageId) && (
                                     <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                                      {recipient.lastError && (
+                                      {recipient.failureReason && (
                                         <p className="text-destructive">
-                                          {recipient.lastError}
+                                          Failure reason:{" "}
+                                          {recipient.failureReason}
                                         </p>
                                       )}
                                       {recipient.providerRecipientEmail && (

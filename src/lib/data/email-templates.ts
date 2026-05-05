@@ -29,8 +29,6 @@ export async function createEmailTemplate(input: {
 
 export async function createEmailTemplateVersion(input: {
   templateId: string;
-  subject: string;
-  previewText: string;
   builderJson: Record<string, unknown>;
   html: string;
   text: string;
@@ -40,8 +38,6 @@ export async function createEmailTemplateVersion(input: {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("create_email_template_version", {
     p_template_id: input.templateId,
-    p_subject: input.subject,
-    p_preview_text: input.previewText,
     p_builder_json: input.builderJson,
     p_html: input.html,
     p_text: input.text,

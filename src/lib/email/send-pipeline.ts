@@ -18,7 +18,7 @@ import {
   renderMailyEmail,
 } from "./rendering/maily";
 import { type EmailRenderVariables } from "./rendering/variables";
-import { getPublicSiteUrl } from "./settings";
+import { getEmailTestRecipientOverride, getPublicSiteUrl } from "./settings";
 
 const DEFAULT_CHUNK_SIZE = 25;
 const DEFAULT_MAX_CHUNKS = 20;
@@ -30,6 +30,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function buildRenderVariables(
+  send: EmailSend,
   recipient: EmailSendRecipient,
   unsubscribeUrl: string | null,
 ): EmailRenderVariables {
@@ -50,6 +51,11 @@ function buildRenderVariables(
     },
     unsubscribe: {
       url: unsubscribeUrl ?? "",
+    },
+    owner: {
+      name: send.from_name,
+      email: send.from_email,
+      replyToEmail: send.reply_to_email,
     },
   };
 }
@@ -92,11 +98,21 @@ Unsubscribe from newsletters: ${input.unsubscribeUrl}`,
 }
 
 function getProviderRecipientEmail(recipient: EmailSendRecipient): string {
-  return process.env.EMAIL_TEST_RECIPIENT_OVERRIDE?.trim() || recipient.email;
+  return getEmailTestRecipientOverride() || recipient.email;
 }
 
 function hasTestRecipientOverride(): boolean {
-  return Boolean(process.env.EMAIL_TEST_RECIPIENT_OVERRIDE?.trim());
+  return Boolean(getEmailTestRecipientOverride());
+}
+
+function getProviderRecipientEmailForError(
+  recipient: EmailSendRecipient,
+): string {
+  try {
+    return getProviderRecipientEmail(recipient);
+  } catch {
+    return recipient.email;
+  }
 }
 
 async function createSentEmailTimelineEvent(input: {
@@ -142,7 +158,11 @@ async function renderRecipient(input: {
     subject: input.send.subject_template,
     previewText: input.send.preview_text,
     document,
-    variables: buildRenderVariables(input.recipient, input.unsubscribeUrl),
+    variables: buildRenderVariables(
+      input.send,
+      input.recipient,
+      input.unsubscribeUrl,
+    ),
   });
   const withComplianceFooter =
     input.send.kind === "broadcast"
@@ -205,12 +225,17 @@ async function processRecipient(input: {
       },
     });
     acceptedResult = result;
+    const providerMetadata = {
+      providerRecipientEmail,
+      providerResponse: result.raw,
+      testRecipientOverride,
+    };
     const occurredAt = new Date().toISOString();
 
     await markEmailRecipientSent(input.recipient.id, {
       provider: result.provider,
       providerMessageId: result.providerMessageId,
-      providerMetadata: result.raw,
+      providerMetadata,
       renderedSubject: rendered.subject,
       renderedHtml: rendered.html,
       renderedText: rendered.text,
@@ -238,7 +263,9 @@ async function processRecipient(input: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const providerRecipientEmail = getProviderRecipientEmail(input.recipient);
+    const providerRecipientEmail = getProviderRecipientEmailForError(
+      input.recipient,
+    );
     if (!acceptedResult) {
       console.error("Email send failed before provider acceptance", {
         sendId: input.send.id,
@@ -253,7 +280,11 @@ async function processRecipient(input: {
         await markEmailRecipientReconciliationNeeded(input.recipient.id, {
           provider: acceptedResult.provider,
           providerMessageId: acceptedResult.providerMessageId,
-          providerMetadata: acceptedResult.raw,
+          providerMetadata: {
+            providerRecipientEmail,
+            providerResponse: acceptedResult.raw,
+            testRecipientOverride: providerRecipientEmail !== input.recipient.email,
+          },
           message,
         });
       } catch {

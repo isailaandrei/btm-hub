@@ -38,6 +38,13 @@ export function AdminDashboard({
     setActiveTab("email");
   }
 
+  function handleSelectTab(tab: Tab) {
+    if (tab === "email" && activeTab !== "email") {
+      setEmailContactIds([]);
+    }
+    setActiveTab(tab);
+  }
+
   return (
     <div>
       <nav className="mb-8 flex gap-1 border-b border-border pb-4">
@@ -45,7 +52,7 @@ export function AdminDashboard({
           <button
             key={tab.key}
             type="button"
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => handleSelectTab(tab.key)}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? "bg-primary text-primary-foreground"

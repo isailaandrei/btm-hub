@@ -20,7 +20,7 @@ export function getEmailReplyToEmail(): string {
 
 export type EmailProviderName = "brevo" | "fake";
 
-function isProductionDeployment(): boolean {
+export function isProductionEmailEnvironment(): boolean {
   return (
     process.env.VERCEL_ENV === "production" ||
     process.env.EMAIL_REQUIRE_REAL_PROVIDER === "true"
@@ -35,10 +35,21 @@ export function getEmailProviderName(): EmailProviderName {
   if (provider !== "brevo" && provider !== "fake") {
     throw new Error(`Unsupported email provider: ${provider}`);
   }
-  if (provider === "fake" && isProductionDeployment()) {
+  if (provider === "fake" && isProductionEmailEnvironment()) {
     throw new Error("EMAIL_PROVIDER=fake is not allowed in production");
   }
+  getEmailTestRecipientOverride();
   return provider;
+}
+
+export function getEmailTestRecipientOverride(): string | null {
+  const override = process.env.EMAIL_TEST_RECIPIENT_OVERRIDE?.trim() || null;
+  if (override && isProductionEmailEnvironment()) {
+    throw new Error(
+      "EMAIL_TEST_RECIPIENT_OVERRIDE is not allowed in production or real-provider mode",
+    );
+  }
+  return override;
 }
 
 export function getEmailWorkerSecret(): string | null {

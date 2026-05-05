@@ -153,6 +153,7 @@ export type EmailEventType =
   | "sent"
   | "delivered"
   | "delivery_delayed"
+  | "opened"
   | "clicked"
   | "bounced"
   | "complained"
@@ -185,8 +186,6 @@ export interface EmailTemplateVersion {
   id: string;
   template_id: string;
   version_number: number;
-  subject: string;
-  preview_text: string;
   builder_json: Record<string, unknown>;
   html: string;
   text: string;
@@ -252,6 +251,7 @@ export interface EmailSend {
   skipped_count: number;
   sent_count: number;
   delivered_count: number;
+  opened_count: number;
   clicked_count: number;
   bounced_count: number;
   complained_count: number;
@@ -284,6 +284,7 @@ export interface EmailSendRecipient {
   sending_started_at: string | null;
   sent_at: string | null;
   delivered_at: string | null;
+  opened_at: string | null;
   clicked_at: string | null;
   bounced_at: string | null;
   complained_at: string | null;

@@ -48,3 +48,23 @@ export async function createEmailAsset(input: {
   if (error) throw new Error(`Failed to create email asset: ${error.message}`);
   return data as EmailAsset;
 }
+
+export async function listEmailAssetIdsByPublicUrls(
+  publicUrls: string[],
+): Promise<string[]> {
+  const uniqueUrls = [
+    ...new Set(publicUrls.map((url) => url.trim()).filter(Boolean)),
+  ];
+  if (uniqueUrls.length === 0) return [];
+
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("email_assets")
+    .select("id")
+    .in("public_url", uniqueUrls);
+
+  if (error) {
+    throw new Error(`Failed to resolve email assets: ${error.message}`);
+  }
+  return (data ?? []).map((asset) => (asset as { id: string }).id);
+}

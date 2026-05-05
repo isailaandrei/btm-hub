@@ -14,9 +14,11 @@ function count(value: number | undefined): number {
 }
 
 export function buildEmailSendMetrics(send: EmailSend): EmailSendMetric[] {
+  const openedCount = count(send.opened_count);
   const clickedCount = count(send.clicked_count);
   const bouncedCount = count(send.bounced_count);
   const failedCount = count(send.failed_count);
+  const notReceivedCount = bouncedCount + failedCount;
   const skippedCount = count(send.skipped_count);
   const unsubscribedCount = count(send.unsubscribed_count);
 
@@ -34,22 +36,22 @@ export function buildEmailSendMetrics(send: EmailSend): EmailSendMetric[] {
       tone: "positive",
     },
     {
+      key: "opened",
+      label: "Opened",
+      value: String(openedCount),
+      tone: openedCount > 0 ? "positive" : "neutral",
+    },
+    {
       key: "clicked",
-      label: "Clicked",
+      label: "Button clicked",
       value: String(clickedCount),
       tone: clickedCount > 0 ? "positive" : "neutral",
     },
     {
-      key: "bounced",
-      label: "Bounced",
-      value: String(bouncedCount),
-      tone: bouncedCount > 0 ? "danger" : "neutral",
-    },
-    {
       key: "failed",
       label: "Failed",
-      value: String(failedCount),
-      tone: failedCount > 0 ? "danger" : "neutral",
+      value: String(notReceivedCount),
+      tone: notReceivedCount > 0 ? "danger" : "neutral",
     },
     {
       key: "skipped",
