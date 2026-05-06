@@ -1,7 +1,12 @@
 "use client";
 
-import { Fragment, useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useState,
+  useTransition,
+} from "react";
 import {
   AlertCircle,
   ChevronDown,
@@ -15,6 +20,7 @@ import type { EmailSend, EmailTemplate } from "@/types/database";
 import {
   deleteEmailSendAction,
   getEmailSendDiagnosticsAction,
+  loadEmailStudioDataAction,
   type EmailSendDiagnostics,
 } from "./actions";
 import { EmailComposer } from "./compose/email-composer";
@@ -91,18 +97,16 @@ function formatRecipientStatus(status: string) {
 }
 
 export function EmailStudio({
-  templates,
-  sends,
   selectedContactIds,
 }: {
-  templates: EmailTemplate[];
-  sends: EmailSend[];
   selectedContactIds: string[];
 }) {
-  const router = useRouter();
+  const [templates, setTemplates] = useState<EmailTemplate[] | null>(null);
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
-  const [localSends, setLocalSends] = useState(sends);
+  const [localSends, setLocalSends] = useState<EmailSend[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
+  const [isLoadingData, startLoadDataTransition] = useTransition();
   const [isDeletingSend, startDeleteSendTransition] = useTransition();
   const [expandedSendId, setExpandedSendId] = useState<string | null>(null);
   const [diagnosticsBySendId, setDiagnosticsBySendId] =
@@ -113,31 +117,50 @@ export function EmailStudio({
   const [isLoadingDiagnostics, startDiagnosticsTransition] = useTransition();
   const [isRefreshing, startRefreshTransition] = useTransition();
 
+  const refreshData = useCallback(async (options?: { quiet?: boolean }) => {
+    try {
+      const data = await loadEmailStudioDataAction();
+      setTemplates(data.templates);
+      setLocalSends(data.sends);
+      setLoadError(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to load email data.";
+      setLoadError(message);
+      if (!options?.quiet) {
+        toast.error(message);
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    setLocalSends(sends);
-    setDiagnosticsBySendId({});
-  }, [sends]);
+    startLoadDataTransition(async () => {
+      await refreshData({ quiet: true });
+    });
+  }, [refreshData]);
 
   const hasActiveSends = localSends.some(isActiveSend);
 
   useEffect(() => {
     if (activeTab !== "sent" || !hasActiveSends) return;
     const intervalId = window.setInterval(() => {
-      router.refresh();
+      void refreshData({ quiet: true });
     }, 3000);
     return () => window.clearInterval(intervalId);
-  }, [activeTab, hasActiveSends, router]);
+  }, [activeTab, hasActiveSends, refreshData]);
 
   function refreshStatuses() {
     setDiagnosticsBySendId({});
-    startRefreshTransition(() => {
-      router.refresh();
+    startRefreshTransition(async () => {
+      await refreshData();
     });
   }
 
   function handleSendStarted() {
     setActiveTab("sent");
-    router.refresh();
+    startRefreshTransition(async () => {
+      await refreshData({ quiet: true });
+    });
     toast.success("Email sending started. Tracking it in Sent emails.");
   }
 
@@ -187,6 +210,35 @@ export function EmailStudio({
         setLoadingDiagnosticsId(null);
       }
     });
+  }
+
+  if (templates === null) {
+    return (
+      <div className="rounded-md border border-border bg-card p-6">
+        {loadError ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm font-medium text-destructive">{loadError}</p>
+            <button
+              type="button"
+              onClick={() =>
+                startLoadDataTransition(async () => {
+                  await refreshData();
+                })
+              }
+              disabled={isLoadingData}
+              className="w-fit rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
+            >
+              {isLoadingData ? "Retrying..." : "Retry"}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading email studio...
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (

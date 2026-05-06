@@ -1,16 +1,23 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
-import type { AdminAiThreadSummary } from "@/types/admin-ai";
-import type { EmailSend, EmailTemplate } from "@/types/database";
 import { ContactsPanel } from "./contacts/contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
-import { AdminAiPanel } from "./admin-ai/panel";
-import { EmailStudio } from "./email/email-studio";
 
-type Tab = "contacts" | "tags" | "email" | "ai";
+const EmailStudio = dynamic(
+  () => import("./email/email-studio").then((module) => module.EmailStudio),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-md border border-border bg-card p-6 text-sm text-muted-foreground">
+        Loading email studio...
+      </div>
+    ),
+  },
+);
+
+type Tab = "contacts" | "tags" | "email";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
@@ -18,17 +25,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "email", label: "Email" },
 ];
 
-export function AdminDashboard({
-  initialGlobalThreads,
-  adminAiAvailability,
-  emailTemplates,
-  emailSends,
-}: {
-  initialGlobalThreads: AdminAiThreadSummary[];
-  adminAiAvailability: AdminAiProviderAvailability;
-  emailTemplates: EmailTemplate[];
-  emailSends: EmailSend[];
-}) {
+export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
 
@@ -70,30 +67,7 @@ export function AdminDashboard({
       {activeTab === "tags" && <TagsPanel />}
 
       {activeTab === "email" && (
-        <EmailStudio
-          templates={emailTemplates}
-          sends={emailSends}
-          selectedContactIds={emailContactIds}
-        />
-      )}
-
-      {activeTab === "ai" && (
-        <Card className="mx-auto max-w-7xl">
-          <CardHeader>
-            <h2 className="text-base font-medium text-foreground">AI Analyst</h2>
-            <p className="text-xs text-muted-foreground">
-              Each question runs a fresh grounded search. Past questions below
-              are a log — they are not used as context.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <AdminAiPanel
-              scope="global"
-              initialThreads={initialGlobalThreads}
-              providerAvailability={adminAiAvailability}
-            />
-          </CardContent>
-        </Card>
+        <EmailStudio selectedContactIds={emailContactIds} />
       )}
     </div>
   );

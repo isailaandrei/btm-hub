@@ -9,14 +9,11 @@ import {
   getTags,
 } from "@/lib/data/contacts";
 import { getContactEvents } from "@/lib/data/contact-events";
-import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
-import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
 import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh";
 import { Timeline } from "./timeline";
-import { CollapsibleAiPanel } from "./collapsible-ai-panel";
 
 export default async function ContactDetailPage({
   params,
@@ -36,8 +33,6 @@ export default async function ContactDetailPage({
     events,
     categories,
     allTags,
-    initialContactThreads,
-    adminAiAvailability,
   ] = await Promise.all([
     getContactById(id),
     getApplicationsByContactId(id),
@@ -45,8 +40,6 @@ export default async function ContactDetailPage({
     getContactEvents(id),
     getTagCategories(),
     getTags(),
-    listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
-    getAdminAiProviderAvailability(),
   ]);
 
   if (!contact) return notFound();
@@ -131,13 +124,6 @@ export default async function ContactDetailPage({
           </Card>
         </div>
       </div>
-
-      <CollapsibleAiPanel
-        contactId={contact.id}
-        contactName={contact.name}
-        initialThreads={initialContactThreads}
-        providerAvailability={adminAiAvailability}
-      />
     </div>
   );
 }

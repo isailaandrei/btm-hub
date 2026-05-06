@@ -10,11 +10,15 @@ import {
   deleteRemovableEmailSend,
   listActiveEmailSuppressions,
   listContactEmailPreferences,
+  listEmailSends,
   listEmailEventsForSend,
   listEmailSendRecipients,
   queueEmailSend,
 } from "@/lib/data/email-sends";
-import { getEmailTemplateVersion } from "@/lib/data/email-templates";
+import {
+  getEmailTemplateVersion,
+  listEmailTemplates,
+} from "@/lib/data/email-templates";
 import { resolveEmailEligibility } from "@/lib/email/eligibility";
 import {
   assertMailyDocument,
@@ -58,6 +62,16 @@ const draftEmailSchema = previewEmailSchema.extend({
 });
 
 type ParsedEmailSendInput = z.infer<typeof draftEmailSchema>;
+
+export async function loadEmailStudioDataAction() {
+  await requireAdmin();
+  const [templates, sends] = await Promise.all([
+    listEmailTemplates(),
+    listEmailSends(),
+  ]);
+
+  return { templates, sends };
+}
 
 async function resolvePreview(input: {
   kind: EmailSendKind;

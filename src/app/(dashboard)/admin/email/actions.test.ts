@@ -4,11 +4,13 @@ const mockGetContacts = vi.fn();
 const mockCreateEmailSendWithRecipients = vi.fn();
 const mockListEmailEventsForSend = vi.fn();
 const mockListEmailSendRecipients = vi.fn();
+const mockListEmailSends = vi.fn();
 const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
 const mockDeleteRemovableEmailSend = vi.fn();
 const mockQueueEmailSend = vi.fn();
 const mockGetEmailTemplateVersion = vi.fn();
+const mockListEmailTemplates = vi.fn();
 const mockRenderMailyDocument = vi.fn();
 const mockAssertMailyDocument = vi.fn((document: unknown) => document);
 const mockGetEmailProvider = vi.fn();
@@ -28,6 +30,7 @@ vi.mock("@/lib/data/email-sends", () => ({
   deleteRemovableEmailSend: mockDeleteRemovableEmailSend,
   listEmailEventsForSend: mockListEmailEventsForSend,
   listEmailSendRecipients: mockListEmailSendRecipients,
+  listEmailSends: mockListEmailSends,
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
   queueEmailSend: mockQueueEmailSend,
@@ -35,6 +38,7 @@ vi.mock("@/lib/data/email-sends", () => ({
 
 vi.mock("@/lib/data/email-templates", () => ({
   getEmailTemplateVersion: mockGetEmailTemplateVersion,
+  listEmailTemplates: mockListEmailTemplates,
 }));
 
 vi.mock("@/lib/email/rendering/maily", () => ({
@@ -74,6 +78,7 @@ vi.mock("next/server", () => ({
 const {
   createEmailDraftAction,
   getEmailSendDiagnosticsAction,
+  loadEmailStudioDataAction,
   previewEmailAction,
   sendEmailNowAction,
 } = await import("./actions");
@@ -120,8 +125,10 @@ beforeEach(() => {
   });
   mockListEmailEventsForSend.mockReset().mockResolvedValue([]);
   mockListEmailSendRecipients.mockReset().mockResolvedValue([]);
+  mockListEmailSends.mockReset().mockResolvedValue([{ id: "send-1" }]);
   mockDeleteRemovableEmailSend.mockReset().mockResolvedValue(true);
   mockQueueEmailSend.mockReset().mockResolvedValue({ id: "send-1" });
+  mockListEmailTemplates.mockReset().mockResolvedValue([{ id: "template-1" }]);
   mockGetEmailProvider.mockReset().mockReturnValue({ name: "fake" });
   mockGetEmailWorkerSecret.mockReset().mockReturnValue("worker-secret");
   mockProcessEmailSendChunks.mockReset().mockResolvedValue({
@@ -132,6 +139,18 @@ beforeEach(() => {
   mockAfter.mockReset();
   mockRequireAdmin.mockReset().mockResolvedValue({ id: "admin-1" });
   mockRevalidatePath.mockReset();
+});
+
+describe("loadEmailStudioDataAction", () => {
+  it("loads email studio data on demand after an admin check", async () => {
+    const result = await loadEmailStudioDataAction();
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(result).toEqual({
+      templates: [{ id: "template-1" }],
+      sends: [{ id: "send-1" }],
+    });
+  });
 });
 
 describe("previewEmailAction", () => {
