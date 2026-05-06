@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PortfolioGallery } from "@/components/profile/portfolio-gallery";
 import { validateUUID } from "@/lib/validation-helpers";
 import {
   getContactById,
@@ -9,6 +10,7 @@ import {
   getTags,
 } from "@/lib/data/contacts";
 import { getContactEvents } from "@/lib/data/contact-events";
+import { getPortfolioItemsByContactProfileId } from "@/lib/data/profile-portfolio";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
@@ -26,23 +28,26 @@ export default async function ContactDetailPage({
   } catch {
     return notFound();
   }
+  const contact = await getContactById(id);
+  if (!contact) return notFound();
+
   const [
-    contact,
     applications,
     contactTagRows,
     events,
     categories,
     allTags,
+    portfolioItems,
   ] = await Promise.all([
-    getContactById(id),
     getApplicationsByContactId(id),
     getContactTags(id),
     getContactEvents(id),
     getTagCategories(),
     getTags(),
+    getPortfolioItemsByContactProfileId({
+      profileId: contact.profile_id,
+    }),
   ]);
-
-  if (!contact) return notFound();
 
   const latestApplication = applications[0] ?? null;
   const latestApplicationPhone =
@@ -120,6 +125,23 @@ export default async function ContactDetailPage({
                 categories={categories}
                 allTags={allTags}
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">
+                Portfolio
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {contact.profile_id && portfolioItems.length > 0 ? (
+                <PortfolioGallery items={portfolioItems} compact />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No portfolio images linked to this contact.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>

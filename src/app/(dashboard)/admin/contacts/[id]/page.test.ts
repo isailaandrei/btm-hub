@@ -9,6 +9,7 @@ const mockGetContactTags = vi.fn();
 const mockGetTagCategories = vi.fn();
 const mockGetTags = vi.fn();
 const mockGetContactEvents = vi.fn();
+const mockGetPortfolioItemsByContactProfileId = vi.fn();
 const mockListAdminAiThreadSummaries = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
 
@@ -22,6 +23,10 @@ vi.mock("@/lib/data/contacts", () => ({
 
 vi.mock("@/lib/data/contact-events", () => ({
   getContactEvents: mockGetContactEvents,
+}));
+
+vi.mock("@/lib/data/profile-portfolio", () => ({
+  getPortfolioItemsByContactProfileId: mockGetPortfolioItemsByContactProfileId,
 }));
 
 vi.mock("@/lib/data/admin-ai", () => ({
@@ -48,18 +53,23 @@ describe("ContactDetailPage", () => {
       name: "Jane Contact",
       email: "jane@example.com",
       phone: null,
+      profile_id: "profile-1",
     });
     mockGetApplicationsByContactId.mockResolvedValue([]);
     mockGetContactTags.mockResolvedValue([]);
     mockGetContactEvents.mockResolvedValue([]);
     mockGetTagCategories.mockResolvedValue([]);
     mockGetTags.mockResolvedValue([]);
+    mockGetPortfolioItemsByContactProfileId.mockResolvedValue([]);
 
     await ContactDetailPage({
       params: Promise.resolve({ id: CONTACT_ID }),
     });
 
     expect(mockGetContactById).toHaveBeenCalledWith(CONTACT_ID);
+    expect(mockGetPortfolioItemsByContactProfileId).toHaveBeenCalledWith({
+      profileId: "profile-1",
+    });
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
   });
