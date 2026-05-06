@@ -16,13 +16,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { EmailSend, EmailTemplate } from "@/types/database";
+import type { EmailSend } from "@/types/database";
 import {
   deleteEmailSendAction,
   getEmailSendDiagnosticsAction,
-  loadEmailStudioDataAction,
   type EmailSendDiagnostics,
 } from "./actions";
+import { useAdminEmailData } from "./admin-email-data-provider";
 import { EmailComposer } from "./compose/email-composer";
 import {
   buildEmailSendMetrics,
@@ -101,10 +101,16 @@ export function EmailStudio({
 }: {
   selectedContactIds: string[];
 }) {
-  const [templates, setTemplates] = useState<EmailTemplate[] | null>(null);
+  const {
+    templates,
+    sends,
+    emailError,
+    ensureEmailStudioData,
+    refreshEmailStudioData,
+    setEmailSends,
+    setEmailTemplates,
+  } = useAdminEmailData();
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
-  const [localSends, setLocalSends] = useState<EmailSend[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
   const [isLoadingData, startLoadDataTransition] = useTransition();
   const [isDeletingSend, startDeleteSendTransition] = useTransition();
@@ -117,27 +123,19 @@ export function EmailStudio({
   const [isLoadingDiagnostics, startDiagnosticsTransition] = useTransition();
   const [isRefreshing, startRefreshTransition] = useTransition();
 
-  const refreshData = useCallback(async (options?: { quiet?: boolean }) => {
-    try {
-      const data = await loadEmailStudioDataAction();
-      setTemplates(data.templates);
-      setLocalSends(data.sends);
-      setLoadError(null);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to load email data.";
-      setLoadError(message);
-      if (!options?.quiet) {
-        toast.error(message);
-      }
-    }
-  }, []);
+  const localSends = sends ?? [];
+  const loadError = emailError;
+
+  const refreshData = useCallback(
+    (options?: { quiet?: boolean }) => refreshEmailStudioData(options),
+    [refreshEmailStudioData],
+  );
 
   useEffect(() => {
     startLoadDataTransition(async () => {
-      await refreshData({ quiet: true });
+      await ensureEmailStudioData({ quiet: true });
     });
-  }, [refreshData]);
+  }, [ensureEmailStudioData]);
 
   const hasActiveSends = localSends.some(isActiveSend);
 
@@ -169,8 +167,8 @@ export function EmailStudio({
     startDeleteSendTransition(async () => {
       try {
         await deleteEmailSendAction(sendId);
-        setLocalSends((current) =>
-          current.filter((send) => send.id !== sendId),
+        setEmailSends((current) =>
+          (current ?? []).filter((send) => send.id !== sendId),
         );
         toast.success("Email removed.");
       } catch (error) {
@@ -222,7 +220,7 @@ export function EmailStudio({
               type="button"
               onClick={() =>
                 startLoadDataTransition(async () => {
-                  await refreshData();
+                  await ensureEmailStudioData();
                 })
               }
               disabled={isLoadingData}
@@ -281,7 +279,12 @@ export function EmailStudio({
       )}
 
       {activeTab === "templates" && (
-        <TemplateEditor templates={templates} />
+        <TemplateEditor
+          templates={templates}
+          onTemplatesChange={(nextTemplates) =>
+            setEmailTemplates(nextTemplates)
+          }
+        />
       )}
 
       {activeTab === "sent" && (

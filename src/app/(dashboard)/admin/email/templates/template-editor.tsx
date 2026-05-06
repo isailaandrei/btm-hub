@@ -30,10 +30,13 @@ import { prependTemplateOnce } from "./template-list-state";
 
 export function TemplateEditor({
   templates,
+  onTemplatesChange,
 }: {
   templates: EmailTemplate[];
+  onTemplatesChange?: (templates: EmailTemplate[]) => void;
 }) {
-  const [localTemplates, setLocalTemplates] = useState(templates);
+  const [uncontrolledTemplates, setUncontrolledTemplates] = useState(templates);
+  const localTemplates = onTemplatesChange ? templates : uncontrolledTemplates;
   const [selectedTemplateId, setSelectedTemplateId] = useState(
     templates[0]?.id ?? "",
   );
@@ -51,6 +54,17 @@ export function TemplateEditor({
   const [isPublishing, startPublishTransition] = useTransition();
   const [isDeleting, startDeleteTransition] = useTransition();
   const designerRef = useRef<EmailDesignerHandle>(null);
+
+  const applyLocalTemplates = useCallback(
+    (nextTemplates: EmailTemplate[]) => {
+      if (onTemplatesChange) {
+        onTemplatesChange(nextTemplates);
+        return;
+      }
+      setUncontrolledTemplates(nextTemplates);
+    },
+    [onTemplatesChange],
+  );
 
   const selectedTemplate = useMemo(
     () => localTemplates.find((template) => template.id === selectedTemplateId),
@@ -132,8 +146,8 @@ export function TemplateEditor({
             description: draftDescription,
             builderJson,
           });
-          setLocalTemplates((current) =>
-            prependTemplateOnce(current, result.template),
+          applyLocalTemplates(
+            prependTemplateOnce(localTemplates, result.template),
           );
           setSelectedTemplateId(result.template.id);
           setIsCreatingTemplate(false);
@@ -150,8 +164,8 @@ export function TemplateEditor({
           templateId: selectedTemplateId,
           builderJson,
         });
-        setLocalTemplates((current) =>
-          current.map((template) =>
+        applyLocalTemplates(
+          localTemplates.map((template) =>
             template.id === selectedTemplateId
               ? {
                   ...template,
@@ -176,12 +190,11 @@ export function TemplateEditor({
     startDeleteTransition(async () => {
       try {
         await deleteTemplateAction(selectedTemplateId);
-        setLocalTemplates((current) =>
-          current.filter((template) => template.id !== selectedTemplateId),
-        );
-        const nextTemplate = localTemplates.find(
+        const nextTemplates = localTemplates.filter(
           (template) => template.id !== selectedTemplateId,
         );
+        applyLocalTemplates(nextTemplates);
+        const nextTemplate = nextTemplates[0];
         setSelectedTemplateId(nextTemplate?.id ?? "");
         if (!nextTemplate?.current_version_id) resetEditor();
         toast.success("Template deleted.");
