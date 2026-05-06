@@ -106,6 +106,26 @@ export async function getContactIdsByProfileId(
   return (data ?? []) as string[];
 }
 
+export async function linkContactToProfileIfUnset(
+  contactId: string,
+  profileId: string,
+): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(
+    "link_contact_to_profile_if_unset",
+    {
+      p_contact_id: contactId,
+      p_profile_id: profileId,
+    },
+  );
+
+  if (error) {
+    throw new Error(`Failed to link contact to profile: ${error.message}`);
+  }
+
+  return Boolean(data);
+}
+
 // ---------------------------------------------------------------------------
 // Tag Categories — CRUD
 // ---------------------------------------------------------------------------

@@ -80,6 +80,7 @@ vi.mock("@/lib/data/applications", async (importOriginal) => {
 
 vi.mock("@/lib/data/contacts", () => ({
   findOrCreateContact: vi.fn().mockResolvedValue("mock-contact-id"),
+  linkContactToProfileIfUnset: vi.fn().mockResolvedValue(true),
 }));
 
 const { submitAcademyApplication } = await import("./actions");
@@ -163,5 +164,28 @@ describe("submitAcademyApplication", () => {
     } catch (e) {
       expect((e as RedirectError).url).toBe("/academy/photography/apply/success");
     }
+  });
+
+  it("links the contact to the logged-in applicant profile", async () => {
+    const { linkContactToProfileIfUnset } = await import("@/lib/data/contacts");
+    mockSupabase.auth.getUser.mockResolvedValue({
+      data: { user: { id: "user-123" } },
+      error: null,
+    });
+    mockBuildFullSchema.mockReturnValueOnce(z.object({}).passthrough());
+
+    const formData = new FormData();
+    formData.set("email", "alice@example.com");
+    formData.set("first_name", "Alice");
+    formData.set("last_name", "Smith");
+
+    await expect(
+      submitAcademyApplication("photography", prevState, formData),
+    ).rejects.toThrow(RedirectError);
+
+    expect(linkContactToProfileIfUnset).toHaveBeenCalledWith(
+      "mock-contact-id",
+      "user-123",
+    );
   });
 });

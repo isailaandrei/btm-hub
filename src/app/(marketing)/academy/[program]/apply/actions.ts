@@ -2,7 +2,10 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { submitApplication } from "@/lib/data/applications";
-import { findOrCreateContact } from "@/lib/data/contacts";
+import {
+  findOrCreateContact,
+  linkContactToProfileIfUnset,
+} from "@/lib/data/contacts";
 import { getFormDefinition } from "@/lib/academy/forms";
 import { buildFullSchema } from "@/lib/academy/forms/schema-builder";
 import { getProgram } from "@/lib/academy/programs";
@@ -113,6 +116,10 @@ export async function submitAcademyApplication(
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (user) {
+    await linkContactToProfileIfUnset(contactId, user.id);
+  }
 
   try {
     await submitApplication(
