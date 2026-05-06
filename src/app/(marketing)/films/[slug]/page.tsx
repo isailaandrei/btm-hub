@@ -2,10 +2,10 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PortableText } from "@portabletext/react";
-import { SanityImage } from "@/components/sanity/SanityImage";
 import { portableTextComponents } from "@/lib/sanity/portable-text";
 import { getFilmBySlug, getAllFilmSlugs } from "@/lib/data/sanity";
 import { getFilmEmbedState } from "@/lib/films/embed";
+import { resolveFilmCredit } from "@/lib/films/credits";
 
 export async function generateStaticParams() {
   const slugs = await getAllFilmSlugs();
@@ -37,36 +37,10 @@ export default async function FilmPage({
   const embedState = getFilmEmbedState(film.videoEmbed);
 
   return (
-    <div className="min-h-screen bg-muted">
-      {/* Hero */}
-      <div className="relative aspect-[21/9] w-full overflow-hidden bg-neutral-900">
-        <SanityImage
-          source={film.heroImage}
-          alt={film.heroImage?.alt || film.title || ""}
-          fill
-          priority
-          className="object-cover"
-          sizes="100vw"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-neutral-900/80 to-transparent" />
-        <div className="absolute bottom-0 left-0 p-6 md:p-12">
-          <h1 className="text-3xl font-bold text-white md:text-5xl">
-            {film.title}
-          </h1>
-          {film.tagline && (
-            <p className="mt-2 text-lg text-neutral-200">{film.tagline}</p>
-          )}
-          <div className="mt-3 flex items-center gap-4 text-sm text-neutral-300">
-            {film.releaseYear && <span>{film.releaseYear}</span>}
-            {film.duration && <span>{film.duration}</span>}
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-4xl px-5 py-12 md:px-0">
-        {/* Video embed */}
-        {embedState.status !== "missing" && (
-          <div className="mb-12 aspect-video overflow-hidden rounded-xl">
+    <main className="min-h-screen bg-muted">
+      <section className="bg-neutral-950 px-5 py-8 text-white md:px-8 md:py-12">
+        <div className="mx-auto max-w-6xl">
+          <div className="aspect-video overflow-hidden rounded-xl bg-neutral-900">
             {embedState.status === "available" ? (
               <iframe
                 src={embedState.url}
@@ -78,62 +52,136 @@ export default async function FilmPage({
               />
             ) : (
               <div className="flex h-full items-center justify-center bg-neutral-950 px-6 text-center text-sm text-neutral-300">
-                Video unavailable. Check the film embed URL in Sanity.
+                {embedState.status === "missing"
+                  ? "Video unavailable. Add a video embed URL in Sanity."
+                  : "Video unavailable. Check the film embed URL in Sanity."}
               </div>
             )}
           </div>
-        )}
 
-        {/* Description */}
-        {film.description && (
-          <div className="mb-12">
+          <div className="mt-6 max-w-4xl">
+            <h1 className="text-3xl font-bold md:text-5xl">{film.title}</h1>
+            {film.tagline && (
+              <p className="mt-3 text-lg text-neutral-200">{film.tagline}</p>
+            )}
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-neutral-300">
+              {film.releaseYear && <span>{film.releaseYear}</span>}
+              {film.duration && <span>{film.duration}</span>}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-4xl px-5 py-12 md:px-0">
+        <section className="mb-12" aria-labelledby="film-about-heading">
+          <h2
+            id="film-about-heading"
+            className="mb-4 text-2xl font-bold text-foreground"
+          >
+            About
+          </h2>
+          {film.description ? (
             <PortableText
               value={film.description}
               components={portableTextComponents}
             />
-          </div>
-        )}
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No about copy configured in Sanity.
+            </p>
+          )}
+        </section>
 
-        {/* Credits */}
-        {film.credits && film.credits.length > 0 && (
-          <div className="mb-12">
-            <h2 className="mb-4 text-2xl font-bold text-foreground">Credits</h2>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {film.credits.map((credit, i) => (
-                  <div key={i} className="flex justify-between rounded-lg bg-background p-3">
-                    <span className="text-sm font-medium text-foreground">
-                      {credit.name}
-                    </span>
+        <section className="mb-12" aria-labelledby="film-credits-heading">
+          <h2
+            id="film-credits-heading"
+            className="mb-4 text-2xl font-bold text-foreground"
+          >
+            Credits
+          </h2>
+          {film.credits && film.credits.length > 0 ? (
+            <div className="divide-y divide-border rounded-lg border border-border bg-background">
+              {film.credits.map((credit, i) => {
+                const resolved = resolveFilmCredit(credit);
+                const name = resolved.href ? (
+                  resolved.href.startsWith("/") ? (
+                    <Link
+                      href={resolved.href}
+                      className="font-medium text-foreground transition-opacity hover:opacity-75"
+                    >
+                      {resolved.name}
+                    </Link>
+                  ) : (
+                    <a
+                      href={resolved.href}
+                      className="font-medium text-foreground transition-opacity hover:opacity-75"
+                      target={
+                        resolved.href.startsWith("http") ? "_blank" : undefined
+                      }
+                      rel={
+                        resolved.href.startsWith("http")
+                          ? "noopener noreferrer"
+                          : undefined
+                      }
+                    >
+                      {resolved.name}
+                    </a>
+                  )
+                ) : (
+                  <span className="font-medium text-foreground">
+                    {resolved.name}
+                  </span>
+                );
+
+                return (
+                  <div
+                    key={`${resolved.role}-${resolved.name}-${i}`}
+                    className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between"
+                  >
+                    <div>
+                      <div className="text-sm">{name}</div>
+                      {resolved.externalLinks.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                          {resolved.externalLinks.map((link) => (
+                            <a
+                              key={`${link.label}-${link.url}`}
+                              href={link.url}
+                              target={
+                                link.url.startsWith("http")
+                                  ? "_blank"
+                                  : undefined
+                              }
+                              rel={
+                                link.url.startsWith("http")
+                                  ? "noopener noreferrer"
+                                  : undefined
+                              }
+                              className="text-xs text-primary transition-opacity hover:opacity-75"
+                            >
+                              {link.label}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      {resolved.invalidLinkCount > 0 && (
+                        <p className="mt-2 text-xs text-destructive">
+                          {resolved.invalidLinkCount} credit link unavailable.
+                        </p>
+                      )}
+                    </div>
                     <span className="text-sm text-muted-foreground">
-                      {credit.role}
+                      {resolved.role}
                     </span>
                   </div>
-                ),
-              )}
+                );
+              })}
             </div>
-          </div>
-        )}
-
-        {/* Gallery */}
-        {film.gallery?.images && film.gallery.images.length > 0 && (
-          <div className="mb-12">
-            <h2 className="mb-4 text-2xl font-bold text-foreground">Gallery</h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {film.gallery.images.map((image, i) => (
-                  <div key={i} className="overflow-hidden rounded-lg">
-                    <SanityImage
-                      source={image}
-                      alt={image.alt || ""}
-                      width={600}
-                      height={400}
-                      className="w-full object-cover"
-                    />
-                  </div>
-                ),
-              )}
-            </div>
-          </div>
-        )}
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No credits configured in Sanity.
+            </p>
+          )}
+        </section>
 
         <Link
           href="/films"
@@ -142,6 +190,6 @@ export default async function FilmPage({
           &larr; Back to Films
         </Link>
       </div>
-    </div>
+    </main>
   );
 }

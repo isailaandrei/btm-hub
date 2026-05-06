@@ -51,8 +51,8 @@ export function FilmsBrowser({ films, collections }: FilmsBrowserProps) {
 
   return (
     <div className="space-y-10">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
-        <label className="relative block">
+      <div className="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
+        <label className="relative block sm:flex-1">
           <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <span className="sr-only">Search films</span>
           <input

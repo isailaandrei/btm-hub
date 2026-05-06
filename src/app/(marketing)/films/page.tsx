@@ -30,9 +30,6 @@ export default async function FilmsPage() {
     <main className="min-h-screen bg-muted px-5 py-16 md:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl space-y-12">
         <header className="mx-auto max-w-3xl text-center">
-          <p className="mb-3 text-sm font-medium uppercase tracking-wide text-primary">
-            Films
-          </p>
           <h1 className="text-[length:var(--font-size-h1)] font-medium text-foreground">
             Stories captured beneath the surface
           </h1>

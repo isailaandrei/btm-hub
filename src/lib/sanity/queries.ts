@@ -32,8 +32,14 @@ export const FILMS_QUERY = defineQuery(`
 
 export const FILM_BY_SLUG_QUERY = defineQuery(`
   *[_type == "film" && slug.current == $slug][0] {
-    _id, title, slug, tagline, description, heroImage, thumbnailImage, videoEmbed,
-    gallery, credits, releaseYear, duration, status, featured, sortOrder,
+    _id, title, slug, tagline, description, videoEmbed,
+    credits[]{
+      role,
+      name,
+      "teamMember": teamMember->{ _id, name, slug },
+      externalLinks[]{ label, url }
+    },
+    releaseYear, duration, status, featured, sortOrder,
     locations, subjects, formats, skills, displayTags
   }
 `);

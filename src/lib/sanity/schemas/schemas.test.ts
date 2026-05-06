@@ -4,16 +4,20 @@ import { schemaTypes } from "./index";
 function fieldsFor(name: string) {
   const schema = schemaTypes.find((s) => s.name === name) as
     | {
-        fields?: {
-          name: string;
-          type: string;
-          validation?: unknown;
-          of?: { type: string; to?: { type: string }[] }[];
-        }[];
+        fields?: SchemaField[];
       }
     | undefined;
   return schema?.fields ?? [];
 }
+
+type SchemaField = {
+  name: string;
+  type: string;
+  validation?: unknown;
+  of?: SchemaField[];
+  to?: { type: string }[];
+  fields?: SchemaField[];
+};
 
 type CustomValidator = (values: unknown) => true | string;
 
@@ -96,6 +100,12 @@ describe("sanity schemas", () => {
     }
   });
 
+  it("film schema does not expose a detail-page gallery field", () => {
+    const fieldNames = fieldsFor("film").map((field) => field.name);
+
+    expect(fieldNames).not.toContain("gallery");
+  });
+
   it("filmCollection schema references ordered films", () => {
     const collection = schemaTypes.find((s) => s.name === "filmCollection");
     expect(collection?.type).toBe("document");
@@ -137,6 +147,33 @@ describe("sanity schemas", () => {
       displayTagsCaseDuplicate:
         "Display tags must be unique after trimming and case normalization.",
     });
+  });
+
+  it("film credits can reference team members or external credit links", () => {
+    const creditsField = fieldsFor("film").find(
+      (field) => field.name === "credits",
+    );
+    const creditType = creditsField?.of?.[0] as
+      | {
+          fields?: SchemaField[];
+        }
+      | undefined;
+
+    expect(creditsField?.type).toBe("array");
+    expect(creditType?.fields?.map((field) => field.name)).toEqual(
+      expect.arrayContaining(["role", "teamMember", "name", "externalLinks"]),
+    );
+    const teamMemberField = creditType?.fields?.find(
+      (field) => field.name === "teamMember",
+    );
+    const externalLinksField = creditType?.fields?.find(
+      (field) => field.name === "externalLinks",
+    );
+
+    expect(teamMemberField?.type).toBe("reference");
+    expect(teamMemberField?.to?.[0]?.type).toBe("teamMember");
+    expect(externalLinksField?.type).toBe("array");
+    expect(externalLinksField?.of?.[0]?.type).toBe("object");
   });
 
   it("portableText schema is an array type", () => {

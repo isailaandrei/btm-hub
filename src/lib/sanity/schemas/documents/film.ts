@@ -1,5 +1,10 @@
 import { defineType, defineField } from "sanity";
 
+type FilmCreditValidationValue = {
+  teamMember?: { _ref?: string };
+  name?: string;
+};
+
 const metadataField = (name: string, title: string, description: string) =>
   defineField({
     name,
@@ -96,12 +101,7 @@ export const film = defineType({
       type: "url",
       group: "playback",
       description: "YouTube or Vimeo URL",
-    }),
-    defineField({
-      name: "gallery",
-      title: "Gallery",
-      type: "gallery",
-      group: "media",
+      validation: (rule) => rule.required().uri({ scheme: ["https"] }),
     }),
     defineField({
       name: "credits",
@@ -112,11 +112,82 @@ export const film = defineType({
         {
           type: "object",
           fields: [
-            defineField({ name: "role", type: "string", title: "Role", validation: (rule) => rule.required() }),
-            defineField({ name: "name", type: "string", title: "Name", validation: (rule) => rule.required() }),
+            defineField({
+              name: "role",
+              type: "string",
+              title: "Role",
+              validation: (rule) => rule.required(),
+            }),
+            defineField({
+              name: "teamMember",
+              title: "Team Member",
+              type: "reference",
+              to: [{ type: "teamMember" }],
+              description:
+                "Select a Behind The Mask team member to link this credit to their profile.",
+            }),
+            defineField({
+              name: "name",
+              type: "string",
+              title: "External Name",
+              description:
+                "Required when this credit is not linked to a team member.",
+            }),
+            defineField({
+              name: "externalLinks",
+              title: "External Links / Contacts",
+              type: "array",
+              description:
+                "Optional website, email, phone, or profile links for non-team credits.",
+              of: [
+                {
+                  type: "object",
+                  fields: [
+                    defineField({
+                      name: "label",
+                      title: "Label",
+                      type: "string",
+                      validation: (rule) => rule.required(),
+                    }),
+                    defineField({
+                      name: "url",
+                      title: "URL",
+                      type: "url",
+                      validation: (rule) =>
+                        rule.required().uri({
+                          scheme: ["http", "https", "mailto", "tel"],
+                        }),
+                    }),
+                  ],
+                  preview: {
+                    select: { title: "label", subtitle: "url" },
+                  },
+                },
+              ],
+            }),
           ],
+          validation: (rule) =>
+            rule.custom((value: FilmCreditValidationValue | undefined) => {
+              if (!value) return true;
+              const hasTeamMember = Boolean(value.teamMember?._ref);
+              const hasExternalName =
+                typeof value.name === "string" && value.name.trim().length > 0;
+              return hasTeamMember || hasExternalName
+                ? true
+                : "Select a team member or enter an external name.";
+            }),
           preview: {
-            select: { title: "name", subtitle: "role" },
+            select: {
+              externalName: "name",
+              memberName: "teamMember.name",
+              role: "role",
+            },
+            prepare({ externalName, memberName, role }) {
+              return {
+                title: memberName || externalName || "Unnamed credit",
+                subtitle: role,
+              };
+            },
           },
         },
       ],
