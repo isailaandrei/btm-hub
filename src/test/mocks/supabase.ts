@@ -42,6 +42,17 @@ export function createMockSupabaseClient() {
   // Storage
   const storageBucket = {
     upload: vi.fn().mockResolvedValue(storageResult),
+    list: vi.fn().mockResolvedValue({
+      data: [{ name: "file.jpg", metadata: { size: 123 } }],
+      error: null,
+    }),
+    remove: vi.fn().mockResolvedValue(storageResult),
+    createSignedUrls: vi.fn().mockResolvedValue({
+      data: [
+        { path: "profile-1/file.jpg", signedUrl: "http://signed/file.jpg" },
+      ],
+      error: null,
+    }),
     getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: "http://test/avatar.jpg" } }),
   };
   const storage = {
