@@ -4,22 +4,62 @@ import { defineQuery } from "next-sanity";
 // Films
 // ---------------------------------------------------------------------------
 
+const FILM_CARD_FIELDS = `
+  _id,
+  title,
+  slug,
+  tagline,
+  heroImage,
+  thumbnailImage,
+  videoEmbed,
+  duration,
+  releaseYear,
+  status,
+  featured,
+  sortOrder,
+  locations,
+  subjects,
+  formats,
+  skills,
+  displayTags
+`;
+
 export const FILMS_QUERY = defineQuery(`
-  *[_type == "film"] | order(sortOrder asc, releaseYear desc) {
-    _id, title, slug, tagline, heroImage, duration, releaseYear, status, featured
+  *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {
+    ${FILM_CARD_FIELDS}
   }
 `);
 
 export const FILM_BY_SLUG_QUERY = defineQuery(`
   *[_type == "film" && slug.current == $slug][0] {
-    _id, title, slug, tagline, description, heroImage, videoEmbed,
-    gallery, credits, releaseYear, duration, status
+    _id, title, slug, tagline, description, videoEmbed,
+    credits[]{
+      role,
+      name,
+      "teamMember": teamMember->{ _id, name, slug },
+      externalLinks[]{ label, url }
+    },
+    releaseYear, duration, status, featured, sortOrder,
+    locations, subjects, formats, skills, displayTags
   }
 `);
 
 export const FEATURED_FILMS_QUERY = defineQuery(`
-  *[_type == "film" && featured == true] | order(sortOrder asc) {
-    _id, title, slug, tagline, heroImage, duration, releaseYear
+  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {
+    ${FILM_CARD_FIELDS}
+  }
+`);
+
+export const FILM_COLLECTIONS_QUERY = defineQuery(`
+  *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {
+    _id,
+    title,
+    slug,
+    description,
+    sortOrder,
+    films[]->{
+      ${FILM_CARD_FIELDS}
+    }
   }
 `);
 

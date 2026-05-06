@@ -17,6 +17,7 @@ vi.mock("@/lib/sanity/client", () => ({
 import {
   getFilms,
   getFilmBySlug,
+  getFilmCollections,
   getAllFilmSlugs,
   getTeamMembers,
   getPartners,
@@ -47,6 +48,25 @@ describe("sanity data fetchers", () => {
     expect(mockSanityFetch.mock.calls[0][0].params).toEqual({
       slug: "test-slug",
     });
+  });
+
+  it("getFilmCollections returns enabled curated rows", async () => {
+    const collections = [
+      {
+        _id: "collection-1",
+        title: "Featured Stories",
+        slug: { current: "featured-stories" },
+        description: "Selected films",
+        films: [{ _id: "film-1", title: "Deep Blue" }],
+      },
+    ];
+    mockSanityFetch.mockResolvedValueOnce({ data: collections });
+
+    const result = await getFilmCollections();
+
+    expect(result).toEqual(collections);
+    expect(mockSanityFetch).toHaveBeenCalledTimes(1);
+    expect(mockSanityFetch.mock.calls[0][0]).toHaveProperty("query");
   });
 
   it("getAllFilmSlugs uses plain client.fetch (not sanityFetch)", async () => {

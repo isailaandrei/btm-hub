@@ -21,12 +21,13 @@ export function escapeSearchTerm(term: string): string {
   return term.replace(/[%_\\]/g, "\\$&").replace(/[.,()]/g, "");
 }
 
-/** Check if a URL uses a safe scheme (http, https, mailto, or relative path). */
+/** Check if a URL uses a safe scheme (http, https, mailto, tel, or relative path). */
 export function isSafeUrl(url: string): boolean {
   return (
-    url.startsWith("/") ||
+    (url.startsWith("/") && !url.startsWith("//")) ||
     url.startsWith("http://") ||
     url.startsWith("https://") ||
-    url.startsWith("mailto:")
+    url.startsWith("mailto:") ||
+    url.startsWith("tel:")
   );
 }

@@ -164,6 +164,81 @@ export type Gallery = {
   }>;
 };
 
+export type FilmReference = {
+  _ref: string;
+  _type: "reference";
+  _weak?: boolean;
+  [internalGroqTypeReferenceTo]?: "film";
+};
+
+export type FilmCollection = {
+  _id: string;
+  _type: "filmCollection";
+  _createdAt: string;
+  _updatedAt: string;
+  _rev: string;
+  title: string;
+  slug: Slug;
+  description?: string;
+  films: Array<
+    {
+      _key: string;
+    } & FilmReference
+  >;
+  sortOrder?: number;
+  enabled?: boolean;
+};
+
+export type Film = {
+  _id: string;
+  _type: "film";
+  _createdAt: string;
+  _updatedAt: string;
+  _rev: string;
+  title: string;
+  slug: Slug;
+  tagline?: string;
+  description?: PortableText;
+  heroImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt: string;
+    _type: "image";
+  };
+  thumbnailImage?: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt?: string;
+    _type: "image";
+  };
+  videoEmbed: string;
+  credits?: Array<{
+    role: string;
+    teamMember?: TeamMemberReference;
+    name?: string;
+    externalLinks?: Array<{
+      label: string;
+      url: string;
+      _key: string;
+    }>;
+    _key: string;
+  }>;
+  releaseYear?: number;
+  duration?: string;
+  status?: "published" | "in-production" | "coming-soon";
+  locations?: Array<string>;
+  subjects?: Array<string>;
+  formats?: Array<string>;
+  skills?: Array<string>;
+  displayTags?: Array<string>;
+  featured?: boolean;
+  sortOrder?: number;
+};
+
 export type TeamMember = {
   _id: string;
   _type: "teamMember";
@@ -190,38 +265,6 @@ export type TeamMember = {
       _key: string;
     } & SocialLink
   >;
-  featured?: boolean;
-  sortOrder?: number;
-};
-
-export type Film = {
-  _id: string;
-  _type: "film";
-  _createdAt: string;
-  _updatedAt: string;
-  _rev: string;
-  title: string;
-  slug: Slug;
-  tagline?: string;
-  description?: PortableText;
-  heroImage: {
-    asset?: SanityImageAssetReference;
-    media?: unknown;
-    hotspot?: SanityImageHotspot;
-    crop?: SanityImageCrop;
-    alt: string;
-    _type: "image";
-  };
-  videoEmbed?: string;
-  gallery?: Gallery;
-  credits?: Array<{
-    role: string;
-    name: string;
-    _key: string;
-  }>;
-  releaseYear?: number;
-  duration?: string;
-  status?: "published" | "in-production" | "coming-soon";
   featured?: boolean;
   sortOrder?: number;
 };
@@ -366,8 +409,10 @@ export type AllSanitySchemaTypes =
   | TeamMemberReference
   | Program
   | Gallery
-  | TeamMember
+  | FilmReference
+  | FilmCollection
   | Film
+  | TeamMember
   | Testimonial
   | Faq
   | SocialLink
@@ -382,7 +427,7 @@ export type AllSanitySchemaTypes =
 
 // Source: src/lib/sanity/queries.ts
 // Variable: FILMS_QUERY
-// Query: *[_type == "film"] | order(sortOrder asc, releaseYear desc) {    _id, title, slug, tagline, heroImage, duration, releaseYear, status, featured  }
+// Query: *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {      _id,  title,  slug,  tagline,  heroImage,  thumbnailImage,  videoEmbed,  duration,  releaseYear,  status,  featured,  sortOrder,  locations,  subjects,  formats,  skills,  displayTags  }
 export type FILMS_QUERY_RESULT = Array<{
   _id: string;
   title: string;
@@ -396,44 +441,65 @@ export type FILMS_QUERY_RESULT = Array<{
     alt: string;
     _type: "image";
   };
+  thumbnailImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt?: string;
+    _type: "image";
+  } | null;
+  videoEmbed: string;
   duration: string | null;
   releaseYear: number | null;
   status: "coming-soon" | "in-production" | "published" | null;
   featured: boolean | null;
+  sortOrder: number | null;
+  locations: Array<string> | null;
+  subjects: Array<string> | null;
+  formats: Array<string> | null;
+  skills: Array<string> | null;
+  displayTags: Array<string> | null;
 }>;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: FILM_BY_SLUG_QUERY
-// Query: *[_type == "film" && slug.current == $slug][0] {    _id, title, slug, tagline, description, heroImage, videoEmbed,    gallery, credits, releaseYear, duration, status  }
+// Query: *[_type == "film" && slug.current == $slug][0] {    _id, title, slug, tagline, description, videoEmbed,    credits[]{      role,      name,      "teamMember": teamMember->{ _id, name, slug },      externalLinks[]{ label, url }    },    releaseYear, duration, status, featured, sortOrder,    locations, subjects, formats, skills, displayTags  }
 export type FILM_BY_SLUG_QUERY_RESULT = {
   _id: string;
   title: string;
   slug: Slug;
   tagline: string | null;
   description: PortableText | null;
-  heroImage: {
-    asset?: SanityImageAssetReference;
-    media?: unknown;
-    hotspot?: SanityImageHotspot;
-    crop?: SanityImageCrop;
-    alt: string;
-    _type: "image";
-  };
-  videoEmbed: string | null;
-  gallery: Gallery | null;
+  videoEmbed: string;
   credits: Array<{
     role: string;
-    name: string;
-    _key: string;
+    name: string | null;
+    teamMember: {
+      _id: string;
+      name: string;
+      slug: Slug;
+    } | null;
+    externalLinks: Array<{
+      label: string;
+      url: string;
+    }> | null;
   }> | null;
   releaseYear: number | null;
   duration: string | null;
   status: "coming-soon" | "in-production" | "published" | null;
+  featured: boolean | null;
+  sortOrder: number | null;
+  locations: Array<string> | null;
+  subjects: Array<string> | null;
+  formats: Array<string> | null;
+  skills: Array<string> | null;
+  displayTags: Array<string> | null;
 } | null;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: FEATURED_FILMS_QUERY
-// Query: *[_type == "film" && featured == true] | order(sortOrder asc) {    _id, title, slug, tagline, heroImage, duration, releaseYear  }
+// Query: *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {      _id,  title,  slug,  tagline,  heroImage,  thumbnailImage,  videoEmbed,  duration,  releaseYear,  status,  featured,  sortOrder,  locations,  subjects,  formats,  skills,  displayTags  }
 export type FEATURED_FILMS_QUERY_RESULT = Array<{
   _id: string;
   title: string;
@@ -447,8 +513,69 @@ export type FEATURED_FILMS_QUERY_RESULT = Array<{
     alt: string;
     _type: "image";
   };
+  thumbnailImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt?: string;
+    _type: "image";
+  } | null;
+  videoEmbed: string;
   duration: string | null;
   releaseYear: number | null;
+  status: "coming-soon" | "in-production" | "published" | null;
+  featured: true;
+  sortOrder: number | null;
+  locations: Array<string> | null;
+  subjects: Array<string> | null;
+  formats: Array<string> | null;
+  skills: Array<string> | null;
+  displayTags: Array<string> | null;
+}>;
+
+// Source: src/lib/sanity/queries.ts
+// Variable: FILM_COLLECTIONS_QUERY
+// Query: *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {    _id,    title,    slug,    description,    sortOrder,    films[]->{        _id,  title,  slug,  tagline,  heroImage,  thumbnailImage,  videoEmbed,  duration,  releaseYear,  status,  featured,  sortOrder,  locations,  subjects,  formats,  skills,  displayTags    }  }
+export type FILM_COLLECTIONS_QUERY_RESULT = Array<{
+  _id: string;
+  title: string;
+  slug: Slug;
+  description: string | null;
+  sortOrder: number | null;
+  films: Array<{
+    _id: string;
+    title: string;
+    slug: Slug;
+    tagline: string | null;
+    heroImage: {
+      asset?: SanityImageAssetReference;
+      media?: unknown;
+      hotspot?: SanityImageHotspot;
+      crop?: SanityImageCrop;
+      alt: string;
+      _type: "image";
+    };
+    thumbnailImage: {
+      asset?: SanityImageAssetReference;
+      media?: unknown;
+      hotspot?: SanityImageHotspot;
+      crop?: SanityImageCrop;
+      alt?: string;
+      _type: "image";
+    } | null;
+    videoEmbed: string;
+    duration: string | null;
+    releaseYear: number | null;
+    status: "coming-soon" | "in-production" | "published" | null;
+    featured: boolean | null;
+    sortOrder: number | null;
+    locations: Array<string> | null;
+    subjects: Array<string> | null;
+    formats: Array<string> | null;
+    skills: Array<string> | null;
+    displayTags: Array<string> | null;
+  }>;
 }>;
 
 // Source: src/lib/sanity/queries.ts
@@ -642,9 +769,10 @@ export type FEATURED_PARTNERS_QUERY_RESULT = Array<{
 import "@sanity/client";
 declare module "@sanity/client" {
   interface SanityQueries {
-    '\n  *[_type == "film"] | order(sortOrder asc, releaseYear desc) {\n    _id, title, slug, tagline, heroImage, duration, releaseYear, status, featured\n  }\n': FILMS_QUERY_RESULT;
-    '\n  *[_type == "film" && slug.current == $slug][0] {\n    _id, title, slug, tagline, description, heroImage, videoEmbed,\n    gallery, credits, releaseYear, duration, status\n  }\n': FILM_BY_SLUG_QUERY_RESULT;
-    '\n  *[_type == "film" && featured == true] | order(sortOrder asc) {\n    _id, title, slug, tagline, heroImage, duration, releaseYear\n  }\n': FEATURED_FILMS_QUERY_RESULT;
+    '\n  *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  heroImage,\n  thumbnailImage,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags\n\n  }\n': FILMS_QUERY_RESULT;
+    '\n  *[_type == "film" && slug.current == $slug][0] {\n    _id, title, slug, tagline, description, videoEmbed,\n    credits[]{\n      role,\n      name,\n      "teamMember": teamMember->{ _id, name, slug },\n      externalLinks[]{ label, url }\n    },\n    releaseYear, duration, status, featured, sortOrder,\n    locations, subjects, formats, skills, displayTags\n  }\n': FILM_BY_SLUG_QUERY_RESULT;
+    '\n  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  heroImage,\n  thumbnailImage,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags\n\n  }\n': FEATURED_FILMS_QUERY_RESULT;
+    '\n  *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {\n    _id,\n    title,\n    slug,\n    description,\n    sortOrder,\n    films[]->{\n      \n  _id,\n  title,\n  slug,\n  tagline,\n  heroImage,\n  thumbnailImage,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags\n\n    }\n  }\n': FILM_COLLECTIONS_QUERY_RESULT;
     '\n  *[_type == "film" && defined(slug.current)].slug.current\n': ALL_FILM_SLUGS_QUERY_RESULT;
     '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, role, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "program"] {\n    _id, slug, heroImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;

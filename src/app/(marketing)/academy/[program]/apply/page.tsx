@@ -13,6 +13,7 @@ import {
   submitAcademyApplication,
   type ApplicationFormState,
 } from "./actions";
+import { readSavedApplicationForm } from "./storage";
 
 type Answers = Record<string, unknown>;
 
@@ -38,21 +39,15 @@ export default function ApplyPage({
   const formVersion = formDef
     ? formDef.steps.map((s) => s.fields.map((f) => f.name).join(",")).join("|")
     : "";
+  const steps = formDef?.steps ?? [];
+  const canPersistForm = Boolean(formDef && program?.applicationOpen);
 
-  // Restore saved form state from localStorage (static one-time read with try/catch for SSR)
-  const saved = (() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_PREFIX + programSlug);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.formVersion === formVersion) return parsed;
-      }
-    } catch {}
-    return null;
-  })();
+  const [saved] = useState(() =>
+    readSavedApplicationForm(programSlug, formVersion, steps.length),
+  );
 
-  const [currentStep, setCurrentStep] = useState<number>(saved?.step ?? 0);
-  const [answers, setAnswers] = useState<Answers>(saved?.answers ?? {});
+  const [currentStep, setCurrentStep] = useState<number>(() => saved?.step ?? 0);
+  const [answers, setAnswers] = useState<Answers>(() => saved?.answers ?? {});
   const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
 
   const boundAction = useMemo(
@@ -67,6 +62,8 @@ export default function ApplyPage({
 
   // Save to localStorage on changes (include formVersion for staleness detection)
   useEffect(() => {
+    if (!canPersistForm) return;
+
     try {
       localStorage.setItem(
         STORAGE_PREFIX + programSlug,
@@ -75,7 +72,7 @@ export default function ApplyPage({
     } catch {
       // storage full or unavailable
     }
-  }, [answers, currentStep, programSlug, formVersion]);
+  }, [answers, canPersistForm, currentStep, programSlug, formVersion]);
 
   const set = useCallback(
     (key: string, value: unknown) => {
@@ -113,8 +110,6 @@ export default function ApplyPage({
   }
 
   if (!formDef) return notFound();
-
-  const steps = formDef.steps;
 
   // TODO: revert — skip client-side step validation for debugging
   const SKIP_VALIDATION = true;

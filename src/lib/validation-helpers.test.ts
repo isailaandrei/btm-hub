@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isUUID, validateUUID } from "./validation-helpers";
+import { isSafeUrl, isUUID, validateUUID } from "./validation-helpers";
 
 describe("isUUID", () => {
   it("accepts valid lowercase UUID", () => {
@@ -44,5 +44,23 @@ describe("validateUUID", () => {
 
   it("throws for invalid UUID", () => {
     expect(() => validateUUID("not-a-uuid")).toThrow("Invalid application ID");
+  });
+});
+
+describe("isSafeUrl", () => {
+  it("allows web, email, phone, and relative links", () => {
+    expect(isSafeUrl("https://example.com")).toBe(true);
+    expect(isSafeUrl("http://example.com")).toBe(true);
+    expect(isSafeUrl("mailto:person@example.com")).toBe(true);
+    expect(isSafeUrl("tel:+15551234567")).toBe(true);
+    expect(isSafeUrl("/team/alex")).toBe(true);
+  });
+
+  it("rejects javascript URLs", () => {
+    expect(isSafeUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("rejects protocol-relative URLs", () => {
+    expect(isSafeUrl("//example.com")).toBe(false);
   });
 });
