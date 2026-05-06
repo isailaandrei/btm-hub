@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { MessageSquare } from "lucide-react";
+import { PortfolioGallery } from "@/components/profile/portfolio-gallery";
 import { getAuthUser } from "@/lib/data/auth";
+import { getPortfolioItemsByProfileId } from "@/lib/data/profile-portfolio";
 import { getProfileById } from "@/lib/data/profiles";
 import { UserAvatar } from "@/components/community/UserAvatar";
 import { Button } from "@/components/ui/button";
@@ -24,6 +26,7 @@ export default async function MemberProfilePage({
 
   if (!profile) notFound();
 
+  const portfolioItems = await getPortfolioItemsByProfileId(profile.id);
   const isOwnProfile = user?.id === profile.id;
   const memberSince = new Date(profile.created_at).toLocaleDateString("en-US", {
     year: "numeric",
@@ -31,7 +34,7 @@ export default async function MemberProfilePage({
   });
 
   return (
-    <div className="mx-auto max-w-lg">
+    <div className="mx-auto max-w-3xl">
       <Card>
         <CardContent className="flex flex-col items-center gap-4 pt-8 pb-6">
           <UserAvatar
@@ -69,6 +72,12 @@ export default async function MemberProfilePage({
             <Button asChild variant="outline" className="mt-2">
               <Link href="/profile">Edit Profile</Link>
             </Button>
+          )}
+
+          {portfolioItems.length > 0 && (
+            <div className="mt-4 w-full">
+              <PortfolioGallery items={portfolioItems} />
+            </div>
           )}
         </CardContent>
       </Card>
