@@ -97,8 +97,10 @@ function formatRecipientStatus(status: string) {
 }
 
 export function EmailStudio({
+  isVisible = true,
   selectedContactIds,
 }: {
+  isVisible?: boolean;
   selectedContactIds: string[];
 }) {
   const {
@@ -111,6 +113,7 @@ export function EmailStudio({
     setEmailTemplates,
   } = useAdminEmailData();
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
+  const [hasVisitedTemplates, setHasVisitedTemplates] = useState(false);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
   const [isLoadingData, startLoadDataTransition] = useTransition();
   const [isDeletingSend, startDeleteSendTransition] = useTransition();
@@ -140,18 +143,25 @@ export function EmailStudio({
   const hasActiveSends = localSends.some(isActiveSend);
 
   useEffect(() => {
-    if (activeTab !== "sent" || !hasActiveSends) return;
+    if (!isVisible || activeTab !== "sent" || !hasActiveSends) return;
     const intervalId = window.setInterval(() => {
       void refreshData({ quiet: true });
     }, 3000);
     return () => window.clearInterval(intervalId);
-  }, [activeTab, hasActiveSends, refreshData]);
+  }, [activeTab, hasActiveSends, isVisible, refreshData]);
 
   function refreshStatuses() {
     setDiagnosticsBySendId({});
     startRefreshTransition(async () => {
       await refreshData();
     });
+  }
+
+  function handleSelectEmailTab(tab: EmailTab) {
+    if (tab === "templates") {
+      setHasVisitedTemplates(true);
+    }
+    setActiveTab(tab);
   }
 
   function handleSendStarted() {
@@ -256,7 +266,7 @@ export function EmailStudio({
             <button
               key={key}
               type="button"
-              onClick={() => setActiveTab(key as EmailTab)}
+              onClick={() => handleSelectEmailTab(key as EmailTab)}
               className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
                 activeTab === key
                   ? "bg-primary text-primary-foreground"
@@ -269,22 +279,24 @@ export function EmailStudio({
         </div>
       </div>
 
-      {activeTab === "compose" && (
+      <div hidden={activeTab !== "compose"}>
         <EmailComposer
           key={selectedContactIds.join(",")}
           templates={templates}
           selectedContactIds={selectedContactIds}
           onSendStarted={handleSendStarted}
         />
-      )}
+      </div>
 
-      {activeTab === "templates" && (
-        <TemplateEditor
-          templates={templates}
-          onTemplatesChange={(nextTemplates) =>
-            setEmailTemplates(nextTemplates)
-          }
-        />
+      {(activeTab === "templates" || hasVisitedTemplates) && (
+        <div hidden={activeTab !== "templates"}>
+          <TemplateEditor
+            templates={templates}
+            onTemplatesChange={(nextTemplates) =>
+              setEmailTemplates(nextTemplates)
+            }
+          />
+        </div>
       )}
 
       {activeTab === "sent" && (

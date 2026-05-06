@@ -16,6 +16,7 @@ const ALLOWED_TYPES = new Set([
   "image/webp",
 ]);
 const MAX_SIZE_BYTES = 5 * 1024 * 1024;
+const EMAIL_ASSET_CACHE_CONTROL_SECONDS = "31536000";
 
 function extensionForMimeType(type: string): string {
   if (type === "image/jpeg") return "jpg";
@@ -44,6 +45,7 @@ export async function uploadEmailAssetAction(
   const { error: uploadError } = await supabase.storage
     .from(EMAIL_ASSET_BUCKET)
     .upload(storagePath, file, {
+      cacheControl: EMAIL_ASSET_CACHE_CONTROL_SECONDS,
       contentType: file.type,
       upsert: false,
     });

@@ -27,16 +27,21 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
+  const [hasVisitedEmail, setHasVisitedEmail] = useState(false);
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
 
   function handleSendEmail(contactIds: string[]) {
     setEmailContactIds(contactIds);
+    setHasVisitedEmail(true);
     setActiveTab("email");
   }
 
   function handleSelectTab(tab: Tab) {
-    if (tab === "email" && activeTab !== "email") {
-      setEmailContactIds([]);
+    if (tab === "email") {
+      if (activeTab !== "email") {
+        setEmailContactIds([]);
+      }
+      setHasVisitedEmail(true);
     }
     setActiveTab(tab);
   }
@@ -66,8 +71,13 @@ export function AdminDashboard() {
 
       {activeTab === "tags" && <TagsPanel />}
 
-      {activeTab === "email" && (
-        <EmailStudio selectedContactIds={emailContactIds} />
+      {(activeTab === "email" || hasVisitedEmail) && (
+        <div hidden={activeTab !== "email"}>
+          <EmailStudio
+            isVisible={activeTab === "email"}
+            selectedContactIds={emailContactIds}
+          />
+        </div>
       )}
     </div>
   );
