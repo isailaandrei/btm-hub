@@ -91,6 +91,21 @@ export async function findOrCreateContact(
   return data as string;
 }
 
+export async function getContactIdsByProfileId(
+  profileId: string,
+): Promise<string[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("contact_ids_for_profile", {
+    p_profile_id: profileId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to load contact ids for profile: ${error.message}`);
+  }
+
+  return (data ?? []) as string[];
+}
+
 // ---------------------------------------------------------------------------
 // Tag Categories — CRUD
 // ---------------------------------------------------------------------------
