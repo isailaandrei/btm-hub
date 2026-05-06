@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const TEST_USER = { email: "test@btmhub.com", password: "TestPass123" };
+const TEST_PROFILE_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const ADMIN_USER = { email: "admin@btmhub.com", password: "AdminPass123" };
 
 async function login(page: Page, user: { email: string; password: string }) {
@@ -65,6 +66,12 @@ test.describe("Profile portfolio", () => {
       page.getByRole("img", { name: "portfolio-e2e.png" }),
     ).toBeVisible({ timeout: 30_000 });
 
+    await page.goto(`/community/members/${TEST_PROFILE_ID}`);
+    await expect(
+      page.getByRole("img", { name: "portfolio-e2e.png" }),
+    ).toBeVisible();
+
+    await page.goto("/profile/portfolio");
     await deletePortfolioImagesByName(page, "portfolio-e2e.png");
   });
 
