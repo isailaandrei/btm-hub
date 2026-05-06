@@ -10,6 +10,27 @@ export interface Profile {
   updated_at: string;
 }
 
+export type PortfolioImageMimeType = "image/jpeg" | "image/png" | "image/webp";
+
+export interface ProfilePortfolioItem {
+  id: string;
+  profile_id: string;
+  storage_path: string;
+  original_filename: string;
+  mime_type: PortfolioImageMimeType;
+  size_bytes: number;
+  title: string | null;
+  caption: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProfilePortfolioItemWithUrl extends ProfilePortfolioItem {
+  signedUrl: string | null;
+  imageError: string | null;
+}
+
 export type ApplicationStatus = "reviewing" | "accepted" | "rejected";
 
 export type ProgramSlug = "photography" | "filmmaking" | "freediving" | "internship";
