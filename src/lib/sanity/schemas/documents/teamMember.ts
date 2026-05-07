@@ -33,19 +33,6 @@ export const teamMember = defineType({
       ],
     }),
     defineField({
-      name: "role",
-      title: "Role",
-      type: "string",
-      options: {
-        list: [
-          { title: "Founder", value: "founder" },
-          { title: "Instructor", value: "instructor" },
-          { title: "Guide", value: "guide" },
-        ],
-      },
-      validation: (rule) => rule.required(),
-    }),
-    defineField({
       name: "title",
       title: "Job Title",
       type: "string",
@@ -95,6 +82,6 @@ export const teamMember = defineType({
     },
   ],
   preview: {
-    select: { title: "name", subtitle: "role", media: "photo" },
+    select: { title: "name", subtitle: "title", media: "photo" },
   },
 });

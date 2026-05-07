@@ -1552,27 +1552,6 @@
         },
         "optional": true
       },
-      "role": {
-        "type": "objectAttribute",
-        "value": {
-          "type": "union",
-          "of": [
-            {
-              "type": "string",
-              "value": "founder"
-            },
-            {
-              "type": "string",
-              "value": "instructor"
-            },
-            {
-              "type": "string",
-              "value": "guide"
-            }
-          ]
-        },
-        "optional": false
-      },
       "title": {
         "type": "objectAttribute",
         "value": {
