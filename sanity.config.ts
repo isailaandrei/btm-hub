@@ -12,7 +12,26 @@ export default defineConfig({
   dataset: process.env.NEXT_PUBLIC_SANITY_DATASET!,
   basePath: "/studio",
   plugins: [
-    structureTool(),
+    structureTool({
+      structure: (S) =>
+        S.list()
+          .title("Content")
+          .items([
+            S.listItem()
+              .title("Films Page Settings")
+              .schemaType("filmsPageSettings")
+              .child(
+                S.document()
+                  .title("Films Page Settings")
+                  .schemaType("filmsPageSettings")
+                  .documentId("filmsPageSettings"),
+              ),
+            S.divider(),
+            ...S.documentTypeListItems().filter(
+              (item) => item.getId() !== "filmsPageSettings",
+            ),
+          ]),
+    }),
     presentationTool({
       previewUrl: {
         previewMode: {
@@ -21,5 +40,9 @@ export default defineConfig({
       },
     }),
   ],
-  schema: { types: schemaTypes },
+  schema: {
+    types: schemaTypes,
+    templates: (templates) =>
+      templates.filter((template) => template.schemaType !== "filmsPageSettings"),
+  },
 });

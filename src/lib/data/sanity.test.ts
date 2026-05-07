@@ -18,6 +18,7 @@ import {
   getFilms,
   getFilmBySlug,
   getFilmCollections,
+  getFilmsPageSettings,
   getAllFilmSlugs,
   getTeamMembers,
   getPartners,
@@ -65,6 +66,17 @@ describe("sanity data fetchers", () => {
     const result = await getFilmCollections();
 
     expect(result).toEqual(collections);
+    expect(mockSanityFetch).toHaveBeenCalledTimes(1);
+    expect(mockSanityFetch.mock.calls[0][0]).toHaveProperty("query");
+  });
+
+  it("getFilmsPageSettings returns films page row visibility", async () => {
+    const settings = { showLatestRow: false, showAllVideosRow: true };
+    mockSanityFetch.mockResolvedValueOnce({ data: settings });
+
+    const result = await getFilmsPageSettings();
+
+    expect(result).toEqual(settings);
     expect(mockSanityFetch).toHaveBeenCalledTimes(1);
     expect(mockSanityFetch.mock.calls[0][0]).toHaveProperty("query");
   });

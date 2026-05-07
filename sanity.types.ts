@@ -164,6 +164,16 @@ export type Gallery = {
   }>;
 };
 
+export type FilmsPageSettings = {
+  _id: string;
+  _type: "filmsPageSettings";
+  _createdAt: string;
+  _updatedAt: string;
+  _rev: string;
+  showLatestRow?: boolean;
+  showAllVideosRow?: boolean;
+};
+
 export type FilmReference = {
   _ref: string;
   _type: "reference";
@@ -392,6 +402,7 @@ export type AllSanitySchemaTypes =
   | TeamMemberReference
   | Program
   | Gallery
+  | FilmsPageSettings
   | FilmReference
   | FilmCollection
   | Film
@@ -512,6 +523,14 @@ export type FILM_COLLECTIONS_QUERY_RESULT = Array<{
     displayTags: Array<string> | null;
   }>;
 }>;
+
+// Source: src/lib/sanity/queries.ts
+// Variable: FILMS_PAGE_SETTINGS_QUERY
+// Query: *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {    "showLatestRow": coalesce(showLatestRow, true),    "showAllVideosRow": coalesce(showAllVideosRow, true)  }
+export type FILMS_PAGE_SETTINGS_QUERY_RESULT = {
+  showLatestRow: boolean | true;
+  showAllVideosRow: boolean | true;
+} | null;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: ALL_FILM_SLUGS_QUERY
@@ -705,6 +724,7 @@ declare module "@sanity/client" {
     '\n  *[_type == "film" && slug.current == $slug][0] {\n    _id, title, slug, tagline, description, videoEmbed,\n    credits[]{\n      role,\n      name,\n      "teamMember": teamMember->{ _id, name, slug },\n      externalLinks[]{ label, url }\n    },\n    releaseYear, duration, status, featured, sortOrder,\n    locations, subjects, formats, skills, displayTags\n  }\n': FILM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags\n\n  }\n': FEATURED_FILMS_QUERY_RESULT;
     '\n  *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {\n    _id,\n    title,\n    slug,\n    description,\n    sortOrder,\n    films[]->{\n      \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags\n\n    }\n  }\n': FILM_COLLECTIONS_QUERY_RESULT;
+    '\n  *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {\n    "showLatestRow": coalesce(showLatestRow, true),\n    "showAllVideosRow": coalesce(showAllVideosRow, true)\n  }\n': FILMS_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "film" && defined(slug.current)].slug.current\n': ALL_FILM_SLUGS_QUERY_RESULT;
     '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "program"] {\n    _id, slug, heroImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;

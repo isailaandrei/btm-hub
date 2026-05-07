@@ -34,6 +34,11 @@ export type FilmFilterState = Record<FilmMetadataKey, string[]>;
 
 export type FilmFilterOptions = Record<FilmMetadataKey, string[]>;
 
+export type FilmRowVisibilitySettings = {
+  showLatestRow: boolean;
+  showAllVideosRow: boolean;
+};
+
 export type FilmRow = {
   id: string;
   title: string;

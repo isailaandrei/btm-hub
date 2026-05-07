@@ -61,4 +61,16 @@ describe("buildFilmRows", () => {
     );
     expect(rows.map((row) => row.id)).toEqual(["latest", "all"]);
   });
+
+  it("can hide the automatic latest row", () => {
+    const rows = buildFilmRows(films, [], { showLatestRow: false });
+
+    expect(rows.map((row) => row.id)).toEqual(["featured", "all"]);
+  });
+
+  it("can hide the automatic all videos row", () => {
+    const rows = buildFilmRows(films, [], { showAllVideosRow: false });
+
+    expect(rows.map((row) => row.id)).toEqual(["featured", "latest"]);
+  });
 });

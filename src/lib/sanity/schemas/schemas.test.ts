@@ -64,13 +64,14 @@ describe("sanity schemas", () => {
     expect(names).toContain("testimonial");
     expect(names).toContain("film");
     expect(names).toContain("filmCollection");
+    expect(names).toContain("filmsPageSettings");
     expect(names).toContain("program");
     expect(names).toContain("teamMember");
     expect(names).toContain("partner");
   });
 
-  it("has 10 total schema types (5 objects + 5 documents)", () => {
-    expect(schemaTypes).toHaveLength(10);
+  it("has 11 total schema types (5 objects + 6 documents)", () => {
+    expect(schemaTypes).toHaveLength(11);
   });
 
   it("film schema exposes browsing metadata fields", () => {
@@ -147,6 +148,18 @@ describe("sanity schemas", () => {
     expect(filmsField?.of?.[0]?.type).toBe("reference");
     expect(filmsField?.of?.[0]?.to?.[0]?.type).toBe("film");
     expect(filmsField?.validation).toBeTypeOf("function");
+  });
+
+  it("filmsPageSettings schema exposes row visibility controls", () => {
+    const settings = schemaTypes.find((s) => s.name === "filmsPageSettings");
+    const fields = fieldsFor("filmsPageSettings");
+
+    expect(settings?.type).toBe("document");
+    expect(fields.map((field) => field.name)).toEqual([
+      "showLatestRow",
+      "showAllVideosRow",
+    ]);
+    expect(fields.map((field) => field.type)).toEqual(["boolean", "boolean"]);
   });
 
   it("film metadata validators reject normalized duplicate blanks and tags", () => {

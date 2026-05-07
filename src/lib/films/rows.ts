@@ -1,4 +1,14 @@
-import type { FilmBrowserCollection, FilmBrowserFilm, FilmRow } from "./types";
+import type {
+  FilmBrowserCollection,
+  FilmBrowserFilm,
+  FilmRow,
+  FilmRowVisibilitySettings,
+} from "./types";
+
+const DEFAULT_ROW_VISIBILITY: FilmRowVisibilitySettings = {
+  showLatestRow: true,
+  showAllVideosRow: true,
+};
 
 function sortByReleaseYearDesc(films: FilmBrowserFilm[]): FilmBrowserFilm[] {
   return [...films].sort((a, b) => {
@@ -23,7 +33,9 @@ function hasTitle(title: string | null | undefined): title is string {
 export function buildFilmRows(
   films: FilmBrowserFilm[],
   collections: FilmBrowserCollection[],
+  visibility: Partial<FilmRowVisibilitySettings> = DEFAULT_ROW_VISIBILITY,
 ): FilmRow[] {
+  const rowVisibility = { ...DEFAULT_ROW_VISIBILITY, ...visibility };
   const visibleFilmIds = new Set(films.map((film) => film._id));
   const curatedRows: FilmRow[] = collections
     .filter((collection) => hasTitle(collection.title))
@@ -45,7 +57,11 @@ export function buildFilmRows(
   return [
     ...curatedRows,
     ...(featured.length > 0 ? [{ id: "featured", title: "Featured", films: featured }] : []),
-    ...(latest.length > 0 ? [{ id: "latest", title: "Latest", films: latest }] : []),
-    ...(all.length > 0 ? [{ id: "all", title: "All Films", films: all }] : []),
+    ...(rowVisibility.showLatestRow && latest.length > 0
+      ? [{ id: "latest", title: "Latest", films: latest }]
+      : []),
+    ...(rowVisibility.showAllVideosRow && all.length > 0
+      ? [{ id: "all", title: "All Films", films: all }]
+      : []),
   ];
 }
