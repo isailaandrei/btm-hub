@@ -79,7 +79,7 @@ describe("sanity data fetchers", () => {
   });
 
   it("getTeamMembers returns team member array", async () => {
-    const members = [{ _id: "1", name: "Jane", role: "founder" }];
+    const members = [{ _id: "1", name: "Jane", title: "Founder" }];
     mockSanityFetch.mockResolvedValueOnce({ data: members });
 
     const result = await getTeamMembers();

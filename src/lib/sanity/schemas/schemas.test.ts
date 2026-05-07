@@ -197,6 +197,13 @@ describe("sanity schemas", () => {
     expect(externalLinksField?.of?.[0]?.type).toBe("object");
   });
 
+  it("teamMember schema uses job title without a separate role field", () => {
+    const fieldNames = fieldsFor("teamMember").map((field) => field.name);
+
+    expect(fieldNames).toContain("title");
+    expect(fieldNames).not.toContain("role");
+  });
+
   it("portableText schema is an array type", () => {
     const pt = schemaTypes.find((s) => s.name === "portableText");
     expect(pt?.type).toBe("array");

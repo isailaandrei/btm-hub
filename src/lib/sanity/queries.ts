@@ -72,7 +72,7 @@ export const ALL_FILM_SLUGS_QUERY = defineQuery(`
 export const PROGRAM_BY_SLUG_QUERY = defineQuery(`
   *[_type == "program" && slug == $slug][0] {
     _id, slug, heroImage, heroVideo, fullDescription, highlights,
-    curriculum, instructor->{ _id, name, slug, photo, role, title },
+    curriculum, instructor->{ _id, name, slug, photo, title },
     gallery, faqs, testimonials, pricing, seoDescription, applicationOpen
   }
 `);
@@ -89,7 +89,7 @@ export const ALL_PROGRAMS_CMS_QUERY = defineQuery(`
 
 export const TEAM_MEMBERS_QUERY = defineQuery(`
   *[_type == "teamMember"] | order(sortOrder asc) {
-    _id, name, slug, photo, role, title, shortBio, specialties, socialLinks, featured
+    _id, name, slug, photo, title, shortBio, specialties, socialLinks, featured
   }
 `);
 
@@ -99,7 +99,7 @@ export const ALL_TEAM_MEMBER_SLUGS_QUERY = defineQuery(`
 
 export const TEAM_MEMBER_BY_SLUG_QUERY = defineQuery(`
   *[_type == "teamMember" && slug.current == $slug][0] {
-    _id, name, slug, photo, role, title, shortBio, fullBio, specialties, socialLinks
+    _id, name, slug, photo, title, shortBio, fullBio, specialties, socialLinks
   }
 `);
 

@@ -239,7 +239,6 @@ export type TeamMember = {
     alt: string;
     _type: "image";
   };
-  role: "founder" | "instructor" | "guide";
   title?: string;
   shortBio?: string;
   fullBio?: PortableText;
@@ -521,7 +520,7 @@ export type ALL_FILM_SLUGS_QUERY_RESULT = Array<string>;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: PROGRAM_BY_SLUG_QUERY
-// Query: *[_type == "program" && slug == $slug][0] {    _id, slug, heroImage, heroVideo, fullDescription, highlights,    curriculum, instructor->{ _id, name, slug, photo, role, title },    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen  }
+// Query: *[_type == "program" && slug == $slug][0] {    _id, slug, heroImage, heroVideo, fullDescription, highlights,    curriculum, instructor->{ _id, name, slug, photo, title },    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen  }
 export type PROGRAM_BY_SLUG_QUERY_RESULT = {
   _id: string;
   slug: "filmmaking" | "freediving" | "internship" | "photography";
@@ -549,7 +548,6 @@ export type PROGRAM_BY_SLUG_QUERY_RESULT = {
       alt: string;
       _type: "image";
     } | null;
-    role: "founder" | "guide" | "instructor";
     title: string | null;
   } | null;
   gallery: Gallery | null;
@@ -587,7 +585,7 @@ export type ALL_PROGRAMS_CMS_QUERY_RESULT = Array<{
 
 // Source: src/lib/sanity/queries.ts
 // Variable: TEAM_MEMBERS_QUERY
-// Query: *[_type == "teamMember"] | order(sortOrder asc) {    _id, name, slug, photo, role, title, shortBio, specialties, socialLinks, featured  }
+// Query: *[_type == "teamMember"] | order(sortOrder asc) {    _id, name, slug, photo, title, shortBio, specialties, socialLinks, featured  }
 export type TEAM_MEMBERS_QUERY_RESULT = Array<{
   _id: string;
   name: string;
@@ -600,7 +598,6 @@ export type TEAM_MEMBERS_QUERY_RESULT = Array<{
     alt: string;
     _type: "image";
   } | null;
-  role: "founder" | "guide" | "instructor";
   title: string | null;
   shortBio: string | null;
   specialties: Array<string> | null;
@@ -619,7 +616,7 @@ export type ALL_TEAM_MEMBER_SLUGS_QUERY_RESULT = Array<string>;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: TEAM_MEMBER_BY_SLUG_QUERY
-// Query: *[_type == "teamMember" && slug.current == $slug][0] {    _id, name, slug, photo, role, title, shortBio, fullBio, specialties, socialLinks  }
+// Query: *[_type == "teamMember" && slug.current == $slug][0] {    _id, name, slug, photo, title, shortBio, fullBio, specialties, socialLinks  }
 export type TEAM_MEMBER_BY_SLUG_QUERY_RESULT = {
   _id: string;
   name: string;
@@ -632,7 +629,6 @@ export type TEAM_MEMBER_BY_SLUG_QUERY_RESULT = {
     alt: string;
     _type: "image";
   } | null;
-  role: "founder" | "guide" | "instructor";
   title: string | null;
   shortBio: string | null;
   fullBio: PortableText | null;
@@ -710,11 +706,11 @@ declare module "@sanity/client" {
     '\n  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags\n\n  }\n': FEATURED_FILMS_QUERY_RESULT;
     '\n  *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {\n    _id,\n    title,\n    slug,\n    description,\n    sortOrder,\n    films[]->{\n      \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags\n\n    }\n  }\n': FILM_COLLECTIONS_QUERY_RESULT;
     '\n  *[_type == "film" && defined(slug.current)].slug.current\n': ALL_FILM_SLUGS_QUERY_RESULT;
-    '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, role, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
+    '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "program"] {\n    _id, slug, heroImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;
-    '\n  *[_type == "teamMember"] | order(sortOrder asc) {\n    _id, name, slug, photo, role, title, shortBio, specialties, socialLinks, featured\n  }\n': TEAM_MEMBERS_QUERY_RESULT;
+    '\n  *[_type == "teamMember"] | order(sortOrder asc) {\n    _id, name, slug, photo, title, shortBio, specialties, socialLinks, featured\n  }\n': TEAM_MEMBERS_QUERY_RESULT;
     '\n  *[_type == "teamMember" && defined(slug.current)].slug.current\n': ALL_TEAM_MEMBER_SLUGS_QUERY_RESULT;
-    '\n  *[_type == "teamMember" && slug.current == $slug][0] {\n    _id, name, slug, photo, role, title, shortBio, fullBio, specialties, socialLinks\n  }\n': TEAM_MEMBER_BY_SLUG_QUERY_RESULT;
+    '\n  *[_type == "teamMember" && slug.current == $slug][0] {\n    _id, name, slug, photo, title, shortBio, fullBio, specialties, socialLinks\n  }\n': TEAM_MEMBER_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "partner"] | order(sortOrder asc) {\n    _id, name, slug, logo, logoDark, description, shortDescription,\n    website, memberDiscount, tier, featured\n  }\n': PARTNERS_QUERY_RESULT;
     '\n  *[_type == "partner" && featured == true] | order(sortOrder asc) {\n    _id, name, slug, logo, logoDark, shortDescription, website, memberDiscount\n  }\n': FEATURED_PARTNERS_QUERY_RESULT;
   }
