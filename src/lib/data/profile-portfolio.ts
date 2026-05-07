@@ -8,6 +8,12 @@ import type {
 } from "@/types/database";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
+const THUMBNAIL_TRANSFORM = {
+  width: 480,
+  height: 480,
+  resize: "cover",
+  quality: 75,
+} as const;
 
 async function attachSignedUrls(
   rows: ProfilePortfolioItem[],
@@ -16,14 +22,15 @@ async function attachSignedUrls(
 
   const supabase = await createAdminClient();
   const paths = rows.map((row) => row.storage_path);
-  const { data, error } = await supabase.storage
-    .from(PROFILE_PORTFOLIO_BUCKET)
+  const bucket = supabase.storage.from(PROFILE_PORTFOLIO_BUCKET);
+  const { data, error } = await bucket
     .createSignedUrls(paths, SIGNED_URL_TTL_SECONDS);
 
   if (error) {
     return rows.map((row) => ({
       ...row,
       signedUrl: null,
+      thumbnailUrl: null,
       imageError: `Failed to sign portfolio images: ${error.message}`,
     }));
   }
@@ -32,17 +39,52 @@ async function attachSignedUrls(
     (data ?? []).map((item) => [item.path, item.signedUrl] as const),
   );
 
+  const thumbnailResults = await Promise.all(
+    rows.map(async (row) => {
+      const { data: thumbnailData, error: thumbnailError } =
+        await bucket.createSignedUrl(row.storage_path, SIGNED_URL_TTL_SECONDS, {
+          transform: THUMBNAIL_TRANSFORM,
+        });
+
+      return {
+        path: row.storage_path,
+        signedUrl: thumbnailData?.signedUrl ?? null,
+        error: thumbnailError?.message ?? null,
+      };
+    }),
+  );
+  const thumbnailsByPath = new Map(
+    thumbnailResults.map((item) => [item.path, item] as const),
+  );
+
   return rows.map((row) => {
     const signedUrl = signedByPath.get(row.storage_path);
     if (!signedUrl) {
       return {
         ...row,
         signedUrl: null,
+        thumbnailUrl: null,
         imageError: `Missing signed URL for portfolio item ${row.id}`,
       };
     }
 
-    return { ...row, signedUrl, imageError: null };
+    const thumbnail = thumbnailsByPath.get(row.storage_path);
+    if (!thumbnail?.signedUrl) {
+      const message = thumbnail?.error ?? "missing thumbnail signed URL";
+      return {
+        ...row,
+        signedUrl,
+        thumbnailUrl: null,
+        imageError: `Failed to sign portfolio thumbnail: ${message}`,
+      };
+    }
+
+    return {
+      ...row,
+      signedUrl,
+      thumbnailUrl: thumbnail.signedUrl,
+      imageError: null,
+    };
   });
 }
 

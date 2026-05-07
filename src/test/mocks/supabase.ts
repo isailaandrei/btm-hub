@@ -53,6 +53,10 @@ export function createMockSupabaseClient() {
       ],
       error: null,
     }),
+    createSignedUrl: vi.fn().mockResolvedValue({
+      data: { signedUrl: "http://signed-thumbnail/file.jpg" },
+      error: null,
+    }),
     getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: "http://test/avatar.jpg" } }),
   };
   const storage = {

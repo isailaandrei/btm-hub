@@ -28,6 +28,7 @@ export interface ProfilePortfolioItem {
 
 export interface ProfilePortfolioItemWithUrl extends ProfilePortfolioItem {
   signedUrl: string | null;
+  thumbnailUrl: string | null;
   imageError: string | null;
 }
 

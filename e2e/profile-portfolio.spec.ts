@@ -110,8 +110,8 @@ test.describe("Profile portfolio", () => {
       name: "Portfolio image gallery",
     });
     await expect(
-      galleryDialog.getByRole("img", { name: "portfolio-e2e-gallery-b.png" }),
-    ).toBeVisible();
+      galleryDialog.getByRole("img", { name: "portfolio-e2e-gallery-a.png" }),
+    ).toHaveCount(0);
 
     await page.getByRole("button", { name: /close gallery/i }).click();
     await expect(

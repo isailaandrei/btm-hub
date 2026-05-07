@@ -16,8 +16,9 @@ const baseItem: ProfilePortfolioItemWithUrl = {
   created_at: "2026-05-06T00:00:00.000Z",
   updated_at: "2026-05-06T00:00:00.000Z",
   signedUrl: "http://signed/file.jpg",
+  thumbnailUrl: "http://signed-thumbnail/file.jpg",
   imageError: null,
-};
+} as ProfilePortfolioItemWithUrl & { thumbnailUrl: string | null };
 
 describe("PortfolioGallery", () => {
   it("renders signed thumbnails as in-app gallery controls", () => {
@@ -27,6 +28,9 @@ describe("PortfolioGallery", () => {
 
     expect(html).toContain("Open Reef wall in gallery");
     expect(html).toContain("<button");
+    expect(html).toContain('src="http://signed-thumbnail/file.jpg"');
+    expect(html).not.toContain('src="http://signed/file.jpg"');
+    expect(html).toContain("Uploaded May 6, 2026");
     expect(html).not.toContain('target="_blank"');
   });
 
@@ -37,6 +41,7 @@ describe("PortfolioGallery", () => {
           {
             ...baseItem,
             signedUrl: null,
+            thumbnailUrl: null,
             imageError: "Image unavailable",
           },
         ]}

@@ -6,12 +6,15 @@ import { ChevronLeft, ChevronRight, Maximize2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProfilePortfolioItemWithUrl } from "@/types/database";
 
+const UPLOAD_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 function formatUploadDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
+  return UPLOAD_DATE_FORMATTER.format(new Date(value));
 }
 
 export function PortfolioGallery({
@@ -22,7 +25,7 @@ export function PortfolioGallery({
   compact?: boolean;
 }) {
   const signedItems = useMemo(
-    () => items.filter((item) => Boolean(item.signedUrl)),
+    () => items.filter((item) => Boolean(item.signedUrl && item.thumbnailUrl)),
     [items],
   );
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -85,7 +88,7 @@ export function PortfolioGallery({
         {items.map((item) => (
           <figure key={item.id} className="min-w-0">
             <div className="relative aspect-square overflow-hidden rounded-md bg-muted">
-              {item.signedUrl ? (
+              {item.signedUrl && item.thumbnailUrl ? (
                 <button
                   type="button"
                   aria-label={`Open ${item.title || item.original_filename} in gallery`}
@@ -93,7 +96,7 @@ export function PortfolioGallery({
                   className="group block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <img
-                    src={item.signedUrl}
+                    src={item.thumbnailUrl}
                     alt={item.title || item.original_filename}
                     loading="lazy"
                     className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"

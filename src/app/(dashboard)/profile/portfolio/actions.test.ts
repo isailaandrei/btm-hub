@@ -111,6 +111,49 @@ describe("createPortfolioItemAction", () => {
         caption: "",
       }),
     ).rejects.toThrow("Portfolio limit reached");
+    expect(mockSupabase.storage.remove).toHaveBeenCalledWith([
+      "profile-1/file.jpg",
+    ]);
+  });
+
+  it("cleans up uploaded storage when metadata insert fails", async () => {
+    mockSupabase.query.single.mockResolvedValueOnce({
+      data: null,
+      error: { message: "database unavailable" },
+    });
+
+    await expect(
+      createPortfolioItemAction({
+        storagePath: "profile-1/file.jpg",
+        originalFilename: "file.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 10,
+        title: "",
+        caption: "",
+      }),
+    ).rejects.toThrow("Failed to save portfolio item: database unavailable");
+    expect(mockSupabase.storage.remove).toHaveBeenCalledWith([
+      "profile-1/file.jpg",
+    ]);
+  });
+
+  it("does not remove storage after metadata insert succeeds but revalidation fails", async () => {
+    mockGetContactIdsByProfileId.mockRejectedValueOnce(
+      new Error("contacts unavailable"),
+    );
+
+    await expect(
+      createPortfolioItemAction({
+        storagePath: "profile-1/file.jpg",
+        originalFilename: "file.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 10,
+        title: "",
+        caption: "",
+      }),
+    ).rejects.toThrow("contacts unavailable");
+    expect(mockSupabase.query.insert).toHaveBeenCalled();
+    expect(mockSupabase.storage.remove).not.toHaveBeenCalled();
   });
 
   it("inserts portfolio metadata and revalidates profile surfaces", async () => {

@@ -37,10 +37,14 @@ beforeEach(() => {
     data: [{ path: row.storage_path, signedUrl: "http://signed/file.jpg" }],
     error: null,
   });
+  mockSupabase.storage.createSignedUrl.mockResolvedValue({
+    data: { signedUrl: "http://signed-thumbnail/file.jpg" },
+    error: null,
+  });
 });
 
 describe("profile portfolio fetchers", () => {
-  it("loads profile portfolio rows with signed URLs", async () => {
+  it("loads profile portfolio rows with full-size and thumbnail signed URLs", async () => {
     const result = await getPortfolioItemsByProfileId("profile-1");
 
     expect(mockSupabase.client.from).toHaveBeenCalledWith(
@@ -54,8 +58,25 @@ describe("profile portfolio fetchers", () => {
       [row.storage_path],
       60 * 10,
     );
+    expect(mockSupabase.storage.createSignedUrl).toHaveBeenCalledWith(
+      row.storage_path,
+      60 * 10,
+      {
+        transform: {
+          width: 480,
+          height: 480,
+          resize: "cover",
+          quality: 75,
+        },
+      },
+    );
     expect(result).toEqual([
-      { ...row, signedUrl: "http://signed/file.jpg", imageError: null },
+      {
+        ...row,
+        signedUrl: "http://signed/file.jpg",
+        thumbnailUrl: "http://signed-thumbnail/file.jpg",
+        imageError: null,
+      },
     ]);
   });
 
@@ -66,6 +87,7 @@ describe("profile portfolio fetchers", () => {
       [],
     );
     expect(mockSupabase.storage.createSignedUrls).not.toHaveBeenCalled();
+    expect(mockSupabase.storage.createSignedUrl).not.toHaveBeenCalled();
   });
 
   it("returns per-item degraded state when signed URL generation fails", async () => {
@@ -78,7 +100,24 @@ describe("profile portfolio fetchers", () => {
       {
         ...row,
         signedUrl: null,
+        thumbnailUrl: null,
         imageError: "Failed to sign portfolio images: storage unavailable",
+      },
+    ]);
+  });
+
+  it("returns per-item degraded state when thumbnail signing fails", async () => {
+    mockSupabase.storage.createSignedUrl.mockResolvedValue({
+      data: null,
+      error: { message: "transform unavailable" },
+    });
+
+    await expect(getPortfolioItemsByProfileId("profile-3")).resolves.toEqual([
+      {
+        ...row,
+        signedUrl: "http://signed/file.jpg",
+        thumbnailUrl: null,
+        imageError: "Failed to sign portfolio thumbnail: transform unavailable",
       },
     ]);
   });

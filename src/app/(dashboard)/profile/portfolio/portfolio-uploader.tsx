@@ -55,16 +55,14 @@ export function PortfolioUploader({
 
   async function uploadFile(file: File) {
     if (!isAllowedPortfolioImageType(file.type)) {
-      toast.error(`${file.name} must be JPEG, PNG, or WebP.`);
-      return;
+      throw new Error(`${file.name} must be JPEG, PNG, or WebP.`);
     }
 
     const supabase = createClient();
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (!token) {
-      toast.error("You must be logged in to upload portfolio images.");
-      return;
+      throw new Error("You must be logged in to upload portfolio images.");
     }
 
     const storagePath = portfolioStoragePath(profileId, file.type);
@@ -229,9 +227,9 @@ export function PortfolioUploader({
             {items.map((item) => (
               <div key={item.id} className="rounded-lg border border-border p-3">
                 <div className="relative aspect-square overflow-hidden rounded-md bg-muted">
-                  {item.signedUrl ? (
+                  {item.signedUrl && item.thumbnailUrl ? (
                     <img
-                      src={item.signedUrl}
+                      src={item.thumbnailUrl}
                       alt={item.title || item.original_filename}
                       loading="lazy"
                       className="h-full w-full object-cover"

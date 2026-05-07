@@ -91,6 +91,28 @@ async function assertUploadedObjectExists(
   if (!exists) throw new Error("Uploaded portfolio image was not found.");
 }
 
+async function cleanupUploadedObjectAndThrow(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  storagePath: string,
+  error: unknown,
+): Promise<never> {
+  const original =
+    error instanceof Error
+      ? error
+      : new Error("Failed to save portfolio item.");
+  const { error: removeError } = await supabase.storage
+    .from(PROFILE_PORTFOLIO_BUCKET)
+    .remove([storagePath]);
+
+  if (removeError) {
+    throw new Error(
+      `${original.message} Failed to clean up uploaded portfolio image: ${removeError.message}`,
+    );
+  }
+
+  throw original;
+}
+
 export async function createPortfolioItemAction(input: {
   storagePath: string;
   originalFilename: string;
@@ -106,29 +128,39 @@ export async function createPortfolioItemAction(input: {
     throw new Error("Invalid portfolio storage path.");
   }
 
-  await assertPortfolioCapacity(supabase, userId);
-  await assertUploadedObjectExists(supabase, parsed.storagePath);
+  let createdItem: { id: string } | null = null;
 
-  const { data, error } = await supabase
-    .from("profile_portfolio_items")
-    .insert({
-      profile_id: userId,
-      storage_path: parsed.storagePath,
-      original_filename: parsed.originalFilename,
-      mime_type: parsed.mimeType,
-      size_bytes: parsed.sizeBytes,
-      title: cleanOptionalText(parsed.title),
-      caption: cleanOptionalText(parsed.caption),
-    })
-    .select("id")
-    .single();
+  try {
+    await assertPortfolioCapacity(supabase, userId);
+    await assertUploadedObjectExists(supabase, parsed.storagePath);
 
-  if (error) {
-    throw new Error(`Failed to save portfolio item: ${error.message}`);
+    const { data, error } = await supabase
+      .from("profile_portfolio_items")
+      .insert({
+        profile_id: userId,
+        storage_path: parsed.storagePath,
+        original_filename: parsed.originalFilename,
+        mime_type: parsed.mimeType,
+        size_bytes: parsed.sizeBytes,
+        title: cleanOptionalText(parsed.title),
+        caption: cleanOptionalText(parsed.caption),
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      throw new Error(`Failed to save portfolio item: ${error.message}`);
+    }
+
+    createdItem = data as { id: string };
+  } catch (error) {
+    await cleanupUploadedObjectAndThrow(supabase, parsed.storagePath, error);
   }
 
+  if (!createdItem) throw new Error("Failed to save portfolio item.");
+
   await revalidatePortfolioSurfaces(userId);
-  return data as { id: string };
+  return createdItem;
 }
 
 export async function updatePortfolioItemAction(
