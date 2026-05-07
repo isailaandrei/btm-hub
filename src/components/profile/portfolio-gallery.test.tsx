@@ -20,15 +20,14 @@ const baseItem: ProfilePortfolioItemWithUrl = {
 };
 
 describe("PortfolioGallery", () => {
-  it("links signed thumbnails to the full-size image", () => {
+  it("renders signed thumbnails as in-app gallery controls", () => {
     const html = renderToStaticMarkup(
       <PortfolioGallery items={[baseItem]} compact />,
     );
 
-    expect(html).toContain('href="http://signed/file.jpg"');
-    expect(html).toContain('target="_blank"');
-    expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toContain('aria-label="Open Reef wall full size"');
+    expect(html).toContain("Open Reef wall in gallery");
+    expect(html).toContain("<button");
+    expect(html).not.toContain('target="_blank"');
   });
 
   it("does not render a full-size link when an image is unavailable", () => {
