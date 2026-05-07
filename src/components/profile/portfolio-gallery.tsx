@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 
+import { Maximize2 } from "lucide-react";
 import type { ProfilePortfolioItemWithUrl } from "@/types/database";
 
 function formatUploadDate(value: string) {
@@ -35,12 +36,23 @@ export function PortfolioGallery({
           <figure key={item.id} className="min-w-0">
             <div className="relative aspect-square overflow-hidden rounded-md bg-muted">
               {item.signedUrl ? (
-                <img
-                  src={item.signedUrl}
-                  alt={item.title || item.original_filename}
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
+                <a
+                  href={item.signedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open ${item.title || item.original_filename} full size`}
+                  className="group block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <img
+                    src={item.signedUrl}
+                    alt={item.title || item.original_filename}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
+                  />
+                  <span className="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-full bg-background/85 text-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                    <Maximize2 className="size-4" aria-hidden="true" />
+                  </span>
+                </a>
               ) : (
                 <div className="flex h-full w-full items-center justify-center p-3 text-center text-xs text-destructive">
                   {item.imageError ?? "Image unavailable."}
