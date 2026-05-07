@@ -29,7 +29,10 @@ describe("PortfolioGallery", () => {
     expect(html).toContain("Open Reef wall in gallery");
     expect(html).toContain("<button");
     expect(html).toContain('src="http://signed-thumbnail/file.jpg"');
-    expect(html).not.toContain('src="http://signed/file.jpg"');
+    expect(html).toContain(
+      'data-fallback-src="http://signed/file.jpg"',
+    );
+    expect(html).not.toContain('<img src="http://signed/file.jpg"');
     expect(html).toContain("Uploaded May 6, 2026");
     expect(html).not.toContain('target="_blank"');
   });

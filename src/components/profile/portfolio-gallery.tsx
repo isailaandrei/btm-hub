@@ -4,6 +4,7 @@
 
 import { ChevronLeft, ChevronRight, Maximize2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PortfolioThumbnailImage } from "@/components/profile/portfolio-thumbnail-image";
 import type { ProfilePortfolioItemWithUrl } from "@/types/database";
 
 const UPLOAD_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -95,8 +96,9 @@ export function PortfolioGallery({
                   onClick={() => openItem(item.id)}
                   className="group block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  <img
-                    src={item.thumbnailUrl}
+                  <PortfolioThumbnailImage
+                    thumbnailUrl={item.thumbnailUrl}
+                    fallbackUrl={item.signedUrl}
                     alt={item.title || item.original_filename}
                     loading="lazy"
                     className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"

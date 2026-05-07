@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import { Loader2, Save, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
@@ -9,6 +7,7 @@ import { toast } from "sonner";
 import * as tus from "tus-js-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PortfolioThumbnailImage } from "@/components/profile/portfolio-thumbnail-image";
 import {
   getProfilePortfolioUploadEndpoint,
   isAllowedPortfolioImageType,
@@ -228,8 +227,9 @@ export function PortfolioUploader({
               <div key={item.id} className="rounded-lg border border-border p-3">
                 <div className="relative aspect-square overflow-hidden rounded-md bg-muted">
                   {item.signedUrl && item.thumbnailUrl ? (
-                    <img
-                      src={item.thumbnailUrl}
+                    <PortfolioThumbnailImage
+                      thumbnailUrl={item.thumbnailUrl}
+                      fallbackUrl={item.signedUrl}
                       alt={item.title || item.original_filename}
                       loading="lazy"
                       className="h-full w-full object-cover"

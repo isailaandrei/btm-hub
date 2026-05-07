@@ -40,6 +40,18 @@ async function uploadTinyPng(page: Page, name: string) {
     });
 }
 
+async function expectImageToDecode(page: Page, name: string) {
+  const image = page.getByRole("img", { name }).first();
+  await expect(image).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(
+      async () =>
+        image.evaluate((element) => (element as HTMLImageElement).naturalWidth),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+}
+
 test.describe("Profile portfolio", () => {
   test("anonymous users cannot view member profiles", async ({ page }) => {
     await page.goto("/community/members/11111111-1111-1111-1111-111111111111");
@@ -66,14 +78,10 @@ test.describe("Profile portfolio", () => {
     await uploadTinyPng(page, "portfolio-e2e.png");
 
     await expect(page.getByText(/portfolio-e2e\.png/)).toBeVisible();
-    await expect(
-      page.getByRole("img", { name: "portfolio-e2e.png" }),
-    ).toBeVisible({ timeout: 30_000 });
+    await expectImageToDecode(page, "portfolio-e2e.png");
 
     await page.goto(`/community/members/${TEST_PROFILE_ID}`);
-    await expect(
-      page.getByRole("img", { name: "portfolio-e2e.png" }),
-    ).toBeVisible();
+    await expectImageToDecode(page, "portfolio-e2e.png");
 
     await page.goto("/profile/portfolio");
     await deletePortfolioImagesByName(page, "portfolio-e2e.png");
@@ -88,14 +96,10 @@ test.describe("Profile portfolio", () => {
     await deletePortfolioImagesByName(page, "portfolio-e2e-gallery-b.png");
 
     await uploadTinyPng(page, "portfolio-e2e-gallery-b.png");
-    await expect(
-      page.getByRole("img", { name: "portfolio-e2e-gallery-b.png" }),
-    ).toBeVisible({ timeout: 30_000 });
+    await expectImageToDecode(page, "portfolio-e2e-gallery-b.png");
 
     await uploadTinyPng(page, "portfolio-e2e-gallery-a.png");
-    await expect(
-      page.getByRole("img", { name: "portfolio-e2e-gallery-a.png" }),
-    ).toBeVisible({ timeout: 30_000 });
+    await expectImageToDecode(page, "portfolio-e2e-gallery-a.png");
 
     await page.goto(`/community/members/${TEST_PROFILE_ID}`);
     await page
@@ -125,15 +129,27 @@ test.describe("Profile portfolio", () => {
 
   test("admin contact detail shows portfolio panel", async ({ page }) => {
     await login(page, ADMIN_USER);
+    await page.goto("/profile/portfolio");
+    await deletePortfolioImagesByName(page, "portfolio-e2e-admin.png");
+
+    await uploadTinyPng(page, "portfolio-e2e-admin.png");
+    await expectImageToDecode(page, "portfolio-e2e-admin.png");
+
     await page.goto("/admin");
 
-    const firstContact = page.locator("a[href^='/admin/contacts/']").first();
-    await expect(firstContact).toBeVisible();
-    await firstContact.click();
+    const adminContact = page.locator("a[href^='/admin/contacts/']", {
+      hasText: "Admin User",
+    });
+    await expect(adminContact).toBeVisible();
+    await adminContact.click();
     await page.waitForURL(/\/admin\/contacts\//);
 
     await expect(
       page.getByRole("heading", { name: "Portfolio" }).first(),
     ).toBeVisible();
+    await expectImageToDecode(page, "portfolio-e2e-admin.png");
+
+    await page.goto("/profile/portfolio");
+    await deletePortfolioImagesByName(page, "portfolio-e2e-admin.png");
   });
 });
