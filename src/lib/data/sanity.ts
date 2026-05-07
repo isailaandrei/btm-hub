@@ -6,6 +6,7 @@ import {
   FILM_BY_SLUG_QUERY,
   FEATURED_FILMS_QUERY,
   FILM_COLLECTIONS_QUERY,
+  FILMS_PAGE_SETTINGS_QUERY,
   ALL_FILM_SLUGS_QUERY,
   PROGRAM_BY_SLUG_QUERY,
   ALL_PROGRAMS_CMS_QUERY,
@@ -20,6 +21,7 @@ import type {
   FILM_BY_SLUG_QUERY_RESULT,
   FEATURED_FILMS_QUERY_RESULT,
   FILM_COLLECTIONS_QUERY_RESULT,
+  FILMS_PAGE_SETTINGS_QUERY_RESULT,
   PROGRAM_BY_SLUG_QUERY_RESULT,
   ALL_PROGRAMS_CMS_QUERY_RESULT,
   TEAM_MEMBERS_QUERY_RESULT,
@@ -33,6 +35,7 @@ export type FilmSummary = FILMS_QUERY_RESULT[number];
 export type FilmDetail = FILM_BY_SLUG_QUERY_RESULT;
 export type FeaturedFilm = FEATURED_FILMS_QUERY_RESULT[number];
 export type FilmCollection = FILM_COLLECTIONS_QUERY_RESULT[number];
+export type FilmsPageSettings = FILMS_PAGE_SETTINGS_QUERY_RESULT;
 export type ProgramContent = PROGRAM_BY_SLUG_QUERY_RESULT;
 export type ProgramCmsSummary = ALL_PROGRAMS_CMS_QUERY_RESULT[number];
 export type TeamMember = TEAM_MEMBERS_QUERY_RESULT[number];
@@ -64,6 +67,11 @@ export const getFeaturedFilms = cache(async function getFeaturedFilms() {
 
 export const getFilmCollections = cache(async function getFilmCollections() {
   const { data } = await sanityFetch({ query: FILM_COLLECTIONS_QUERY });
+  return data;
+});
+
+export const getFilmsPageSettings = cache(async function getFilmsPageSettings() {
+  const { data } = await sanityFetch({ query: FILMS_PAGE_SETTINGS_QUERY });
   return data;
 });
 

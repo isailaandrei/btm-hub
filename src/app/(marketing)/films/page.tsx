@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { FilmsBrowser } from "@/components/films/FilmsBrowser";
-import { getFilmCollections, getFilms } from "@/lib/data/sanity";
+import {
+  getFilmCollections,
+  getFilms,
+  getFilmsPageSettings,
+} from "@/lib/data/sanity";
 import {
   withCollectionFilmPosterUrls,
   withFilmPosterUrls,
@@ -12,9 +16,10 @@ export const metadata: Metadata = {
 };
 
 export default async function FilmsPage() {
-  const [rawFilms, rawCollections] = await Promise.all([
+  const [rawFilms, rawCollections, settings] = await Promise.all([
     getFilms(),
     getFilmCollections(),
+    getFilmsPageSettings(),
   ]);
 
   const films = rawFilms ? await withFilmPosterUrls(rawFilms) : rawFilms;
@@ -51,7 +56,14 @@ export default async function FilmsPage() {
           </p>
         </header>
 
-        <FilmsBrowser films={films} collections={collections ?? []} />
+        <FilmsBrowser
+          films={films}
+          collections={collections ?? []}
+          rowVisibility={{
+            showLatestRow: settings?.showLatestRow ?? true,
+            showAllVideosRow: settings?.showAllVideosRow ?? true,
+          }}
+        />
       </div>
     </main>
   );

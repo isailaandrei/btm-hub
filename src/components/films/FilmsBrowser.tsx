@@ -14,6 +14,7 @@ import type {
   FilmBrowserCollection,
   FilmBrowserFilm,
   FilmFilterState,
+  FilmRowVisibilitySettings,
 } from "@/lib/films/types"
 import { FilmFilterSheet } from "./FilmFilterSheet"
 import { FilmPlaybackModal } from "./FilmPlaybackModal"
@@ -22,9 +23,14 @@ import { FilmRow } from "./FilmRow"
 type FilmsBrowserProps = {
   films: FilmBrowserFilm[]
   collections: FilmBrowserCollection[]
+  rowVisibility: FilmRowVisibilitySettings
 }
 
-export function FilmsBrowser({ films, collections }: FilmsBrowserProps) {
+export function FilmsBrowser({
+  films,
+  collections,
+  rowVisibility,
+}: FilmsBrowserProps) {
   const [search, setSearch] = useState("")
   const [filters, setFilters] = useState<FilmFilterState>(() =>
     createEmptyFilmFilters()
@@ -45,8 +51,8 @@ export function FilmsBrowser({ films, collections }: FilmsBrowserProps) {
         ? visibleFilms.length > 0
           ? [{ id: "matches", title: "Matching Films", films: visibleFilms }]
           : []
-        : buildFilmRows(visibleFilms, collections),
-    [collections, hasActiveQuery, visibleFilms]
+        : buildFilmRows(visibleFilms, collections, rowVisibility),
+    [collections, hasActiveQuery, rowVisibility, visibleFilms]
   )
 
   return (

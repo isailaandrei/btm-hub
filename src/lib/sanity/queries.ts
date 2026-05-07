@@ -61,6 +61,13 @@ export const FILM_COLLECTIONS_QUERY = defineQuery(`
   }
 `);
 
+export const FILMS_PAGE_SETTINGS_QUERY = defineQuery(`
+  *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {
+    "showLatestRow": coalesce(showLatestRow, true),
+    "showAllVideosRow": coalesce(showAllVideosRow, true)
+  }
+`);
+
 export const ALL_FILM_SLUGS_QUERY = defineQuery(`
   *[_type == "film" && defined(slug.current)].slug.current
 `);
