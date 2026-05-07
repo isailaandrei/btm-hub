@@ -25,6 +25,7 @@ type FakeRule = {
   required: () => FakeRule;
   min: () => FakeRule;
   max: () => FakeRule;
+  uri: () => FakeRule;
   unique: () => FakeRule;
   custom: (validator: CustomValidator) => FakeRule;
 };
@@ -40,6 +41,7 @@ function customValidatorFor(schemaName: string, fieldName: string) {
     required: () => rule,
     min: () => rule,
     max: () => rule,
+    uri: () => rule,
     unique: () => rule,
     custom: (validator) => {
       customValidator = validator;
@@ -78,7 +80,7 @@ describe("sanity schemas", () => {
 
     expect(fieldNames).toEqual(
       expect.arrayContaining([
-        "thumbnailImage",
+        "videoEmbed",
         "locations",
         "subjects",
         "formats",
@@ -98,6 +100,25 @@ describe("sanity schemas", () => {
           ?.validation,
       ).toBeTypeOf("function");
     }
+  });
+
+  it("film schema uses provider video thumbnails instead of uploaded poster images", () => {
+    const fieldNames = fieldsFor("film").map((f) => f.name);
+
+    expect(fieldNames).not.toContain("heroImage");
+    expect(fieldNames).not.toContain("thumbnailImage");
+  });
+
+  it("film schema only accepts supported YouTube or Vimeo video URLs", () => {
+    const videoValidator = customValidatorFor("film", "videoEmbed");
+
+    expect(videoValidator?.("https://www.youtube.com/watch?v=abc123DEF45")).toBe(
+      true,
+    );
+    expect(videoValidator?.("https://vimeo.com/123456789/abcDEF123")).toBe(true);
+    expect(videoValidator?.("https://example.com/video")).toBe(
+      "Enter a supported YouTube or Vimeo URL.",
+    );
   });
 
   it("film schema does not expose a detail-page gallery field", () => {

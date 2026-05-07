@@ -9,8 +9,6 @@ const FILM_CARD_FIELDS = `
   title,
   slug,
   tagline,
-  heroImage,
-  thumbnailImage,
   videoEmbed,
   duration,
   releaseYear,

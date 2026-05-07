@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { FilmsBrowser } from "@/components/films/FilmsBrowser";
 import { getFilmCollections, getFilms } from "@/lib/data/sanity";
+import {
+  withCollectionFilmPosterUrls,
+  withFilmPosterUrls,
+} from "@/lib/films/posters";
 
 export const metadata: Metadata = {
   title: "Films - Behind The Mask",
@@ -8,10 +12,18 @@ export const metadata: Metadata = {
 };
 
 export default async function FilmsPage() {
-  const [films, collections] = await Promise.all([
+  const [rawFilms, rawCollections] = await Promise.all([
     getFilms(),
     getFilmCollections(),
   ]);
+
+  const films = rawFilms ? await withFilmPosterUrls(rawFilms) : rawFilms;
+  const posterUrlsByFilmId = new Map(
+    films?.map((film) => [film._id, film.posterUrl]) ?? [],
+  );
+  const collections = rawCollections
+    ? withCollectionFilmPosterUrls(rawCollections, posterUrlsByFilmId)
+    : rawCollections;
 
   if (!films || films.length === 0) {
     return (

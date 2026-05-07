@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "ojbwpfemujjjkihdhgkr.supabase.co" },
       { protocol: "https", hostname: "cdn.sanity.io" },
+      { protocol: "https", hostname: "i.ytimg.com", pathname: "/vi/**" },
+      { protocol: "https", hostname: "i.vimeocdn.com", pathname: "/video/**" },
     ],
   },
   outputFileTracingRoot: projectRoot,

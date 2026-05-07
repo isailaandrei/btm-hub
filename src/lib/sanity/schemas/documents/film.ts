@@ -1,4 +1,5 @@
 import { defineType, defineField } from "sanity";
+import { getFilmVideoInfo } from "../../../films/embed";
 
 type FilmCreditValidationValue = {
   teamMember?: { _ref?: string };
@@ -32,7 +33,6 @@ export const film = defineType({
   type: "document",
   groups: [
     { name: "content", title: "Content", default: true },
-    { name: "media", title: "Media" },
     { name: "playback", title: "Playback" },
     { name: "metadata", title: "Metadata" },
   ],
@@ -65,43 +65,24 @@ export const film = defineType({
       group: "content",
     }),
     defineField({
-      name: "heroImage",
-      title: "Hero Image",
-      type: "image",
-      group: "media",
-      options: { hotspot: true },
-      validation: (rule) => rule.required(),
-      fields: [
-        {
-          name: "alt",
-          type: "string",
-          title: "Alt Text",
-          validation: (rule) => rule.required(),
-        },
-      ],
-    }),
-    defineField({
-      name: "thumbnailImage",
-      title: "Card Thumbnail",
-      type: "image",
-      group: "media",
-      description: "Optional 16:9 poster for film cards. Falls back to Hero Image.",
-      options: { hotspot: true },
-      fields: [
-        {
-          name: "alt",
-          type: "string",
-          title: "Alt Text",
-        },
-      ],
-    }),
-    defineField({
       name: "videoEmbed",
       title: "Video Embed URL",
       type: "url",
       group: "playback",
       description: "YouTube or Vimeo URL",
-      validation: (rule) => rule.required().uri({ scheme: ["https"] }),
+      validation: (rule) =>
+        rule
+          .required()
+          .uri({ scheme: ["https"] })
+          .custom((value) => {
+            if (typeof value !== "string" || value.trim().length === 0) {
+              return true;
+            }
+
+            return getFilmVideoInfo(value)
+              ? true
+              : "Enter a supported YouTube or Vimeo URL.";
+          }),
     }),
     defineField({
       name: "credits",
@@ -285,6 +266,6 @@ export const film = defineType({
     },
   ],
   preview: {
-    select: { title: "title", subtitle: "tagline", media: "heroImage" },
+    select: { title: "title", subtitle: "tagline" },
   },
 });

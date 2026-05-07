@@ -1,4 +1,4 @@
-import { SanityImage } from "@/components/sanity/SanityImage"
+import Image from "next/image"
 import type { FilmBrowserFilm } from "@/lib/films/types"
 import { cn } from "@/lib/utils"
 
@@ -15,10 +15,9 @@ export function FilmPoster({
   sizes,
   priority = false,
 }: FilmPosterProps) {
-  const image = film.thumbnailImage ?? film.heroImage
-  const alt = image?.alt ?? film.title ?? "Film poster"
+  const alt = film.title ? `${film.title} video thumbnail` : "Film poster"
 
-  if (!image) {
+  if (!film.posterUrl) {
     return (
       <div
         className={cn(
@@ -32,8 +31,8 @@ export function FilmPoster({
   }
 
   return (
-    <SanityImage
-      source={image}
+    <Image
+      src={film.posterUrl}
       alt={alt}
       fill
       priority={priority}

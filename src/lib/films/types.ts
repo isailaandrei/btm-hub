@@ -1,5 +1,3 @@
-import type { SanityImageSource } from "@sanity/image-url";
-
 export type FilmMetadataKey = "locations" | "subjects" | "formats" | "skills";
 
 export type FilmStatus = "published" | "in-production" | "coming-soon";
@@ -9,9 +7,8 @@ export type FilmBrowserFilm = {
   title: string | null;
   slug?: { current?: string | null } | null;
   tagline?: string | null;
-  heroImage?: (SanityImageSource & { alt?: string | null }) | null;
-  thumbnailImage?: (SanityImageSource & { alt?: string | null }) | null;
   videoEmbed?: string | null;
+  posterUrl?: string | null;
   duration?: string | null;
   releaseYear?: number | null;
   status?: FilmStatus | string | null;
