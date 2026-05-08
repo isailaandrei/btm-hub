@@ -95,6 +95,7 @@ Purchase access:
 - Launch default: `members`.
 - Members and admins can buy.
 - Public visitors may browse selected public products, but checkout requires login/community membership.
+- A `public` purchase-access value can exist for future flexibility, but launch checkout still requires a `member` or `admin` profile.
 
 The current app already has `profiles.role` as `member | admin`; use that model rather than introducing a separate membership table for launch.
 

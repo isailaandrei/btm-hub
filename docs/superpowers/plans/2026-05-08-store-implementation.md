@@ -184,6 +184,8 @@ Production must use `EMAIL_PROVIDER=brevo` with `BREVO_API_KEY` already configur
 Create the migration with these structural requirements:
 
 ```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TYPE shop_product_type AS ENUM ('physical', 'digital', 'service');
 CREATE TYPE shop_product_status AS ENUM ('draft', 'active', 'archived');
 CREATE TYPE shop_product_visibility AS ENUM ('public', 'members', 'hidden');
@@ -264,12 +266,16 @@ status shop_reservation_status NOT NULL DEFAULT 'active';
 
 -- Order constraints
 order_number text NOT NULL UNIQUE;
+checkout_attempt_id text NOT NULL CHECK (char_length(checkout_attempt_id) <= 80);
+cart_fingerprint text NOT NULL CHECK (char_length(cart_fingerprint) = 64);
+reservation_expires_at timestamptz NOT NULL;
 currency text NOT NULL DEFAULT 'eur' CHECK (currency = 'eur');
 subtotal_cents integer NOT NULL DEFAULT 0 CHECK (subtotal_cents >= 0);
 shipping_cents integer NOT NULL DEFAULT 0 CHECK (shipping_cents >= 0);
 tax_cents integer NOT NULL DEFAULT 0 CHECK (tax_cents >= 0);
 total_cents integer NOT NULL DEFAULT 0 CHECK (total_cents >= 0);
 stripe_checkout_session_id text UNIQUE;
+stripe_checkout_url text;
 stripe_payment_intent_id text UNIQUE;
 billing_address jsonb NOT NULL DEFAULT '{}'::jsonb;
 shipping_address jsonb NOT NULL DEFAULT '{}'::jsonb;
@@ -323,6 +329,8 @@ CREATE INDEX idx_shop_orders_profile_created
   ON shop_orders (profile_id, created_at DESC);
 CREATE INDEX idx_shop_orders_status_created
   ON shop_orders (status, created_at DESC);
+CREATE UNIQUE INDEX idx_shop_orders_checkout_attempt
+  ON shop_orders (profile_id, checkout_attempt_id);
 CREATE INDEX idx_shop_order_items_order
   ON shop_order_items (order_id, sort_order);
 CREATE INDEX idx_shop_stripe_events_session
@@ -364,6 +372,11 @@ ALTER TABLE shop_order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shop_order_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shop_shipping_zones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shop_shipping_rates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shop_stripe_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shop_order_notifications ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE shop_stripe_events FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE shop_order_notifications FROM PUBLIC, anon, authenticated;
 
 CREATE POLICY "Anyone can read public active products"
   ON shop_products FOR SELECT
@@ -467,7 +480,7 @@ CREATE POLICY "Members can read their own customer-visible order events"
   );
 ```
 
-Member order read policies for `shop_orders` and `shop_order_items` must join through `shop_orders.profile_id = auth.uid()`. Do not allow members to read `shop_inventory_reservations`, `shop_inventory_adjustments`, `shop_stripe_events`, or non-customer-visible order events directly.
+Member order read policies for `shop_orders` and `shop_order_items` must join through `shop_orders.profile_id = auth.uid()`. Do not allow members to read `shop_inventory_reservations`, `shop_inventory_adjustments`, `shop_stripe_events`, `shop_order_notifications`, or non-customer-visible order events directly. `shop_stripe_events` and `shop_order_notifications` are service-role-only implementation tables; do not add anon/auth policies for them.
 
 Add storage object policies for `shop-product-media`:
 
@@ -516,7 +529,12 @@ BEGIN
   SET status = 'expired',
       updated_at = now()
   WHERE status = 'active'
-    AND expires_at <= now();
+    AND expires_at <= now()
+    AND NOT EXISTS (
+      SELECT 1 FROM shop_orders
+      WHERE shop_orders.id = shop_inventory_reservations.order_id
+        AND shop_orders.stripe_checkout_session_id IS NOT NULL
+    );
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
@@ -524,11 +542,18 @@ END;
 $$;
 ```
 
-Add `shop_begin_checkout(p_profile_id uuid, p_lines jsonb, p_customer_notes text, p_reservation_expires_at timestamptz)` that:
+The cleanup function must never expire reservations for orders already attached to a Stripe Checkout Session. Stripe-attached reservations are released by `checkout.session.expired` or by a reconciliation job that first retrieves the Stripe Session and verifies `status = 'expired'`.
+
+Add `shop_begin_checkout(p_profile_id uuid, p_checkout_attempt_id text, p_lines jsonb, p_customer_notes text, p_reservation_expires_at timestamptz)` as a `SECURITY DEFINER SET search_path = public, pg_temp` function that:
 
 - calls `shop_expire_inventory_reservations()`
 - verifies `p_profile_id = auth.uid()`
 - verifies the profile role is `member` or `admin`
+- normalizes `p_lines` in deterministic variant order and computes a `cart_fingerprint`
+- computes `cart_fingerprint` with `encode(digest(normalized_lines::text, 'sha256'), 'hex')`
+- checks for an existing `shop_orders` row with `(profile_id, checkout_attempt_id)` using `FOR UPDATE`
+- if an existing pending row has the same `cart_fingerprint` and active/unexpired reservations, returns that order instead of creating a duplicate
+- if an existing row has a different fingerprint, is canceled, paid, expired, or already belongs to a completed session, raises `checkout_attempt_conflict` so the client generates a new attempt id
 - locks each variant row with `FOR UPDATE` in deterministic `variant_id` order
 - rejects hidden, draft, archived, inactive, or non-purchasable products for non-admins
 - checks active non-expired reservations against stock
@@ -536,22 +561,25 @@ Add `shop_begin_checkout(p_profile_id uuid, p_lines jsonb, p_customer_notes text
 - creates `shop_order_items` snapshot rows from the locked product/variant data
 - inserts reservation rows
 - inserts `created` and `checkout_started` order events, with `customer_visible = true` only for the safe customer timeline event
-- returns `order_id`, `order_number`, `reservation_expires_at`, subtotal, shipping-required flag, and line-item snapshots
+- returns `order_id`, `order_number`, `checkout_attempt_id`, `reservation_expires_at`, `stripe_checkout_session_id`, `stripe_checkout_url`, subtotal, shipping-required flag, and line-item snapshots
 - raises `insufficient_stock` with SQLSTATE `P0001` when unavailable
 
-Add `shop_attach_checkout_session(p_order_id uuid, p_profile_id uuid, p_stripe_checkout_session_id text)` that:
+Add `shop_attach_checkout_session(p_order_id uuid, p_profile_id uuid, p_checkout_attempt_id text, p_stripe_checkout_session_id text, p_stripe_checkout_url text)` as a `SECURITY DEFINER SET search_path = public, pg_temp` function that:
 
+- is granted only to `service_role`; the public client must never be able to attach arbitrary Stripe session ids
 - verifies the order belongs to `p_profile_id`
+- verifies the order's `checkout_attempt_id` matches `p_checkout_attempt_id`
 - verifies the order is still `pending`
 - stores `stripe_checkout_session_id` once
+- stores `stripe_checkout_url` once
 - raises a clear error if a different session is already attached
 
-Add `shop_finalize_paid_order_from_checkout(p_event_id text, p_session jsonb)` that:
+Add `shop_finalize_paid_order_from_checkout(p_event_id text, p_session jsonb)` as a `SECURITY DEFINER SET search_path = public, pg_temp` function that:
 
 - inserts `shop_stripe_events.event_id` first and returns the current order state if already processed
 - locks the order row by `stripe_checkout_session_id`
 - verifies the order is `pending` or already `paid`
-- locks active reservations for the order
+- locks active reservations for the order; if no active reservations exist for a not-yet-paid order, fail loudly so Stripe retries rather than silently marking paid without stock conversion
 - decrements `shop_product_variants.stock_quantity` only once
 - writes `shop_inventory_adjustments`
 - marks reservations `converted`
@@ -560,25 +588,25 @@ Add `shop_finalize_paid_order_from_checkout(p_event_id text, p_session jsonb)` t
 - inserts a customer-visible `payment_confirmed` event
 - inserts deterministic pending `shop_order_notifications` rows for `customer_confirmation` and `internal_alert`
 
-Add `shop_release_inventory_reservations(p_order_id uuid)` that marks active reservations `released`.
+Add `shop_release_inventory_reservations(p_order_id uuid)` as a `SECURITY DEFINER SET search_path = public, pg_temp` function that marks active reservations `released`. Use it only for orders with no Stripe session attached or for explicit Stripe/session reconciliation paths.
 
-Add `shop_release_order_for_checkout_session(p_event_id text, p_stripe_checkout_session_id text)` that records the Stripe event id, locks the order by session id, marks active reservations `released`, and marks still-pending orders `canceled`.
+Add `shop_release_order_for_checkout_session(p_event_id text, p_stripe_checkout_session_id text)` as a `SECURITY DEFINER SET search_path = public, pg_temp` function that records the Stripe event id, locks the order by session id, marks active reservations `released`, and marks still-pending orders `canceled`.
 
-Add `shop_record_refund_event(p_event_id text, p_payload jsonb)` that records Stripe refund events idempotently and updates `shop_orders.status` to `partially_refunded` or `refunded` based on Stripe totals available in the payload.
+Add `shop_record_refund_event(p_event_id text, p_payload jsonb)` as a `SECURITY DEFINER SET search_path = public, pg_temp` function that records Stripe refund events idempotently and updates `shop_orders.status` to `partially_refunded` or `refunded` based on Stripe totals available in the payload.
 
 After all functions are created, lock down execution:
 
 ```sql
 REVOKE EXECUTE ON FUNCTION shop_expire_inventory_reservations() FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION shop_begin_checkout(uuid, jsonb, text, timestamptz) FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION shop_attach_checkout_session(uuid, uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION shop_begin_checkout(uuid, text, jsonb, text, timestamptz) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION shop_attach_checkout_session(uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION shop_finalize_paid_order_from_checkout(text, jsonb) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION shop_release_inventory_reservations(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION shop_release_order_for_checkout_session(text, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION shop_record_refund_event(text, jsonb) FROM PUBLIC, anon, authenticated;
 
-GRANT EXECUTE ON FUNCTION shop_begin_checkout(uuid, jsonb, text, timestamptz) TO authenticated;
-GRANT EXECUTE ON FUNCTION shop_attach_checkout_session(uuid, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION shop_begin_checkout(uuid, text, jsonb, text, timestamptz) TO authenticated;
+GRANT EXECUTE ON FUNCTION shop_attach_checkout_session(uuid, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION shop_expire_inventory_reservations() TO service_role;
 GRANT EXECUTE ON FUNCTION shop_finalize_paid_order_from_checkout(text, jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION shop_release_inventory_reservations(uuid) TO service_role;
@@ -611,6 +639,14 @@ psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "select proname 
 ```
 
 Expected: the checkout, reservation, finalization, release, and refund functions are listed.
+
+Check RLS on internal tables:
+
+```bash
+psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "select relname, relrowsecurity from pg_class where relname in ('shop_stripe_events', 'shop_order_notifications');"
+```
+
+Expected: both rows have `relrowsecurity = t`.
 
 - [ ] **Step 5: Commit**
 
@@ -728,6 +764,12 @@ export interface CartValidationResult {
   subtotalCents: number;
   requiresShipping: boolean;
   customerNotesRequired: boolean;
+}
+
+export interface StartShopCheckoutInput {
+  checkoutAttemptId: string;
+  lines: CartLineInput[];
+  customerNotes?: string;
 }
 ```
 
@@ -853,6 +895,11 @@ describe("shop visibility", () => {
     expect(canPurchaseProduct(baseProduct, { id: "profile-1", role: "member" })).toBe(true);
   });
 
+  it("keeps public-access products member-checkout only at launch", () => {
+    expect(canPurchaseProduct({ ...baseProduct, purchase_access: "public" }, null)).toBe(false);
+    expect(canPurchaseProduct({ ...baseProduct, purchase_access: "public" }, { id: "profile-1", role: "member" })).toBe(true);
+  });
+
   it("hides member products from public users", () => {
     expect(canViewProduct({ ...baseProduct, visibility: "members" }, null)).toBe(false);
   });
@@ -898,6 +945,7 @@ export function canViewProduct(product: ShopProduct, viewer: ShopViewer): boolea
 
 export function canPurchaseProduct(product: ShopProduct, viewer: ShopViewer): boolean {
   if (!canViewProduct(product, viewer)) return false;
+  if (!isMemberOrAdmin(viewer)) return false;
   if (product.purchase_access === "public") return true;
   return isMemberOrAdmin(viewer);
 }
@@ -1900,7 +1948,32 @@ export function clearCart() {
 }
 ```
 
-- [ ] **Step 3: Wire add-to-cart UI into product detail**
+- [ ] **Step 3: Add checkout attempt id helper**
+
+Extend `cart-store.ts` with a checkout attempt id helper so double-clicks and retries reuse one attempt for the same cart contents:
+
+```ts
+const CHECKOUT_ATTEMPT_KEY = "btm-shop-checkout-attempt-v1";
+
+export function getOrCreateCheckoutAttemptId(): string {
+  if (typeof window === "undefined") return crypto.randomUUID();
+  const current = window.localStorage.getItem(CHECKOUT_ATTEMPT_KEY);
+  if (current) return current;
+  const next = crypto.randomUUID();
+  window.localStorage.setItem(CHECKOUT_ATTEMPT_KEY, next);
+  return next;
+}
+
+export function resetCheckoutAttemptId() {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(CHECKOUT_ATTEMPT_KEY);
+  }
+}
+```
+
+Call `resetCheckoutAttemptId()` whenever cart contents change after a successful add/update/remove, and after a successful redirect URL is received.
+
+- [ ] **Step 4: Wire add-to-cart UI into product detail**
 
 Change `ProductPurchasePanel` into a client component that:
 
@@ -1909,11 +1982,11 @@ Change `ProductPurchasePanel` into a client component that:
 - calls `addCartLine`
 - links to `/shop/cart`
 
-- [ ] **Step 4: Add cart review page**
+- [ ] **Step 5: Add cart review page**
 
 Create a cart page that reads local cart client-side and uses a server action in the next task for validation. It must show an empty state and a "Continue checkout" button.
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 6: Run tests**
 
 ```bash
 npm run test:unit -- src/components/shop/cart-store.test.ts
@@ -1921,7 +1994,7 @@ npm run test:unit -- src/components/shop/cart-store.test.ts
 
 Expected: cart tests pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/components/shop/cart-store.ts src/components/shop/cart-store.test.ts src/components/shop/CartButton.tsx src/components/shop/CartReview.tsx 'src/app/(marketing)/shop/cart/page.tsx' src/components/shop/ProductPurchasePanel.tsx
@@ -1970,6 +2043,8 @@ Mock `createClient`, `getProfile`, `validateCartForCheckout`, and Stripe builder
 
 - unauthenticated users receive login-required error
 - successful checkout calls `shop_begin_checkout`
+- repeated calls with the same `checkoutAttemptId` do not create duplicate reservations
+- a reused `checkoutAttemptId` with changed cart contents returns a clear conflict error
 - reservation expiry uses 30 minutes
 - hidden products are rejected through `validateCartForCheckout`
 
@@ -1980,6 +2055,7 @@ Implement `startShopCheckout(input)` in `src/lib/shop/checkout.ts`:
 - validates profile role
 - loads variants/products
 - validates cart
+- passes `checkoutAttemptId` to `shop_begin_checkout`
 - calls `shop_begin_checkout` so order creation, item snapshots, and reservations happen in one database transaction
 - returns `{ orderId, orderNumber, reservationExpiresAt }` for now
 
@@ -1994,6 +2070,7 @@ import { z } from "zod/v4";
 import { startShopCheckout } from "@/lib/shop/checkout";
 
 const checkoutInputSchema = z.object({
+  checkoutAttemptId: z.string().trim().min(8).max(80),
   lines: z.array(z.object({
     variantId: z.string().min(1),
     quantity: z.number().int().positive().max(99),
@@ -2007,7 +2084,7 @@ export async function startShopCheckoutAction(input: unknown) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid checkout request" };
   }
   const result = await startShopCheckout(parsed.data);
-  return { ok: true, orderId: result.orderId };
+  return { ok: true, orderId: result.orderId, orderNumber: result.orderNumber };
 }
 ```
 
@@ -2041,6 +2118,9 @@ git commit -m "feat: add shop checkout reservations"
 - Create: `src/lib/shop/stripe.test.ts`
 - Modify: `src/lib/shop/checkout.ts`
 - Modify: `src/lib/shop/checkout.test.ts`
+- Modify: `src/app/(marketing)/shop/actions.ts`
+- Modify: `src/app/(marketing)/shop/actions.test.ts`
+- Modify: `src/components/shop/CartReview.tsx`
 
 - [ ] **Step 1: Install Stripe package if absent**
 
@@ -2114,11 +2194,12 @@ export function buildCheckoutSessionParams(input: {
 
 export async function createCheckoutSession(input: {
   stripe: Stripe;
-  orderId: string;
+  profileId: string;
+  checkoutAttemptId: string;
   params: Stripe.Checkout.SessionCreateParams;
 }) {
   return input.stripe.checkout.sessions.create(input.params, {
-    idempotencyKey: `shop-checkout:${input.orderId}`,
+    idempotencyKey: `shop-checkout:${input.profileId}:${input.checkoutAttemptId}`,
   });
 }
 ```
@@ -2130,23 +2211,41 @@ Modify `startShopCheckout` to:
 - create Stripe line items from validated cart snapshots
 - include product/variant Stripe tax codes in line-item `price_data.product_data.tax_code` where configured
 - load active flat shipping zones/rates when `requiresShipping`; build `allowedShippingCountries` from `shop_shipping_zones.allowed_countries`; fail loudly if no active configured country can ship
-- create Stripe Checkout Session with idempotency key `shop-checkout:${orderId}`
-- call `shop_attach_checkout_session` to store `stripe_checkout_session_id`
+- create Stripe Checkout Session with idempotency key `shop-checkout:${profileId}:${checkoutAttemptId}`
+- call `shop_attach_checkout_session` with `createAdminClient()` to store `stripe_checkout_session_id` and `stripe_checkout_url`
 - if Stripe session creation fails after `shop_begin_checkout`, call `shop_release_inventory_reservations(orderId)` with the service role before returning a visible checkout error
 - return `{ orderId, checkoutUrl }`
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 5: Update checkout action and UI redirect**
+
+Modify `startShopCheckoutAction` to return `checkoutUrl`:
+
+```ts
+const result = await startShopCheckout(parsed.data);
+return { ok: true, orderId: result.orderId, checkoutUrl: result.checkoutUrl };
+```
+
+Modify `CartReview` so the checkout button sends `checkoutAttemptId: getOrCreateCheckoutAttemptId()` and redirects with:
+
+```ts
+if (result.ok && result.checkoutUrl) {
+  resetCheckoutAttemptId();
+  window.location.assign(result.checkoutUrl);
+}
+```
+
+- [ ] **Step 6: Run tests**
 
 ```bash
-npm run test:unit -- src/lib/shop/stripe.test.ts src/lib/shop/checkout.test.ts
+npm run test:unit -- src/lib/shop/stripe.test.ts src/lib/shop/checkout.test.ts 'src/app/(marketing)/shop/actions.test.ts'
 ```
 
 Expected: Stripe and checkout tests pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add package.json package-lock.json src/lib/shop/stripe.ts src/lib/shop/stripe.test.ts src/lib/shop/checkout.ts src/lib/shop/checkout.test.ts
+git add package.json package-lock.json src/lib/shop/stripe.ts src/lib/shop/stripe.test.ts src/lib/shop/checkout.ts src/lib/shop/checkout.test.ts 'src/app/(marketing)/shop/actions.ts' 'src/app/(marketing)/shop/actions.test.ts' src/components/shop/CartReview.tsx
 git commit -m "feat: create stripe checkout sessions"
 ```
 
@@ -2222,6 +2321,7 @@ Test that:
 - unsupported event returns `{ received: true }`
 - `checkout.session.completed` calls order finalization
 - `checkout.session.expired` releases reservations
+- local timestamp cleanup does not release reservations for orders with `stripe_checkout_session_id`
 - `charge.refunded` and `charge.refund.updated` record refund status
 - async Checkout events are ignored with a visible log because launch Checkout is restricted to cards
 
@@ -2361,6 +2461,66 @@ Expected: lint reports no errors.
 ```bash
 git add 'src/app/(marketing)/shop/success/page.tsx' 'src/app/(marketing)/shop/canceled/page.tsx'
 git commit -m "feat: add shop checkout return pages"
+```
+
+### Task 5.4: Add Stripe Session Reconciliation Path
+
+**Files:**
+- Modify: `src/lib/data/shop-orders.ts`
+- Modify: `src/lib/data/shop-orders.test.ts`
+- Modify: `src/lib/shop/checkout.ts`
+- Modify: `src/lib/shop/checkout.test.ts`
+
+- [ ] **Step 1: Add reconciliation tests**
+
+Test that:
+
+- pending orders with attached Stripe sessions are not released from local timestamps alone
+- a retrieved Stripe Session with `status = "expired"` calls `shop_release_order_for_checkout_session`
+- a retrieved Stripe Session with `payment_status = "paid"` calls `shop_finalize_paid_order_from_checkout`
+- open sessions are left untouched
+
+- [ ] **Step 2: Implement reconciliation helper**
+
+Add a helper that can be called manually by admins or a future cron:
+
+```ts
+export async function reconcilePendingShopCheckoutSession(input: {
+  stripeCheckoutSessionId: string;
+}) {
+  const stripe = getStripeClient();
+  const session = await stripe.checkout.sessions.retrieve(input.stripeCheckoutSessionId);
+  if (session.payment_status === "paid") {
+    return finalizeShopOrderPaidFromCheckoutSession({
+      eventId: `reconcile:${session.id}:paid`,
+      session: session as unknown as Record<string, unknown>,
+    });
+  }
+  if (session.status === "expired") {
+    return releaseShopOrderReservationsForCheckoutSession({
+      eventId: `reconcile:${session.id}:expired`,
+      stripeCheckoutSessionId: session.id,
+    });
+  }
+  return { reconciled: false, status: session.status, paymentStatus: session.payment_status };
+}
+```
+
+Use deterministic synthetic event ids so reconciliation is idempotent and compatible with `shop_stripe_events`.
+
+- [ ] **Step 3: Run tests**
+
+```bash
+npm run test:unit -- src/lib/data/shop-orders.test.ts src/lib/shop/checkout.test.ts
+```
+
+Expected: reconciliation tests pass.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/lib/data/shop-orders.ts src/lib/data/shop-orders.test.ts src/lib/shop/checkout.ts src/lib/shop/checkout.test.ts
+git commit -m "feat: add shop checkout reconciliation"
 ```
 
 ---
