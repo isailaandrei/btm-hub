@@ -27,6 +27,9 @@ describe("FilmRow", () => {
 
     expect(html).toContain("group/row");
     expect(html).toContain("gap-2");
+    expect(html).toContain("px-7");
+    expect(html).toContain("md:px-10");
+    expect(html).toContain("lg:px-16");
     expect(html).toContain("absolute left-0 top-0");
     expect(html).toContain("bg-gradient-to-r from-muted");
     expect(html).toContain("absolute right-0 top-0");

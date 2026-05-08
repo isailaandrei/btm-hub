@@ -24,7 +24,8 @@ describe("FilmCard", () => {
       <FilmCard film={film} onSelect={() => {}} />,
     );
 
-    expect(html).toContain("max-w-[310px]");
+    expect(html).toContain("max-w-[370px]");
+    expect(html).toContain("lg:w-[360px]");
     expect(html).toContain("rounded-md");
     expect(html).not.toContain("rounded-lg");
     expect(html).toContain("hover:scale-[1.1]");

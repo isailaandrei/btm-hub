@@ -52,7 +52,7 @@ export function FilmCard({ film, onSelect }: FilmCardProps) {
   return (
     <article
       className={cn(
-        "group relative aspect-video w-[72vw] max-w-[310px] shrink-0 transform-gpu overflow-hidden rounded-md bg-neutral-900 text-left shadow-sm ring-1 ring-white/10 transition-all duration-300 ease-out hover:z-20 hover:scale-[1.1] hover:shadow-2xl focus-within:z-20 focus-within:scale-[1.1] focus-within:shadow-2xl focus-within:ring-2 focus-within:ring-ring sm:w-[292px] lg:w-[306px]"
+        "group relative aspect-video w-[78vw] max-w-[370px] shrink-0 transform-gpu overflow-hidden rounded-md bg-neutral-900 text-left shadow-sm ring-1 ring-white/10 transition-all duration-300 ease-out hover:z-20 hover:scale-[1.1] hover:shadow-2xl focus-within:z-20 focus-within:scale-[1.1] focus-within:shadow-2xl focus-within:ring-2 focus-within:ring-ring sm:w-[330px] lg:w-[360px]"
       )}
     >
       <button
@@ -64,7 +64,7 @@ export function FilmCard({ film, onSelect }: FilmCardProps) {
 
       <FilmPoster
         film={film}
-        sizes="(max-width: 640px) 72vw, (max-width: 1024px) 292px, 306px"
+        sizes="(max-width: 640px) 78vw, (max-width: 1024px) 330px, 360px"
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-black/0 opacity-0 transition-opacity duration-200 group-hover:opacity-95 group-focus-within:opacity-95" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 space-y-2 p-3 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 md:p-4">
