@@ -1971,7 +1971,7 @@ export function resetCheckoutAttemptId() {
 }
 ```
 
-Call `resetCheckoutAttemptId()` whenever cart contents change after a successful add/update/remove, and after a successful redirect URL is received.
+Call `resetCheckoutAttemptId()` whenever cart contents change after a successful add/update/remove, after a paid order is confirmed and the cart is cleared, or after the app explicitly cancels/releases the attached Checkout Session. Do not reset the attempt id before redirecting to Stripe; cancel/return/retry must reuse the same attempt id and existing Checkout Session URL for the unchanged cart.
 
 - [ ] **Step 4: Wire add-to-cart UI into product detail**
 
@@ -2045,6 +2045,7 @@ Mock `createClient`, `getProfile`, `validateCartForCheckout`, and Stripe builder
 - successful checkout calls `shop_begin_checkout`
 - repeated calls with the same `checkoutAttemptId` do not create duplicate reservations
 - a reused `checkoutAttemptId` with changed cart contents returns a clear conflict error
+- cancel/return/retry with the same unchanged cart reuses the existing `checkoutAttemptId` and returns the existing `stripe_checkout_url`
 - reservation expiry uses 30 minutes
 - hidden products are rejected through `validateCartForCheckout`
 
@@ -2229,10 +2230,11 @@ Modify `CartReview` so the checkout button sends `checkoutAttemptId: getOrCreate
 
 ```ts
 if (result.ok && result.checkoutUrl) {
-  resetCheckoutAttemptId();
   window.location.assign(result.checkoutUrl);
 }
 ```
+
+Do not call `resetCheckoutAttemptId()` here. The same cart must keep the same attempt id through Stripe cancel/return/retry. Reset it only when the cart changes, when the user explicitly starts a fresh checkout after cancellation/release, or when the paid order is confirmed and the cart is cleared.
 
 - [ ] **Step 6: Run tests**
 
