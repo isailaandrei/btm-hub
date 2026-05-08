@@ -176,35 +176,89 @@ export interface TopicWithThreads {
   threads: ForumThreadSummary[];
 }
 
+interface GroupedTopicThreadRow {
+  topic_slug: string;
+  topic_name: string;
+  topic_description: string;
+  topic_icon: string;
+  topic_sort_order: number;
+  thread_id: string;
+  thread_author_id: string | null;
+  thread_title: string;
+  thread_slug: string;
+  thread_reply_count: number;
+  thread_pinned: boolean;
+  thread_locked: boolean;
+  thread_created_at: string;
+  thread_last_reply_at: string;
+  op_post_id: string | null;
+  body_preview: string | null;
+  op_body: string | null;
+  op_body_format: BodyFormat | null;
+  op_like_count: number | null;
+  author_display_name: string | null;
+  author_avatar_url: string | null;
+}
+
+function toGroupedThreadSummary(row: GroupedTopicThreadRow): ForumThreadSummary {
+  return {
+    id: row.thread_id,
+    topic: row.topic_slug,
+    title: row.thread_title,
+    slug: row.thread_slug,
+    reply_count: row.thread_reply_count,
+    pinned: row.thread_pinned,
+    locked: row.thread_locked,
+    created_at: row.thread_created_at,
+    last_reply_at: row.thread_last_reply_at,
+    author: row.thread_author_id
+      ? {
+          id: row.thread_author_id,
+          display_name: row.author_display_name,
+          avatar_url: row.author_avatar_url,
+        }
+      : null,
+    body_preview: row.body_preview ?? "",
+    op_post_id: row.op_post_id,
+    op_body: row.op_body ?? "",
+    op_body_format: row.op_body_format ?? "markdown",
+    op_like_count: row.op_like_count ?? 0,
+    topic_name: row.topic_name,
+  };
+}
+
 export const getThreadsGroupedByTopic = cache(async function getThreadsGroupedByTopic(
   threadsPerTopic = 3,
 ): Promise<TopicWithThreads[]> {
   const supabase = await createClient();
-  const topics = await getForumTopics();
+  const { data, error } = await supabase.rpc("get_latest_forum_threads_by_topic", {
+    _threads_per_topic: threadsPerTopic,
+  });
 
-  // Fetch latest N threads per topic in parallel
-  const results = await Promise.all(
-    topics.map(async (topic) => {
-      const { data, error } = await supabase
-        .from(LISTING_VIEW)
-        .select(`*, ${LISTING_PROFILE_JOIN}`)
-        .eq("topic", topic.slug)
-        .order("pinned", { ascending: false })
-        .order("last_reply_at", { ascending: false })
-        .order("id", { ascending: false })
-        .limit(threadsPerTopic);
+  if (error) throw new Error(`Failed to fetch grouped threads: ${error.message}`);
 
-      if (error) throw new Error(`Failed to fetch threads for topic ${topic.slug}: ${error.message}`);
+  const groups = new Map<string, TopicWithThreads>();
 
-      return {
-        topic,
-        threads: (data ?? []).map(toThreadSummary),
-      };
-    }),
-  );
+  for (const row of (data ?? []) as GroupedTopicThreadRow[]) {
+    const existing = groups.get(row.topic_slug);
+    if (existing) {
+      existing.threads.push(toGroupedThreadSummary(row));
+      continue;
+    }
 
-  // Exclude topics with no threads
-  return results.filter((group) => group.threads.length > 0);
+    groups.set(row.topic_slug, {
+      topic: {
+        slug: row.topic_slug,
+        name: row.topic_name,
+        description: row.topic_description,
+        icon: row.topic_icon,
+        sort_order: row.topic_sort_order,
+      },
+      threads: [toGroupedThreadSummary(row)],
+    });
+  }
+
+  return Array.from(groups.values());
 });
 
 // ---------------------------------------------------------------------------

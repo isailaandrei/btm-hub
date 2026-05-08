@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, Heart } from "lucide-react";
 import { cn, escapeHtml } from "@/lib/utils";
+import { sanitizeBody } from "@/lib/community/sanitize";
 import { UserAvatar } from "./UserAvatar";
 import { editMessage, deleteMessage, toggleMessageLike } from "@/app/(marketing)/community/messages/actions";
 import type { OptimisticDmMessage } from "@/types/database";
@@ -27,10 +28,11 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isDeleted = message.deleted_at !== null;
+  const safeBody = message.body_format === "html" ? sanitizeBody(message.body) : message.body;
 
   // Split HTML body into image blocks and text blocks for separate rendering
   const bodyParts = (() => {
-    if (message.body_format !== "html" || !message.body.includes("<img ")) {
+    if (message.body_format !== "html" || !safeBody.includes("<img ")) {
       return null; // No splitting needed
     }
     // Split around <img> tags (including wrapping <p> tags)
@@ -38,13 +40,13 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
     const parts: { type: "image" | "text"; html: string }[] = [];
     let lastIndex = 0;
     let match;
-    while ((match = imgRegex.exec(message.body)) !== null) {
-      const before = message.body.slice(lastIndex, match.index).trim();
+    while ((match = imgRegex.exec(safeBody)) !== null) {
+      const before = safeBody.slice(lastIndex, match.index).trim();
       if (before) parts.push({ type: "text", html: before });
       parts.push({ type: "image", html: match[1] });
       lastIndex = match.index + match[0].length;
     }
-    const after = message.body.slice(lastIndex).trim();
+    const after = safeBody.slice(lastIndex).trim();
     if (after) parts.push({ type: "text", html: after });
     return parts.length > 0 ? parts : null;
   })();
@@ -224,7 +226,7 @@ export function MessageBubble({ message, isOwn, showSeen = false, liked = false 
                 message.body_format === "html" && (isOwn ? "prose-dm-own" : "prose-dm prose-community"),
                 message.body_format !== "html" && "whitespace-pre-wrap",
               )}
-              dangerouslySetInnerHTML={{ __html: message.body_format === "html" ? message.body : escapeHtml(message.body) }}
+              dangerouslySetInnerHTML={{ __html: message.body_format === "html" ? safeBody : escapeHtml(safeBody) }}
             />
           </div>
         )}

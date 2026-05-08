@@ -1,0 +1,36 @@
+import { describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ProfileSidebar } from "./profile-sidebar";
+import type { Profile } from "@/types/database";
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/profile",
+}));
+
+vi.mock("./avatar-upload", () => ({
+  AvatarUpload: () => <div data-testid="avatar-upload" />,
+}));
+
+describe("ProfileSidebar", () => {
+  it("shows messages and notifications entry points with unread count", () => {
+    const profile: Profile = {
+      id: "profile-1",
+      email: "member@example.com",
+      display_name: "Member",
+      bio: null,
+      avatar_url: null,
+      role: "member",
+      preferences: {},
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    };
+
+    const html = renderToStaticMarkup(
+      <ProfileSidebar profile={profile} unreadNotifications={3} />,
+    );
+
+    expect(html).toContain("Messages");
+    expect(html).toContain("Notifications");
+    expect(html).toContain(">3<");
+  });
+});

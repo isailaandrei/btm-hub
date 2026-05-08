@@ -431,6 +431,29 @@ export interface SharedApplicationView {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export type NotificationType = "dm_message";
+export type NotificationEntityType = "dm_message";
+
+export interface Notification {
+  id: string;
+  recipient_id: string;
+  actor_id: string | null;
+  type: NotificationType;
+  entity_type: NotificationEntityType;
+  entity_id: string;
+  metadata: Record<string, unknown>;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationWithActor extends Notification {
+  actor: Pick<Profile, "id" | "display_name" | "avatar_url"> | null;
+}
+
+// ---------------------------------------------------------------------------
 // Direct Messages
 // ---------------------------------------------------------------------------
 

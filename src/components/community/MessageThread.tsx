@@ -14,6 +14,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 interface MessageThreadProps {
   conversationId: string;
   currentUserId: string;
+  recipientId: string | null;
   initialMessages: DmMessageWithSender[];
   recipientLastReadAt: string | null;
 }
@@ -21,6 +22,7 @@ interface MessageThreadProps {
 export function MessageThread({
   conversationId,
   currentUserId,
+  recipientId,
   initialMessages,
   recipientLastReadAt,
 }: MessageThreadProps) {
@@ -115,6 +117,37 @@ export function MessageThread({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, []);
+
+  // Load "Seen" state after the messages are already visible; it is a
+  // secondary affordance and should not block opening the conversation.
+  useEffect(() => {
+    if (!recipientId) return;
+
+    let cancelled = false;
+
+    async function fetchRecipientLastReadAt() {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("dm_read_receipts")
+        .select("last_read_at")
+        .eq("conversation_id", conversationId)
+        .eq("user_id", recipientId)
+        .maybeSingle();
+
+      if (cancelled) return;
+      if (error) {
+        console.warn("Failed to fetch recipient read receipt", error.message);
+        return;
+      }
+      setLastReadAt(data?.last_read_at ?? null);
+    }
+
+    fetchRecipientLastReadAt();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, recipientId]);
 
   // Fetch which messages the current user has liked
   useEffect(() => {

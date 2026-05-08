@@ -12,6 +12,16 @@ import type {
 
 const MESSAGES_PAGE_SIZE = 50;
 
+type ParticipantProfile =
+  | Pick<Profile, "id" | "display_name" | "avatar_url">
+  | Pick<Profile, "id" | "display_name" | "avatar_url">[]
+  | null
+  | undefined;
+
+function normalizeParticipantProfile(profile: ParticipantProfile) {
+  return Array.isArray(profile) ? profile[0] ?? null : profile ?? null;
+}
+
 export const getMessages = cache(async function getMessages(
   conversationId: string,
 ): Promise<DmMessageWithSender[]> {
@@ -24,13 +34,13 @@ export const getMessages = cache(async function getMessages(
     .from("dm_messages")
     .select("*, profiles!dm_messages_sender_fkey(id, display_name, avatar_url)")
     .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(MESSAGES_PAGE_SIZE);
 
   if (error) throw new Error(`Failed to fetch messages: ${error.message}`);
 
-  return (data ?? []).map((row) => ({
+  return (data ?? []).reverse().map((row) => ({
     id: row.id,
     conversation_id: row.conversation_id,
     sender_id: row.sender_id,
@@ -58,7 +68,15 @@ export const getConversation = cache(async function getConversation(
 
   const { data, error } = await supabase
     .from("dm_conversations")
-    .select("*")
+    .select(`
+      id,
+      user1_id,
+      user2_id,
+      last_message_at,
+      created_at,
+      user1:profiles!dm_conversations_user1_fkey(id, display_name, avatar_url),
+      user2:profiles!dm_conversations_user2_fkey(id, display_name, avatar_url)
+    `)
     .eq("id", conversationId)
     .single();
 
@@ -70,54 +88,17 @@ export const getConversation = cache(async function getConversation(
   // RLS should handle this, but double-check
   if (data.user1_id !== user.id && data.user2_id !== user.id) return null;
 
-  // Get other participant's profile
   const otherId = data.user1_id === user.id ? data.user2_id : data.user1_id;
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id, display_name, avatar_url")
-    .eq("id", otherId)
-    .single();
+  const user1 = normalizeParticipantProfile(data.user1 as ParticipantProfile);
+  const user2 = normalizeParticipantProfile(data.user2 as ParticipantProfile);
+  const participant = otherId === data.user1_id ? user1 : user2;
 
   return {
-    ...data,
-    participant: profile as Pick<Profile, "id" | "display_name" | "avatar_url"> | null,
+    id: data.id,
+    user1_id: data.user1_id,
+    user2_id: data.user2_id,
+    last_message_at: data.last_message_at,
+    created_at: data.created_at,
+    participant,
   };
 });
-
-// ---------------------------------------------------------------------------
-// Recipient's last read timestamp (for "Seen" receipt)
-// ---------------------------------------------------------------------------
-
-export const getRecipientLastReadAt = cache(async function getRecipientLastReadAt(
-  conversationId: string,
-): Promise<string | null> {
-  const user = await getAuthUser();
-  if (!user) return null;
-
-  const supabase = await createClient();
-
-  // Fetch the conversation to find the other user's ID
-  const { data: conversation, error: convError } = await supabase
-    .from("dm_conversations")
-    .select("user1_id, user2_id")
-    .eq("id", conversationId)
-    .single();
-
-  if (convError || !conversation) return null;
-
-  const recipientId =
-    conversation.user1_id === user.id ? conversation.user2_id : conversation.user1_id;
-
-  const { data, error } = await supabase
-    .from("dm_read_receipts")
-    .select("last_read_at")
-    .eq("conversation_id", conversationId)
-    .eq("user_id", recipientId)
-    .single();
-
-  if (error) return null;
-
-  return data?.last_read_at ?? null;
-});
-

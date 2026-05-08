@@ -7,6 +7,11 @@ import { getAuthUser } from "@/lib/data/auth";
 import { validateUUID } from "@/lib/validation-helpers";
 import { sanitizeBody } from "@/lib/community/sanitize";
 import {
+  buildDmMessageNotification,
+  toNotificationPreview,
+} from "@/lib/notifications/notifications";
+import { createNotification } from "@/lib/data/notifications";
+import {
   sendMessageSchema,
   editMessageSchema,
   startConversationSchema,
@@ -113,7 +118,7 @@ export async function sendMessage(
   // Verify user is a participant (RLS does this too, but fail with a clear message)
   const { data: conv, error: convError } = await supabase
     .from("dm_conversations")
-    .select("id")
+    .select("id, user1_id, user2_id")
     .eq("id", conversationId)
     .single();
 
@@ -121,15 +126,46 @@ export async function sendMessage(
     return { errors: null, message: "Conversation not found.", success: false, resetKey: prevState.resetKey };
   }
 
-  const { error } = await supabase.from("dm_messages").insert({
-    conversation_id: conversationId,
-    sender_id: user.id,
-    body: sanitizedBody,
-    body_format: bodyFormat,
-  });
+  const { data: insertedMessage, error } = await supabase
+    .from("dm_messages")
+    .insert({
+      conversation_id: conversationId,
+      sender_id: user.id,
+      body: sanitizedBody,
+      body_format: bodyFormat,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     return { errors: null, message: `Failed to send message: ${error.message}`, success: false, resetKey: prevState.resetKey };
+  }
+  if (!insertedMessage?.id) {
+    return { errors: null, message: "Failed to send message: missing message id.", success: false, resetKey: prevState.resetKey };
+  }
+
+  const notification = buildDmMessageNotification({
+    conversation: conv,
+    senderId: user.id,
+    messageId: insertedMessage.id,
+    bodyPreview: toNotificationPreview(sanitizedBody, bodyFormat),
+  });
+
+  if (notification) {
+    try {
+      await createNotification(notification);
+    } catch (notificationError) {
+      const message =
+        notificationError instanceof Error
+          ? notificationError.message
+          : "Failed to create notification";
+      return {
+        errors: null,
+        message: `Message sent, but ${message}`,
+        success: false,
+        resetKey: prevState.resetKey + 1,
+      };
+    }
   }
 
   revalidatePath(`/community/messages/${conversationId}`);
@@ -224,6 +260,7 @@ export async function markAsRead(conversationId: string): Promise<void> {
   if (!user) throw new Error("Not authenticated");
 
   const supabase = await createClient();
+  const readAt = new Date().toISOString();
 
   const { error } = await supabase
     .from("dm_read_receipts")
@@ -231,12 +268,24 @@ export async function markAsRead(conversationId: string): Promise<void> {
       {
         conversation_id: conversationId,
         user_id: user.id,
-        last_read_at: new Date().toISOString(),
+        last_read_at: readAt,
       },
       { onConflict: "conversation_id,user_id" },
     );
 
   if (error) throw new Error(`Failed to mark as read: ${error.message}`);
+
+  const { error: notificationError } = await supabase
+    .from("notifications")
+    .update({ read_at: readAt })
+    .eq("recipient_id", user.id)
+    .eq("type", "dm_message")
+    .eq("metadata->>conversation_id", conversationId)
+    .is("read_at", null);
+
+  if (notificationError) {
+    throw new Error(`Failed to mark conversation notifications as read: ${notificationError.message}`);
+  }
 
   revalidatePath("/community/messages");
 }

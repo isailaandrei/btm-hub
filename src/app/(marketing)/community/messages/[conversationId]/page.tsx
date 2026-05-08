@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getAuthUser } from "@/lib/data/auth";
-import { getConversation, getMessages, getRecipientLastReadAt } from "@/lib/data/messages";
+import { getConversation, getMessages } from "@/lib/data/messages";
 import { MessageThread } from "@/components/community/MessageThread";
 import { UserAvatar } from "@/components/community/UserAvatar";
 
@@ -12,14 +12,16 @@ export default async function ConversationPage({
 }) {
   const { conversationId } = await params;
 
-  const [user, conversation, messages, recipientLastReadAt] = await Promise.all([
+  const [user, conversation, messages] = await Promise.all([
     getAuthUser(),
     getConversation(conversationId),
     getMessages(conversationId),
-    getRecipientLastReadAt(conversationId),
   ]);
 
   if (!user || !conversation) notFound();
+
+  const recipientId =
+    conversation.user1_id === user.id ? conversation.user2_id : conversation.user1_id;
 
   return (
     <div className="flex h-[calc(100vh-12rem)] flex-col rounded-xl bg-card ring-1 ring-foreground/10">
@@ -44,8 +46,9 @@ export default async function ConversationPage({
       <MessageThread
         conversationId={conversationId}
         currentUserId={user.id}
+        recipientId={recipientId}
         initialMessages={messages}
-        recipientLastReadAt={recipientLastReadAt}
+        recipientLastReadAt={null}
       />
 
     </div>
