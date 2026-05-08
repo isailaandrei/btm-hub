@@ -123,9 +123,11 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
               {link.label}
             </Link>
           ))}
-          <div className="mt-auto border-t border-border pt-6">
-            <AuthButtons variant={variant} />
-          </div>
+          {mobileOpen && (
+            <div className="mt-auto border-t border-border pt-6">
+              <AuthButtons variant={variant} />
+            </div>
+          )}
         </div>
       </div>
     </nav>
