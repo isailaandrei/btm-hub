@@ -56,7 +56,7 @@ export function FilmsBrowser({
   )
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <div className="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
         <label className="relative block sm:flex-1">
           <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -77,7 +77,7 @@ export function FilmsBrowser({
       </div>
 
       {rows.length > 0 ? (
-        <div className="space-y-12">
+        <div className="space-y-8">
           {rows.map((row) => (
             <FilmRow key={row.id} row={row} onSelectFilm={setActiveFilm} />
           ))}

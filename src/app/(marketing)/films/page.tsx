@@ -45,17 +45,7 @@ export default async function FilmsPage() {
 
   return (
     <main className="min-h-screen bg-muted px-5 py-16 md:px-8 lg:px-12">
-      <div className="mx-auto max-w-7xl space-y-12">
-        <header className="mx-auto max-w-3xl text-center">
-          <h1 className="text-[length:var(--font-size-h1)] font-medium text-foreground">
-            Stories captured beneath the surface
-          </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
-            Explore our underwater film portfolio through expeditions,
-            conservation stories, behind-the-scenes craft, and field tutorials.
-          </p>
-        </header>
-
+      <div className="space-y-8">
         <FilmsBrowser
           films={films}
           collections={collections ?? []}

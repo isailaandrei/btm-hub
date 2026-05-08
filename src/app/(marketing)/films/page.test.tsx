@@ -1,0 +1,39 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/components/films/FilmsBrowser", () => ({
+  FilmsBrowser: () => <div data-testid="films-browser" />,
+}));
+
+vi.mock("@/lib/data/sanity", () => ({
+  getFilmCollections: vi.fn().mockResolvedValue([]),
+  getFilms: vi.fn().mockResolvedValue([
+    {
+      _id: "film-1",
+      title: "Reef Film",
+      videoEmbed: null,
+    },
+  ]),
+  getFilmsPageSettings: vi.fn().mockResolvedValue({
+    showLatestRow: true,
+    showAllVideosRow: true,
+  }),
+}));
+
+vi.mock("@/lib/films/posters", () => ({
+  withCollectionFilmPosterUrls: vi.fn((collections) => collections),
+  withFilmPosterUrls: vi.fn((films) => films),
+}));
+
+const { default: FilmsPage } = await import("./page");
+
+describe("FilmsPage", () => {
+  it("removes the centered marketing hero while keeping the existing page theme", async () => {
+    const html = renderToStaticMarkup(await FilmsPage());
+
+    expect(html).toContain("min-h-screen bg-muted");
+    expect(html).toContain('data-testid="films-browser"');
+    expect(html).not.toContain("Stories captured beneath the surface");
+    expect(html).not.toContain("Explore our underwater film portfolio through");
+  });
+});

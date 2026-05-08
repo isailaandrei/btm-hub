@@ -3,7 +3,6 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import { useRef } from "react"
 
-import { Button } from "@/components/ui/button"
 import type {
   FilmBrowserFilm,
   FilmRow as FilmRowType,
@@ -21,11 +20,11 @@ export function FilmRow({ row, onSelectFilm }: FilmRowProps) {
   function scrollByCard(direction: -1 | 1) {
     const scroller = scrollerRef.current
     if (!scroller) return
-    scroller.scrollBy({ left: direction * 340, behavior: "smooth" })
+    scroller.scrollBy({ left: direction * 310, behavior: "smooth" })
   }
 
   return (
-    <section className="space-y-4" aria-labelledby={`${row.id}-heading`}>
+    <section className="group/row space-y-2" aria-labelledby={`${row.id}-heading`}>
       <div>
         <h2
           id={`${row.id}-heading`}
@@ -40,40 +39,36 @@ export function FilmRow({ row, onSelectFilm }: FilmRowProps) {
         )}
       </div>
 
-      <div className="-mx-5 flex items-center gap-4 md:-mx-8 md:px-8">
-        <div className="hidden shrink-0 md:flex">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-lg"
-            onClick={() => scrollByCard(-1)}
-            className="rounded-full border-border bg-background/80 shadow-sm hover:bg-background"
-          >
-            <ChevronLeftIcon />
-            <span className="sr-only">Scroll {row.title} left</span>
-          </Button>
-        </div>
-
+      <div className="relative -mx-5 md:-mx-8 lg:-mx-12">
         <div
           ref={scrollerRef}
-          className="flex min-w-0 flex-1 gap-5 overflow-x-auto px-5 pb-8 pt-4 [scrollbar-width:none] md:px-0 [&::-webkit-scrollbar]:hidden"
+          className="flex min-w-0 gap-2 overflow-x-auto px-5 pb-6 pt-3 [scrollbar-width:none] md:px-8 lg:px-12 [&::-webkit-scrollbar]:hidden"
         >
           {row.films.map((film) => (
             <FilmCard key={film._id} film={film} onSelect={onSelectFilm} />
           ))}
         </div>
 
-        <div className="hidden shrink-0 md:flex">
-          <Button
+        <div className="pointer-events-none absolute left-0 top-0 hidden h-full w-14 items-center bg-gradient-to-r from-muted via-muted/90 to-transparent opacity-0 transition-opacity duration-200 group-hover/row:opacity-100 md:flex">
+          <button
             type="button"
-            variant="outline"
-            size="icon-lg"
-            onClick={() => scrollByCard(1)}
-            className="rounded-full border-border bg-background/80 shadow-sm hover:bg-background"
+            onClick={() => scrollByCard(-1)}
+            className="pointer-events-auto flex h-full w-11 items-center justify-center text-foreground/65 transition-colors hover:bg-background/35 hover:text-foreground"
           >
-            <ChevronRightIcon />
+            <ChevronLeftIcon className="size-7" />
+            <span className="sr-only">Scroll {row.title} left</span>
+          </button>
+        </div>
+
+        <div className="pointer-events-none absolute right-0 top-0 hidden h-full w-14 items-center justify-end bg-gradient-to-l from-muted via-muted/90 to-transparent opacity-0 transition-opacity duration-200 group-hover/row:opacity-100 md:flex">
+          <button
+            type="button"
+            onClick={() => scrollByCard(1)}
+            className="pointer-events-auto flex h-full w-11 items-center justify-center text-foreground/65 transition-colors hover:bg-background/35 hover:text-foreground"
+          >
+            <ChevronRightIcon className="size-7" />
             <span className="sr-only">Scroll {row.title} right</span>
-          </Button>
+          </button>
         </div>
       </div>
     </section>
