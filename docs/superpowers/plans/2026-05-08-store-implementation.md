@@ -13,8 +13,8 @@
 ## Source Documents And Current Worktree
 
 - Design spec: `docs/superpowers/specs/2026-05-08-store-design.md`
-- Worktree: `/Users/andrei/Dev/btm-hub/.worktrees/store-shop`
-- Branch: `feature/store-shop`
+- Worktree: `/Users/andrei/Dev/btm-hub/.worktrees/store-implementation-plan`
+- Branch: `feature/store-implementation-plan`
 - Do not implement in `/Users/andrei/Dev/btm-hub` on `main`.
 
 Official docs checked before planning:
@@ -37,11 +37,17 @@ Store-specific data access, domain helpers, Stripe integration, email helpers, a
 **Decision: server-owned checkout.**  
 The client cart stores only variant IDs and quantities. The server reloads product/variant data, validates member access, creates reservations, calculates shipping choices, and creates Stripe Checkout sessions. This avoids trusting stale or manipulated client totals.
 
+**Decision: 30-minute Checkout-aligned reservations.**
+The user preference was 10 minutes, but Stripe Checkout's hosted `expires_at` cannot be shorter than 30 minutes. Launch uses a 30-minute reservation TTL and sets the Stripe Checkout Session `expires_at` to the same timestamp so inventory state and Stripe state cannot disagree.
+
 **Decision: custom cart instead of `use-shopping-cart`.**  
 The cart requirement is small. The stable package has older React-era dependencies and the React 19-compatible line is still an RC. A local `useSyncExternalStore` cart is easier to audit and keeps checkout validation server-owned.
 
 **Decision: JSONB content blocks, small schema.**  
 This gives CMS-like product detail content from the admin dashboard without adding Sanity to commerce. The block schema stays narrow: rich text, media reference, specs table, bullets, care instructions, digital notes, service notes.
+
+**Decision: card-only Checkout payment methods for launch.**
+Stripe Checkout still surfaces supported wallets through the card payment method where available. Restricting launch Checkout to `payment_method_types: ["card"]` avoids asynchronous payment methods until the app has explicit `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` flows.
 
 **Over-engineering intentionally deferred:** promotions, live carrier rates, automated label purchase, automated digital delivery, booking calendars, multi-currency presentment, public checkout, product reviews, and reporting dashboards beyond operational CSV export.
 
@@ -50,7 +56,7 @@ This gives CMS-like product detail content from the admin dashboard without addi
 ### Database And Types
 
 - Create `supabase/migrations/20260508000001_shop_foundation.sql`  
-  Creates shop enums, tables, constraints, indexes, RLS policies, storage bucket, and atomic reservation/finalization helper functions.
+  Creates shop enums, tables, constraints, indexes, RLS policies, storage bucket, idempotency tables, notification tables, and atomic reservation/finalization helper functions.
 - Modify `src/types/database.ts`  
   Adds shop interfaces and union types used by server components and tests.
 
@@ -71,7 +77,7 @@ This gives CMS-like product detail content from the admin dashboard without addi
 - Create `src/lib/data/shop-products.ts` and `src/lib/data/shop-products.test.ts`  
   Product listing/detail/admin fetchers.
 - Create `src/lib/data/shop-orders.ts` and `src/lib/data/shop-orders.test.ts`  
-  Order/member/admin fetchers and event writers.
+  Order/member/admin fetchers, customer-visible timeline fetchers, Stripe event idempotency helpers, notification claim helpers, and event writers.
 - Create `src/lib/data/shop-admin.ts` and `src/lib/data/shop-admin.test.ts`  
   Admin product, variant, media, shipping, fulfillment mutations.
 
@@ -142,7 +148,8 @@ This gives CMS-like product detail content from the admin dashboard without addi
 ### E2E And Docs
 
 - Create `e2e/shop.spec.ts`
-- Modify `.env.example` if present; otherwise document env vars in this plan and final implementation summary.
+- Modify `docs/admin-email-operations.md` or a repo env reference if present
+  Documents Stripe/shop env vars and operational webhook setup. Do not create a misleading `.env.example` if the repo does not already use one.
 - Keep `docs/superpowers/specs/2026-05-08-store-design.md` unchanged unless scope changes.
 
 ## Environment Variables
@@ -210,6 +217,8 @@ CREATE TABLE shop_products (
   purchase_access shop_purchase_access NOT NULL DEFAULT 'members',
   short_description text NOT NULL DEFAULT '' CHECK (char_length(short_description) <= 500),
   content_blocks jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(content_blocks) = 'array'),
+  stripe_tax_code text,
+  tax_behavior text NOT NULL DEFAULT 'exclusive' CHECK (tax_behavior IN ('exclusive', 'inclusive')),
   requires_shipping boolean NOT NULL DEFAULT false,
   requires_customer_notes boolean NOT NULL DEFAULT false,
   customer_notes_label text NOT NULL DEFAULT 'Anything we should know?' CHECK (char_length(customer_notes_label) <= 120),
@@ -234,6 +243,8 @@ Then add the remaining tables from the design spec:
 - `shop_order_events`
 - `shop_shipping_zones`
 - `shop_shipping_rates`
+- `shop_stripe_events`
+- `shop_order_notifications`
 
 Use these constraints:
 
@@ -241,6 +252,8 @@ Use these constraints:
 -- Variant constraints
 currency text NOT NULL DEFAULT 'eur' CHECK (currency = 'eur');
 price_cents integer NOT NULL CHECK (price_cents >= 0);
+stripe_tax_code text;
+tax_behavior text NOT NULL DEFAULT 'exclusive' CHECK (tax_behavior IN ('exclusive', 'inclusive'));
 stock_quantity integer NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0);
 low_stock_threshold integer NOT NULL DEFAULT 0 CHECK (low_stock_threshold >= 0);
 
@@ -250,14 +263,48 @@ expires_at timestamptz NOT NULL;
 status shop_reservation_status NOT NULL DEFAULT 'active';
 
 -- Order constraints
+order_number text NOT NULL UNIQUE;
 currency text NOT NULL DEFAULT 'eur' CHECK (currency = 'eur');
 subtotal_cents integer NOT NULL DEFAULT 0 CHECK (subtotal_cents >= 0);
 shipping_cents integer NOT NULL DEFAULT 0 CHECK (shipping_cents >= 0);
 tax_cents integer NOT NULL DEFAULT 0 CHECK (tax_cents >= 0);
 total_cents integer NOT NULL DEFAULT 0 CHECK (total_cents >= 0);
+stripe_checkout_session_id text UNIQUE;
+stripe_payment_intent_id text UNIQUE;
 billing_address jsonb NOT NULL DEFAULT '{}'::jsonb;
 shipping_address jsonb NOT NULL DEFAULT '{}'::jsonb;
 customer_notes text NOT NULL DEFAULT '' CHECK (char_length(customer_notes) <= 2000);
+
+-- Event visibility
+customer_visible boolean NOT NULL DEFAULT false;
+
+-- Shipping zones and rates
+allowed_countries text[] NOT NULL DEFAULT ARRAY[]::text[];
+stripe_tax_code text;
+tax_behavior text NOT NULL DEFAULT 'exclusive' CHECK (tax_behavior IN ('exclusive', 'inclusive'));
+
+-- Stripe event idempotency
+CREATE TABLE shop_stripe_events (
+  event_id text PRIMARY KEY,
+  event_type text NOT NULL,
+  stripe_checkout_session_id text,
+  order_id uuid REFERENCES shop_orders(id) ON DELETE SET NULL,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  processed_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Email idempotency
+CREATE TABLE shop_order_notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id uuid NOT NULL REFERENCES shop_orders(id) ON DELETE CASCADE,
+  kind text NOT NULL CHECK (kind IN ('customer_confirmation', 'internal_alert')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sending', 'sent', 'failed')),
+  last_error text,
+  sent_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (order_id, kind)
+);
 ```
 
 Add indexes:
@@ -278,6 +325,10 @@ CREATE INDEX idx_shop_orders_status_created
   ON shop_orders (status, created_at DESC);
 CREATE INDEX idx_shop_order_items_order
   ON shop_order_items (order_id, sort_order);
+CREATE INDEX idx_shop_stripe_events_session
+  ON shop_stripe_events (stripe_checkout_session_id);
+CREATE INDEX idx_shop_order_notifications_status
+  ON shop_order_notifications (status, created_at);
 ```
 
 Add storage bucket:
@@ -336,7 +387,116 @@ CREATE POLICY "Admins can manage products"
   WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin'));
 ```
 
-Repeat the admin `FOR ALL` policy shape for every shop admin table. Add member order read policies for `shop_orders`, `shop_order_items`, and `shop_order_events` by joining through `shop_orders.profile_id = auth.uid()`.
+Repeat the admin `FOR ALL` policy shape for every shop admin table. Add these additional policies explicitly:
+
+```sql
+CREATE POLICY "Anyone can read media for public active products"
+  ON shop_product_media FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM shop_products
+      WHERE shop_products.id = shop_product_media.product_id
+        AND shop_products.status = 'active'
+        AND shop_products.visibility = 'public'
+    )
+  );
+
+CREATE POLICY "Members can read media for eligible active products"
+  ON shop_product_media FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM shop_products
+      JOIN profiles ON profiles.id = auth.uid()
+      WHERE shop_products.id = shop_product_media.product_id
+        AND shop_products.status = 'active'
+        AND shop_products.visibility IN ('public', 'members')
+        AND profiles.role IN ('member', 'admin')
+    )
+  );
+
+CREATE POLICY "Anyone can read variants for public active products"
+  ON shop_product_variants FOR SELECT
+  USING (
+    active = true
+    AND EXISTS (
+      SELECT 1 FROM shop_products
+      WHERE shop_products.id = shop_product_variants.product_id
+        AND shop_products.status = 'active'
+        AND shop_products.visibility = 'public'
+    )
+  );
+
+CREATE POLICY "Members can read variants for eligible active products"
+  ON shop_product_variants FOR SELECT TO authenticated
+  USING (
+    active = true
+    AND EXISTS (
+      SELECT 1 FROM shop_products
+      JOIN profiles ON profiles.id = auth.uid()
+      WHERE shop_products.id = shop_product_variants.product_id
+        AND shop_products.status = 'active'
+        AND shop_products.visibility IN ('public', 'members')
+        AND profiles.role IN ('member', 'admin')
+    )
+  );
+
+CREATE POLICY "Anyone can read active shipping zones"
+  ON shop_shipping_zones FOR SELECT
+  USING (active = true);
+
+CREATE POLICY "Anyone can read active shipping rates"
+  ON shop_shipping_rates FOR SELECT
+  USING (
+    active = true
+    AND EXISTS (
+      SELECT 1 FROM shop_shipping_zones
+      WHERE shop_shipping_zones.id = shop_shipping_rates.zone_id
+        AND shop_shipping_zones.active = true
+    )
+  );
+
+CREATE POLICY "Members can read their own customer-visible order events"
+  ON shop_order_events FOR SELECT TO authenticated
+  USING (
+    customer_visible = true
+    AND EXISTS (
+      SELECT 1 FROM shop_orders
+      WHERE shop_orders.id = shop_order_events.order_id
+        AND shop_orders.profile_id = auth.uid()
+    )
+  );
+```
+
+Member order read policies for `shop_orders` and `shop_order_items` must join through `shop_orders.profile_id = auth.uid()`. Do not allow members to read `shop_inventory_reservations`, `shop_inventory_adjustments`, `shop_stripe_events`, or non-customer-visible order events directly.
+
+Add storage object policies for `shop-product-media`:
+
+```sql
+CREATE POLICY "Admins can upload shop product media"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'shop-product-media'
+    AND EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+  );
+
+CREATE POLICY "Admins can update shop product media"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'shop-product-media'
+    AND EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+  )
+  WITH CHECK (
+    bucket_id = 'shop-product-media'
+    AND EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+  );
+
+CREATE POLICY "Admins can delete shop product media"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'shop-product-media'
+    AND EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+  );
+```
 
 - [ ] **Step 3: Add atomic reservation RPCs**
 
@@ -364,24 +524,69 @@ END;
 $$;
 ```
 
-Add `shop_create_inventory_reservations(p_profile_id uuid, p_order_id uuid, p_lines jsonb, p_expires_at timestamptz)` that:
+Add `shop_begin_checkout(p_profile_id uuid, p_lines jsonb, p_customer_notes text, p_reservation_expires_at timestamptz)` that:
 
 - calls `shop_expire_inventory_reservations()`
-- locks each variant row with `FOR UPDATE`
+- verifies `p_profile_id = auth.uid()`
+- verifies the profile role is `member` or `admin`
+- locks each variant row with `FOR UPDATE` in deterministic `variant_id` order
+- rejects hidden, draft, archived, inactive, or non-purchasable products for non-admins
 - checks active non-expired reservations against stock
+- creates one `shop_orders` row with status `pending`
+- creates `shop_order_items` snapshot rows from the locked product/variant data
 - inserts reservation rows
+- inserts `created` and `checkout_started` order events, with `customer_visible = true` only for the safe customer timeline event
+- returns `order_id`, `order_number`, `reservation_expires_at`, subtotal, shipping-required flag, and line-item snapshots
 - raises `insufficient_stock` with SQLSTATE `P0001` when unavailable
 
-Add `shop_convert_inventory_reservations(p_order_id uuid)` that:
+Add `shop_attach_checkout_session(p_order_id uuid, p_profile_id uuid, p_stripe_checkout_session_id text)` that:
 
+- verifies the order belongs to `p_profile_id`
+- verifies the order is still `pending`
+- stores `stripe_checkout_session_id` once
+- raises a clear error if a different session is already attached
+
+Add `shop_finalize_paid_order_from_checkout(p_event_id text, p_session jsonb)` that:
+
+- inserts `shop_stripe_events.event_id` first and returns the current order state if already processed
+- locks the order row by `stripe_checkout_session_id`
+- verifies the order is `pending` or already `paid`
 - locks active reservations for the order
-- decrements `shop_product_variants.stock_quantity`
+- decrements `shop_product_variants.stock_quantity` only once
 - writes `shop_inventory_adjustments`
 - marks reservations `converted`
+- snapshots Stripe totals, billing/shipping addresses, customer details, checkout session id, payment intent id, and customer id
+- marks the order `paid`
+- inserts a customer-visible `payment_confirmed` event
+- inserts deterministic pending `shop_order_notifications` rows for `customer_confirmation` and `internal_alert`
 
 Add `shop_release_inventory_reservations(p_order_id uuid)` that marks active reservations `released`.
 
-- [ ] **Step 4: Review migration locally**
+Add `shop_release_order_for_checkout_session(p_event_id text, p_stripe_checkout_session_id text)` that records the Stripe event id, locks the order by session id, marks active reservations `released`, and marks still-pending orders `canceled`.
+
+Add `shop_record_refund_event(p_event_id text, p_payload jsonb)` that records Stripe refund events idempotently and updates `shop_orders.status` to `partially_refunded` or `refunded` based on Stripe totals available in the payload.
+
+After all functions are created, lock down execution:
+
+```sql
+REVOKE EXECUTE ON FUNCTION shop_expire_inventory_reservations() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION shop_begin_checkout(uuid, jsonb, text, timestamptz) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION shop_attach_checkout_session(uuid, uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION shop_finalize_paid_order_from_checkout(text, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION shop_release_inventory_reservations(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION shop_release_order_for_checkout_session(text, text) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION shop_record_refund_event(text, jsonb) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION shop_begin_checkout(uuid, jsonb, text, timestamptz) TO authenticated;
+GRANT EXECUTE ON FUNCTION shop_attach_checkout_session(uuid, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION shop_expire_inventory_reservations() TO service_role;
+GRANT EXECUTE ON FUNCTION shop_finalize_paid_order_from_checkout(text, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION shop_release_inventory_reservations(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION shop_release_order_for_checkout_session(text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION shop_record_refund_event(text, jsonb) TO service_role;
+```
+
+- [ ] **Step 4: Review and apply migration locally**
 
 Run:
 
@@ -390,6 +595,22 @@ rg -n "shop_|CREATE TYPE|CREATE TABLE|CREATE POLICY|CREATE OR REPLACE FUNCTION" 
 ```
 
 Expected: all shop tables, types, policies, bucket, and RPCs are visible.
+
+Apply it to the local Supabase database:
+
+```bash
+supabase migration up
+```
+
+Expected: migration applies without SQL errors.
+
+Run a smoke check against the local database:
+
+```bash
+psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "select proname from pg_proc where proname like 'shop_%' order by proname;"
+```
+
+Expected: the checkout, reservation, finalization, release, and refund functions are listed.
 
 - [ ] **Step 5: Commit**
 
@@ -458,6 +679,8 @@ export interface ShopProduct {
   purchase_access: ShopPurchaseAccess;
   short_description: string;
   content_blocks: unknown[];
+  stripe_tax_code: string | null;
+  tax_behavior: "exclusive" | "inclusive";
   requires_shipping: boolean;
   requires_customer_notes: boolean;
   customer_notes_label: string;
@@ -467,7 +690,7 @@ export interface ShopProduct {
 }
 ```
 
-Then add interfaces for `ShopProductVariant`, `ShopProductMedia`, `ShopInventoryReservation`, `ShopOrder`, `ShopOrderItem`, `ShopOrderEvent`, `ShopShippingZone`, and `ShopShippingRate` using the fields from the design spec.
+Then add interfaces for `ShopProductVariant`, `ShopProductMedia`, `ShopInventoryReservation`, `ShopOrder`, `ShopOrderItem`, `ShopOrderEvent`, `ShopShippingZone`, `ShopShippingRate`, `ShopStripeEvent`, and `ShopOrderNotification` using the fields from the migration, including tax behavior, shipping zone `allowed_countries`, and order event `customer_visible`.
 
 - [ ] **Step 2: Add shop helper types**
 
@@ -610,6 +833,8 @@ const baseProduct: ShopProduct = {
   purchase_access: "members",
   short_description: "",
   content_blocks: [],
+  stripe_tax_code: null,
+  tax_behavior: "exclusive",
   requires_shipping: true,
   requires_customer_notes: false,
   customer_notes_label: "Anything we should know?",
@@ -635,6 +860,10 @@ describe("shop visibility", () => {
   it("hides draft and hidden products from non-admins", () => {
     expect(canViewProduct({ ...baseProduct, status: "draft" }, { id: "p1", role: "member" })).toBe(false);
     expect(canViewProduct({ ...baseProduct, visibility: "hidden" }, { id: "p1", role: "member" })).toBe(false);
+  });
+
+  it("does not allow hidden products to be purchased by members through stale carts", () => {
+    expect(canPurchaseProduct({ ...baseProduct, visibility: "hidden" }, { id: "p1", role: "member" })).toBe(false);
   });
 
   it("allows admins to view draft and hidden products", () => {
@@ -668,7 +897,7 @@ export function canViewProduct(product: ShopProduct, viewer: ShopViewer): boolea
 }
 
 export function canPurchaseProduct(product: ShopProduct, viewer: ShopViewer): boolean {
-  if (product.status !== "active") return false;
+  if (!canViewProduct(product, viewer)) return false;
   if (product.purchase_access === "public") return true;
   return isMemberOrAdmin(viewer);
 }
@@ -760,13 +989,13 @@ import { describe, expect, it } from "vitest";
 import { SHOP_RESERVATION_TTL_MS, getReservationExpiry } from "./reservations";
 
 describe("shop reservation helpers", () => {
-  it("uses a 10 minute checkout reservation window", () => {
-    expect(SHOP_RESERVATION_TTL_MS).toBe(10 * 60 * 1000);
+  it("uses a 30 minute checkout reservation window to match Stripe Checkout minimum expiry", () => {
+    expect(SHOP_RESERVATION_TTL_MS).toBe(30 * 60 * 1000);
   });
 
   it("calculates expiry from the supplied start date", () => {
     expect(getReservationExpiry(new Date("2026-05-08T10:00:00.000Z")).toISOString())
-      .toBe("2026-05-08T10:10:00.000Z");
+      .toBe("2026-05-08T10:30:00.000Z");
   });
 });
 ```
@@ -774,7 +1003,7 @@ describe("shop reservation helpers", () => {
 Create `src/lib/shop/reservations.ts`:
 
 ```ts
-export const SHOP_RESERVATION_TTL_MS = 10 * 60 * 1000;
+export const SHOP_RESERVATION_TTL_MS = 30 * 60 * 1000;
 
 export function getReservationExpiry(now = new Date()): Date {
   return new Date(now.getTime() + SHOP_RESERVATION_TTL_MS);
@@ -1236,11 +1465,17 @@ git commit -m "feat: add shop product detail page"
 
 ---
 
-## Phase 3: Admin Product Management And Media
+## Phase 3: Admin Product Management, Media, And Shipping
 
 **Goal:** Let admins create and edit products, variants, shipping rates, media, and rich content from the existing admin dashboard.
 
 **Gate:** Admin action tests pass, admins can create a draft product with one variant, upload media metadata, publish it, and see it on `/shop`.
+
+This phase is intentionally split into narrow checkpoints:
+
+- Phase 3A: product and variant mutations/actions.
+- Phase 3B: product and variant admin UI.
+- Phase 3C: media upload, rich content editor, and shipping-rate UI.
 
 ### Task 3.1: Add Admin Data Mutations
 
@@ -1410,16 +1645,13 @@ git add src/lib/data/shop-admin.ts src/lib/data/shop-admin.test.ts 'src/app/(das
 git commit -m "feat: add shop admin mutations"
 ```
 
-### Task 3.2: Add Admin Shop UI
+### Task 3.2: Add Admin Product And Variant UI
 
 **Files:**
 - Modify: `src/app/(dashboard)/admin/admin-dashboard.tsx`
 - Create: `src/app/(dashboard)/admin/shop/shop-admin.tsx`
 - Create: `src/app/(dashboard)/admin/shop/products-panel.tsx`
 - Create: `src/app/(dashboard)/admin/shop/product-editor.tsx`
-- Create: `src/app/(dashboard)/admin/shop/product-media-uploader.tsx`
-- Create: `src/app/(dashboard)/admin/shop/rich-content-editor.tsx`
-- Create: `src/app/(dashboard)/admin/shop/shipping-rates-panel.tsx`
 
 - [ ] **Step 1: Add admin dashboard tab**
 
@@ -1458,14 +1690,9 @@ Create `src/app/(dashboard)/admin/shop/shop-admin.tsx`:
 ```tsx
 "use client";
 
-import { useState } from "react";
 import { ProductsPanel } from "./products-panel";
-import { ShippingRatesPanel } from "./shipping-rates-panel";
-
-type ShopAdminTab = "products" | "shipping";
 
 export function ShopAdmin({ isVisible }: { isVisible: boolean }) {
-  const [activeTab, setActiveTab] = useState<ShopAdminTab>("products");
   if (!isVisible) return null;
 
   return (
@@ -1475,33 +1702,23 @@ export function ShopAdmin({ isVisible }: { isVisible: boolean }) {
         <p className="text-sm text-muted-foreground">Manage products, inventory, shipping, and orders.</p>
       </div>
       <div className="flex gap-2 border-b border-border pb-3">
-        {(["products", "shipping"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`rounded-md px-3 py-1.5 text-sm ${activeTab === tab ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-          >
-            {tab === "products" ? "Products" : "Shipping"}
-          </button>
-        ))}
+        <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground">
+          Products
+        </button>
       </div>
-      {activeTab === "products" ? <ProductsPanel /> : <ShippingRatesPanel />}
+      <ProductsPanel />
     </section>
   );
 }
 ```
 
-- [ ] **Step 3: Add product editor and panels**
+- [ ] **Step 3: Add product and variant editor panels**
 
-Implement `ProductsPanel`, `ProductEditor`, `ProductMediaUploader`, `RichContentEditor`, and `ShippingRatesPanel` as client components using existing `Button`, `Card`, `Input`-style native inputs, `Select`, and `Table`. The first version must support:
+Implement `ProductsPanel` and `ProductEditor` as client components using existing `Button`, `Card`, `Input`-style native inputs, `Select`, and `Table`. This checkpoint must support:
 
 - create product
 - edit title/slug/status/type/visibility/access/description
 - create/edit variants with price/stock
-- upload product images to Supabase Storage and record media metadata
-- edit JSONB content blocks through structured controls for rich text, bullets, and specs
-- edit flat shipping rates
 
 - [ ] **Step 4: Run lint**
 
@@ -1516,6 +1733,55 @@ Expected: lint reports no errors.
 ```bash
 git add 'src/app/(dashboard)/admin/admin-dashboard.tsx' 'src/app/(dashboard)/admin/shop'
 git commit -m "feat: add shop admin product UI"
+```
+
+### Task 3.3: Add Admin Media, Rich Content, And Shipping UI
+
+**Files:**
+- Create: `src/app/(dashboard)/admin/shop/product-media-uploader.tsx`
+- Create: `src/app/(dashboard)/admin/shop/rich-content-editor.tsx`
+- Create: `src/app/(dashboard)/admin/shop/shipping-rates-panel.tsx`
+- Modify: `src/app/(dashboard)/admin/shop/product-editor.tsx`
+- Modify: `src/app/(dashboard)/admin/shop/shop-admin.tsx`
+
+- [ ] **Step 1: Add focused tests for media/content/shipping actions**
+
+Add or extend `src/app/(dashboard)/admin/shop/actions.test.ts` so it covers:
+
+- image metadata validation before recording media
+- rich content validation through `parseShopContentBlocks`
+- shipping zone country lists and active rate validation
+
+- [ ] **Step 2: Implement media uploader**
+
+`ProductMediaUploader` must upload only JPEG, PNG, or WebP files to the `shop-product-media` bucket, reject files larger than 10 MB before upload, then call the admin action that records `shop_product_media` metadata. Storage object upload is allowed only by the admin storage policies from Task 1.1.
+
+- [ ] **Step 3: Implement rich content editor**
+
+`RichContentEditor` must provide structured controls for `rich_text`, `bullets`, and `specs` blocks. Save through the admin action that validates with `parseShopContentBlocks`.
+
+- [ ] **Step 4: Implement shipping rates panel**
+
+`ShippingRatesPanel` must manage zones for Portugal, EU, UK, USA/Canada, and Rest of World. Each zone stores explicit `allowed_countries`; do not rely on a wildcard because Stripe Checkout requires an explicit allowed-country list. Launch admins can keep Rest of World inactive until they have a supported-country list.
+
+- [ ] **Step 5: Add media/content/shipping tabs**
+
+Modify `ShopAdmin` to introduce tabs for `products` and `shipping`, and render the media/content editor inside `ProductEditor` so product editing stays in one workflow.
+
+- [ ] **Step 6: Run tests and lint**
+
+```bash
+npm run test:unit -- 'src/app/(dashboard)/admin/shop/actions.test.ts' src/lib/data/shop-admin.test.ts
+npm run lint -- 'src/app/(dashboard)/admin/shop'
+```
+
+Expected: tests pass and lint reports no errors.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add 'src/app/(dashboard)/admin/shop'
+git commit -m "feat: add shop admin media content and shipping"
 ```
 
 ---
@@ -1703,20 +1969,19 @@ Use `canPurchaseProduct`, integer quantity validation, active variant checks, an
 Mock `createClient`, `getProfile`, `validateCartForCheckout`, and Stripe builder. Assert:
 
 - unauthenticated users receive login-required error
-- successful checkout calls `shop_create_inventory_reservations`
-- reservation expiry uses 10 minutes
+- successful checkout calls `shop_begin_checkout`
+- reservation expiry uses 30 minutes
+- hidden products are rejected through `validateCartForCheckout`
 
 - [ ] **Step 4: Implement checkout orchestration**
 
 Implement `startShopCheckout(input)` in `src/lib/shop/checkout.ts`:
 
 - validates profile role
-- expires old reservations with RPC
 - loads variants/products
 - validates cart
-- creates `shop_orders` row with status `pending`
-- calls `shop_create_inventory_reservations`
-- returns `{ orderId }` for now
+- calls `shop_begin_checkout` so order creation, item snapshots, and reservations happen in one database transaction
+- returns `{ orderId, orderNumber, reservationExpiresAt }` for now
 
 - [ ] **Step 5: Add checkout server action**
 
@@ -1795,7 +2060,10 @@ Create tests asserting:
 - currency is `eur`
 - `automatic_tax.enabled` is `true`
 - physical carts include shipping address collection and shipping options
+- payment methods are restricted to `card` for launch
+- `expires_at` matches the 30-minute reservation expiry
 - metadata includes `orderId`
+- allowed countries come from active shipping zone configuration, not a hardcoded country subset
 
 - [ ] **Step 3: Implement Stripe helpers**
 
@@ -1821,23 +2089,37 @@ export function buildCheckoutSessionParams(input: {
   orderId: string;
   lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
   customerEmail: string;
+  expiresAtUnix: number;
   requiresShipping: boolean;
+  allowedShippingCountries: Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[];
   shippingOptions: Stripe.Checkout.SessionCreateParams.ShippingOption[];
 }): Stripe.Checkout.SessionCreateParams {
   const siteUrl = getPublicSiteUrl();
   return {
     mode: "payment",
+    payment_method_types: ["card"],
     customer_email: input.customerEmail,
     line_items: input.lineItems,
     automatic_tax: { enabled: true },
+    expires_at: input.expiresAtUnix,
     success_url: `${siteUrl}/shop/success?order=${input.orderId}`,
     cancel_url: `${siteUrl}/shop/canceled?order=${input.orderId}`,
     metadata: { orderId: input.orderId },
     shipping_address_collection: input.requiresShipping
-      ? { allowed_countries: ["PT", "ES", "FR", "DE", "IT", "NL", "BE", "IE", "GB", "US", "CA"] }
+      ? { allowed_countries: input.allowedShippingCountries }
       : undefined,
     shipping_options: input.requiresShipping ? input.shippingOptions : undefined,
   };
+}
+
+export async function createCheckoutSession(input: {
+  stripe: Stripe;
+  orderId: string;
+  params: Stripe.Checkout.SessionCreateParams;
+}) {
+  return input.stripe.checkout.sessions.create(input.params, {
+    idempotencyKey: `shop-checkout:${input.orderId}`,
+  });
 }
 ```
 
@@ -1846,9 +2128,11 @@ export function buildCheckoutSessionParams(input: {
 Modify `startShopCheckout` to:
 
 - create Stripe line items from validated cart snapshots
-- load active flat shipping rates when `requiresShipping`
-- create Stripe Checkout Session
-- update `shop_orders.stripe_checkout_session_id`
+- include product/variant Stripe tax codes in line-item `price_data.product_data.tax_code` where configured
+- load active flat shipping zones/rates when `requiresShipping`; build `allowedShippingCountries` from `shop_shipping_zones.allowed_countries`; fail loudly if no active configured country can ship
+- create Stripe Checkout Session with idempotency key `shop-checkout:${orderId}`
+- call `shop_attach_checkout_session` to store `stripe_checkout_session_id`
+- if Stripe session creation fails after `shop_begin_checkout`, call `shop_release_inventory_reservations(orderId)` with the service role before returning a visible checkout error
 - return `{ orderId, checkoutUrl }`
 
 - [ ] **Step 5: Run tests**
@@ -1878,31 +2162,52 @@ git commit -m "feat: create stripe checkout sessions"
 
 Add tests for:
 
-- `markShopOrderPaidFromCheckoutSession` updates order by Stripe session ID
-- function calls `shop_convert_inventory_reservations`
-- duplicate webhook processing is idempotent when order is already paid
+- `finalizeShopOrderPaidFromCheckoutSession` calls `shop_finalize_paid_order_from_checkout`
+- duplicate webhook processing is idempotent through `shop_stripe_events.event_id`
 - failed email/order events are recorded with `shop_order_events`
+- `releaseShopOrderReservationsForCheckoutSession` calls `shop_release_order_for_checkout_session`
+- `recordShopRefundEvent` calls `shop_record_refund_event`
 
 - [ ] **Step 2: Implement order finalization data helpers**
 
-In `src/lib/data/shop-orders.ts`, add:
+In `src/lib/data/shop-orders.ts`, add narrow wrappers around the service-role RPCs:
 
 ```ts
-export async function markShopOrderPaidFromCheckoutSession(input: {
-  stripeCheckoutSessionId: string;
-  stripePaymentIntentId: string | null;
-  stripeCustomerId: string | null;
-  customerEmail: string | null;
-  customerName: string | null;
-  billingAddress: Record<string, unknown>;
-  shippingAddress: Record<string, unknown>;
-  subtotalCents: number;
-  shippingCents: number;
-  taxCents: number;
-  totalCents: number;
+export async function finalizeShopOrderPaidFromCheckoutSession(input: {
+  eventId: string;
+  session: Record<string, unknown>;
 }) {
   const supabase = await createAdminClient();
-  // Load order, return early if already paid, update totals, convert reservations, append event.
+  const { data, error } = await supabase.rpc("shop_finalize_paid_order_from_checkout", {
+    p_event_id: input.eventId,
+    p_session: input.session,
+  });
+  if (error) throw new Error(`Failed to finalize paid shop order: ${error.message}`);
+  return data;
+}
+
+export async function releaseShopOrderReservationsForCheckoutSession(input: {
+  eventId: string;
+  stripeCheckoutSessionId: string;
+}) {
+  const supabase = await createAdminClient();
+  const { error } = await supabase.rpc("shop_release_order_for_checkout_session", {
+    p_event_id: input.eventId,
+    p_stripe_checkout_session_id: input.stripeCheckoutSessionId,
+  });
+  if (error) throw new Error(`Failed to release shop order reservations: ${error.message}`);
+}
+
+export async function recordShopRefundEvent(input: {
+  eventId: string;
+  payload: Record<string, unknown>;
+}) {
+  const supabase = await createAdminClient();
+  const { error } = await supabase.rpc("shop_record_refund_event", {
+    p_event_id: input.eventId,
+    p_payload: input.payload,
+  });
+  if (error) throw new Error(`Failed to record shop refund event: ${error.message}`);
 }
 ```
 
@@ -1917,6 +2222,8 @@ Test that:
 - unsupported event returns `{ received: true }`
 - `checkout.session.completed` calls order finalization
 - `checkout.session.expired` releases reservations
+- `charge.refunded` and `charge.refund.updated` record refund status
+- async Checkout events are ignored with a visible log because launch Checkout is restricted to cards
 
 - [ ] **Step 4: Implement webhook route**
 
@@ -1925,7 +2232,11 @@ Create `src/app/api/shop/stripe/webhook/route.ts`:
 ```ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { markShopOrderPaidFromCheckoutSession, releaseShopOrderReservations } from "@/lib/data/shop-orders";
+import {
+  finalizeShopOrderPaidFromCheckoutSession,
+  recordShopRefundEvent,
+  releaseShopOrderReservationsForCheckoutSession,
+} from "@/lib/data/shop-orders";
 import { getStripeClient, getStripeWebhookSecret } from "@/lib/shop/stripe";
 
 export async function POST(request: Request) {
@@ -1943,24 +2254,16 @@ export async function POST(request: Request) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    await markShopOrderPaidFromCheckoutSession({
-      stripeCheckoutSessionId: session.id,
-      stripePaymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
-      stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
-      customerEmail: session.customer_details?.email ?? session.customer_email ?? null,
-      customerName: session.customer_details?.name ?? null,
-      billingAddress: (session.customer_details?.address ?? {}) as Record<string, unknown>,
-      shippingAddress: (session.shipping_details?.address ?? {}) as Record<string, unknown>,
-      subtotalCents: session.amount_subtotal ?? 0,
-      shippingCents: session.total_details?.amount_shipping ?? 0,
-      taxCents: session.total_details?.amount_tax ?? 0,
-      totalCents: session.amount_total ?? 0,
-    });
+    await finalizeShopOrderPaidFromCheckoutSession({ eventId: event.id, session: session as unknown as Record<string, unknown> });
   }
 
   if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
-    await releaseShopOrderReservations(session.id);
+    await releaseShopOrderReservationsForCheckoutSession({ eventId: event.id, stripeCheckoutSessionId: session.id });
+  }
+
+  if (event.type === "charge.refunded" || event.type === "charge.refund.updated") {
+    await recordShopRefundEvent({ eventId: event.id, payload: event.data.object as unknown as Record<string, unknown> });
   }
 
   return NextResponse.json({ received: true });
@@ -1980,6 +2283,84 @@ Expected: tests pass.
 ```bash
 git add src/app/api/shop/stripe/webhook/route.ts src/app/api/shop/stripe/webhook/route.test.ts src/lib/data/shop-orders.ts src/lib/data/shop-orders.test.ts
 git commit -m "feat: finalize shop orders from stripe webhooks"
+```
+
+### Task 5.3: Add Checkout Return Pages
+
+**Files:**
+- Create: `src/app/(marketing)/shop/success/page.tsx`
+- Create: `src/app/(marketing)/shop/canceled/page.tsx`
+
+- [ ] **Step 1: Add success page**
+
+Create `src/app/(marketing)/shop/success/page.tsx`:
+
+```tsx
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+
+export default async function ShopSuccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ order?: string }>;
+}) {
+  const { order } = await searchParams;
+
+  return (
+    <div className="mx-auto grid min-h-[50vh] w-full max-w-2xl place-items-center px-5 py-16">
+      <div className="space-y-5 text-center">
+        <h1 className="text-3xl font-medium text-foreground">Order received</h1>
+        <p className="text-muted-foreground">
+          Payment confirmation can take a moment. Your order page and email will update after Stripe confirms payment.
+        </p>
+        {order ? <p className="text-sm text-muted-foreground">Order reference: {order}</p> : null}
+        <Button asChild>
+          <Link href="/profile/orders">View orders</Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Add canceled page**
+
+Create `src/app/(marketing)/shop/canceled/page.tsx`:
+
+```tsx
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+
+export default function ShopCanceledPage() {
+  return (
+    <div className="mx-auto grid min-h-[50vh] w-full max-w-2xl place-items-center px-5 py-16">
+      <div className="space-y-5 text-center">
+        <h1 className="text-3xl font-medium text-foreground">Checkout canceled</h1>
+        <p className="text-muted-foreground">
+          Your payment was not completed. Reserved stock is released by the Stripe expiration webhook or the cleanup job.
+        </p>
+        <Button asChild variant="outline">
+          <Link href="/shop/cart">Return to cart</Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Run lint**
+
+```bash
+npm run lint -- 'src/app/(marketing)/shop/success/page.tsx' 'src/app/(marketing)/shop/canceled/page.tsx'
+```
+
+Expected: lint reports no errors.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add 'src/app/(marketing)/shop/success/page.tsx' 'src/app/(marketing)/shop/canceled/page.tsx'
+git commit -m "feat: add shop checkout return pages"
 ```
 
 ---
@@ -2007,13 +2388,13 @@ Cover:
 - physical order alert includes shipping address
 - digital/service order alert mentions manual delivery/follow-up
 - provider failure returns an error result without hiding it
+- repeated webhook/finalization attempts do not send duplicate emails because `shop_order_notifications` has one row per order/kind
 
 - [ ] **Step 2: Implement email helper**
 
 Create `src/lib/shop/order-emails.ts`:
 
 ```ts
-import { randomUUID } from "node:crypto";
 import { getEmailFromEmail, getEmailFromName, getEmailReplyToEmail } from "@/lib/email/settings";
 import type { EmailProvider } from "@/lib/email/provider/types";
 
@@ -2025,8 +2406,8 @@ export async function sendShopOrderConfirmation(input: {
   totalFormatted: string;
 }) {
   return input.provider.sendEmail({
-    recipientId: randomUUID(),
-    sendId: input.orderId,
+    recipientId: `${input.orderId}:customer_confirmation`,
+    sendId: `${input.orderId}:customer_confirmation`,
     contactId: null,
     to: input.to,
     fromEmail: getEmailFromEmail(),
@@ -2040,19 +2421,29 @@ export async function sendShopOrderConfirmation(input: {
 }
 ```
 
-Add `sendShopInternalOrderAlert` with the same provider interface.
+Add `sendShopInternalOrderAlert` with the same provider interface and deterministic IDs:
+
+```ts
+recipientId: `${orderId}:internal_alert`;
+sendId: `${orderId}:internal_alert`;
+```
 
 - [ ] **Step 3: Wire emails into finalization**
 
-After order is marked paid, call:
+After the database finalization RPC returns pending notification rows, claim each notification before sending:
 
 ```ts
 const provider = getEmailProvider();
-await sendShopOrderConfirmation(...);
-await sendShopInternalOrderAlert(...);
+const notification = await claimShopOrderNotification({ orderId, kind: "customer_confirmation" });
+if (notification) {
+  await sendShopOrderConfirmation(...);
+  await markShopOrderNotificationSent(notification.id);
+}
 ```
 
-Wrap each send in try/catch and append `shop_order_events` with `email_sent` or `email_failed`.
+Implement `claimShopOrderNotification`, `markShopOrderNotificationSent`, and `markShopOrderNotificationFailed` in `src/lib/data/shop-orders.ts` using the service-role client. The claim helper must update one `pending` row to `sending` and return null when the notification is already `sending` or `sent`.
+
+Wrap each send in try/catch and append `shop_order_events` with `email_sent` or `email_failed`. Use `customer_visible = false` for email/internal operational events.
 
 - [ ] **Step 4: Run tests**
 
@@ -2099,6 +2490,8 @@ Test:
 Add:
 
 ```ts
+import { escapeSearchTerm } from "@/lib/validation-helpers";
+
 export async function listAdminShopOrders(filters: {
   status?: ShopOrderStatus;
   query?: string;
@@ -2112,7 +2505,7 @@ export async function listAdminShopOrders(filters: {
 
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.query) {
-    const term = filters.query.trim();
+    const term = escapeSearchTerm(filters.query.trim());
     query = query.or(
       `order_number.ilike.%${term}%,customer_email.ilike.%${term}%,customer_name.ilike.%${term}%`,
     );
@@ -2151,6 +2544,7 @@ export async function updateShopOrderFulfillment(input: {
     actor_id: admin.id,
     message: "Fulfillment updated from admin dashboard.",
     payload: input,
+    customer_visible: true,
   });
   if (eventError) throw new Error(`Failed to record fulfillment event: ${eventError.message}`);
 }
@@ -2158,7 +2552,7 @@ export async function updateShopOrderFulfillment(input: {
 
 - [ ] **Step 3: Add server actions**
 
-Add `updateShopOrderFulfillmentAction`, `addShopOrderNoteAction`, and `exportShopOrdersCsvAction` to admin shop actions. Validate UUIDs and status enums with Zod.
+Add `updateShopOrderFulfillmentAction`, `addShopOrderNoteAction`, and `exportShopOrdersCsvAction` to admin shop actions. Validate UUIDs and status enums with Zod. Internal note events must set `customer_visible = false`.
 
 - [ ] **Step 4: Run tests**
 
@@ -2288,13 +2682,23 @@ export const getMemberShopOrderById = cache(async function getMemberShopOrderByI
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("shop_orders")
-    .select("*, items:shop_order_items(*), events:shop_order_events(*)")
+    .select("*, items:shop_order_items(*)")
     .eq("id", orderId)
     .eq("profile_id", profile.id)
     .maybeSingle();
 
   if (error) throw new Error(`Failed to load shop order: ${error.message}`);
-  return data ?? null;
+  if (!data) return null;
+
+  const { data: events, error: eventsError } = await supabase
+    .from("shop_order_events")
+    .select("*")
+    .eq("order_id", orderId)
+    .eq("customer_visible", true)
+    .order("created_at", { ascending: true });
+
+  if (eventsError) throw new Error(`Failed to load shop order timeline: ${eventsError.message}`);
+  return { ...data, events: events ?? [] };
 });
 ```
 
@@ -2453,6 +2857,35 @@ git commit -m "chore: harden shop implementation"
 
 If no fixes were needed, do not create an empty commit.
 
+### Task 9.3: Document Launch Operations
+
+**Files:**
+- Modify: `docs/admin-email-operations.md` or the repo's existing environment/operations document
+
+- [ ] **Step 1: Add Stripe and shop environment notes**
+
+Document:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- `SHOP_INTERNAL_ALERT_EMAIL`
+- Stripe Dashboard webhook endpoint path: `/api/shop/stripe/webhook`
+- Launch payment method policy: card-only Checkout with wallet support where Stripe exposes wallets through cards
+- EUR-only launch charging
+- 30-minute reservation TTL aligned with Stripe Checkout expiration
+
+- [ ] **Step 2: Add manual fulfillment notes**
+
+Document that physical labels, digital delivery, service follow-up, and refunds are operated manually at launch, while webhook events still update order status/refund visibility.
+
+- [ ] **Step 3: Commit docs**
+
+```bash
+git add docs/admin-email-operations.md
+git commit -m "docs: add shop launch operations"
+```
+
 ---
 
 ## Rollback Notes
@@ -2464,7 +2897,7 @@ If no fixes were needed, do not create an empty commit.
 
 ## Self-Review Checklist
 
-- Spec coverage: products, variants, media, rich content, member checkout, EUR-only, Stripe Checkout/Tax, 10-minute reservations, flat shipping, manual fulfillment, Brevo emails, admin operations, member order history, RLS, and tests are covered.
+- Spec coverage: products, variants, media, rich content, member checkout, EUR-only, Stripe Checkout/Tax, 30-minute Checkout-aligned reservations, flat shipping, manual fulfillment, Brevo emails, admin operations, member order history, RLS, and tests are covered.
 - Type consistency: product/order/status names match the design spec and planned migration enums.
 - Simplicity: custom cart and phased admin avoid unnecessary dependencies while preserving operational needs.
-- Known implementation risk: SQL reservation RPCs and Stripe webhook idempotency are the highest-risk areas; they are deliberately isolated and tested before UI polish.
+- Known implementation risk: SQL checkout/finalization RPCs, shipping-country configuration, and Stripe webhook idempotency are the highest-risk areas; they are deliberately isolated and tested before UI polish.

@@ -1,7 +1,7 @@
 # BTM Store Design
 
 Date: 2026-05-08  
-Branch/worktree: `feature/store-shop` at `/Users/andrei/Dev/btm-hub/.worktrees/store-shop`
+Branch/worktree: implementation planning continues on `feature/store-implementation-plan` at `/Users/andrei/Dev/btm-hub/.worktrees/store-implementation-plan`; original design draft was created on `feature/store-shop`.
 
 ## Summary
 
@@ -9,7 +9,7 @@ Build a custom store inside BTM Hub for a Portugal-based business selling mostly
 
 The store should avoid high-percentage ecommerce platforms. It will use the existing Next.js, Supabase, shadcn/ui, and Brevo stack, with Stripe Checkout and Stripe Tax for payment and tax handling.
 
-The implementation should happen only in the `feature/store-shop` worktree.
+The implementation should happen only in a store feature worktree, currently `feature/store-implementation-plan`, never directly on `main`.
 
 ## Goals
 
@@ -130,11 +130,11 @@ Physical products require shipping address collection in Stripe Checkout. Fulfil
 
 Inventory is tracked at the variant level.
 
-Use 10-minute stock reservations when checkout starts:
+Use Checkout-aligned stock reservations when checkout starts. The launch window is 30 minutes, because Stripe Checkout's hosted `expires_at` setting cannot be shorter than 30 minutes. The original 10-minute preference is deferred unless we later replace hosted Checkout with a custom payment flow.
 
 1. Member submits cart for checkout.
 2. Server validates membership, product access, product status, variant status, current price, and available stock.
-3. Server creates active reservations that expire in 10 minutes.
+3. Server creates active reservations that expire in 30 minutes.
 4. Server creates a pending order/draft checkout record tied to the reservations.
 5. Server creates a Stripe Checkout Session.
 6. Payment success webhook converts reservations to sold stock and records inventory adjustments.
@@ -492,7 +492,7 @@ Build verification:
 
 - custom cart
 - checkout validation
-- 10-minute reservations
+- 30-minute Checkout-aligned reservations
 - Stripe Checkout Session creation with Stripe Tax
 - success/canceled pages
 - Stripe webhook
