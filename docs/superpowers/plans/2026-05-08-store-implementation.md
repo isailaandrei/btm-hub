@@ -55,7 +55,7 @@ Stripe Checkout still surfaces supported wallets through the card payment method
 
 ### Database And Types
 
-- Create `supabase/migrations/20260508000001_shop_foundation.sql`  
+- Create `supabase/migrations/20260508000002_shop_foundation.sql`  
   Creates shop enums, tables, constraints, indexes, RLS policies, storage bucket, idempotency tables, notification tables, and atomic reservation/finalization helper functions.
 - Modify `src/types/database.ts`  
   Adds shop interfaces and union types used by server components and tests.
@@ -177,7 +177,7 @@ Production must use `EMAIL_PROVIDER=brevo` with `BREVO_API_KEY` already configur
 ### Task 1.1: Add Shop Migration
 
 **Files:**
-- Create: `supabase/migrations/20260508000001_shop_foundation.sql`
+- Create: `supabase/migrations/20260508000002_shop_foundation.sql`
 
 - [ ] **Step 1: Write the migration file**
 
@@ -619,7 +619,7 @@ GRANT EXECUTE ON FUNCTION shop_record_refund_event(text, jsonb) TO service_role;
 Run:
 
 ```bash
-rg -n "shop_|CREATE TYPE|CREATE TABLE|CREATE POLICY|CREATE OR REPLACE FUNCTION" supabase/migrations/20260508000001_shop_foundation.sql
+rg -n "shop_|CREATE TYPE|CREATE TABLE|CREATE POLICY|CREATE OR REPLACE FUNCTION" supabase/migrations/20260508000002_shop_foundation.sql
 ```
 
 Expected: all shop tables, types, policies, bucket, and RPCs are visible.
@@ -651,7 +651,7 @@ Expected: both rows have `relrowsecurity = t`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/20260508000001_shop_foundation.sql
+git add supabase/migrations/20260508000002_shop_foundation.sql
 git commit -m "feat: add shop database foundation"
 ```
 
