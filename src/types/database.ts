@@ -472,3 +472,246 @@ export interface DmReadReceipt {
 export interface OptimisticDmMessage extends DmMessageWithSender {
   _optimistic?: "sending";
 }
+
+// ---------------------------------------------------------------------------
+// Shop
+// ---------------------------------------------------------------------------
+
+export type ShopProductType = "physical" | "digital" | "service";
+export type ShopProductStatus = "draft" | "active" | "archived";
+export type ShopProductVisibility = "public" | "members" | "hidden";
+export type ShopPurchaseAccess = "public" | "members";
+export type ShopTaxBehavior = "exclusive" | "inclusive";
+
+export type ShopOrderStatus =
+  | "pending"
+  | "paid"
+  | "canceled"
+  | "refunded"
+  | "partially_refunded";
+
+export type ShopFulfillmentStatus =
+  | "unfulfilled"
+  | "in_progress"
+  | "fulfilled"
+  | "partially_fulfilled"
+  | "canceled";
+
+export type ShopOrderItemFulfillmentType =
+  | "physical"
+  | "manual_digital"
+  | "manual_service";
+
+export type ShopReservationStatus =
+  | "active"
+  | "converted"
+  | "released"
+  | "expired";
+
+export type ShopOrderEventType =
+  | "created"
+  | "checkout_started"
+  | "payment_confirmed"
+  | "payment_failed"
+  | "checkout_expired"
+  | "reservation_released"
+  | "fulfillment_updated"
+  | "tracking_updated"
+  | "email_sent"
+  | "email_failed"
+  | "refund_updated"
+  | "note";
+
+export type ShopOrderNotificationKind =
+  | "customer_confirmation"
+  | "internal_alert";
+
+export type ShopOrderNotificationStatus =
+  | "pending"
+  | "sending"
+  | "sent"
+  | "failed";
+
+export interface ShopProduct {
+  id: string;
+  title: string;
+  slug: string;
+  type: ShopProductType;
+  status: ShopProductStatus;
+  visibility: ShopProductVisibility;
+  purchase_access: ShopPurchaseAccess;
+  short_description: string;
+  content_blocks: unknown[];
+  stripe_tax_code: string | null;
+  tax_behavior: ShopTaxBehavior;
+  requires_shipping: boolean;
+  requires_customer_notes: boolean;
+  customer_notes_label: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShopProductVariant {
+  id: string;
+  product_id: string;
+  title: string;
+  sku: string | null;
+  price_cents: number;
+  currency: "eur";
+  stripe_tax_code: string | null;
+  tax_behavior: ShopTaxBehavior;
+  track_inventory: boolean;
+  stock_quantity: number;
+  low_stock_threshold: number;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShopProductMedia {
+  id: string;
+  product_id: string;
+  storage_path: string;
+  public_url: string;
+  alt_text: string;
+  caption: string;
+  mime_type: "image/jpeg" | "image/png" | "image/webp";
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  is_primary: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShopShippingZone {
+  id: string;
+  name: string;
+  slug: string;
+  allowed_countries: string[];
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShopShippingRate {
+  id: string;
+  zone_id: string;
+  name: string;
+  description: string;
+  price_cents: number;
+  currency: "eur";
+  stripe_tax_code: string | null;
+  tax_behavior: ShopTaxBehavior;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShopOrder {
+  id: string;
+  order_number: string;
+  profile_id: string;
+  checkout_attempt_id: string;
+  cart_fingerprint: string;
+  reservation_expires_at: string;
+  status: ShopOrderStatus;
+  fulfillment_status: ShopFulfillmentStatus;
+  currency: "eur";
+  subtotal_cents: number;
+  shipping_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  stripe_checkout_session_id: string | null;
+  stripe_checkout_url: string | null;
+  stripe_payment_intent_id: string | null;
+  stripe_customer_id: string | null;
+  customer_email: string | null;
+  customer_name: string | null;
+  billing_address: Record<string, unknown>;
+  shipping_address: Record<string, unknown>;
+  shipping_zone_id: string | null;
+  customer_notes: string;
+  tracking_carrier: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShopOrderItem {
+  id: string;
+  order_id: string;
+  product_id: string | null;
+  variant_id: string | null;
+  product_title: string;
+  variant_title: string;
+  sku: string | null;
+  product_type: ShopProductType;
+  fulfillment_type: ShopOrderItemFulfillmentType;
+  quantity: number;
+  unit_price_cents: number;
+  line_subtotal_cents: number;
+  tax_cents: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface ShopInventoryReservation {
+  id: string;
+  profile_id: string;
+  order_id: string;
+  variant_id: string;
+  quantity: number;
+  expires_at: string;
+  status: ShopReservationStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShopInventoryAdjustment {
+  id: string;
+  variant_id: string;
+  order_id: string | null;
+  actor_id: string | null;
+  delta: number;
+  reason: string;
+  note: string;
+  created_at: string;
+}
+
+export interface ShopOrderEvent {
+  id: string;
+  order_id: string;
+  type: ShopOrderEventType;
+  actor_id: string | null;
+  message: string;
+  payload: Record<string, unknown>;
+  customer_visible: boolean;
+  created_at: string;
+}
+
+export interface ShopStripeEvent {
+  event_id: string;
+  event_type: string;
+  stripe_checkout_session_id: string | null;
+  order_id: string | null;
+  payload: Record<string, unknown>;
+  processed_at: string;
+}
+
+export interface ShopOrderNotification {
+  id: string;
+  order_id: string;
+  kind: ShopOrderNotificationKind;
+  status: ShopOrderNotificationStatus;
+  last_error: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
