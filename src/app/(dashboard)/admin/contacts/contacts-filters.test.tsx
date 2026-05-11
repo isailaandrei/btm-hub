@@ -52,7 +52,7 @@ describe("ContactsFilters", () => {
     };
   }
 
-  it("separates filtering controls from table configuration controls", () => {
+  function renderFilters() {
     act(() => {
       root.render(
         <ContactsFilters
@@ -85,6 +85,10 @@ describe("ContactsFilters", () => {
         />,
       );
     });
+  }
+
+  it("separates filtering controls from table configuration controls", () => {
+    renderFilters();
 
     const rows = [...container.querySelectorAll("[data-testid]")];
     expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
@@ -108,5 +112,47 @@ describe("ContactsFilters", () => {
 
     expect(filterRow?.textContent).not.toContain("Role");
     expect(filterRow?.textContent).not.toContain("Level");
+  });
+
+  it("shows tag categories first and reveals tags only when a category expands", async () => {
+    renderFilters();
+
+    const filtersButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Filters"),
+    );
+    expect(filtersButton).toBeDefined();
+
+    await act(async () => {
+      filtersButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toContain("Role");
+    expect(document.body.textContent).toContain("Level");
+    expect(document.body.textContent).not.toContain("Filmmaker");
+    expect(document.body.textContent).not.toContain("Advanced");
+
+    const roleCategory = document.body.querySelector(
+      '[data-testid="contacts-filter-category-category-role"]',
+    );
+    expect(roleCategory).not.toBeNull();
+
+    await act(async () => {
+      roleCategory?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toContain("Filmmaker");
+    expect(document.body.textContent).not.toContain("Advanced");
+
+    const levelCategory = document.body.querySelector(
+      '[data-testid="contacts-filter-category-category-level"]',
+    );
+    expect(levelCategory).not.toBeNull();
+
+    await act(async () => {
+      levelCategory?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toContain("Filmmaker");
+    expect(document.body.textContent).toContain("Advanced");
   });
 });

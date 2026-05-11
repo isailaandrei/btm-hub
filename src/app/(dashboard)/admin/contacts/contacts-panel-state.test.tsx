@@ -65,6 +65,9 @@ function StateHarness({
       <button type="button" onClick={() => state.toggleSort(BUILTIN_COLUMN.name)}>
         Sort name
       </button>
+      <button type="button" onClick={() => state.toggleSort(BUILTIN_COLUMN.tags)}>
+        Sort tags
+      </button>
       <button type="button" onClick={state.handleClearAllFilters}>
         Clear
       </button>
@@ -121,6 +124,20 @@ describe("useContactsPanelState", () => {
       key: BUILTIN_COLUMN.submittedAt,
       direction: "desc",
     } satisfies SortState);
+  });
+
+  it("cycles tag sorting only through descending and off", () => {
+    renderHarness();
+    clickButton("Sort tags");
+
+    expect(latestState?.sortBy).toEqual({
+      key: BUILTIN_COLUMN.tags,
+      direction: "desc",
+    } satisfies SortState);
+
+    clickButton("Sort tags");
+
+    expect(latestState?.sortBy).toBeNull();
   });
 
   it("resets clear all filters to newest submitted contacts first", () => {

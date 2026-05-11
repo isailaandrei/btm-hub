@@ -368,6 +368,10 @@ export function useContactsPanelState({
 
   const toggleSort = useCallback((key: string) => {
     setSortBy((previous) => {
+      if (key === BUILTIN_COLUMN.tags) {
+        return previous?.key === key ? null : { key, direction: "desc" };
+      }
+
       if (!previous || previous.key !== key) {
         return { key, direction: "asc" };
       }

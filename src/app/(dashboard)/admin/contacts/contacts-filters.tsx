@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import type { TagCategory, Tag } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -46,6 +46,9 @@ export const ContactsFilters = memo(function ContactsFilters({
     () => new Set(selectedTagIds),
     [selectedTagIds],
   );
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const tagsByCategoryId = useMemo(() => {
     const map = new Map<string, Tag[]>();
     for (const tag of tags) {
@@ -73,6 +76,15 @@ export const ContactsFilters = memo(function ContactsFilters({
 
   function handlePendingChipRemove(value: PendingFilterValue) {
     onPendingFilterChange(pendingFilter.filter((item) => item !== value));
+  }
+
+  function toggleCategory(categoryId: string) {
+    setExpandedCategoryIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
   }
 
   return (
@@ -135,44 +147,76 @@ export const ContactsFilters = memo(function ContactsFilters({
                     const activeCount = categoryTags.filter((tag) =>
                       selectedTagIdsSet.has(tag.id),
                     ).length;
+                    const isExpanded = expandedCategoryIds.has(category.id);
+                    const tagListId = `contacts-filter-tags-${category.id}`;
 
                     return (
                       <section
                         key={category.id}
                         className="border-b border-border/60 py-2 last:border-0"
                       >
-                        <div className="mb-1.5 flex items-center justify-between px-2">
-                          <h3 className="text-xs font-medium text-foreground">
+                        <button
+                          type="button"
+                          aria-controls={tagListId}
+                          aria-expanded={isExpanded}
+                          data-testid={`contacts-filter-category-${category.id}`}
+                          onClick={() => toggleCategory(category.id)}
+                          className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
+                        >
+                          <span className="min-w-0 text-xs font-medium text-foreground">
                             {category.name}
-                          </h3>
-                          {activeCount > 0 && (
-                            <span className="text-[10px] font-medium text-muted-foreground">
-                              {activeCount} selected
-                            </span>
-                          )}
-                        </div>
-                        <div className="space-y-0.5">
-                          {categoryTags.map((tag) => {
-                            const isActive = selectedTagIdsSet.has(tag.id);
-                            return (
-                              <label
-                                key={tag.id}
-                                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
-                              >
-                                <Checkbox
-                                  checked={isActive}
-                                  onCheckedChange={() => onTagToggle(tag.id)}
-                                />
-                                <Badge
-                                  variant="outline"
-                                  className={`pointer-events-none ${colorClass}`}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            {activeCount > 0 && (
+                              <span className="text-[10px] font-medium text-muted-foreground">
+                                {activeCount} selected
+                              </span>
+                            )}
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className={`text-muted-foreground transition-transform ${
+                                isExpanded ? "rotate-180" : ""
+                              }`}
+                            >
+                              <path d="m6 9 6 6 6-6" />
+                            </svg>
+                          </span>
+                        </button>
+
+                        {isExpanded && (
+                          <div
+                            id={tagListId}
+                            className="mt-1 space-y-0.5 pl-2"
+                          >
+                            {categoryTags.map((tag) => {
+                              const isActive = selectedTagIdsSet.has(tag.id);
+                              return (
+                                <label
+                                  key={tag.id}
+                                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
                                 >
-                                  {tag.name}
-                                </Badge>
-                              </label>
-                            );
-                          })}
-                        </div>
+                                  <Checkbox
+                                    checked={isActive}
+                                    onCheckedChange={() => onTagToggle(tag.id)}
+                                  />
+                                  <Badge
+                                    variant="outline"
+                                    className={`pointer-events-none ${colorClass}`}
+                                  >
+                                    {tag.name}
+                                  </Badge>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
                       </section>
                     );
                   })}
