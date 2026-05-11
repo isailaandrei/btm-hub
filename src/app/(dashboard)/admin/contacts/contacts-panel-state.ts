@@ -12,10 +12,14 @@ import { toast } from "sonner";
 import type { Contact, ProgramSlug } from "@/types/database";
 import { updatePreferences } from "./actions";
 import { pruneSelectedIds } from "./selection-helpers";
-import type { SortState } from "./sort-helpers";
+import { BUILTIN_COLUMN, type SortState } from "./sort-helpers";
 import type { PendingFilterValue } from "./pending-filter";
 
 const FILTERS_STORAGE_KEY = "btm-admin-contacts-filters";
+const DEFAULT_CONTACTS_SORT: SortState = {
+  key: BUILTIN_COLUMN.submittedAt,
+  direction: "desc",
+};
 
 type PageSize = 25 | 50 | 150;
 
@@ -92,7 +96,7 @@ export function useContactsPanelState({
     storedFilters.columnFilters ?? {},
   );
   const [sortBy, setSortBy] = useState<SortState | null>(
-    storedFilters.sortBy ?? null,
+    storedFilters.sortBy ?? DEFAULT_CONTACTS_SORT,
   );
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(
     storedFilters.columnWidths ?? {},
@@ -382,7 +386,7 @@ export function useContactsPanelState({
     setSelectedTagIds([]);
     setColumnFilters({});
     setPendingFilter([]);
-    setSortBy(null);
+    setSortBy(DEFAULT_CONTACTS_SORT);
     setPage(1);
     clearSelection();
   }, [clearSelection]);

@@ -1,16 +1,22 @@
 "use client";
 
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo } from "react";
 import type { TagCategory, Tag } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TAG_COLOR_CLASSES } from "../constants";
 import { ColumnPicker } from "./column-picker";
+import {
+  PENDING_FILTER_OPTIONS,
+  PendingFilter,
+  type PendingFilterValue,
+} from "./pending-filter";
 
 interface ContactsFiltersProps {
   search: string;
   selectedTagIds: string[];
+  pendingFilter: PendingFilterValue[];
   tagCategories: TagCategory[];
   tags: Tag[];
   visibleColumns: string[];
@@ -19,12 +25,13 @@ interface ContactsFiltersProps {
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
-  trailingSlot?: ReactNode;
+  onPendingFilterChange: (next: PendingFilterValue[]) => void;
 }
 
 export const ContactsFilters = memo(function ContactsFilters({
   search,
   selectedTagIds,
+  pendingFilter,
   tagCategories,
   tags,
   visibleColumns,
@@ -33,7 +40,7 @@ export const ContactsFilters = memo(function ContactsFilters({
   onTagToggle,
   onClearTags,
   onColumnToggle,
-  trailingSlot,
+  onPendingFilterChange,
 }: ContactsFiltersProps) {
   const selectedTagIdsSet = useMemo(
     () => new Set(selectedTagIds),
@@ -48,80 +55,176 @@ export const ContactsFilters = memo(function ContactsFilters({
     }
     return map;
   }, [tags]);
+  const categoriesById = useMemo(
+    () => new Map(tagCategories.map((category) => [category.id, category])),
+    [tagCategories],
+  );
+  const tagsById = useMemo(
+    () => new Map(tags.map((tag) => [tag.id, tag])),
+    [tags],
+  );
+  const tagFilterCount = selectedTagIds.length;
+  const activePendingOptions = PENDING_FILTER_OPTIONS.filter((option) =>
+    pendingFilter.includes(option.value),
+  );
+  const selectedTags = selectedTagIds
+    .map((tagId) => tagsById.get(tagId))
+    .filter((tag): tag is Tag => tag !== undefined);
+
+  function handlePendingChipRemove(value: PendingFilterValue) {
+    onPendingFilterChange(pendingFilter.filter((item) => item !== value));
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="text"
-          placeholder="Search by name or email..."
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
-        />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div
+          data-testid="contacts-filter-row"
+          className="flex flex-wrap items-center gap-3"
+        >
+          <input
+            type="text"
+            placeholder="Search by name or email..."
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="min-w-60 rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
+          />
 
-        <ColumnPicker
-          visibleColumns={visibleColumns}
-          previouslySelectedColumns={previouslySelectedColumns}
-          onToggle={onColumnToggle}
-        />
+          <PendingFilter
+            value={pendingFilter}
+            onChange={onPendingFilterChange}
+          />
 
-        {trailingSlot && <div className="ml-auto">{trailingSlot}</div>}
+          {tagCategories.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={`inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted ${
+                    tagFilterCount > 0 ? "text-foreground" : "text-muted-foreground"
+                  }`}
+                >
+                  Filters
+                  {tagFilterCount > 0 && (
+                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                      {tagFilterCount}
+                    </span>
+                  )}
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="opacity-50"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0" align="start">
+                <div className="max-h-96 overflow-y-auto p-2">
+                  {tagCategories.map((category) => {
+                    const categoryTags = tagsByCategoryId.get(category.id) ?? [];
+                    if (categoryTags.length === 0) return null;
+                    const color = category.color ?? "blue";
+                    const colorClass = TAG_COLOR_CLASSES[color] ?? "";
+                    const activeCount = categoryTags.filter((tag) =>
+                      selectedTagIdsSet.has(tag.id),
+                    ).length;
+
+                    return (
+                      <section
+                        key={category.id}
+                        className="border-b border-border/60 py-2 last:border-0"
+                      >
+                        <div className="mb-1.5 flex items-center justify-between px-2">
+                          <h3 className="text-xs font-medium text-foreground">
+                            {category.name}
+                          </h3>
+                          {activeCount > 0 && (
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {activeCount} selected
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-0.5">
+                          {categoryTags.map((tag) => {
+                            const isActive = selectedTagIdsSet.has(tag.id);
+                            return (
+                              <label
+                                key={tag.id}
+                                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
+                              >
+                                <Checkbox
+                                  checked={isActive}
+                                  onCheckedChange={() => onTagToggle(tag.id)}
+                                />
+                                <Badge
+                                  variant="outline"
+                                  className={`pointer-events-none ${colorClass}`}
+                                >
+                                  {tag.name}
+                                </Badge>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
+
+        <div
+          data-testid="contacts-table-controls"
+          className="flex flex-wrap items-center gap-3"
+        >
+          <ColumnPicker
+            visibleColumns={visibleColumns}
+            previouslySelectedColumns={previouslySelectedColumns}
+            onToggle={onColumnToggle}
+          />
+        </div>
       </div>
 
-      {tagCategories.length > 0 && (
+      {(activePendingOptions.length > 0 || selectedTags.length > 0) && (
         <div className="flex flex-wrap items-center gap-2">
-          {tagCategories.map((category) => {
-            const categoryTags = tagsByCategoryId.get(category.id) ?? [];
-            if (categoryTags.length === 0) return null;
-            const color = category.color ?? "blue";
-            const colorClass = TAG_COLOR_CLASSES[color] ?? "";
-            const activeCount = categoryTags.filter((tag) =>
-              selectedTagIdsSet.has(tag.id),
-            ).length;
+          {activePendingOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => handlePendingChipRemove(option.value)}
+              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-100"
+            >
+              {option.label} ×
+            </button>
+          ))}
+          {selectedTags.map((tag) => {
+            const category = categoriesById.get(tag.category_id);
+            const color = category?.color ?? "blue";
             return (
-              <Popover key={category.id}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className={`inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted ${
-                      activeCount > 0 ? "text-foreground" : "text-muted-foreground"
-                    }`}
-                  >
-                    {category.name}
-                    {activeCount > 0 && (
-                      <span className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium ${colorClass}`}>
-                        {activeCount}
-                      </span>
-                    )}
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56 p-0" align="start">
-                  <div className="max-h-56 overflow-y-auto p-2">
-                    {categoryTags.map((tag) => {
-                      const isActive = selectedTagIdsSet.has(tag.id);
-                      return (
-                        <label
-                          key={tag.id}
-                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
-                        >
-                          <Checkbox checked={isActive} onCheckedChange={() => onTagToggle(tag.id)} />
-                          <Badge variant="outline" className={`pointer-events-none ${colorClass}`}>
-                            {tag.name}
-                          </Badge>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </PopoverContent>
-              </Popover>
+              <button
+                key={tag.id}
+                type="button"
+                onClick={() => onTagToggle(tag.id)}
+                className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <span className={TAG_COLOR_CLASSES[color] ?? ""}>
+                  {category?.name ? `${category.name}: ` : ""}
+                  {tag.name}
+                </span>{" "}
+                ×
+              </button>
             );
           })}
-
-          {selectedTagIds.length > 0 && (
+          {selectedTags.length > 0 && (
             <button
               type="button"
               onClick={onClearTags}

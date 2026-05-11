@@ -51,7 +51,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   [BUILTIN_COLUMN.email]: 220,
   [BUILTIN_COLUMN.phone]: 140,
   _programs: 120,
-  _tags: 200,
+  [BUILTIN_COLUMN.tags]: 200,
 };
 const DEFAULT_FIELD_WIDTH = 320;
 const DEFAULT_AGE_WIDTH = 160;
@@ -303,33 +303,31 @@ export function ContactsPanel({
           tags={tags ?? []}
           visibleColumns={state.visibleColumns}
           previouslySelectedColumns={state.previouslySelectedColumns}
+          pendingFilter={state.pendingFilter}
           onSearchChange={state.handleSearchChange}
           onTagToggle={state.handleTagToggle}
           onClearTags={state.handleClearTags}
           onColumnToggle={state.handleColumnToggle}
-          trailingSlot={<AcademyImportSyncButton controller={sync} />}
+          onPendingFilterChange={state.handlePendingFilterChange}
         />
       </div>
 
-      {sync.phase.kind !== "idle" && (
-        <div className="mb-6">
-          <AcademyImportSyncPanel controller={sync} />
-        </div>
-      )}
-
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {filtered.length} contact{filtered.length !== 1 ? "s" : ""} found
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-muted-foreground">
+            {filtered.length} contact{filtered.length !== 1 ? "s" : ""} found
+          </p>
+          <AcademyImportSyncButton controller={sync} />
           {hasAnyFilter && (
             <button
               type="button"
               onClick={state.handleClearAllFilters}
-              className="ml-3 rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
             >
               Clear all filters
             </button>
           )}
-        </p>
+        </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Show</span>
           {PAGE_SIZES.map((size) => (
@@ -352,6 +350,12 @@ export function ContactsPanel({
           ))}
         </div>
       </div>
+
+      {sync.phase.kind !== "idle" && (
+        <div className="mb-6">
+          <AcademyImportSyncPanel controller={sync} />
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-lg border border-border">
         <Table className="table-fixed">
@@ -423,16 +427,32 @@ export function ContactsPanel({
               })()}
               {(() => {
                 const width =
-                  state.columnWidths._tags ?? DEFAULT_COLUMN_WIDTHS._tags ?? 200;
+                  state.columnWidths[BUILTIN_COLUMN.tags] ??
+                  DEFAULT_COLUMN_WIDTHS[BUILTIN_COLUMN.tags] ??
+                  200;
                 return (
                   <TableHead
                     className="relative overflow-hidden"
                     style={{ width }}
                   >
-                    Tags
+                    <span className="inline-flex items-center">
+                      Tags
+                      <ColumnSortToggle
+                        active={state.sortBy?.key === BUILTIN_COLUMN.tags}
+                        direction={
+                          state.sortBy?.key === BUILTIN_COLUMN.tags
+                            ? state.sortBy.direction
+                            : null
+                        }
+                        onClick={() => state.toggleSort(BUILTIN_COLUMN.tags)}
+                        label="Tags"
+                      />
+                    </span>
                     <div
                       className="absolute top-0 -right-px bottom-0 z-10 w-2 cursor-col-resize border-r border-border/50 hover:border-primary"
-                      onMouseDown={(e) => handleResizeStart("_tags", e)}
+                      onMouseDown={(e) =>
+                        handleResizeStart(BUILTIN_COLUMN.tags, e)
+                      }
                     />
                   </TableHead>
                 );

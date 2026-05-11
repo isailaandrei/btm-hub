@@ -156,7 +156,9 @@ export function AcademyImportSyncButton({
         onClick={startPreview}
         disabled={isPending || phase.kind !== "idle"}
       >
-        {isPending && phase.kind === "idle" ? "Loading…" : "Google Forms Sync"}
+        {isPending && phase.kind === "idle"
+          ? "Loading…"
+          : "Sync with Google Forms"}
       </Button>
       {lastError && (
         <span className="text-xs text-destructive">

@@ -275,7 +275,14 @@ export function useContactsPanelViewModel({
     if (sortBy) {
       const field = getFieldEntry(sortBy.key);
       result = [...result].sort((left, right) =>
-        compareContacts(left, right, sortBy, appsByContact, field),
+        compareContacts(
+          left,
+          right,
+          sortBy,
+          appsByContact,
+          field,
+          contactTagsByContactId,
+        ),
       );
     }
 
@@ -290,6 +297,7 @@ export function useContactsPanelViewModel({
     search,
     selectedTagIds,
     sortBy,
+    contactTagsByContactId,
     tagIdsByContactId,
     tags,
   ]);

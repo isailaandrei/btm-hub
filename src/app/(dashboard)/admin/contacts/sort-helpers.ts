@@ -1,4 +1,4 @@
-import type { Application, Contact } from "@/types/database";
+import type { Application, Contact, ContactTag } from "@/types/database";
 import type { FieldRegistryEntry } from "./field-registry";
 
 export type SortDirection = "asc" | "desc";
@@ -12,7 +12,25 @@ export const BUILTIN_COLUMN = {
   email: "email",
   phone: "phone",
   submittedAt: "submitted_at",
+  tags: "_tags",
 } as const;
+
+function getNewestContactTagAssignedAt(
+  contact: Contact,
+  contactTagsByContactId: Map<string, ContactTag[]> | undefined,
+): string | null {
+  const contactTags = contactTagsByContactId?.get(contact.id);
+  if (!contactTags || contactTags.length === 0) return null;
+
+  let newest: string | null = null;
+  for (const contactTag of contactTags) {
+    if (!newest || contactTag.assigned_at > newest) {
+      newest = contactTag.assigned_at;
+    }
+  }
+
+  return newest;
+}
 
 /** Extract the sortable value for a contact at a given column. Null sorts
  *  last regardless of direction (enforced by `compareContacts`). */
@@ -21,6 +39,7 @@ export function getSortValue(
   key: string,
   appsByContact: Map<string, Application[]>,
   field: FieldRegistryEntry | undefined,
+  contactTagsByContactId?: Map<string, ContactTag[]>,
 ): SortValue {
   switch (key) {
     case BUILTIN_COLUMN.name:
@@ -33,6 +52,8 @@ export function getSortValue(
       const apps = appsByContact.get(contact.id);
       return apps?.[0]?.submitted_at ?? null;
     }
+    case BUILTIN_COLUMN.tags:
+      return getNewestContactTagAssignedAt(contact, contactTagsByContactId);
   }
 
   if (!field) return null;
@@ -80,9 +101,22 @@ export function compareContacts(
   sortBy: SortState,
   appsByContact: Map<string, Application[]>,
   field: FieldRegistryEntry | undefined,
+  contactTagsByContactId?: Map<string, ContactTag[]>,
 ): number {
-  const valA = getSortValue(a, sortBy.key, appsByContact, field);
-  const valB = getSortValue(b, sortBy.key, appsByContact, field);
+  const valA = getSortValue(
+    a,
+    sortBy.key,
+    appsByContact,
+    field,
+    contactTagsByContactId,
+  );
+  const valB = getSortValue(
+    b,
+    sortBy.key,
+    appsByContact,
+    field,
+    contactTagsByContactId,
+  );
 
   // Null-last regardless of direction.
   if (valA === null && valB === null) return 0;

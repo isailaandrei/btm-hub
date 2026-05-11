@@ -10,9 +10,12 @@ interface PendingFilterProps {
   onChange: (next: PendingFilterValue[]) => void;
 }
 
-const OPTIONS: { value: PendingFilterValue; label: string }[] = [
+export const PENDING_FILTER_OPTIONS: {
+  value: PendingFilterValue;
+  label: string;
+}[] = [
   { value: "awaiting_applicant", label: "Awaiting applicant" },
-  { value: "awaiting_btm", label: "We owe response" },
+  { value: "awaiting_btm", label: "Needs BTM response" },
 ];
 
 export function PendingFilter({ value, onChange }: PendingFilterProps) {
@@ -44,7 +47,7 @@ export function PendingFilter({ value, onChange }: PendingFilterProps) {
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-56 p-2" align="start">
-        {OPTIONS.map((o) => (
+        {PENDING_FILTER_OPTIONS.map((o) => (
           <label
             key={o.value}
             className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"

@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { getSortValue, compareContacts } from "./sort-helpers";
+import {
+  BUILTIN_COLUMN,
+  compareContacts,
+  getSortValue,
+} from "./sort-helpers";
 import type { FieldRegistryEntry } from "./field-registry";
 import { normalizeAgeToRange } from "./field-registry";
-import type { Application, Contact } from "@/types/database";
+import type { Application, Contact, ContactTag } from "@/types/database";
 
 // --- Fixtures ------------------------------------------------------------
 
@@ -129,6 +133,37 @@ describe("getSortValue — built-in columns", () => {
   it("returns null when contact has no applications for submitted_at", () => {
     const c = makeContact();
     expect(getSortValue(c, "submitted_at", new Map(), undefined)).toBeNull();
+  });
+
+  it("returns the newest contact tag assignment for the tags column", () => {
+    const c = makeContact();
+    const contactTags = new Map<string, ContactTag[]>([
+      [
+        c.id,
+        [
+          {
+            contact_id: c.id,
+            tag_id: "old-tag",
+            assigned_at: "2026-04-01T10:00:00.000Z",
+          },
+          {
+            contact_id: c.id,
+            tag_id: "new-tag",
+            assigned_at: "2026-04-22T10:00:00.000Z",
+          },
+        ],
+      ],
+    ]);
+
+    expect(
+      getSortValue(
+        c,
+        BUILTIN_COLUMN.tags,
+        new Map(),
+        undefined,
+        contactTags,
+      ),
+    ).toBe("2026-04-22T10:00:00.000Z");
   });
 });
 
@@ -390,5 +425,46 @@ describe("compareContacts", () => {
       ),
     );
     expect(sorted.map((c) => c.id)).toEqual(["2", "1", "3"]);
+  });
+
+  it("sorts tagged contacts by newest assigned tag while leaving untagged contacts last", () => {
+    const recentlyTagged = makeContact({ id: "recent" });
+    const olderTagged = makeContact({ id: "older" });
+    const untagged = makeContact({ id: "untagged" });
+    const contactTags = new Map<string, ContactTag[]>([
+      [
+        olderTagged.id,
+        [
+          {
+            contact_id: olderTagged.id,
+            tag_id: "tag-1",
+            assigned_at: "2026-04-01T10:00:00.000Z",
+          },
+        ],
+      ],
+      [
+        recentlyTagged.id,
+        [
+          {
+            contact_id: recentlyTagged.id,
+            tag_id: "tag-2",
+            assigned_at: "2026-04-20T10:00:00.000Z",
+          },
+        ],
+      ],
+    ]);
+
+    const sorted = [untagged, olderTagged, recentlyTagged].sort((a, b) =>
+      compareContacts(
+        a,
+        b,
+        { key: BUILTIN_COLUMN.tags, direction: "desc" },
+        appsMap,
+        undefined,
+        contactTags,
+      ),
+    );
+
+    expect(sorted.map((c) => c.id)).toEqual(["recent", "older", "untagged"]);
   });
 });
