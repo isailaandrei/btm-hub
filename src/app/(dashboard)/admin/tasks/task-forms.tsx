@@ -98,6 +98,7 @@ export function CreateTaskForm({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [state, action, pending] = useActionState(createTaskAction, INITIAL_STATE);
+  const showCreatingRow = pending;
 
   useEffect(() => {
     if (!state.success) return;
@@ -106,78 +107,88 @@ export function CreateTaskForm({
   }, [onSuccess, state.resetKey, state.success]);
 
   return (
-    <form
-      ref={formRef}
-      action={action}
-      className="grid gap-2 border-t border-border bg-muted/10 p-3 md:grid-cols-[minmax(220px,1fr)_150px_130px_120px_minmax(180px,0.8fr)_auto] md:items-start"
-    >
-      <input type="hidden" name="groupId" value={group.id} />
-      <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
-        Task
-        <input
-          name="title"
-          placeholder={`New task in ${group.name}`}
-          className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
-        />
-        <FieldError errors={state.errors?.title} reserveSpace />
-      </label>
-      <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
-        Assignee
-        <select
-          name="assigneeId"
-          className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+    <>
+      {showCreatingRow && (
+        <div
+          className="border-t border-border bg-muted/10 px-3 py-4 text-sm text-muted-foreground"
+          aria-live="polite"
         >
-          <option value="">Unassigned</option>
-          {admins.map((profile) => (
-            <option key={profile.id} value={profile.id}>
-              {profile.display_name ?? profile.email}
-            </option>
-          ))}
-        </select>
-        <FieldError reserveSpace />
-      </label>
-      <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
-        Due
-        <input
-          name="dueDate"
-          type="date"
-          className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-        />
-        <FieldError reserveSpace />
-      </label>
-      <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
-        Priority
-        <select
-          name="priority"
-          defaultValue="normal"
-          className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-        >
-          {TASK_PRIORITY_VALUES.map((priority) => (
-            <option key={priority} value={priority}>
-              {TASK_PRIORITY_META[priority].label}
-            </option>
-          ))}
-        </select>
-        <FieldError reserveSpace />
-      </label>
-      <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
-        Notes
-        <input
-          name="description"
-          placeholder="Add notes"
-          className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-        />
-        <FieldError reserveSpace />
-      </label>
-      <input type="hidden" name="status" value="not_started" />
-      <Button type="submit" size="sm" className="self-start md:mt-5" disabled={pending}>
-        <Plus />
-        Task
-      </Button>
-      {state.message && !state.success && (
-        <p className="md:col-span-6 text-xs text-destructive">{state.message}</p>
+          Creating task...
+        </div>
       )}
-    </form>
+      <form
+        ref={formRef}
+        action={action}
+        className={`grid gap-2 border-t border-border bg-muted/10 p-3 md:grid-cols-[minmax(220px,1fr)_150px_130px_120px_minmax(180px,0.8fr)_auto] md:items-start ${showCreatingRow ? "hidden" : ""}`}
+      >
+        <input type="hidden" name="groupId" value={group.id} />
+        <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
+          Task
+          <input
+            name="title"
+            placeholder={`New task in ${group.name}`}
+            className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          />
+          <FieldError errors={state.errors?.title} reserveSpace />
+        </label>
+        <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
+          Assignee
+          <select
+            name="assigneeId"
+            className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          >
+            <option value="">Unassigned</option>
+            {admins.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.display_name ?? profile.email}
+              </option>
+            ))}
+          </select>
+          <FieldError reserveSpace />
+        </label>
+        <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
+          Due
+          <input
+            name="dueDate"
+            type="date"
+            className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          />
+          <FieldError reserveSpace />
+        </label>
+        <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
+          Priority
+          <select
+            name="priority"
+            defaultValue="normal"
+            className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          >
+            {TASK_PRIORITY_VALUES.map((priority) => (
+              <option key={priority} value={priority}>
+                {TASK_PRIORITY_META[priority].label}
+              </option>
+            ))}
+          </select>
+          <FieldError reserveSpace />
+        </label>
+        <label className="grid min-w-0 grid-rows-[1rem_2.25rem_1rem] gap-1 text-xs font-medium text-muted-foreground">
+          Notes
+          <input
+            name="description"
+            placeholder="Add notes"
+            className="h-9 min-w-0 w-full max-w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          />
+          <FieldError reserveSpace />
+        </label>
+        <input type="hidden" name="status" value="not_started" />
+        <Button type="submit" size="sm" className="self-start md:mt-5" disabled={pending}>
+          <Plus />
+          Task
+        </Button>
+        {state.message && !state.success && (
+          <p className="md:col-span-6 text-xs text-destructive">{state.message}</p>
+        )}
+      </form>
+    </>
   );
 }
 
