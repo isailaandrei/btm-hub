@@ -228,17 +228,23 @@ export function TagsPanel() {
             const dotClass = DOT_COLOR_CLASSES[color] ?? "bg-muted-foreground";
 
             return (
-              <Card key={category.id}>
-                <CardHeader className="flex flex-row items-center justify-between pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <span
-                      className={`inline-block h-2.5 w-2.5 rounded-full ${dotClass}`}
-                    />
-                    {category.name}
-                    <span className="text-xs font-normal text-muted-foreground">
-                      ({categoryTags.length})
-                    </span>
-                  </CardTitle>
+              <Card key={category.id} data-tag-category-card className="gap-3 py-4">
+                <CardHeader
+                  data-tag-category-header
+                  className="flex flex-row items-center justify-between pb-0"
+                >
+                  <div className="flex items-center gap-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <span
+                        className={`inline-block h-2.5 w-2.5 rounded-full ${dotClass}`}
+                      />
+                      {category.name}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        ({categoryTags.length})
+                      </span>
+                    </CardTitle>
+                    <EditCategoryForm category={category} />
+                  </div>
                   <div className="flex items-center gap-1">
                     <DeleteCategoryButton
                       categoryId={category.id}
@@ -246,14 +252,10 @@ export function TagsPanel() {
                     />
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="mb-3">
-                    <EditCategoryForm category={category} />
-                  </div>
-
+                <CardContent data-tag-category-content className="space-y-3">
                   {/* Tags list */}
                   {categoryTags.length > 0 && (
-                    <div className="mb-3 flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5">
                       {categoryTags.map((tag) => (
                         <Badge
                           key={tag.id}

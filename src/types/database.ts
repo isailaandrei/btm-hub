@@ -139,6 +139,70 @@ export interface ContactEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Admin Tasks
+// ---------------------------------------------------------------------------
+
+export type TaskStatus =
+  | "not_started"
+  | "working_on_it"
+  | "waiting"
+  | "done";
+
+export type TaskPriority = "low" | "normal" | "high" | "critical";
+
+export type TaskGroupColor =
+  | "blue"
+  | "teal"
+  | "green"
+  | "amber"
+  | "orange"
+  | "red"
+  | "pink"
+  | "purple"
+  | "slate";
+
+export interface TaskGroup {
+  id: string;
+  name: string;
+  color: TaskGroupColor;
+  sort_order: number;
+  archived_at: string | null;
+  archived_by: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminTask {
+  id: string;
+  group_id: string;
+  title: string;
+  description: string;
+  assignee_id: string | null;
+  due_date: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  sort_order: number;
+  completed_at: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  author_id: string | null;
+  author_name: string;
+  body: string;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Admin Email
 // ---------------------------------------------------------------------------
 

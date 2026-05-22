@@ -40,6 +40,7 @@ export function EditCategoryForm({ category }: EditCategoryFormProps) {
     return (
       <button
         type="button"
+        data-category-edit-button
         onClick={() => {
           setDraftName(category.name);
           setDraftColor(category.color ?? "");

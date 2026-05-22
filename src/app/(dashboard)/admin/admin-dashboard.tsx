@@ -17,11 +17,24 @@ const EmailStudio = dynamic(
   },
 );
 
-type Tab = "contacts" | "tags" | "email";
+const TasksPanel = dynamic(
+  () => import("./tasks/tasks-panel").then((module) => module.TasksPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-md border border-border bg-card p-6 text-sm text-muted-foreground">
+        Loading tasks...
+      </div>
+    ),
+  },
+);
+
+type Tab = "contacts" | "tags" | "tasks" | "email";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
+  { key: "tasks", label: "Tasks" },
   { key: "email", label: "Email" },
 ];
 
@@ -70,6 +83,8 @@ export function AdminDashboard() {
       )}
 
       {activeTab === "tags" && <TagsPanel />}
+
+      {activeTab === "tasks" && <TasksPanel />}
 
       {(activeTab === "email" || hasVisitedEmail) && (
         <div hidden={activeTab !== "email"}>
