@@ -31,7 +31,11 @@ import {
   TASK_STATUS_VALUES,
 } from "./constants";
 import { CreateTaskCommentForm } from "./task-forms";
-import { useTaskData } from "./task-data-provider";
+import {
+  buildOptimisticTaskPatch,
+  useTaskData,
+  type TaskUpdatePatch,
+} from "./task-data-provider";
 
 export function TaskDetailPanel({
   task,
@@ -54,6 +58,7 @@ export function TaskDetailPanel({
     ensureComments,
     reloadComments,
     refreshAfterMutation,
+    optimisticallyUpdateTask,
   } = useTaskData();
   const [pending, startTransition] = useTransition();
 
@@ -71,16 +76,22 @@ export function TaskDetailPanel({
   if (!currentTask) return null;
   const panelTask = currentTask;
 
-  async function persistPatch(patch: Parameters<typeof updateTaskAction>[0]) {
-    await updateTaskAction({ taskId: panelTask.id, ...patch });
-    await refreshAfterMutation();
+  async function persistPatch(patch: TaskUpdatePatch) {
+    optimisticallyUpdateTask(panelTask.id, buildOptimisticTaskPatch(panelTask, patch));
+    try {
+      await updateTaskAction({ taskId: panelTask.id, ...patch });
+      void refreshAfterMutation();
+    } catch (error) {
+      void refreshAfterMutation();
+      throw error;
+    }
   }
 
   function showTaskUpdateError(error: unknown) {
     toast.error(error instanceof Error ? error.message : "Task update failed.");
   }
 
-  function mutate(patch: Parameters<typeof updateTaskAction>[0]) {
+  function mutate(patch: TaskUpdatePatch) {
     startTransition(async () => {
       try {
         await persistPatch(patch);

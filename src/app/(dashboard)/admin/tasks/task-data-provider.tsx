@@ -12,7 +12,13 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import type { AdminTask, TaskComment, TaskGroup } from "@/types/database";
+import type {
+  AdminTask,
+  TaskComment,
+  TaskGroup,
+  TaskPriority,
+  TaskStatus,
+} from "@/types/database";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   loadMoreDoneTasksForDateBucketAction,
@@ -28,6 +34,27 @@ import type { TaskDateBucket } from "./date-buckets";
 import { TASK_DATE_BUCKET_ORDER } from "./constants";
 
 type FetchState = "idle" | "loading" | "done";
+export type TaskUpdatePatch = Partial<{
+  title: string;
+  description: string;
+  assigneeId: string | null;
+  dueDate: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+}>;
+export type OptimisticGroupPatch = Partial<Pick<TaskGroup, "name" | "color">>;
+export type OptimisticTaskPatch = Partial<
+  Pick<
+    AdminTask,
+    | "title"
+    | "description"
+    | "assignee_id"
+    | "due_date"
+    | "status"
+    | "priority"
+    | "completed_at"
+  >
+>;
 
 interface TaskDataContextValue {
   groups: TaskGroup[] | null;
@@ -46,6 +73,8 @@ interface TaskDataContextValue {
   reloadTasks: () => Promise<boolean>;
   reloadDateTasks: () => Promise<void>;
   refreshAfterMutation: () => Promise<void>;
+  optimisticallyUpdateGroup: (groupId: string, patch: OptimisticGroupPatch) => void;
+  optimisticallyUpdateTask: (taskId: string, patch: OptimisticTaskPatch) => void;
   loadMoreDoneForGroup: (groupId: string) => Promise<void>;
   loadMoreDoneForDateBucket: (bucket: TaskDateBucket) => Promise<void>;
   ensureComments: (taskId: string) => Promise<void>;
@@ -64,6 +93,37 @@ function mergeById<T extends { id: string }>(current: T[] | null, next: T[]) {
   const map = new Map((current ?? []).map((item) => [item.id, item]));
   for (const item of next) map.set(item.id, item);
   return [...map.values()];
+}
+
+function patchById<T extends { id: string }>(
+  current: T[] | null,
+  id: string,
+  patch: Partial<T>,
+) {
+  if (!current) return current;
+  return current.map((item) => (item.id === id ? { ...item, ...patch } : item));
+}
+
+export function buildOptimisticTaskPatch(
+  task: AdminTask,
+  patch: TaskUpdatePatch,
+): OptimisticTaskPatch {
+  const optimisticPatch: OptimisticTaskPatch = {};
+
+  if (patch.title !== undefined) optimisticPatch.title = patch.title;
+  if (patch.description !== undefined) optimisticPatch.description = patch.description;
+  if (patch.assigneeId !== undefined) optimisticPatch.assignee_id = patch.assigneeId;
+  if (patch.dueDate !== undefined) optimisticPatch.due_date = patch.dueDate;
+  if (patch.priority !== undefined) optimisticPatch.priority = patch.priority;
+  if (patch.status !== undefined) {
+    optimisticPatch.status = patch.status;
+    optimisticPatch.completed_at =
+      patch.status === "done"
+        ? task.completed_at ?? new Date().toISOString()
+        : null;
+  }
+
+  return optimisticPatch;
 }
 
 export function TaskDataProvider({ children }: { children: ReactNode }) {
@@ -142,6 +202,21 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     await reloadTasks();
     if (dateLoadedRef.current) await reloadDateTasks();
   }, [reloadDateTasks, reloadTasks]);
+
+  const optimisticallyUpdateGroup = useCallback(
+    (groupId: string, patch: OptimisticGroupPatch) => {
+      setGroups((prev) => patchById<TaskGroup>(prev, groupId, patch));
+    },
+    [],
+  );
+
+  const optimisticallyUpdateTask = useCallback(
+    (taskId: string, patch: OptimisticTaskPatch) => {
+      setTasks((prev) => patchById<AdminTask>(prev, taskId, patch));
+      setDateTasks((prev) => patchById<AdminTask>(prev, taskId, patch));
+    },
+    [],
+  );
 
   const scheduleRefresh = useCallback(() => {
     clearTimeout(refreshTimeoutRef.current ?? undefined);
@@ -292,6 +367,8 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       reloadTasks,
       reloadDateTasks,
       refreshAfterMutation,
+      optimisticallyUpdateGroup,
+      optimisticallyUpdateTask,
       loadMoreDoneForGroup,
       loadMoreDoneForDateBucket,
       ensureComments,
@@ -314,6 +391,8 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       reloadTasks,
       reloadDateTasks,
       refreshAfterMutation,
+      optimisticallyUpdateGroup,
+      optimisticallyUpdateTask,
       loadMoreDoneForGroup,
       loadMoreDoneForDateBucket,
       ensureComments,

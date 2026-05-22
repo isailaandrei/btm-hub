@@ -18,6 +18,11 @@ import {
   TASK_STATUS_META,
   TASK_STATUS_VALUES,
 } from "./constants";
+import {
+  buildOptimisticTaskPatch,
+  type OptimisticTaskPatch,
+  type TaskUpdatePatch,
+} from "./task-data-provider";
 
 function displayProfile(profile: Profile | undefined, fallback = "Unassigned") {
   if (!profile) return fallback;
@@ -29,6 +34,7 @@ export function TaskRow({
   admins,
   onOpen,
   onRefresh,
+  onOptimisticUpdate,
   dragHandle,
   compact = false,
 }: {
@@ -36,17 +42,22 @@ export function TaskRow({
   admins: Profile[];
   onOpen: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;
+  onOptimisticUpdate?: (taskId: string, patch: OptimisticTaskPatch) => void;
   dragHandle?: ReactNode;
   compact?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
 
-  function mutate(patch: Parameters<typeof updateTaskAction>[0]) {
+  function mutate(patch: TaskUpdatePatch) {
+    onOptimisticUpdate?.(task.id, buildOptimisticTaskPatch(task, patch));
     startTransition(() => {
       void updateTaskAction({ taskId: task.id, ...patch })
-        .then(onRefresh)
+        .then(() => {
+          void onRefresh();
+        })
         .catch((error) => {
           toast.error(error instanceof Error ? error.message : "Task update failed.");
+          void onRefresh();
         });
     });
   }

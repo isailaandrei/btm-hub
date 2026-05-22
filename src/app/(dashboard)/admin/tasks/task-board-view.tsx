@@ -17,6 +17,10 @@ import {
   type TaskBoardFilters,
   type TaskDueFilter,
 } from "./task-board-view-model";
+import type {
+  OptimisticGroupPatch,
+  OptimisticTaskPatch,
+} from "./task-data-provider";
 
 export function TaskBoardView({
   groups,
@@ -27,6 +31,8 @@ export function TaskBoardView({
   onOpenTask,
   onRefresh,
   onShowMoreDone,
+  onOptimisticGroupUpdate,
+  onOptimisticTaskUpdate,
 }: {
   groups: Parameters<typeof buildTaskBoardViewModel>[0]["groups"];
   tasks: AdminTask[];
@@ -36,6 +42,8 @@ export function TaskBoardView({
   onOpenTask: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;
   onShowMoreDone: (groupId: string) => Promise<void>;
+  onOptimisticGroupUpdate?: (groupId: string, patch: OptimisticGroupPatch) => void;
+  onOptimisticTaskUpdate?: (taskId: string, patch: OptimisticTaskPatch) => void;
 }) {
   const [expandedDoneGroupIds, setExpandedDoneGroupIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
@@ -259,6 +267,8 @@ export function TaskBoardView({
                     onOpenTask={onOpenTask}
                     onRefresh={onRefresh}
                     onShowMoreDone={showMoreDone}
+                    onOptimisticGroupUpdate={onOptimisticGroupUpdate}
+                    onOptimisticTaskUpdate={onOptimisticTaskUpdate}
                     groupDragHandle={handle}
                     isAdding={addingGroupIds.has(item.group.id)}
                     onAddingChange={(adding) => setGroupAdding(item.group.id, adding)}
