@@ -88,6 +88,15 @@ function setTextAreaValue(textarea: HTMLTextAreaElement, value: string) {
   textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  valueSetter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("TaskDetailPanel", () => {
   let root: Root;
   let container: HTMLDivElement;
@@ -119,6 +128,77 @@ describe("TaskDetailPanel", () => {
       );
     });
   }
+
+  it("provides an explicit save control for the task title", async () => {
+    renderPanel();
+
+    const titleInput = document.body.querySelector<HTMLInputElement>(
+      "input[aria-label='Task title']",
+    );
+    expect(titleInput).toBeTruthy();
+
+    await act(async () => {
+      setInputValue(titleInput!, "Send updated invoice");
+    });
+
+    expect(document.body.textContent).toContain("Unsaved title changes");
+
+    const button = [...document.body.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === "Save title",
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.updateTaskAction).toHaveBeenCalledWith({
+      taskId: "task-1",
+      title: "Send updated invoice",
+    });
+    expect(mocks.refreshAfterMutation).toHaveBeenCalled();
+  });
+
+  it("shows distinct saving and saved states for the task title", async () => {
+    let resolveUpdate: (value: { id: string }) => void = () => {};
+    mocks.updateTaskAction.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    renderPanel();
+
+    const titleInput = document.body.querySelector<HTMLInputElement>(
+      "input[aria-label='Task title']",
+    );
+    expect(titleInput).toBeTruthy();
+
+    await act(async () => {
+      setInputValue(titleInput!, "Send updated invoice");
+    });
+
+    const button = [...document.body.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === "Save title",
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(button!.textContent).toContain("Saving");
+    expect(document.body.textContent).toContain("Saving title");
+
+    await act(async () => {
+      resolveUpdate({ id: "task-1" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(button!.textContent).toContain("Saved");
+    expect(document.body.textContent).toContain("Title saved");
+  });
 
   it("provides an explicit save control for task notes", async () => {
     renderPanel();

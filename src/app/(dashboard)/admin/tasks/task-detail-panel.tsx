@@ -134,20 +134,21 @@ export function TaskDetailPanel({
         </SheetHeader>
 
         <div className="space-y-5">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">Title</span>
-            <input
-              defaultValue={currentTask.title}
-              onBlur={(event) => {
-                const title = event.target.value.trim();
-                if (title && title !== currentTask.title) mutate({ title });
-              }}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-          </label>
+          <TaskTitleEditor
+            key={`title-${panelTask.id}`}
+            title={panelTask.title}
+            onSave={async (title) => {
+              try {
+                await persistPatch({ title });
+              } catch (error) {
+                showTaskUpdateError(error);
+                throw error;
+              }
+            }}
+          />
 
           <TaskNotesEditor
-            key={panelTask.id}
+            key={`notes-${panelTask.id}`}
             notes={panelTask.description}
             onSave={async (notes) => {
               try {
@@ -271,6 +272,104 @@ export function TaskDetailPanel({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function TaskTitleEditor({
+  title,
+  onSave,
+}: {
+  title: string;
+  onSave: (title: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(title);
+  const [savedTitle, setSavedTitle] = useState(title);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const normalizedDraft = draft.trim();
+  const changed = normalizedDraft !== savedTitle;
+  const invalid = normalizedDraft.length === 0;
+  const isSaving = saveState === "saving";
+  const isSaved = saveState === "saved" && !changed;
+  const helperMessage =
+    invalid && changed
+      ? "Title is required."
+      : saveState === "saving"
+        ? "Saving title..."
+        : isSaved
+          ? "Title saved."
+          : saveState === "error"
+            ? "Title was not saved."
+            : changed
+              ? "Unsaved title changes."
+              : "";
+
+  async function handleSave() {
+    if (!changed || invalid || isSaving) return;
+    setSaveState("saving");
+    try {
+      await onSave(normalizedDraft);
+      setSavedTitle(normalizedDraft);
+      setDraft(normalizedDraft);
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs font-medium text-muted-foreground">Title</span>
+      <input
+        aria-label="Task title"
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          if (saveState !== "idle") setSaveState("idle");
+        }}
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      />
+      <div className="flex items-center justify-between gap-3">
+        <p
+          aria-live="polite"
+          className={cn(
+            "min-h-4 text-xs",
+            invalid && changed
+              ? "text-destructive"
+              : saveState === "error"
+                ? "text-destructive"
+                : isSaved
+                  ? "text-green-700"
+                  : "text-muted-foreground",
+          )}
+        >
+          {helperMessage}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void handleSave()}
+          disabled={!changed || invalid || isSaving}
+          aria-disabled={!changed || invalid || isSaving}
+          className={cn(
+            "min-w-36",
+            isSaving &&
+              "cursor-progress border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
+            isSaved &&
+              "border-green-200 bg-green-50 text-green-700 hover:bg-green-50 disabled:opacity-100",
+          )}
+        >
+          {isSaving ? (
+            <LoaderCircle className="animate-spin" />
+          ) : isSaved ? (
+            <Check />
+          ) : (
+            <Save />
+          )}
+          {isSaving ? "Saving..." : isSaved ? "Saved" : "Save title"}
+        </Button>
+      </div>
+    </label>
   );
 }
 
