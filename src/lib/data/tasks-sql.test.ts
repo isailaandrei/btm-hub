@@ -1,9 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const dbUrl = process.env.SUPABASE_DB_URL;
 const psqlBin = process.env.PSQL_BIN ?? "psql";
+const tasksMigrationPath = "supabase/migrations/20260521000001_admin_tasks_board.sql";
 
 function sql(strings: TemplateStringsArray, ...values: string[]) {
   return strings.reduce((result, part, index) => {
@@ -23,6 +25,18 @@ function runSql(statement: string) {
   }
   return `${result.stdout}\n${result.stderr}`;
 }
+
+describe("admin task migration realtime invariants", () => {
+  it("allows admins to read archived task rows so Realtime can deliver archive updates", () => {
+    const migration = readFileSync(tasksMigrationPath, "utf8");
+    const policy =
+      migration.match(/CREATE POLICY "Admins can read tasks"[\s\S]*?\);/)?.[0] ??
+      "";
+
+    expect(policy).toContain("profiles.role = 'admin'");
+    expect(policy).not.toContain("archived_at IS NULL");
+  });
+});
 
 describe.skipIf(!dbUrl)("admin task SQL/RPC invariants", () => {
   it("does not create a contact link column on tasks", () => {

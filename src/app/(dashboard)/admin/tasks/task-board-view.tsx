@@ -118,6 +118,7 @@ export function TaskBoardView({
     } catch (error) {
       setOptimisticGroupIds(null);
       toast.error(error instanceof Error ? error.message : "Group reorder failed.");
+      await onRefresh();
     } finally {
       setGroupReorderPending(false);
     }

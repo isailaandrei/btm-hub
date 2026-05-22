@@ -98,7 +98,7 @@ export function TaskGroupSection({
     });
   }
 
-  function handleTaskDragEnd(activeId: string, overId: string) {
+  async function handleTaskDragEnd(activeId: string, overId: string) {
     if (activeId === overId) return;
     const oldIndex = orderedActiveTasks.findIndex((task) => task.id === activeId);
     const newIndex = orderedActiveTasks.findIndex((task) => task.id === overId);
@@ -108,13 +108,16 @@ export function TaskGroupSection({
       setOptimisticTaskIds(orderedIds);
       setTaskReorderPending(true);
     });
-    void reorderTasksAction(group.id, orderedIds)
-      .then(onRefresh)
-      .catch((error) => {
-        setOptimisticTaskIds(null);
-        toast.error(error instanceof Error ? error.message : "Task reorder failed.");
-      })
-      .finally(() => setTaskReorderPending(false));
+    try {
+      await reorderTasksAction(group.id, orderedIds);
+      await onRefresh();
+    } catch (error) {
+      setOptimisticTaskIds(null);
+      toast.error(error instanceof Error ? error.message : "Task reorder failed.");
+      await onRefresh();
+    } finally {
+      setTaskReorderPending(false);
+    }
   }
 
   const visibleTaskCount = orderedActiveTasks.length + visibleDoneTasks.length;
@@ -198,7 +201,7 @@ export function TaskGroupSection({
             ids={orderedActiveTasks.map((task) => task.id)}
             disabled={isFiltered}
             onDragEnd={({ active, over }) => {
-              if (over) handleTaskDragEnd(String(active.id), String(over.id));
+              if (over) void handleTaskDragEnd(String(active.id), String(over.id));
             }}
           >
             {orderedActiveTasks.map((task) => (

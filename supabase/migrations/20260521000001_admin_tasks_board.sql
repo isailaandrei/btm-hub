@@ -137,19 +137,13 @@ CREATE POLICY "Admins can read task_groups" ON public.task_groups
     WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
   ));
 
+-- Admins can read archived task rows as well. The application queries still filter
+-- active tasks, but Realtime must be allowed to deliver archive UPDATE events.
 CREATE POLICY "Admins can read tasks" ON public.tasks
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM public.profiles
-      WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-    )
-    AND archived_at IS NULL
-    AND EXISTS (
-      SELECT 1 FROM public.task_groups
-      WHERE task_groups.id = tasks.group_id
-        AND task_groups.archived_at IS NULL
-    )
-  );
+  FOR SELECT USING (EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+  ));
 
 CREATE POLICY "Admins can read task_comments" ON public.task_comments
   FOR SELECT USING (
