@@ -18,6 +18,10 @@ import { CreateTaskForm } from "./task-forms";
 import { SortableItem, SortableList } from "./task-dnd";
 import { getPendingOptimisticIds, orderTasksByIds } from "./task-board-view-model";
 import { TaskRow } from "./task-row";
+import type {
+  OptimisticGroupPatch,
+  OptimisticTaskPatch,
+} from "./task-data-provider";
 
 export function TaskGroupSection({
   group,
@@ -30,6 +34,8 @@ export function TaskGroupSection({
   onOpenTask,
   onRefresh,
   onShowMoreDone,
+  onOptimisticGroupUpdate,
+  onOptimisticTaskUpdate,
   groupDragHandle,
   isAdding,
   onAddingChange,
@@ -44,6 +50,8 @@ export function TaskGroupSection({
   onOpenTask: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;
   onShowMoreDone: (groupId: string) => Promise<void>;
+  onOptimisticGroupUpdate?: (groupId: string, patch: OptimisticGroupPatch) => void;
+  onOptimisticTaskUpdate?: (taskId: string, patch: OptimisticTaskPatch) => void;
   groupDragHandle?: ReactNode;
   isAdding: boolean;
   onAddingChange: (adding: boolean) => void;
@@ -64,22 +72,34 @@ export function TaskGroupSection({
   function rename(nextName: string) {
     const name = nextName.trim();
     if (!name || name === group.name) return;
+    onOptimisticGroupUpdate?.(group.id, { name });
     startTransition(() => {
       void updateTaskGroupAction({ groupId: group.id, name })
-        .then(onRefresh)
-        .catch((error) => toast.error(error instanceof Error ? error.message : "Group update failed."));
+        .then(() => {
+          void onRefresh();
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Group update failed.");
+          void onRefresh();
+        });
     });
   }
 
   function recolor(color: string) {
     if (color === group.color) return;
+    onOptimisticGroupUpdate?.(group.id, { color: color as TaskGroup["color"] });
     startTransition(() => {
       void updateTaskGroupAction({
         groupId: group.id,
         color: color as TaskGroup["color"],
       })
-        .then(onRefresh)
-        .catch((error) => toast.error(error instanceof Error ? error.message : "Group update failed."));
+        .then(() => {
+          void onRefresh();
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Group update failed.");
+          void onRefresh();
+        });
     });
   }
 
@@ -217,6 +237,7 @@ export function TaskGroupSection({
                     admins={admins}
                     onOpen={onOpenTask}
                     onRefresh={onRefresh}
+                    onOptimisticUpdate={onOptimisticTaskUpdate}
                     dragHandle={handle}
                   />
                 )}
@@ -230,6 +251,7 @@ export function TaskGroupSection({
               admins={admins}
               onOpen={onOpenTask}
               onRefresh={onRefresh}
+              onOptimisticUpdate={onOptimisticTaskUpdate}
               dragHandle={null}
             />
           ))}

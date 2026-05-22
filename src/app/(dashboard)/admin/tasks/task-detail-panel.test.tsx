@@ -13,6 +13,7 @@ import { TaskDetailPanel } from "./task-detail-panel";
 const mocks = vi.hoisted(() => ({
   updateTaskAction: vi.fn().mockResolvedValue({ id: "task-1" }),
   refreshAfterMutation: vi.fn().mockResolvedValue(undefined),
+  optimisticallyUpdateTask: vi.fn(),
 }));
 
 vi.mock("./actions", () => ({
@@ -22,12 +23,19 @@ vi.mock("./actions", () => ({
 }));
 
 vi.mock("./task-data-provider", () => ({
+  buildOptimisticTaskPatch: (_task: AdminTask, patch: Record<string, unknown>) => {
+    const optimisticPatch: Record<string, unknown> = {};
+    if (patch.title !== undefined) optimisticPatch.title = patch.title;
+    if (patch.description !== undefined) optimisticPatch.description = patch.description;
+    return optimisticPatch;
+  },
   useTaskData: () => ({
     commentsByTaskId: {},
     commentsError: null,
     ensureComments: vi.fn().mockResolvedValue(undefined),
     reloadComments: vi.fn().mockResolvedValue(undefined),
     refreshAfterMutation: mocks.refreshAfterMutation,
+    optimisticallyUpdateTask: mocks.optimisticallyUpdateTask,
   }),
 }));
 

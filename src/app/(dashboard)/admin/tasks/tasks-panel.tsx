@@ -25,6 +25,8 @@ function TasksPanelContent() {
     realtimeWarning,
     ensureTasks,
     refreshAfterMutation,
+    optimisticallyUpdateGroup,
+    optimisticallyUpdateTask,
     loadMoreDoneForGroup,
   } = useTaskData();
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
@@ -91,6 +93,8 @@ function TasksPanelContent() {
           onOpenTask={setSelectedTask}
           onRefresh={refreshAfterMutation}
           onShowMoreDone={loadMoreDoneForGroup}
+          onOptimisticGroupUpdate={optimisticallyUpdateGroup}
+          onOptimisticTaskUpdate={optimisticallyUpdateTask}
         />
       )}
 
