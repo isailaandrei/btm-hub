@@ -176,6 +176,46 @@ describe("TaskBoardView", () => {
     expect(mocks.deleteTaskAction).toHaveBeenCalledWith("task-1");
   });
 
+  it("toggles the create-task row from the add-task row", () => {
+    act(() => {
+      root.render(
+        <TaskBoardView
+          groups={[group]}
+          tasks={[]}
+          today="2026-05-22"
+          doneCountsByGroupId={{}}
+          admins={[admin]}
+          onOpenTask={vi.fn()}
+          onRefresh={vi.fn()}
+          onShowMoreDone={vi.fn()}
+        />,
+      );
+    });
+
+    const addButton = [...container.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === "+ Add task",
+    );
+    expect(addButton).toBeTruthy();
+    expect(container.querySelector<HTMLInputElement>("input[name='title']")).toBeNull();
+
+    act(() => {
+      addButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector<HTMLInputElement>("input[name='title']")).toBeTruthy();
+    const cancelButton = [...container.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === "Cancel new task",
+    );
+    expect(cancelButton).toBeTruthy();
+
+    act(() => {
+      cancelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector<HTMLInputElement>("input[name='title']")).toBeNull();
+    expect(container.textContent).toContain("Add task");
+  });
+
   it("can hide done tasks", () => {
     act(() => {
       root.render(

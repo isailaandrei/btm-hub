@@ -264,11 +264,12 @@ export function TaskGroupSection({
             </div>
             <button
               type="button"
-              onClick={() => onAddingChange(true)}
-              disabled={isAdding}
-              className="flex h-full items-center border-r border-border px-3 text-left text-muted-foreground hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => onAddingChange(!isAdding)}
+              aria-expanded={isAdding}
+              aria-label={isAdding ? "Cancel new task" : "Add task"}
+              className="flex h-full items-center border-r border-border px-3 text-left text-muted-foreground hover:bg-muted/30 hover:text-foreground"
             >
-              + Add task
+              {isAdding ? "Cancel new task" : "+ Add task"}
             </button>
             <span className="h-full border-r border-border" />
             <span className="h-full border-r border-border" />
