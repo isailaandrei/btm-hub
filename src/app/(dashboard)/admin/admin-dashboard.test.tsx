@@ -8,15 +8,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockEmailStudioMount = vi.fn();
 const mockEmailStudioUnmount = vi.fn();
+const mockTasksPanelMount = vi.fn();
+let dynamicCallIndex = 0;
 
 vi.mock("next/dynamic", () => ({
-  default: () => function MockEmailStudio() {
-    useEffect(() => {
-      mockEmailStudioMount();
-      return () => mockEmailStudioUnmount();
-    }, []);
+  default: () => {
+    const isEmailStudio = dynamicCallIndex === 0;
+    dynamicCallIndex += 1;
+    return function MockDynamic() {
+      useEffect(() => {
+        if (isEmailStudio) {
+          mockEmailStudioMount();
+        } else {
+          mockTasksPanelMount();
+        }
+        return () => {
+          if (isEmailStudio) mockEmailStudioUnmount();
+        };
+      }, []);
 
-    return <section data-testid="email-studio">Email studio</section>;
+      return <section data-testid="dynamic-panel">Dynamic panel</section>;
+    };
   },
 }));
 
@@ -28,6 +40,10 @@ vi.mock("./tags/tags-panel", () => ({
   TagsPanel: () => <section>Tags</section>,
 }));
 
+vi.mock("./tasks/tasks-panel", () => ({
+  TasksPanel: () => <section>Tasks panel</section>,
+}));
+
 const { AdminDashboard } = await import("./admin-dashboard");
 
 describe("AdminDashboard", () => {
@@ -35,6 +51,9 @@ describe("AdminDashboard", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    mockEmailStudioMount.mockClear();
+    mockEmailStudioUnmount.mockClear();
+    mockTasksPanelMount.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -66,16 +85,27 @@ describe("AdminDashboard", () => {
     clickTab("Email");
 
     expect(mockEmailStudioMount).toHaveBeenCalledTimes(1);
-    expect(container.querySelector("[data-testid='email-studio']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='dynamic-panel']")).not.toBeNull();
 
     clickTab("Contacts");
 
     expect(mockEmailStudioUnmount).not.toHaveBeenCalled();
-    expect(container.querySelector("[data-testid='email-studio']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='dynamic-panel']")).not.toBeNull();
 
     clickTab("Email");
 
     expect(mockEmailStudioMount).toHaveBeenCalledTimes(1);
     expect(mockEmailStudioUnmount).not.toHaveBeenCalled();
+  });
+
+  it("renders the tasks tab without mounting email first", () => {
+    act(() => {
+      root.render(<AdminDashboard />);
+    });
+
+    clickTab("Tasks");
+
+    expect(container.textContent).toContain("Dynamic panel");
+    expect(mockEmailStudioMount).not.toHaveBeenCalled();
   });
 });

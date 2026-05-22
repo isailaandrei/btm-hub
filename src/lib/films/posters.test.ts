@@ -22,12 +22,15 @@ describe("resolveFilmPosterUrl", () => {
   });
 
   it("uses Vimeo oEmbed thumbnails for Vimeo videos", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        thumbnail_url: "https://i.vimeocdn.com/video/123456789-abcd",
-      }),
-    }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return {
+        ok: true,
+        json: async () => ({
+          thumbnail_url: "https://i.vimeocdn.com/video/123456789-abcd",
+        }),
+      };
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -40,12 +43,15 @@ describe("resolveFilmPosterUrl", () => {
   });
 
   it("keeps Vimeo unlisted hashes when asking oEmbed for thumbnails", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        thumbnail_url: "https://i.vimeocdn.com/video/123456789-abcd",
-      }),
-    }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return {
+        ok: true,
+        json: async () => ({
+          thumbnail_url: "https://i.vimeocdn.com/video/123456789-abcd",
+        }),
+      };
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -109,15 +115,17 @@ describe("withCollectionFilmPosterUrls", () => {
   it("copies already-resolved poster URLs onto collection films", () => {
     expect(
       withCollectionFilmPosterUrls(
-        [{ _id: "collection-1", films: [{ _id: "film-1" }] }],
+        [{ _id: "collection-1", title: null, films: [{ _id: "film-1", title: null }] }],
         new Map([["film-1", "https://i.ytimg.com/vi/abc123DEF45/hqdefault.jpg"]]),
       ),
     ).toEqual([
       {
         _id: "collection-1",
+        title: null,
         films: [
           {
             _id: "film-1",
+            title: null,
             posterUrl: "https://i.ytimg.com/vi/abc123DEF45/hqdefault.jpg",
           },
         ],
