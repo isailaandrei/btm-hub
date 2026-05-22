@@ -36,6 +36,7 @@ export function TaskGroupSection({
   onShowMoreDone,
   onOptimisticGroupUpdate,
   onOptimisticTaskUpdate,
+  onOptimisticTaskRemove,
   groupDragHandle,
   isAdding,
   onAddingChange,
@@ -52,6 +53,7 @@ export function TaskGroupSection({
   onShowMoreDone: (groupId: string) => Promise<void>;
   onOptimisticGroupUpdate?: (groupId: string, patch: OptimisticGroupPatch) => void;
   onOptimisticTaskUpdate?: (taskId: string, patch: OptimisticTaskPatch) => void;
+  onOptimisticTaskRemove?: (taskId: string) => void;
   groupDragHandle?: ReactNode;
   isAdding: boolean;
   onAddingChange: (adding: boolean) => void;
@@ -201,14 +203,15 @@ export function TaskGroupSection({
 
       {!collapsed && (
         <>
-          <div className="hidden grid-cols-[36px_minmax(260px,1.35fr)_150px_150px_130px_120px_minmax(180px,0.8fr)] border-b border-border bg-muted/20 px-0 py-0 text-sm font-medium text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[36px_minmax(260px,1.35fr)_150px_150px_130px_120px_minmax(180px,0.8fr)_44px] border-b border-border bg-muted/20 px-0 py-0 text-sm font-medium text-muted-foreground md:grid">
             <span />
             <span className="border-r border-border px-3 py-3 text-center">Task</span>
             <span className="border-r border-border px-2 py-3 text-center">Owner</span>
             <span className="border-r border-border px-2 py-3 text-center">Status</span>
             <span className="border-r border-border px-2 py-3 text-center">Due date</span>
             <span className="border-r border-border px-2 py-3 text-center">Priority</span>
-            <span className="px-2 py-3 text-center">Notes</span>
+            <span className="border-r border-border px-2 py-3 text-center">Notes</span>
+            <span />
           </div>
           <SortableList
             ids={orderedActiveTasks.map((task) => task.id)}
@@ -231,6 +234,7 @@ export function TaskGroupSection({
                     onOpen={onOpenTask}
                     onRefresh={onRefresh}
                     onOptimisticUpdate={onOptimisticTaskUpdate}
+                    onOptimisticRemove={onOptimisticTaskRemove}
                     dragHandle={handle}
                   />
                 )}
@@ -245,10 +249,11 @@ export function TaskGroupSection({
               onOpen={onOpenTask}
               onRefresh={onRefresh}
               onOptimisticUpdate={onOptimisticTaskUpdate}
+              onOptimisticRemove={onOptimisticTaskRemove}
               dragHandle={null}
             />
           ))}
-          <div className="grid min-h-11 grid-cols-[36px_minmax(260px,1.35fr)_150px_150px_130px_120px_minmax(180px,0.8fr)] items-center border-b border-border bg-muted/5 text-sm">
+          <div className="grid min-h-11 grid-cols-[36px_minmax(260px,1.35fr)_150px_150px_130px_120px_minmax(180px,0.8fr)_44px] items-center border-b border-border bg-muted/5 text-sm">
             <div className="flex h-full items-center justify-center border-r border-border">
               <input
                 type="checkbox"
@@ -265,6 +270,7 @@ export function TaskGroupSection({
             >
               + Add task
             </button>
+            <span className="h-full border-r border-border" />
             <span className="h-full border-r border-border" />
             <span className="h-full border-r border-border" />
             <span className="h-full border-r border-border" />

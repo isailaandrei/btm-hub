@@ -1,9 +1,10 @@
 "use client";
 
 import { useTransition, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
   AdminTask,
@@ -11,7 +12,7 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "@/types/database";
-import { updateTaskAction } from "./actions";
+import { deleteTaskAction, updateTaskAction } from "./actions";
 import {
   TASK_PRIORITY_META,
   TASK_PRIORITY_VALUES,
@@ -35,6 +36,7 @@ export function TaskRow({
   onOpen,
   onRefresh,
   onOptimisticUpdate,
+  onOptimisticRemove,
   dragHandle,
   compact = false,
 }: {
@@ -43,6 +45,7 @@ export function TaskRow({
   onOpen: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;
   onOptimisticUpdate?: (taskId: string, patch: OptimisticTaskPatch) => void;
+  onOptimisticRemove?: (taskId: string) => void;
   dragHandle?: ReactNode;
   compact?: boolean;
 }) {
@@ -59,6 +62,21 @@ export function TaskRow({
     });
   }
 
+  function deleteTask() {
+    if (!window.confirm(`Delete "${task.title}"? This cannot be undone.`)) return;
+    onOptimisticRemove?.(task.id);
+    startTransition(() => {
+      void deleteTaskAction(task.id)
+        .then(() => {
+          void onRefresh();
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Task delete failed.");
+          void onRefresh();
+        });
+    });
+  }
+
   return (
     <div
       data-task-row-id={task.id}
@@ -68,7 +86,7 @@ export function TaskRow({
         "grid min-h-11 items-center border-b border-border text-sm",
         compact
           ? "grid-cols-[minmax(220px,1fr)_110px_110px]"
-          : "grid-cols-[36px_minmax(260px,1.35fr)_150px_150px_130px_120px_minmax(180px,0.8fr)]",
+          : "grid-cols-[36px_minmax(260px,1.35fr)_150px_150px_130px_120px_minmax(180px,0.8fr)_44px]",
       )}
     >
       {!compact && (
@@ -161,6 +179,18 @@ export function TaskRow({
               className="h-8 w-full rounded-md border border-transparent bg-transparent px-2 text-xs outline-none hover:border-input focus:border-ring focus:bg-background"
               aria-label="Task notes"
             />
+          </div>
+          <div className="flex h-full items-center justify-center border-l border-border">
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={deleteTask}
+              aria-label={`Delete task ${task.title}`}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 />
+            </Button>
           </div>
         </>
       )}

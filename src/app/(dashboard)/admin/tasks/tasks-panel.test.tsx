@@ -9,9 +9,14 @@ import { CreateTaskForm } from "./task-forms";
 import { TaskBoardView } from "./task-board-view";
 import type { AdminTask, Profile, TaskGroup } from "@/types/database";
 
+const mocks = vi.hoisted(() => ({
+  deleteTaskAction: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("./actions", () => ({
   archiveTaskGroupAction: vi.fn(),
   createTaskAction: vi.fn(async () => ({ success: false, resetKey: 0 })),
+  deleteTaskAction: mocks.deleteTaskAction,
   reorderTaskGroupsAction: vi.fn(),
   reorderTasksAction: vi.fn(),
   updateTaskAction: vi.fn(),
@@ -79,6 +84,7 @@ describe("TaskBoardView", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -87,6 +93,7 @@ describe("TaskBoardView", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
   });
 
   it("renders a Monday-style task table with notes and an add-task row", () => {
@@ -127,6 +134,46 @@ describe("TaskBoardView", () => {
     expect(container.textContent).toContain("Working on it");
     expect(container.textContent).toContain("Critical");
     expect(container.textContent).not.toContain("Contact");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        "button[aria-label='Delete task Send invoice']",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("deletes a task from the overview optimistically", async () => {
+    const onOptimisticTaskRemove = vi.fn();
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+
+    await act(async () => {
+      root.render(
+        <TaskBoardView
+          groups={[group]}
+          tasks={[task()]}
+          today="2026-05-22"
+          doneCountsByGroupId={{}}
+          admins={[admin]}
+          onOpenTask={vi.fn()}
+          onRefresh={onRefresh}
+          onShowMoreDone={vi.fn()}
+          onOptimisticTaskRemove={onOptimisticTaskRemove}
+        />,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='Delete task Send invoice']",
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onOptimisticTaskRemove).toHaveBeenCalledWith("task-1");
+    expect(mocks.deleteTaskAction).toHaveBeenCalledWith("task-1");
   });
 
   it("can hide done tasks", () => {

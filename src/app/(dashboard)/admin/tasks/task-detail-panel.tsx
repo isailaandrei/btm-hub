@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Archive, Check, LoaderCircle, Save } from "lucide-react";
+import { Check, LoaderCircle, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,7 @@ import type {
   TaskStatus,
 } from "@/types/database";
 import {
-  archiveTaskAction,
+  deleteTaskAction,
   moveTaskToGroupAction,
   updateTaskAction,
 } from "./actions";
@@ -59,6 +59,7 @@ export function TaskDetailPanel({
     reloadComments,
     refreshAfterMutation,
     optimisticallyUpdateTask,
+    optimisticallyRemoveTask,
   } = useTaskData();
   const [, startTransition] = useTransition();
 
@@ -127,15 +128,19 @@ export function TaskDetailPanel({
     });
   }
 
-  function archiveTask() {
-    if (!window.confirm(`Archive "${panelTask.title}"?`)) return;
+  function deleteTask() {
+    if (!window.confirm(`Delete "${panelTask.title}"? This cannot be undone.`)) return;
+    optimisticallyRemoveTask(panelTask.id);
+    onOpenChange(false);
     startTransition(() => {
-      void archiveTaskAction(panelTask.id)
+      void deleteTaskAction(panelTask.id)
         .then(async () => {
-          onOpenChange(false);
           await refreshAfterMutation();
         })
-        .catch((error) => toast.error(error instanceof Error ? error.message : "Task archive failed."));
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Task delete failed.");
+          void refreshAfterMutation();
+        });
     });
   }
 
@@ -280,9 +285,9 @@ export function TaskDetailPanel({
           </div>
 
           <div className="flex justify-end">
-            <Button type="button" variant="destructive" onClick={archiveTask}>
-              <Archive />
-              Archive task
+            <Button type="button" variant="destructive" onClick={deleteTask}>
+              <Trash2 />
+              Delete task
             </Button>
           </div>
         </div>

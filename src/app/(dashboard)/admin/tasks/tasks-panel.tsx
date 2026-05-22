@@ -27,6 +27,7 @@ function TasksPanelContent() {
     refreshAfterMutation,
     optimisticallyUpdateGroup,
     optimisticallyUpdateTask,
+    optimisticallyRemoveTask,
     loadMoreDoneForGroup,
   } = useTaskData();
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
@@ -95,6 +96,7 @@ function TasksPanelContent() {
           onShowMoreDone={loadMoreDoneForGroup}
           onOptimisticGroupUpdate={optimisticallyUpdateGroup}
           onOptimisticTaskUpdate={optimisticallyUpdateTask}
+          onOptimisticTaskRemove={optimisticallyRemoveTask}
         />
       )}
 

@@ -77,6 +77,7 @@ interface TaskDataContextValue {
   refreshAfterMutation: () => Promise<void>;
   optimisticallyUpdateGroup: (groupId: string, patch: OptimisticGroupPatch) => void;
   optimisticallyUpdateTask: (taskId: string, patch: OptimisticTaskPatch) => void;
+  optimisticallyRemoveTask: (taskId: string) => void;
   loadMoreDoneForGroup: (groupId: string) => Promise<void>;
   loadMoreDoneForDateBucket: (bucket: TaskDateBucket) => Promise<void>;
   ensureComments: (taskId: string) => Promise<void>;
@@ -219,6 +220,17 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const optimisticallyRemoveTask = useCallback((taskId: string) => {
+    setTasks((prev) => prev?.filter((task) => task.id !== taskId) ?? prev);
+    setDateTasks((prev) => prev?.filter((task) => task.id !== taskId) ?? prev);
+    setCommentsByTaskId((prev) => {
+      if (!(taskId in prev)) return prev;
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+  }, []);
 
   const scheduleRefresh = useCallback(() => {
     clearTimeout(refreshTimeoutRef.current ?? undefined);
@@ -371,6 +383,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       refreshAfterMutation,
       optimisticallyUpdateGroup,
       optimisticallyUpdateTask,
+      optimisticallyRemoveTask,
       loadMoreDoneForGroup,
       loadMoreDoneForDateBucket,
       ensureComments,
@@ -395,6 +408,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       refreshAfterMutation,
       optimisticallyUpdateGroup,
       optimisticallyUpdateTask,
+      optimisticallyRemoveTask,
       loadMoreDoneForGroup,
       loadMoreDoneForDateBucket,
       ensureComments,

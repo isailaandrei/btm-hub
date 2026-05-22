@@ -3,11 +3,11 @@
 import { z } from "zod/v4";
 import { isUUID, validateUUID } from "@/lib/validation-helpers";
 import {
-  archiveTask,
   archiveTaskGroup,
   createTask,
   createTaskComment,
   createTaskGroup,
+  deleteTask,
   moveTaskToGroup,
   reorderTaskGroups,
   reorderTasks,
@@ -202,9 +202,9 @@ export async function updateTaskAction(input: Record<string, unknown>) {
   return task;
 }
 
-export async function archiveTaskAction(taskId: string) {
+export async function deleteTaskAction(taskId: string) {
   validateUUID(taskId, "task");
-  await archiveTask(taskId);
+  await deleteTask(taskId);
 }
 
 export async function createTaskCommentAction(

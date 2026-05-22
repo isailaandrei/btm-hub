@@ -132,14 +132,14 @@ export async function updateTask(
   return data as AdminTask;
 }
 
-export async function archiveTask(taskId: string) {
+export async function deleteTask(taskId: string) {
   await requireAdmin();
   const supabase = await createClient();
-  const { error } = await supabase.rpc("archive_task", {
+  const { error } = await supabase.rpc("delete_task", {
     p_task_id: taskId,
   });
 
-  if (error) throw new Error(`Failed to archive task: ${error.message}`);
+  if (error) throw new Error(`Failed to delete task: ${error.message}`);
 }
 
 export async function getTaskComments(taskId: string) {

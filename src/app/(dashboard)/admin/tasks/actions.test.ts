@@ -6,13 +6,14 @@ const mockReorderTasks = vi.fn();
 const mockMoveTaskToGroup = vi.fn();
 const mockArchiveTaskGroup = vi.fn();
 const mockUpdateTask = vi.fn().mockResolvedValue({ id: "task-1" });
+const mockDeleteTask = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@/lib/data/tasks", () => ({
-  archiveTask: vi.fn(),
   archiveTaskGroup: mockArchiveTaskGroup,
   createTask: mockCreateTask,
   createTaskComment: mockCreateTaskComment,
   createTaskGroup: vi.fn().mockResolvedValue({ id: "group-1" }),
+  deleteTask: mockDeleteTask,
   moveTaskToGroup: mockMoveTaskToGroup,
   reorderTaskGroups: vi.fn(),
   reorderTasks: mockReorderTasks,
@@ -119,6 +120,12 @@ describe("task actions", () => {
       actions.updateTaskAction({ taskId: VALID_TASK_ID, group_id: VALID_GROUP_ID }),
     ).rejects.toThrow("Use moveTaskToGroupAction");
     expect(mockUpdateTask).not.toHaveBeenCalled();
+  });
+
+  it("deletes tasks", async () => {
+    await actions.deleteTaskAction(VALID_TASK_ID);
+
+    expect(mockDeleteTask).toHaveBeenCalledWith(VALID_TASK_ID);
   });
 
   it("archives groups", async () => {

@@ -12,12 +12,14 @@ import { TaskDetailPanel } from "./task-detail-panel";
 
 const mocks = vi.hoisted(() => ({
   updateTaskAction: vi.fn().mockResolvedValue({ id: "task-1" }),
+  deleteTaskAction: vi.fn().mockResolvedValue(undefined),
   refreshAfterMutation: vi.fn().mockResolvedValue(undefined),
   optimisticallyUpdateTask: vi.fn(),
+  optimisticallyRemoveTask: vi.fn(),
 }));
 
 vi.mock("./actions", () => ({
-  archiveTaskAction: vi.fn(),
+  deleteTaskAction: mocks.deleteTaskAction,
   moveTaskToGroupAction: vi.fn(),
   updateTaskAction: mocks.updateTaskAction,
 }));
@@ -36,6 +38,7 @@ vi.mock("./task-data-provider", () => ({
     reloadComments: vi.fn().mockResolvedValue(undefined),
     refreshAfterMutation: mocks.refreshAfterMutation,
     optimisticallyUpdateTask: mocks.optimisticallyUpdateTask,
+    optimisticallyRemoveTask: mocks.optimisticallyRemoveTask,
   }),
 }));
 
@@ -120,6 +123,7 @@ describe("TaskDetailPanel", () => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
+    vi.restoreAllMocks();
   });
 
   function renderPanel() {
@@ -136,6 +140,38 @@ describe("TaskDetailPanel", () => {
       );
     });
   }
+
+  it("deletes the task from the detail panel", async () => {
+    const onOpenChange = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+
+    act(() => {
+      root.render(
+        <TaskDetailPanel
+          task={task}
+          groups={[group]}
+          tasks={[task]}
+          admins={[admin]}
+          open
+          onOpenChange={onOpenChange}
+        />,
+      );
+    });
+
+    const button = [...document.body.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === "Delete task",
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(mocks.optimisticallyRemoveTask).toHaveBeenCalledWith("task-1");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mocks.deleteTaskAction).toHaveBeenCalledWith("task-1");
+  });
 
   it("provides an explicit save control for the task title", async () => {
     renderPanel();
