@@ -60,7 +60,7 @@ export function TaskDetailPanel({
     refreshAfterMutation,
     optimisticallyUpdateTask,
   } = useTaskData();
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const currentTask = useMemo(
     () => (task ? tasks.find((item) => item.id === task.id) ?? task : null),
@@ -80,7 +80,6 @@ export function TaskDetailPanel({
     optimisticallyUpdateTask(panelTask.id, buildOptimisticTaskPatch(panelTask, patch));
     try {
       await updateTaskAction({ taskId: panelTask.id, ...patch });
-      void refreshAfterMutation();
     } catch (error) {
       void refreshAfterMutation();
       throw error;
@@ -115,10 +114,16 @@ export function TaskDetailPanel({
       .map((item) => item.id)
       .concat(panelTask.id);
 
+    optimisticallyUpdateTask(panelTask.id, {
+      group_id: groupId,
+      sort_order: targetTaskIds.length - 1,
+    });
     startTransition(() => {
       void moveTaskToGroupAction(panelTask.id, groupId, targetTaskIds)
-        .then(refreshAfterMutation)
-        .catch((error) => toast.error(error instanceof Error ? error.message : "Task move failed."));
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Task move failed.");
+          void refreshAfterMutation();
+        });
     });
   }
 
@@ -176,7 +181,7 @@ export function TaskDetailPanel({
               <span className="text-xs font-medium text-muted-foreground">Group</span>
               <select
                 value={currentTask.group_id}
-                disabled={currentTask.status === "done" || pending}
+                disabled={currentTask.status === "done"}
                 onChange={(event) => moveToGroup(event.target.value)}
                 className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
               >

@@ -48,10 +48,12 @@ export type OptimisticTaskPatch = Partial<
     AdminTask,
     | "title"
     | "description"
+    | "group_id"
     | "assignee_id"
     | "due_date"
     | "status"
     | "priority"
+    | "sort_order"
     | "completed_at"
   >
 >;

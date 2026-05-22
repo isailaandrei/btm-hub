@@ -41,6 +41,7 @@ const TABS: { key: Tab; label: string }[] = [
 export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
   const [hasVisitedEmail, setHasVisitedEmail] = useState(false);
+  const [hasVisitedTasks, setHasVisitedTasks] = useState(false);
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
 
   function handleSendEmail(contactIds: string[]) {
@@ -50,6 +51,9 @@ export function AdminDashboard() {
   }
 
   function handleSelectTab(tab: Tab) {
+    if (tab === "tasks") {
+      setHasVisitedTasks(true);
+    }
     if (tab === "email") {
       if (activeTab !== "email") {
         setEmailContactIds([]);
@@ -84,7 +88,11 @@ export function AdminDashboard() {
 
       {activeTab === "tags" && <TagsPanel />}
 
-      {activeTab === "tasks" && <TasksPanel />}
+      {(activeTab === "tasks" || hasVisitedTasks) && (
+        <div hidden={activeTab !== "tasks"}>
+          <TasksPanel />
+        </div>
+      )}
 
       {(activeTab === "email" || hasVisitedEmail) && (
         <div hidden={activeTab !== "email"}>

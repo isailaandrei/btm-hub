@@ -164,7 +164,10 @@ describe("TaskDetailPanel", () => {
       taskId: "task-1",
       title: "Send updated invoice",
     });
-    expect(mocks.refreshAfterMutation).toHaveBeenCalled();
+    expect(mocks.optimisticallyUpdateTask).toHaveBeenCalledWith("task-1", {
+      title: "Send updated invoice",
+    });
+    expect(mocks.refreshAfterMutation).not.toHaveBeenCalled();
   });
 
   it("shows distinct saving and saved states for the task title", async () => {
@@ -233,7 +236,10 @@ describe("TaskDetailPanel", () => {
       taskId: "task-1",
       description: "Updated notes",
     });
-    expect(mocks.refreshAfterMutation).toHaveBeenCalled();
+    expect(mocks.optimisticallyUpdateTask).toHaveBeenCalledWith("task-1", {
+      description: "Updated notes",
+    });
+    expect(mocks.refreshAfterMutation).not.toHaveBeenCalled();
   });
 
   it("shows distinct saving and saved states for task notes", async () => {

@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 import { isUUID, validateUUID } from "@/lib/validation-helpers";
 import {
@@ -108,10 +107,6 @@ function validationFailure(error: z.ZodError, prevState?: TaskFormState): TaskFo
   };
 }
 
-function revalidateTasks() {
-  revalidatePath("/admin");
-}
-
 export async function createTaskGroupAction(
   prevState: TaskFormState,
   formData: FormData,
@@ -124,7 +119,6 @@ export async function createTaskGroupAction(
 
   try {
     const group = await createTaskGroup(parsed.data);
-    revalidateTasks();
     return {
       message: "Task group created.",
       success: true,
@@ -148,14 +142,12 @@ export async function updateTaskGroupAction(input: {
   });
   if (!parsed.success) throw new Error("Invalid task group update");
   const group = await updateTaskGroup(input.groupId, parsed.data);
-  revalidateTasks();
   return group;
 }
 
 export async function archiveTaskGroupAction(groupId: string) {
   validateUUID(groupId, "task group");
   await archiveTaskGroup(groupId);
-  revalidateTasks();
 }
 
 export async function createTaskAction(
@@ -175,7 +167,6 @@ export async function createTaskAction(
 
   try {
     const task = await createTask(parsed.data);
-    revalidateTasks();
     return {
       message: "Task created.",
       success: true,
@@ -208,14 +199,12 @@ export async function updateTaskAction(input: Record<string, unknown>) {
   }
 
   const task = await updateTask(taskId, patch);
-  revalidateTasks();
   return task;
 }
 
 export async function archiveTaskAction(taskId: string) {
   validateUUID(taskId, "task");
   await archiveTask(taskId);
-  revalidateTasks();
 }
 
 export async function createTaskCommentAction(
@@ -230,7 +219,6 @@ export async function createTaskCommentAction(
 
   try {
     await createTaskComment(parsed.data);
-    revalidateTasks();
     return {
       message: "Comment added.",
       success: true,
@@ -245,14 +233,12 @@ export async function createTaskCommentAction(
 export async function reorderTaskGroupsAction(groupIds: string[]) {
   for (const id of groupIds) validateUUID(id, "task group");
   await reorderTaskGroups(groupIds);
-  revalidateTasks();
 }
 
 export async function reorderTasksAction(groupId: string, taskIds: string[]) {
   validateUUID(groupId, "task group");
   for (const id of taskIds) validateUUID(id, "task");
   await reorderTasks(groupId, taskIds);
-  revalidateTasks();
 }
 
 export async function moveTaskToGroupAction(
@@ -264,5 +250,4 @@ export async function moveTaskToGroupAction(
   validateUUID(targetGroupId, "task group");
   for (const id of targetTaskIds) validateUUID(id, "task");
   await moveTaskToGroup({ taskId, targetGroupId, targetTaskIds });
-  revalidateTasks();
 }

@@ -59,7 +59,7 @@ export function TaskGroupSection({
   const [collapsed, setCollapsed] = useState(false);
   const [optimisticTaskIds, setOptimisticTaskIds] = useState<string[] | null>(null);
   const [taskReorderPending, setTaskReorderPending] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const pendingOptimisticTaskIds = useMemo(
     () => getPendingOptimisticIds(activeTasks, optimisticTaskIds),
     [activeTasks, optimisticTaskIds],
@@ -75,9 +75,6 @@ export function TaskGroupSection({
     onOptimisticGroupUpdate?.(group.id, { name });
     startTransition(() => {
       void updateTaskGroupAction({ groupId: group.id, name })
-        .then(() => {
-          void onRefresh();
-        })
         .catch((error) => {
           toast.error(error instanceof Error ? error.message : "Group update failed.");
           void onRefresh();
@@ -93,9 +90,6 @@ export function TaskGroupSection({
         groupId: group.id,
         color: color as TaskGroup["color"],
       })
-        .then(() => {
-          void onRefresh();
-        })
         .catch((error) => {
           toast.error(error instanceof Error ? error.message : "Group update failed.");
           void onRefresh();
@@ -192,7 +186,6 @@ export function TaskGroupSection({
           value={group.color}
           onChange={(event) => recolor(event.target.value)}
           className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-          disabled={pending}
           aria-label="Group color"
         >
           {TASK_GROUP_COLORS.map((color) => (

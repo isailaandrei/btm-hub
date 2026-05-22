@@ -46,15 +46,12 @@ export function TaskRow({
   dragHandle?: ReactNode;
   compact?: boolean;
 }) {
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   function mutate(patch: TaskUpdatePatch) {
     onOptimisticUpdate?.(task.id, buildOptimisticTaskPatch(task, patch));
     startTransition(() => {
       void updateTaskAction({ taskId: task.id, ...patch })
-        .then(() => {
-          void onRefresh();
-        })
         .catch((error) => {
           toast.error(error instanceof Error ? error.message : "Task update failed.");
           void onRefresh();
@@ -72,7 +69,6 @@ export function TaskRow({
         compact
           ? "grid-cols-[minmax(220px,1fr)_110px_110px]"
           : "grid-cols-[36px_minmax(260px,1.35fr)_150px_150px_130px_120px_minmax(180px,0.8fr)]",
-        pending && "opacity-60",
       )}
     >
       {!compact && (

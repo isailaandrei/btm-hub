@@ -6,7 +6,6 @@ const mockReorderTasks = vi.fn();
 const mockMoveTaskToGroup = vi.fn();
 const mockArchiveTaskGroup = vi.fn();
 const mockUpdateTask = vi.fn().mockResolvedValue({ id: "task-1" });
-const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/data/tasks", () => ({
   archiveTask: vi.fn(),
@@ -19,10 +18,6 @@ vi.mock("@/lib/data/tasks", () => ({
   reorderTasks: mockReorderTasks,
   updateTask: mockUpdateTask,
   updateTaskGroup: vi.fn(),
-}));
-
-vi.mock("next/cache", () => ({
-  revalidatePath: mockRevalidatePath,
 }));
 
 const actions = await import("./actions");
@@ -92,7 +87,6 @@ describe("task actions", () => {
         dueDate: null,
       }),
     );
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
   });
 
   it("rejects blank comments", async () => {
@@ -127,10 +121,9 @@ describe("task actions", () => {
     expect(mockUpdateTask).not.toHaveBeenCalled();
   });
 
-  it("archives groups and revalidates admin", async () => {
+  it("archives groups", async () => {
     await actions.archiveTaskGroupAction(VALID_GROUP_ID);
 
     expect(mockArchiveTaskGroup).toHaveBeenCalledWith(VALID_GROUP_ID);
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
   });
 });
