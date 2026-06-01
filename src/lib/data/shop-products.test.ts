@@ -15,6 +15,7 @@ describe("shop product data fetchers", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    delete process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT;
     mockSupabase = createMockSupabaseClient();
     const { createClient } = await import("@/lib/supabase/server");
     const { getProfile } = await import("@/lib/data/profiles");
@@ -62,6 +63,43 @@ describe("shop product data fetchers", () => {
 
     await expect(getShopProducts()).rejects.toThrow(
       "Failed to load shop products: database unavailable",
+    );
+  });
+
+  it("does not show the mock product unless the demo flag is enabled", async () => {
+    const { getShopProducts } = await import("./shop-products");
+
+    const products = await getShopProducts();
+
+    expect(products).toEqual([]);
+  });
+
+  it("shows a clearly marked mock product when the development catalog is empty", async () => {
+    process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT = "1";
+    const { getShopProducts } = await import("./shop-products");
+
+    const products = await getShopProducts();
+
+    expect(products).toHaveLength(1);
+    expect(products[0]?.slug).toBe("mock-btm-freedive-hoodie");
+    expect(products[0]?.title).toContain("Mock");
+    expect(products[0]?.variants[0]?.price_cents).toBeGreaterThan(0);
+    expect(products[0]?.media[0]?.public_url).toBe("/mock-shop-product.png");
+    expect(products[0]?.media[0]?.mime_type).toBe("image/png");
+  });
+
+  it("loads the mock product detail by slug when enabled", async () => {
+    process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT = "1";
+    mockSupabase.mockQueryResult(null);
+    const { getShopProductBySlug } = await import("./shop-products");
+
+    const product = await getShopProductBySlug("mock-btm-freedive-hoodie");
+
+    expect(product?.title).toContain("Mock");
+    expect(product?.content_blocks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "bullets" }),
+      ]),
     );
   });
 });

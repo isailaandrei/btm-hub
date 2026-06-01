@@ -11,8 +11,8 @@ export function ProductGallery({
   const primary = ordered.find((item) => item.is_primary) ?? ordered[0];
 
   return (
-    <div className="grid gap-3">
-      <div className="aspect-[4/5] overflow-hidden rounded-lg bg-muted">
+    <div className="grid gap-3 lg:sticky lg:top-8">
+      <div className="aspect-[4/5] overflow-hidden rounded-xl bg-muted">
         {primary?.public_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -27,7 +27,7 @@ export function ProductGallery({
           {ordered.slice(0, 4).map((item) => (
             <div
               key={item.id}
-              className="aspect-square overflow-hidden rounded-md bg-muted"
+              className="aspect-square overflow-hidden rounded-lg border border-border bg-muted"
             >
               {item.public_url ? (
                 // eslint-disable-next-line @next/next/no-img-element

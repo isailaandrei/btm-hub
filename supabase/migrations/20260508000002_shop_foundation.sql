@@ -545,6 +545,7 @@ DECLARE
   v_cart_fingerprint text;
   v_existing shop_orders%ROWTYPE;
   v_existing_has_reservation boolean;
+  v_existing_requires_reservation boolean;
   v_order shop_orders%ROWTYPE;
   v_subtotal_cents integer;
   v_requires_shipping boolean;
@@ -627,9 +628,22 @@ BEGIN
     )
     INTO v_existing_has_reservation;
 
+    SELECT EXISTS (
+      SELECT 1
+      FROM shop_order_items item
+      JOIN shop_product_variants variant ON variant.id = item.variant_id
+      WHERE item.order_id = v_existing.id
+        AND variant.track_inventory = true
+    )
+    INTO v_existing_requires_reservation;
+
     IF v_existing.status = 'pending'
       AND v_existing.cart_fingerprint = v_cart_fingerprint
-      AND v_existing_has_reservation THEN
+      AND (
+        v_existing.stripe_checkout_session_id IS NOT NULL
+        OR (v_existing_requires_reservation = true AND v_existing_has_reservation = true)
+        OR (v_existing_requires_reservation = false AND v_existing.reservation_expires_at > now())
+      ) THEN
       SELECT COALESCE(jsonb_agg(to_jsonb(item) ORDER BY item.sort_order), '[]'::jsonb)
       INTO v_line_items
       FROM shop_order_items item
@@ -902,7 +916,18 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_count integer;
+  v_order shop_orders%ROWTYPE;
 BEGIN
+  SELECT *
+  INTO v_order
+  FROM shop_orders
+  WHERE id = p_order_id
+  FOR UPDATE;
+
+  IF NOT FOUND OR v_order.stripe_checkout_session_id IS NOT NULL THEN
+    RETURN 0;
+  END IF;
+
   UPDATE shop_inventory_reservations
   SET status = 'released',
       updated_at = now()
@@ -914,8 +939,7 @@ BEGIN
   UPDATE shop_orders
   SET status = 'canceled'
   WHERE id = p_order_id
-    AND status = 'pending'
-    AND stripe_checkout_session_id IS NULL;
+    AND status = 'pending';
 
   INSERT INTO shop_order_events (order_id, type, message, customer_visible)
   SELECT p_order_id, 'reservation_released', 'Reservations released.', false
@@ -984,10 +1008,6 @@ BEGIN
   FROM shop_inventory_reservations
   WHERE order_id = v_order.id
     AND status = 'active';
-
-  IF v_active_reservation_count = 0 THEN
-    RAISE EXCEPTION 'no_active_reservations_for_paid_order' USING ERRCODE = 'P0001';
-  END IF;
 
   UPDATE shop_product_variants variant
   SET stock_quantity = GREATEST(variant.stock_quantity - reservation.quantity, 0)

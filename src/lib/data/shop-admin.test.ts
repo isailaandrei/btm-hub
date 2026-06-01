@@ -46,6 +46,31 @@ describe("shop admin data mutations", () => {
     }));
   });
 
+  it("lists products with variants and media for admin catalog management", async () => {
+    mockSupabase.mockQueryResult([
+      {
+        id: "product-1",
+        title: "Mask Tee",
+        variants: [],
+        media: [],
+      },
+    ]);
+    const { requireAdmin } = await import("@/lib/auth/require-admin");
+    const { listAdminShopProducts } = await import("./shop-admin");
+
+    const products = await listAdminShopProducts();
+
+    expect(requireAdmin).toHaveBeenCalled();
+    expect(mockSupabase.client.from).toHaveBeenCalledWith("shop_products");
+    expect(mockSupabase.query.select).toHaveBeenCalledWith(
+      expect.stringContaining("variants:shop_product_variants(*)"),
+    );
+    expect(mockSupabase.query.select).toHaveBeenCalledWith(
+      expect.stringContaining("media:shop_product_media(*)"),
+    );
+    expect(products).toHaveLength(1);
+  });
+
   it("updates product content after validating content blocks", async () => {
     const { updateShopProductContent } = await import("./shop-admin");
 

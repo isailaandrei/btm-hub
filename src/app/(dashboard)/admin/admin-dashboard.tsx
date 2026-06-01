@@ -17,17 +17,31 @@ const EmailStudio = dynamic(
   },
 );
 
-type Tab = "contacts" | "tags" | "email";
+const ShopAdmin = dynamic(
+  () => import("./shop/shop-admin").then((module) => module.ShopAdmin),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-md border border-border bg-card p-6 text-sm text-muted-foreground">
+        Loading shop admin...
+      </div>
+    ),
+  },
+);
+
+type Tab = "contacts" | "tags" | "email" | "shop";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
   { key: "tags", label: "Tags" },
   { key: "email", label: "Email" },
+  { key: "shop", label: "Shop" },
 ];
 
 export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
   const [hasVisitedEmail, setHasVisitedEmail] = useState(false);
+  const [hasVisitedShop, setHasVisitedShop] = useState(false);
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
 
   function handleSendEmail(contactIds: string[]) {
@@ -42,6 +56,9 @@ export function AdminDashboard() {
         setEmailContactIds([]);
       }
       setHasVisitedEmail(true);
+    }
+    if (tab === "shop") {
+      setHasVisitedShop(true);
     }
     setActiveTab(tab);
   }
@@ -77,6 +94,12 @@ export function AdminDashboard() {
             isVisible={activeTab === "email"}
             selectedContactIds={emailContactIds}
           />
+        </div>
+      )}
+
+      {(activeTab === "shop" || hasVisitedShop) && (
+        <div hidden={activeTab !== "shop"}>
+          <ShopAdmin isVisible={activeTab === "shop"} />
         </div>
       )}
     </div>

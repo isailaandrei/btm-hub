@@ -1,5 +1,9 @@
 import { cache } from "react";
 import { getProfile } from "@/lib/data/profiles";
+import {
+  MOCK_SHOP_PRODUCT,
+  shouldShowMockShopProduct,
+} from "@/lib/shop/mock-product";
 import { createClient } from "@/lib/supabase/server";
 import type { ShopProductWithVariants } from "@/lib/shop/types";
 
@@ -38,7 +42,13 @@ export const getShopProducts = cache(async function getShopProducts(): Promise<S
 
   if (error) throw new Error(`Failed to load shop products: ${error.message}`);
 
-  return ((data ?? []) as ShopProductWithVariants[]).map(sortProductRelations);
+  const products = ((data ?? []) as ShopProductWithVariants[]).map(sortProductRelations);
+
+  if (products.length === 0 && shouldShowMockShopProduct()) {
+    return [MOCK_SHOP_PRODUCT];
+  }
+
+  return products;
 });
 
 export const getShopProductBySlug = cache(async function getShopProductBySlug(
@@ -57,7 +67,13 @@ export const getShopProductBySlug = cache(async function getShopProductBySlug(
     .maybeSingle();
 
   if (error) throw new Error(`Failed to load shop product: ${error.message}`);
-  if (!data) return null;
+  if (!data) {
+    if (slug === MOCK_SHOP_PRODUCT.slug && shouldShowMockShopProduct()) {
+      return MOCK_SHOP_PRODUCT;
+    }
+
+    return null;
+  }
 
   return sortProductRelations(data as ShopProductWithVariants);
 });

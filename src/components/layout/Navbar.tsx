@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CartButton } from "@/components/shop/CartButton";
 import { AuthButtons } from "./AuthButtons";
 
 export interface NavbarProps {
@@ -83,6 +84,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
               {link.label}
             </Link>
           ))}
+          <CartButton variant={variant} />
           <AuthButtons variant={variant} />
         </div>
 
@@ -124,6 +126,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
               {link.label}
             </Link>
           ))}
+          <CartButton variant={variant} />
           <div className="mt-auto border-t border-border pt-6">
             <AuthButtons variant={variant} />
           </div>
