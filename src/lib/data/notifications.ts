@@ -7,7 +7,6 @@ import type {
   NotificationWithActor,
   Profile,
 } from "@/types/database";
-import type { NotificationInsert } from "@/lib/notifications/notifications";
 
 const NOTIFICATIONS_PAGE_SIZE = 50;
 
@@ -86,13 +85,6 @@ export const getUnreadNotificationCount = cache(async function getUnreadNotifica
 
   return count ?? 0;
 });
-
-export async function createNotification(notification: NotificationInsert): Promise<void> {
-  const supabase = await createClient();
-  const { error } = await supabase.from("notifications").insert(notification);
-
-  if (error) throw new Error(`Failed to create notification: ${error.message}`);
-}
 
 export async function markNotificationRead(notificationId: string): Promise<void> {
   validateUUID(notificationId, "notification");

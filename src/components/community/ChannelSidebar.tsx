@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useActionState, useSyncExternalStore } from "react";
+import { useState, useActionState } from "react";
 import Link from "next/link";
 import { useSearchParams, usePathname } from "next/navigation";
 import { Hash, PenSquare, Plus, X } from "lucide-react";
@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 import { createTopic } from "@/app/(marketing)/community/actions";
 import type { ForumTopic } from "@/types/database";
 import type { ForumActionState } from "@/app/(marketing)/community/actions";
-import { MessagesSidebar } from "./MessagesSidebar";
 
 interface ChannelSidebarProps {
   topics: ForumTopic[];
@@ -25,40 +24,7 @@ const initialState: ForumActionState = {
   resetKey: 0,
 };
 
-function subscribeToDesktopChanges(onStoreChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-
-  const mediaQuery = window.matchMedia("(min-width: 768px)");
-  mediaQuery.addEventListener("change", onStoreChange);
-  return () => mediaQuery.removeEventListener("change", onStoreChange);
-}
-
-function getDesktopSnapshot() {
-  return typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
-}
-
-function getServerDesktopSnapshot() {
-  return false;
-}
-
-function DesktopMessagesSection({ currentUserId }: { currentUserId: string }) {
-  const isDesktop = useSyncExternalStore(
-    subscribeToDesktopChanges,
-    getDesktopSnapshot,
-    getServerDesktopSnapshot,
-  );
-
-  if (!isDesktop) return null;
-
-  return (
-    <>
-      <div className="border-t border-border" />
-      <MessagesSidebar currentUserId={currentUserId} />
-    </>
-  );
-}
-
-export function ChannelSidebar({ topics, isAuthenticated, isAdmin, currentUserId }: ChannelSidebarProps) {
+export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSidebarProps) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const activeTopic = searchParams.get("topic");
@@ -169,10 +135,6 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin, currentUserId
           )}
         </div>
 
-        {/* Messages section — fetches its own data to avoid blocking community pages */}
-        {isAuthenticated && currentUserId && (
-          <DesktopMessagesSection currentUserId={currentUserId} />
-        )}
       </div>
     </aside>
   );
