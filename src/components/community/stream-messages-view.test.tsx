@@ -32,6 +32,7 @@ describe("StreamMessagesView", () => {
     renderToStaticMarkup(
       <StreamMessagesView
         client={{} as never}
+        onStartDirectConversation={vi.fn()}
         userId="00000000-0000-4000-8000-000000000001"
       />,
     );
@@ -44,5 +45,18 @@ describe("StreamMessagesView", () => {
         }),
       }),
     );
+  });
+
+  it("renders a member search entry point above previous messages", () => {
+    const html = renderToStaticMarkup(
+      <StreamMessagesView
+        client={{} as never}
+        onStartDirectConversation={vi.fn()}
+        userId="00000000-0000-4000-8000-000000000001"
+      />,
+    );
+
+    expect(html).toContain("Search members");
+    expect(html).toContain("Previous messages");
   });
 });

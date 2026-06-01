@@ -3,7 +3,7 @@
 import { useState, useActionState } from "react";
 import Link from "next/link";
 import { useSearchParams, usePathname } from "next/navigation";
-import { Hash, PenSquare, Plus, X } from "lucide-react";
+import { Hash, MessageCircle, PenSquare, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createTopic } from "@/app/(marketing)/community/actions";
@@ -29,6 +29,7 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
   const pathname = usePathname();
   const activeTopic = searchParams.get("topic");
   const isOnFeed = pathname === "/community";
+  const isOnMessages = pathname === "/community/messages";
   const [showAddForm, setShowAddForm] = useState(false);
   const [prevResetKey, setPrevResetKey] = useState(0);
   const [state, formAction, isPending] = useActionState(createTopic, initialState);
@@ -65,7 +66,7 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
               href="/community"
               className={cn(
                 "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
-                isOnFeed && !activeTopic
+                isOnFeed && !activeTopic && !isOnMessages
                   ? "bg-primary/10 font-medium text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
@@ -73,6 +74,21 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
               <Hash className="h-4 w-4 shrink-0" />
               Home
             </Link>
+
+            {isAuthenticated && (
+              <Link
+                href="/community/messages"
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
+                  isOnMessages
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                <MessageCircle className="h-4 w-4 shrink-0" />
+                Messages
+              </Link>
+            )}
 
             {topics.map((topic) => (
               <Link

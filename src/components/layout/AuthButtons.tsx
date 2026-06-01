@@ -152,6 +152,14 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
         </Link>
       )}
       <Link
+        href="/community/messages"
+        className={`text-sm font-medium transition-opacity hover:opacity-75 ${
+          isLight ? "text-foreground" : "text-white"
+        }`}
+      >
+        Messages
+      </Link>
+      <Link
         href="/profile"
         className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-border transition-colors hover:border-primary"
       >

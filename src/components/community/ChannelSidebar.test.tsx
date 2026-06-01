@@ -12,7 +12,7 @@ vi.mock("@/app/(marketing)/community/actions", () => ({
 }));
 
 describe("ChannelSidebar", () => {
-  it("does not server-render the messages sidebar so hidden mobile sidebars do not start chat traffic", () => {
+  it("links to messages without server-rendering the Stream chat shell", () => {
     const html = renderToStaticMarkup(
       <ChannelSidebar
         topics={[
@@ -31,6 +31,9 @@ describe("ChannelSidebar", () => {
     );
 
     expect(html).toContain("Channels");
-    expect(html).not.toContain("Messages");
+    expect(html).toContain("Messages");
+    expect(html).toContain("/community/messages");
+    expect(html).not.toContain("stream-chat-shell");
+    expect(html).not.toContain("Connecting to messages");
   });
 });

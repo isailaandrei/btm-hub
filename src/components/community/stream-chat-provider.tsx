@@ -59,11 +59,15 @@ export function StreamChatConnectionState({
 function ConnectedStreamChat({
   payload,
   activeCid,
+  channelListVersion,
   onActiveThreadChange,
+  onStartDirectConversation,
 }: {
   payload: StreamTokenPayload;
   activeCid: string | null;
+  channelListVersion: number;
   onActiveThreadChange: (threadId: string, cid: string) => void;
+  onStartDirectConversation: (recipientId: string) => Promise<void>;
 }) {
   const initialTokenRef = useRef(payload.token);
   const tokenProvider = useCallback(async () => {
@@ -100,11 +104,34 @@ function ConnectedStreamChat({
   return (
     <StreamMessagesView
       activeCid={activeCid}
+      channelListVersion={channelListVersion}
       client={client}
       onActiveThreadChange={onActiveThreadChange}
+      onStartDirectConversation={onStartDirectConversation}
       userId={payload.user.id}
     />
   );
+}
+
+async function createDirectConversation(recipientId: string) {
+  const response = await fetch("/api/stream/channels/direct", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ recipientId }),
+  });
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      typeof body.error === "string" ? body.error : "Failed to start conversation",
+    );
+  }
+
+  if (typeof body.threadId !== "string" || typeof body.cid !== "string") {
+    throw new Error("Conversation response was incomplete");
+  }
+
+  return body as { threadId: string; cid: string };
 }
 
 export function StreamChatProvider({
@@ -124,6 +151,8 @@ export function StreamChatProvider({
     initialThreadId ?? null,
   );
   const [activeCid, setActiveCid] = useState<string | null>(initialCid ?? null);
+  const [channelListVersion, setChannelListVersion] = useState(0);
+  const startedRecipientRef = useRef<string | null>(null);
 
   const handleActiveThreadChange = useCallback(
     (threadId: string, cid: string) => {
@@ -134,6 +163,18 @@ export function StreamChatProvider({
       router.replace(`/community/messages?thread=${encodeURIComponent(threadId)}`);
     },
     [activeCid, activeThreadId, router],
+  );
+
+  const handleStartDirectConversation = useCallback(
+    async (recipientId: string) => {
+      const { threadId, cid } = await createDirectConversation(recipientId);
+
+      setActiveThreadId(threadId);
+      setActiveCid(cid);
+      setChannelListVersion((version) => version + 1);
+      router.replace(`/community/messages?thread=${encodeURIComponent(threadId)}`);
+    },
+    [router],
   );
 
   useEffect(() => {
@@ -172,34 +213,22 @@ export function StreamChatProvider({
 
   useEffect(() => {
     if (!startRecipientId) return;
+    if (startedRecipientRef.current === startRecipientId) return;
+
+    const recipientId = startRecipientId;
+    startedRecipientRef.current = recipientId;
 
     let cancelled = false;
 
     async function startDirectConversation() {
       try {
-        const response = await fetch("/api/stream/channels/direct", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ recipientId: startRecipientId }),
-        });
-        const body = await response.json().catch(() => ({}));
+        const { threadId, cid } = await createDirectConversation(recipientId);
 
-        if (!response.ok) {
-          throw new Error(
-            typeof body.error === "string" ? body.error : "Failed to start conversation",
-          );
-        }
-
-        if (
-          !cancelled &&
-          typeof body.threadId === "string" &&
-          typeof body.cid === "string"
-        ) {
-          setActiveThreadId(body.threadId);
-          setActiveCid(body.cid);
-          router.replace(
-            `/community/messages?thread=${encodeURIComponent(body.threadId)}`,
-          );
+        if (!cancelled) {
+          setActiveThreadId(threadId);
+          setActiveCid(cid);
+          setChannelListVersion((version) => version + 1);
+          router.replace(`/community/messages?thread=${encodeURIComponent(threadId)}`);
         }
       } catch (err) {
         if (!cancelled) {
@@ -274,7 +303,9 @@ export function StreamChatProvider({
       )}
       <ConnectedStreamChat
         activeCid={activeCid}
+        channelListVersion={channelListVersion}
         onActiveThreadChange={handleActiveThreadChange}
+        onStartDirectConversation={handleStartDirectConversation}
         payload={payload}
       />
     </div>
