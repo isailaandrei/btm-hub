@@ -12,7 +12,7 @@ vi.mock("@/app/(marketing)/community/actions", () => ({
 }));
 
 describe("ChannelSidebar", () => {
-  it("keeps messages out of the forum channel list", () => {
+  it("renders messages as a separate community tool below the forum channels", () => {
     const html = renderToStaticMarkup(
       <ChannelSidebar
         topics={[
@@ -31,8 +31,11 @@ describe("ChannelSidebar", () => {
     );
 
     expect(html).toContain("Channels");
-    expect(html).not.toContain("Messages");
-    expect(html).not.toContain("/community/messages");
+    expect(html).toContain("Direct");
+    expect(html).toContain("Messages");
+    expect(html).toContain("/community/messages");
+    expect(html.indexOf("Gear")).toBeLessThan(html.indexOf("Direct"));
+    expect(html.indexOf("Direct")).toBeLessThan(html.indexOf("Messages"));
     expect(html).not.toContain("stream-chat-shell");
     expect(html).not.toContain("Connecting to messages");
   });
