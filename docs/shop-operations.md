@@ -11,6 +11,8 @@ webhooks.
 - `NEXT_PUBLIC_SITE_URL` for Checkout success and cancel URLs.
 - `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_LOCAL_SERVICE_ROLE_KEY` for webhook
   reconciliation and notification processing.
+- `CRON_SECRET` for the Vercel cron routes that reconcile stale Checkout
+  reservations and process queued order notifications.
 - `EMAIL_PROVIDER`, plus the provider-specific variables documented in
   `docs/admin-email-operations.md`, for order notifications.
 - `EMAIL_WORKER_SECRET` for manually triggering
@@ -42,6 +44,10 @@ stripe listen --forward-to http://localhost:3000/api/shop/stripe/webhook
 6. `checkout.session.completed` finalizes the order, converts reservations into
    stock adjustments, and queues customer/internal order emails.
 7. `checkout.session.expired` releases reservations and cancels the pending order.
+8. `/api/shop/orders/reconcile-checkouts` is a cron reconciliation fallback for
+   missed `checkout.session.completed` or `checkout.session.expired` webhooks.
+9. `/api/shop/orders/process-notifications` sends queued order notifications
+   outside the Stripe webhook retry path.
 
 The launch Checkout configuration is card-only (`payment_method_types: ["card"]`)
 so fulfillment depends on immediate payment confirmation. If delayed/asynchronous
@@ -62,3 +68,15 @@ The `/admin` Shop tab contains:
 - Products: catalog fields, variants, inventory, media uploads, and content blocks.
 - Shipping: default editable shipping zones and rates.
 - Orders: order status, items, and fulfillment/tracking updates.
+
+## Operations
+
+Vercel cron calls must include `Authorization: Bearer <CRON_SECRET>`. The shop
+notification route also accepts manual `POST` calls with
+`Authorization: Bearer <EMAIL_WORKER_SECRET>`.
+
+The checked-in Vercel schedules are daily so Hobby deployments do not fail.
+This daily cadence is not acceptable for live checkout operations. Before
+launch, use Vercel Pro cron or an external scheduler every 5-10 minutes against
+the same two shop routes. The reconciliation route is idempotent and safe to
+retry.

@@ -5,7 +5,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import { cartFingerprint } from "@/lib/shop/cart-validation";
+import {
+  checkoutAttemptIdForCart,
+  clearCheckoutAttemptId,
+} from "@/lib/shop/checkout-attempt";
 import { formatEuroCents } from "@/lib/shop/money";
 import {
   removeCartLine,
@@ -13,8 +16,6 @@ import {
   useCart,
 } from "@/lib/shop/cart-store";
 import { startShopCheckoutAction } from "@/app/(marketing)/shop/actions";
-
-const CHECKOUT_ATTEMPT_KEY = "btm-shop-checkout-attempt";
 
 const COUNTRY_LABELS: Record<string, string> = {
   AD: "Andorra",
@@ -75,34 +76,6 @@ const COUNTRY_LABELS: Record<string, string> = {
   ZA: "South Africa",
 };
 
-function newCheckoutAttemptId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function checkoutAttemptIdForCart(lines: Array<{ variantId: string; quantity: number }>) {
-  const fingerprint = cartFingerprint(lines);
-  try {
-    const raw = window.localStorage.getItem(CHECKOUT_ATTEMPT_KEY);
-    const cached = raw
-      ? (JSON.parse(raw) as { fingerprint?: string; checkoutAttemptId?: string })
-      : null;
-    if (cached?.fingerprint === fingerprint && cached.checkoutAttemptId) {
-      return cached.checkoutAttemptId;
-    }
-    const checkoutAttemptId = newCheckoutAttemptId();
-    window.localStorage.setItem(
-      CHECKOUT_ATTEMPT_KEY,
-      JSON.stringify({ fingerprint, checkoutAttemptId }),
-    );
-    return checkoutAttemptId;
-  } catch {
-    return newCheckoutAttemptId();
-  }
-}
-
 export function CartReview({
   heading = "Cart",
   shippingCountries = [],
@@ -143,6 +116,7 @@ export function CartReview({
         return;
       }
 
+      clearCheckoutAttemptId();
       setMessage(result.message ?? "Checkout failed.");
     });
   }

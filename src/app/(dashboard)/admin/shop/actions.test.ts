@@ -61,7 +61,7 @@ describe("shop admin actions", () => {
       shortDescription: "",
     });
 
-    expect(result.errors.title).toBeDefined();
+    expect(result.errors).toHaveProperty("title");
     expect(mockCreateShopProduct).not.toHaveBeenCalled();
   });
 

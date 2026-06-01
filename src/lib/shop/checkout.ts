@@ -60,6 +60,10 @@ export async function attachShopCheckoutSession(input: {
   checkoutAttemptId: string;
   stripeCheckoutSessionId: string;
   stripeCheckoutUrl: string;
+  shippingZoneId?: string | null;
+  shippingRateId?: string | null;
+  shippingCountry?: string | null;
+  shippingRateName?: string | null;
 }) {
   const { error } = await input.supabase.rpc("shop_attach_checkout_session", {
     p_order_id: input.orderId,
@@ -67,6 +71,10 @@ export async function attachShopCheckoutSession(input: {
     p_checkout_attempt_id: input.checkoutAttemptId,
     p_stripe_checkout_session_id: input.stripeCheckoutSessionId,
     p_stripe_checkout_url: input.stripeCheckoutUrl,
+    p_shipping_zone_id: input.shippingZoneId ?? null,
+    p_shipping_rate_id: input.shippingRateId ?? null,
+    p_shipping_country: input.shippingCountry ?? null,
+    p_shipping_rate_name: input.shippingRateName ?? null,
   });
 
   if (error) throw new Error(`Failed to attach checkout session: ${error.message}`);

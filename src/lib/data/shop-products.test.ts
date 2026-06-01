@@ -16,6 +16,7 @@ describe("shop product data fetchers", () => {
   beforeEach(async () => {
     vi.resetModules();
     delete process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT;
+    delete process.env.VERCEL_ENV;
     mockSupabase = createMockSupabaseClient();
     const { createClient } = await import("@/lib/supabase/server");
     const { getProfile } = await import("@/lib/data/profiles");
@@ -86,6 +87,23 @@ describe("shop product data fetchers", () => {
     expect(products[0]?.variants[0]?.price_cents).toBeGreaterThan(0);
     expect(products[0]?.media[0]?.public_url).toBe("/mock-shop-product.png");
     expect(products[0]?.media[0]?.mime_type).toBe("image/png");
+  });
+
+  it("uses the mock product when Supabase is unavailable in mock preview", async () => {
+    process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT = "1";
+    mockSupabase.mockQueryResult(null, { message: "TypeError: fetch failed" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { getShopProducts } = await import("./shop-products");
+
+    const products = await getShopProducts();
+
+    expect(products).toHaveLength(1);
+    expect(products[0]?.slug).toBe("mock-btm-freedive-hoodie");
+    expect(warn).toHaveBeenCalledWith(
+      "Using mock shop product because product loading failed in mock preview mode.",
+      { message: "TypeError: fetch failed" },
+    );
+    warn.mockRestore();
   });
 
   it("loads the mock product detail by slug when enabled", async () => {

@@ -54,6 +54,9 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
         process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT:
+        process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT ?? "1",
+      VERCEL_ENV: process.env.VERCEL_ENV ?? "preview",
     },
   },
 

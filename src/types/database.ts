@@ -627,6 +627,7 @@ export interface ShopOrder {
   shipping_cents: number;
   tax_cents: number;
   total_cents: number;
+  refunded_cents: number;
   stripe_checkout_session_id: string | null;
   stripe_checkout_url: string | null;
   stripe_payment_intent_id: string | null;
@@ -636,6 +637,9 @@ export interface ShopOrder {
   billing_address: Record<string, unknown>;
   shipping_address: Record<string, unknown>;
   shipping_zone_id: string | null;
+  shipping_rate_id: string | null;
+  shipping_country: string | null;
+  shipping_rate_name: string | null;
   customer_notes: string;
   tracking_carrier: string | null;
   tracking_number: string | null;
@@ -703,6 +707,18 @@ export interface ShopStripeEvent {
   order_id: string | null;
   payload: Record<string, unknown>;
   processed_at: string;
+}
+
+export interface ShopRefund {
+  id: string;
+  stripe_refund_id: string;
+  order_id: string | null;
+  stripe_payment_intent_id: string | null;
+  amount_cents: number;
+  status: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ShopOrderNotification {

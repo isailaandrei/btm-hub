@@ -4,6 +4,14 @@
     {
       "path": "/api/cron/academy-import",
       "schedule": "15 2 * * *"
+    },
+    {
+      "path": "/api/shop/orders/reconcile-checkouts",
+      "schedule": "20 2 * * *"
+    },
+    {
+      "path": "/api/shop/orders/process-notifications",
+      "schedule": "25 2 * * *"
     }
   ]
 }

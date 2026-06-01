@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { sendPendingShopOrderNotifications } from "@/lib/shop/order-emails";
 import { constructShopStripeEvent } from "@/lib/shop/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -18,7 +17,6 @@ async function finalizeCheckoutSession(event: Stripe.Event, session: Stripe.Chec
     },
   );
   if (error) throw new Error(`Failed to finalize paid order: ${error.message}`);
-  await sendPendingShopOrderNotifications({ limit: 4 });
   return data;
 }
 
@@ -39,6 +37,7 @@ async function recordRefund(event: Stripe.Event) {
   const supabase = await createAdminClient();
   const { data, error } = await supabase.rpc("shop_record_refund_event", {
     p_event_id: event.id,
+    p_event_type: event.type,
     p_payload: event.data.object,
   });
   if (error) throw new Error(`Failed to record refund event: ${error.message}`);

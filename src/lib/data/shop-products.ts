@@ -40,7 +40,17 @@ export const getShopProducts = cache(async function getShopProducts(): Promise<S
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
 
-  if (error) throw new Error(`Failed to load shop products: ${error.message}`);
+  if (error) {
+    if (shouldShowMockShopProduct()) {
+      console.warn(
+        "Using mock shop product because product loading failed in mock preview mode.",
+        { message: error.message },
+      );
+      return [MOCK_SHOP_PRODUCT];
+    }
+
+    throw new Error(`Failed to load shop products: ${error.message}`);
+  }
 
   const products = ((data ?? []) as ShopProductWithVariants[]).map(sortProductRelations);
 
@@ -66,7 +76,17 @@ export const getShopProductBySlug = cache(async function getShopProductBySlug(
     .in("visibility", visibility)
     .maybeSingle();
 
-  if (error) throw new Error(`Failed to load shop product: ${error.message}`);
+  if (error) {
+    if (slug === MOCK_SHOP_PRODUCT.slug && shouldShowMockShopProduct()) {
+      console.warn(
+        "Using mock shop product because product loading failed in mock preview mode.",
+        { message: error.message },
+      );
+      return MOCK_SHOP_PRODUCT;
+    }
+
+    throw new Error(`Failed to load shop product: ${error.message}`);
+  }
   if (!data) {
     if (slug === MOCK_SHOP_PRODUCT.slug && shouldShowMockShopProduct()) {
       return MOCK_SHOP_PRODUCT;

@@ -221,5 +221,11 @@ export const MOCK_SHOP_SHIPPING_ZONES: ShopShippingZoneWithRates[] = [
 ];
 
 export function shouldShowMockShopProduct() {
-  return process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT === "1";
+  const vercelEnv = process.env.VERCEL_ENV?.trim();
+  if (vercelEnv === "production") return false;
+  if (!vercelEnv && process.env.NODE_ENV === "production") return false;
+
+  return (
+    process.env.NEXT_PUBLIC_SHOW_MOCK_SHOP_PRODUCT === "1"
+  );
 }

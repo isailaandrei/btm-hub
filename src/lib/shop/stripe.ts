@@ -143,6 +143,10 @@ export async function expireShopCheckoutSession(sessionId: string) {
   await getStripe().checkout.sessions.expire(sessionId);
 }
 
+export async function retrieveShopCheckoutSession(sessionId: string) {
+  return getStripe().checkout.sessions.retrieve(sessionId);
+}
+
 export function constructShopStripeEvent(input: {
   body: string;
   signature: string | null;

@@ -343,6 +343,10 @@ export async function startShopCheckoutAction(
       checkoutAttemptId: order.checkoutAttemptId,
       stripeCheckoutSessionId: session.id,
       stripeCheckoutUrl: session.url!,
+      shippingZoneId: shippingZone?.id ?? null,
+      shippingRateId: shippingRate?.id ?? null,
+      shippingCountry: shippingCountry ?? null,
+      shippingRateName: shippingRate?.name ?? null,
     });
     unattachedStripeSessionId = null;
 

@@ -6,6 +6,7 @@ const stripeMocks = vi.hoisted(() => ({
   constructEvent: vi.fn(),
   createSession: vi.fn(),
   expireSession: vi.fn(),
+  retrieveSession: vi.fn(),
 }));
 
 vi.mock("stripe", () => ({
@@ -15,6 +16,7 @@ vi.mock("stripe", () => ({
         sessions: {
           create: stripeMocks.createSession,
           expire: stripeMocks.expireSession,
+          retrieve: stripeMocks.retrieveSession,
         },
       },
       webhooks: {
@@ -146,6 +148,21 @@ describe("shop Stripe integration", () => {
       }),
       { idempotencyKey: "shop_checkout_order-1_attempt-123" },
     );
+  });
+
+  it("retrieves Checkout Sessions for reservation reconciliation", async () => {
+    const { retrieveShopCheckoutSession } = await import("./stripe");
+
+    stripeMocks.retrieveSession.mockResolvedValueOnce({
+      id: "cs_test_123",
+      status: "expired",
+    });
+
+    await expect(retrieveShopCheckoutSession("cs_test_123")).resolves.toMatchObject({
+      id: "cs_test_123",
+      status: "expired",
+    });
+    expect(stripeMocks.retrieveSession).toHaveBeenCalledWith("cs_test_123");
   });
 
   it("allows mock checkout metadata and URLs while still using Stripe Checkout", async () => {

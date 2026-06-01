@@ -56,7 +56,31 @@ describe("shop Stripe webhook route", () => {
         p_session: session,
       },
     );
-    expect(mockSendPendingShopOrderNotifications).toHaveBeenCalledWith({ limit: 4 });
+    expect(mockSendPendingShopOrderNotifications).not.toHaveBeenCalled();
+  });
+
+  it("passes the Stripe event type when recording refunds", async () => {
+    const refund = {
+      id: "re_123",
+      payment_intent: "pi_123",
+      amount: 500,
+      status: "succeeded",
+    };
+    mockConstructShopStripeEvent.mockReturnValue({
+      id: "evt_refund",
+      type: "refund.updated",
+      data: { object: refund },
+    });
+
+    const response = await POST(stripeRequest());
+
+    expect(response.status).toBe(200);
+    const supabase = await mockCreateAdminClient.mock.results[0]?.value;
+    expect(supabase.rpc).toHaveBeenCalledWith("shop_record_refund_event", {
+      p_event_id: "evt_refund",
+      p_event_type: "refund.updated",
+      p_payload: refund,
+    });
   });
 
   it("acknowledges mock Checkout preview events without touching Supabase", async () => {

@@ -54,6 +54,10 @@ describe("shop checkout RPC wrappers", () => {
       checkoutAttemptId: "attempt-123",
       stripeCheckoutSessionId: "cs_test_123",
       stripeCheckoutUrl: "https://checkout.stripe.com/c/pay/cs_test_123",
+      shippingZoneId: "zone-1",
+      shippingRateId: "rate-1",
+      shippingCountry: "PT",
+      shippingRateName: "Tracked shipping",
     });
 
     expect(rpc).toHaveBeenCalledWith("shop_attach_checkout_session", {
@@ -62,6 +66,10 @@ describe("shop checkout RPC wrappers", () => {
       p_checkout_attempt_id: "attempt-123",
       p_stripe_checkout_session_id: "cs_test_123",
       p_stripe_checkout_url: "https://checkout.stripe.com/c/pay/cs_test_123",
+      p_shipping_zone_id: "zone-1",
+      p_shipping_rate_id: "rate-1",
+      p_shipping_country: "PT",
+      p_shipping_rate_name: "Tracked shipping",
     });
   });
 
