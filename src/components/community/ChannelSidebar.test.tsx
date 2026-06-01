@@ -12,7 +12,7 @@ vi.mock("@/app/(marketing)/community/actions", () => ({
 }));
 
 describe("ChannelSidebar", () => {
-  it("links to messages without server-rendering the Stream chat shell", () => {
+  it("keeps messages out of the forum channel list", () => {
     const html = renderToStaticMarkup(
       <ChannelSidebar
         topics={[
@@ -31,8 +31,8 @@ describe("ChannelSidebar", () => {
     );
 
     expect(html).toContain("Channels");
-    expect(html).toContain("Messages");
-    expect(html).toContain("/community/messages");
+    expect(html).not.toContain("Messages");
+    expect(html).not.toContain("/community/messages");
     expect(html).not.toContain("stream-chat-shell");
     expect(html).not.toContain("Connecting to messages");
   });

@@ -252,7 +252,7 @@ export function StreamMessagesView({
   };
 
   return (
-    <div className="stream-chat-shell h-[calc(100vh-12rem)] min-h-[560px] overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+    <div className="stream-chat-shell h-[calc(100vh-12rem)] min-h-[620px] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <Chat client={client}>
         <ActiveChannelObserver onActiveThreadChange={onActiveThreadChange} />
         <div className="flex h-full min-h-0">
@@ -267,7 +267,7 @@ export function StreamMessagesView({
                 userId={userId}
               />
             </div>
-            <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <UserRound className="h-3.5 w-3.5" />
                 Previous messages

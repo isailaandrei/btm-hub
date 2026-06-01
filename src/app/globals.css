@@ -191,6 +191,43 @@ button,
   @apply text-primary font-medium;
 }
 
+/* Stream Chat is embedded inside the community layout, so override the
+   package's app-frame defaults that assume it owns the whole viewport. */
+.stream-chat-shell .str-chat {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.stream-chat-shell .str-chat__channel-list {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 100%;
+  border: 0 !important;
+  background: var(--background) !important;
+  transition: none !important;
+}
+
+.stream-chat-shell .str-chat__channel-list__header {
+  display: none !important;
+}
+
+.stream-chat-shell .str-chat__channel-list-inner {
+  min-height: 0;
+  padding-bottom: 0 !important;
+}
+
+.stream-chat-shell .str-chat__channel-list-inner__main {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.stream-chat-shell .str-chat__channel-header {
+  border-color: var(--border);
+}
+
 /* TipTap editor content area */
 .tiptap {
   @apply outline-none;
