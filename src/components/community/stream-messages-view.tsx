@@ -75,7 +75,7 @@ export function StreamMessagesView({
               customActiveChannel={activeChannelId}
               filters={{ members: { $in: [userId] }, type: "messaging" }}
               sort={{ last_message_at: -1 }}
-              options={{ presence: true, state: true }}
+              options={{ presence: false, state: true }}
               renderChannels={(channels, channelPreview) =>
                 channels.map((channel) => (
                   <div

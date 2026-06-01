@@ -119,6 +119,7 @@ export function StreamChatProvider({
   const router = useRouter();
   const [payload, setPayload] = useState<StreamTokenPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [readWarning, setReadWarning] = useState<string | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
     initialThreadId ?? null,
   );
@@ -221,6 +222,7 @@ export function StreamChatProvider({
 
     async function markActiveChannelRead() {
       try {
+        setReadWarning(null);
         const response = await fetch("/api/stream/notifications/read", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -237,7 +239,9 @@ export function StreamChatProvider({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to mark messages read");
+          setReadWarning(
+            err instanceof Error ? err.message : "Failed to mark messages read",
+          );
         }
       }
     }
@@ -258,10 +262,21 @@ export function StreamChatProvider({
   }
 
   return (
-    <ConnectedStreamChat
-      activeCid={activeCid}
-      onActiveThreadChange={handleActiveThreadChange}
-      payload={payload}
-    />
+    <div className="flex flex-col gap-3">
+      {readWarning && (
+        <div
+          aria-live="polite"
+          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          {readWarning}
+        </div>
+      )}
+      <ConnectedStreamChat
+        activeCid={activeCid}
+        onActiveThreadChange={handleActiveThreadChange}
+        payload={payload}
+      />
+    </div>
   );
 }

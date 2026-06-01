@@ -190,4 +190,42 @@ describe("StreamChatProvider client effects", () => {
       );
     });
   });
+
+  it("keeps messages usable when marking notifications read fails", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/stream/token") {
+        return Response.json({
+          apiKey: "stream-key",
+          token: "stream-token",
+          user: { id: "user-1", name: "User One" },
+        });
+      }
+
+      if (url === "/api/stream/notifications/read") {
+        return Response.json(
+          { error: "Read state temporarily unavailable" },
+          { status: 503 },
+        );
+      }
+
+      return Response.json({ error: "Unexpected request" }, { status: 500 });
+    });
+
+    await act(async () => {
+      root.render(
+        <StreamChatProvider
+          initialThreadId="00000000-0000-4000-8000-000000000099"
+          initialCid="messaging:00000000-0000-4000-8000-000000000099"
+        />,
+      );
+    });
+
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain("Select channel");
+      expect(container.textContent).toContain("Read state temporarily unavailable");
+      expect(container.textContent).not.toContain("Messages are unavailable");
+    });
+  });
 });

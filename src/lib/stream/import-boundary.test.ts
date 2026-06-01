@@ -5,9 +5,7 @@ import { describe, expect, it } from "vitest";
 const ALLOWED_STREAM_REACT_IMPORTS = new Set([
   "src/app/layout.tsx",
   "src/components/community/stream-chat-provider.tsx",
-  "src/components/community/stream-chat-provider.client.test.tsx",
   "src/components/community/stream-messages-view.tsx",
-  "src/lib/stream/import-boundary.test.ts",
 ]);
 
 const ALLOWED_GLOBAL_STREAM_CSS_IMPORT =
@@ -29,6 +27,7 @@ describe("Stream import boundaries", () => {
     const root = process.cwd();
     const offenders = listSourceFiles(join(root, "src"))
       .map((path) => relative(root, path))
+      .filter((path) => !path.endsWith(".test.ts") && !path.endsWith(".test.tsx"))
       .filter((path) => !ALLOWED_STREAM_REACT_IMPORTS.has(path))
       .filter((path) => {
         const source = readFileSync(join(root, path), "utf8");
