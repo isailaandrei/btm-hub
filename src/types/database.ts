@@ -498,8 +498,8 @@ export interface SharedApplicationView {
 // Notifications
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "dm_message";
-export type NotificationEntityType = "dm_message";
+export type NotificationType = "dm_message" | "stream_message";
+export type NotificationEntityType = "dm_message" | "stream_message";
 
 export interface Notification {
   id: string;
@@ -515,6 +515,31 @@ export interface Notification {
 
 export interface NotificationWithActor extends Notification {
   actor: Pick<Profile, "id" | "display_name" | "avatar_url"> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Chat Provider Registry
+// ---------------------------------------------------------------------------
+
+export type ChatThreadKind = "direct";
+export type ChatProvider = "stream";
+
+export interface ChatThread {
+  id: string;
+  kind: ChatThreadKind;
+  provider: ChatProvider;
+  provider_channel_id: string;
+  provider_channel_cid: string;
+  direct_participant_key: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatThreadParticipant {
+  thread_id: string;
+  profile_id: string;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------

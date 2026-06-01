@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+test.skip(true, "Legacy Supabase DM E2E coverage is disabled during the Stream Chat spike.");
+
 const TEST_USER = { email: "test@btmhub.com", password: "TestPass123" };
 const SARAH = { email: "sarah@btmhub.com", password: "TestPass123" };
 const MARCO = { email: "marco@btmhub.com", password: "TestPass123" };

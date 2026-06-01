@@ -7,13 +7,10 @@ import type {
 export interface NotificationInsert {
   recipient_id: string;
   actor_id: string | null;
-  type: "dm_message";
-  entity_type: "dm_message";
+  type: "dm_message" | "stream_message";
+  entity_type: "dm_message" | "stream_message";
   entity_id: string;
-  metadata: {
-    conversation_id: string;
-    body_preview: string;
-  };
+  metadata: Record<string, string>;
 }
 
 interface DmMessageNotificationInput {
@@ -77,11 +74,20 @@ export function getNotificationHref(notification: NotificationWithActor): string
     }
   }
 
+  if (notification.type === "stream_message") {
+    const threadId = notification.metadata.thread_id;
+    if (typeof threadId === "string" && threadId.length > 0) {
+      return `/community/messages?thread=${encodeURIComponent(threadId)}`;
+    }
+
+    return "/profile/notifications";
+  }
+
   return "/profile/notifications";
 }
 
 export function getNotificationText(notification: NotificationWithActor): string {
-  if (notification.type === "dm_message") {
+  if (notification.type === "dm_message" || notification.type === "stream_message") {
     const actorName = notification.actor?.display_name?.trim() || "Someone";
     const preview = notification.metadata.body_preview;
     if (typeof preview === "string" && preview.trim()) {

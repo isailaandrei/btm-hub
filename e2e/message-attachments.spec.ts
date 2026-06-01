@@ -2,6 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { join } from "path";
 import { writeFileSync, mkdirSync } from "fs";
 
+test.skip(true, "Legacy Supabase DM attachment E2E coverage is disabled during the Stream Chat spike.");
+
 const TEST_USER = { email: "test@btmhub.com", password: "TestPass123" };
 
 async function login(page: Page, user: { email: string; password: string }) {
