@@ -8,51 +8,102 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
+  failIfDisconnectedDuringMessagesViewCleanup: false,
+  disconnectCalls: 0,
+  streamClients: [] as Array<{ disconnected: boolean; userID: string | undefined }>,
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
 }));
 
-vi.mock("stream-chat-react", () => ({
-  useCreateChatClient: () => ({ userID: "user-1" }),
+vi.mock("stream-chat", () => ({
+  StreamChat: class MockStreamChat {
+    disconnected = false;
+    userID: string | undefined = "user-1";
+
+    constructor() {
+      mocks.streamClients.push(this);
+    }
+
+    async connectUser(
+      userData: { id: string },
+      tokenProvider: string | (() => Promise<string>),
+    ) {
+      this.userID = userData.id;
+
+      if (typeof tokenProvider === "function") {
+        await tokenProvider();
+      }
+
+      return {};
+    }
+
+    async disconnectUser() {
+      this.disconnected = true;
+      mocks.disconnectCalls += 1;
+    }
+  },
 }));
 
-vi.mock("./stream-messages-view", () => ({
+vi.mock("./stream-messages-view", async () => {
+  const React = (await vi.importActual("react")) as typeof import("react");
+
+  return {
   StreamMessagesView: ({
+    client,
     channelListVersion,
     onActiveThreadChange,
     onStartDirectConversation,
   }: {
+    client?: { disconnected?: boolean };
     channelListVersion?: number;
     onActiveThreadChange?: (threadId: string, cid: string) => void;
     onStartDirectConversation?: (recipientId: string) => Promise<void>;
-  }) => (
-    <div data-channel-list-version={channelListVersion} data-testid="stream-messages-view">
-      <button
-        data-testid="select-channel"
-        onClick={() =>
-          onActiveThreadChange?.(
-            "00000000-0000-4000-8000-000000000088",
-            "messaging:00000000-0000-4000-8000-000000000088",
-          )
+  }) => {
+    React.useEffect(
+      () => () => {
+        if (
+          mocks.failIfDisconnectedDuringMessagesViewCleanup &&
+          client?.disconnected
+        ) {
+          throw new Error("messages view cleaned up after Stream client disconnect");
         }
-        type="button"
+      },
+      [client],
+    );
+
+    return (
+      <div
+        data-channel-list-version={channelListVersion}
+        data-testid="stream-messages-view"
       >
-        Select channel
-      </button>
-      <button
-        data-testid="start-direct"
-        onClick={() =>
-          void onStartDirectConversation?.("00000000-0000-4000-8000-000000000002")
-        }
-        type="button"
-      >
-        Start direct
-      </button>
-    </div>
-  ),
-}));
+        <button
+          data-testid="select-channel"
+          onClick={() =>
+            onActiveThreadChange?.(
+              "00000000-0000-4000-8000-000000000088",
+              "messaging:00000000-0000-4000-8000-000000000088",
+            )
+          }
+          type="button"
+        >
+          Select channel
+        </button>
+        <button
+          data-testid="start-direct"
+          onClick={() =>
+            void onStartDirectConversation?.("00000000-0000-4000-8000-000000000002")
+          }
+          type="button"
+        >
+          Start direct
+        </button>
+      </div>
+    );
+  },
+  };
+});
 
 const { StreamChatProvider } = await import("./stream-chat-provider");
 
@@ -79,11 +130,25 @@ describe("StreamChatProvider client effects", () => {
   let root: Root;
   let container: HTMLDivElement;
   let fetchMock: ReturnType<typeof vi.fn>;
+  let rootUnmounted: boolean;
+
+  function unmountRoot() {
+    if (rootUnmounted) return;
+
+    act(() => {
+      root.unmount();
+    });
+    rootUnmounted = true;
+  }
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+    rootUnmounted = false;
+    mocks.failIfDisconnectedDuringMessagesViewCleanup = false;
+    mocks.disconnectCalls = 0;
+    mocks.streamClients.length = 0;
     fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -105,9 +170,7 @@ describe("StreamChatProvider client effects", () => {
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
+    unmountRoot();
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -302,5 +365,21 @@ describe("StreamChatProvider client effects", () => {
       expect(container.textContent).toContain("Read state temporarily unavailable");
       expect(container.textContent).not.toContain("Messages are unavailable");
     });
+  });
+
+  it("keeps the Stream client connected while the messages view unmounts", async () => {
+    mocks.failIfDisconnectedDuringMessagesViewCleanup = true;
+
+    await act(async () => {
+      root.render(<StreamChatProvider />);
+    });
+
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain("Select channel");
+    });
+
+    expect(() => unmountRoot()).not.toThrow(
+      "messages view cleaned up after Stream client disconnect",
+    );
   });
 });

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, MessageSquareWarning } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCreateChatClient } from "stream-chat-react";
+import { StreamChat } from "stream-chat";
 import { StreamMessagesView } from "./stream-messages-view";
 
 interface StreamUserPayload {
@@ -20,6 +20,8 @@ interface StreamTokenPayload {
 }
 
 type ConnectionStatus = "loading" | "error";
+
+const STREAM_DISCONNECT_GRACE_MS = 750;
 
 export function StreamChatConnectionState({
   status,
@@ -91,11 +93,15 @@ function ConnectedStreamChat({
     return body.token;
   }, []);
 
-  const client = useCreateChatClient({
+  const { client, error } = useManagedStreamChatClient({
     apiKey: payload.apiKey,
-    tokenOrProvider: tokenProvider,
     userData: payload.user,
+    tokenProvider,
   });
+
+  if (error) {
+    return <StreamChatConnectionState status="error" message={error} />;
+  }
 
   if (!client) {
     return <StreamChatConnectionState status="loading" />;
@@ -111,6 +117,60 @@ function ConnectedStreamChat({
       userId={payload.user.id}
     />
   );
+}
+
+function useManagedStreamChatClient({
+  apiKey,
+  tokenProvider,
+  userData,
+}: {
+  apiKey: string;
+  tokenProvider: () => Promise<string>;
+  userData: StreamUserPayload;
+}) {
+  const [client, setClient] = useState<StreamChat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const streamClient = new StreamChat(apiKey);
+    let cancelled = false;
+
+    const connectionPromise = streamClient.connectUser(userData, tokenProvider);
+
+    async function connect() {
+      setError(null);
+
+      try {
+        await connectionPromise;
+
+        if (!cancelled) {
+          setClient(streamClient);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to connect to Stream");
+        }
+      }
+    }
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      setClient(null);
+
+      setTimeout(() => {
+        void connectionPromise
+          .catch(() => undefined)
+          .then(() => streamClient.disconnectUser())
+          .catch((err: unknown) => {
+            console.warn("Failed to disconnect Stream client", err);
+          });
+      }, STREAM_DISCONNECT_GRACE_MS);
+    };
+  }, [apiKey, tokenProvider, userData]);
+
+  return { client, error };
 }
 
 async function createDirectConversation(recipientId: string) {
