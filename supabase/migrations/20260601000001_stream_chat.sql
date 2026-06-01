@@ -88,17 +88,13 @@ ALTER TABLE public.notifications
 
 ALTER TABLE public.notifications
   ADD CONSTRAINT notifications_type_check
-  CHECK (type IN ('dm_message', 'stream_message'));
+  CHECK (type IN ('stream_message'));
 
 ALTER TABLE public.notifications
   ADD CONSTRAINT notifications_entity_type_check
-  CHECK (entity_type IN ('dm_message', 'stream_message'));
+  CHECK (entity_type IN ('stream_message'));
 
 DROP INDEX IF EXISTS public.notifications_recipient_type_entity_key;
-
-CREATE UNIQUE INDEX IF NOT EXISTS notifications_recipient_dm_message_entity_key
-  ON public.notifications (recipient_id, type, entity_id)
-  WHERE type = 'dm_message';
 
 DROP INDEX IF EXISTS public.notifications_stream_message_recipient_unique;
 

@@ -498,8 +498,8 @@ export interface SharedApplicationView {
 // Notifications
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "dm_message" | "stream_message";
-export type NotificationEntityType = "dm_message" | "stream_message";
+export type NotificationType = "stream_message";
+export type NotificationEntityType = "stream_message";
 
 export interface Notification {
   id: string;
@@ -540,47 +540,4 @@ export interface ChatThreadParticipant {
   thread_id: string;
   profile_id: string;
   created_at: string;
-}
-
-// ---------------------------------------------------------------------------
-// Direct Messages
-// ---------------------------------------------------------------------------
-
-export interface DmConversation {
-  id: string;
-  user1_id: string;
-  user2_id: string;
-  last_message_at: string;
-  created_at: string;
-}
-
-export interface DmConversationWithParticipant extends DmConversation {
-  participant: Pick<Profile, "id" | "display_name" | "avatar_url"> | null;
-  unread_count: number;
-}
-
-export interface DmMessage {
-  id: string;
-  conversation_id: string;
-  sender_id: string;
-  body: string;
-  body_format: "text" | "html";
-  edited_at: string | null;
-  deleted_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DmMessageWithSender extends DmMessage {
-  sender: Pick<Profile, "id" | "display_name" | "avatar_url"> | null;
-}
-
-export interface DmReadReceipt {
-  conversation_id: string;
-  user_id: string;
-  last_read_at: string;
-}
-
-export interface OptimisticDmMessage extends DmMessageWithSender {
-  _optimistic?: "sending";
 }
