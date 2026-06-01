@@ -35,6 +35,7 @@ describe("ChannelSidebar", () => {
     expect(html).toContain("Messages");
     expect(html).toContain("/community/messages");
     expect(html.indexOf("Gear")).toBeLessThan(html.indexOf("Direct"));
+    expect(html.indexOf("New Post")).toBeLessThan(html.indexOf("Direct"));
     expect(html.indexOf("Direct")).toBeLessThan(html.indexOf("Messages"));
     expect(html).not.toContain("stream-chat-shell");
     expect(html).not.toContain("Connecting to messages");

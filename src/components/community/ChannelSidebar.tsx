@@ -93,6 +93,15 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
           </nav>
 
           {isAuthenticated && (
+            <Button asChild className="mt-2 gap-2">
+              <Link href="/community/new">
+                <PenSquare className="h-4 w-4" />
+                New Post
+              </Link>
+            </Button>
+          )}
+
+          {isAuthenticated && (
             <div className="mt-4 border-t border-border/70 pt-3">
               <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Direct
@@ -144,15 +153,6 @@ export function ChannelSidebar({ topics, isAuthenticated, isAdmin }: ChannelSide
                 <p className="mt-1 px-1 text-xs text-destructive">{state.message}</p>
               )}
             </form>
-          )}
-          {/* New post button */}
-          {isAuthenticated && (
-            <Button asChild className="mt-2 gap-2">
-              <Link href="/community/new">
-                <PenSquare className="h-4 w-4" />
-                New Post
-              </Link>
-            </Button>
           )}
         </div>
 
