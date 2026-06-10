@@ -1,4 +1,0 @@
-[     196ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:3001/_vercel/speed-insights/script.js:0
-[     196ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:3001/_vercel/insights/script.js:0
-[     196ms] [LOG] [Vercel Speed Insights] Failed to load script from /_vercel/speed-insights/script.js. Please check if any content blockers are enabled and try again. @ http://127.0.0.1:3001/_next/static/chunks/app/layout-9ffa838b3d2f4f00.js:0
-[     196ms] [LOG] [Vercel Web Analytics] Failed to load script from /_vercel/insights/script.js. Be sure to enable Web Analytics for your project and deploy again. See https://vercel.com/docs/analytics/quickstart for more information. @ http://127.0.0.1:3001/_next/static/chunks/app/layout-9ffa838b3d2f4f00.js:0
