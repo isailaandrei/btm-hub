@@ -4,11 +4,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mocks
 // ---------------------------------------------------------------------------
 
+const mockGetClaims = vi.fn();
 const mockGetUser = vi.fn();
 
 vi.mock("@supabase/ssr", () => ({
   createServerClient: vi.fn(() => ({
-    auth: { getUser: mockGetUser },
+    auth: { getClaims: mockGetClaims, getUser: mockGetUser },
   })),
 }));
 
@@ -52,7 +53,8 @@ function createMockRequest(pathname: string) {
 
 describe("updateSession", () => {
   beforeEach(() => {
-    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockGetClaims.mockResolvedValue({ data: null });
+    mockGetUser.mockReset();
     mockRedirect.mockImplementation((url) => ({ redirectedTo: url }));
     mockNextResponse.next.mockReturnValue({ cookies: { set: vi.fn() } });
   });
@@ -95,8 +97,8 @@ describe("updateSession", () => {
   // --- Auth routes for authenticated users ---
 
   it("redirects authenticated user from /login to /profile", async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetClaims.mockResolvedValue({
+      data: { claims: { sub: "user-1" } },
     });
 
     const req = createMockRequest("/login");
@@ -107,8 +109,8 @@ describe("updateSession", () => {
   });
 
   it("redirects authenticated user from /register to /profile", async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetClaims.mockResolvedValue({
+      data: { claims: { sub: "user-1" } },
     });
 
     const req = createMockRequest("/register");
@@ -125,8 +127,8 @@ describe("updateSession", () => {
   });
 
   it("allows authenticated user on public route /", async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetClaims.mockResolvedValue({
+      data: { claims: { sub: "user-1" } },
     });
 
     const req = createMockRequest("/");
@@ -135,12 +137,20 @@ describe("updateSession", () => {
   });
 
   it("allows authenticated user on protected route /profile", async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetClaims.mockResolvedValue({
+      data: { claims: { sub: "user-1" } },
     });
 
     const req = createMockRequest("/profile");
     await updateSession(req);
     expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
+  it("uses getClaims in the proxy and does not call the getUser path", async () => {
+    const req = createMockRequest("/academy");
+    await updateSession(req);
+
+    expect(mockGetClaims).toHaveBeenCalledTimes(1);
+    expect(mockGetUser).not.toHaveBeenCalled();
   });
 });
