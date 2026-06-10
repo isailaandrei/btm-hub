@@ -36,7 +36,7 @@ export function ColumnSortToggle({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`ml-0.5 inline-flex items-center rounded p-0.5 text-xs transition-colors ${
+      className={`ml-0.5 inline-flex min-h-6 min-w-6 items-center justify-center rounded p-0.5 text-xs transition-colors ${
         active
           ? "text-primary"
           : "text-muted-foreground/50 hover:text-muted-foreground"

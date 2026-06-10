@@ -126,7 +126,7 @@ function renderFieldValue(
     <div className="flex flex-col gap-0.5">
       {entries.map((e, i) => (
         <div key={i}>
-          <span className="text-muted-foreground/60">{e.program}:</span>{" "}
+          <span className="text-muted-foreground">{e.program}:</span>{" "}
           {field.key === "online_links" ? renderSocialLinkText(e.value) : e.value}
         </div>
       ))}
@@ -624,7 +624,7 @@ export function ContactsPanel({
                                 <div className="flex flex-col gap-0.5">
                                   {contactApplications.map((application) => (
                                     <div key={application.id}>
-                                      <span className="text-muted-foreground/60">
+                                      <span className="text-muted-foreground">
                                         {application.program}:
                                       </span>{" "}
                                       {formatDate(application.submitted_at)}

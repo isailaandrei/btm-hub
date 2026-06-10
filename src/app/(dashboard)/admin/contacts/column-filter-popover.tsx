@@ -30,7 +30,7 @@ export function ColumnFilterPopover({
         <button
           type="button"
           disabled={disabled}
-          className={`ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-xs transition-colors ${
+          className={`ml-1 inline-flex min-h-6 min-w-6 items-center justify-center gap-0.5 rounded p-0.5 text-xs transition-colors ${
             hasActive
               ? "text-primary"
               : "text-muted-foreground/50 hover:text-muted-foreground"
