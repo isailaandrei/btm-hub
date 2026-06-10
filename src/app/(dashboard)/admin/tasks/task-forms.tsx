@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import { Send, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Profile, TaskGroup } from "@/types/database";
+import type { AdminAssigneeProfile, TaskGroup } from "@/types/database";
 import {
   createTaskAction,
   createTaskCommentAction,
@@ -93,7 +93,7 @@ export function CreateTaskForm({
   onSuccess,
 }: {
   group: TaskGroup;
-  admins: Profile[];
+  admins: AdminAssigneeProfile[];
   onSuccess: () => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);

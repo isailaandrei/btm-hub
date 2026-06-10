@@ -5,7 +5,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { flushSync } from "react-dom";
 import { CalendarDays, EyeOff, Search, UserCircle } from "lucide-react";
 import { toast } from "sonner";
-import type { AdminTask, Profile } from "@/types/database";
+import type { AdminAssigneeProfile, AdminTask } from "@/types/database";
 import { reorderTaskGroupsAction } from "./actions";
 import { DEFAULT_DONE_TASK_LIMIT } from "./constants";
 import { SortableItem, SortableList } from "./task-dnd";
@@ -39,7 +39,7 @@ export function TaskBoardView({
   tasks: AdminTask[];
   today: string;
   doneCountsByGroupId: Record<string, number>;
-  admins: Profile[];
+  admins: AdminAssigneeProfile[];
   onOpenTask: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;
   onShowMoreDone: (groupId: string) => Promise<void>;

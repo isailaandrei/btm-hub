@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import type { AdminTask, Profile } from "@/types/database";
+import type { AdminAssigneeProfile, AdminTask } from "@/types/database";
 import {
   DEFAULT_DONE_TASK_LIMIT,
   TASK_DATE_BUCKET_ORDER,
@@ -36,7 +36,7 @@ export function TaskDateView({
   tasks: AdminTask[];
   today: string;
   doneCountsByDateBucket: Record<TaskDateBucket, number>;
-  admins: Profile[];
+  admins: AdminAssigneeProfile[];
   onOpenTask: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;
   onShowMoreDone: (bucket: TaskDateBucket) => Promise<void>;

@@ -7,7 +7,11 @@ import { Archive, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { AdminTask, Profile, TaskGroup } from "@/types/database";
+import type {
+  AdminAssigneeProfile,
+  AdminTask,
+  TaskGroup,
+} from "@/types/database";
 import { archiveTaskGroupAction, reorderTasksAction, updateTaskGroupAction } from "./actions";
 import {
   DEFAULT_DONE_TASK_LIMIT,
@@ -46,7 +50,7 @@ export function TaskGroupSection({
   visibleDoneTasks: AdminTask[];
   hiddenDoneCount: number;
   doneCount: number;
-  admins: Profile[];
+  admins: AdminAssigneeProfile[];
   isFiltered: boolean;
   onOpenTask: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;

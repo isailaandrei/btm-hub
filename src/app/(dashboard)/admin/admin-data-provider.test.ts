@@ -34,3 +34,18 @@ describe("AdminDataProvider activity summaries", () => {
     expect(source).not.toContain("CONTACT_EVENT_SUMMARY_SELECT");
   });
 });
+
+describe("AdminDataProvider task profiles", () => {
+  it("does not download profile bio or preferences for task assignee pickers", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+    const select = source.match(
+      /\.from\("profiles"\)\s*\.select\("([^"]+)"\)/,
+    )?.[1];
+
+    expect(select).toBe(
+      "id, email, role, display_name, avatar_url, created_at, updated_at",
+    );
+    expect(select).not.toContain("bio");
+    expect(select).not.toContain("preferences");
+  });
+});

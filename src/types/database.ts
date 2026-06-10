@@ -10,6 +10,17 @@ export interface Profile {
   updated_at: string;
 }
 
+export type AdminAssigneeProfile = Pick<
+  Profile,
+  | "id"
+  | "email"
+  | "display_name"
+  | "avatar_url"
+  | "role"
+  | "created_at"
+  | "updated_at"
+>;
+
 export type PortfolioImageMimeType = "image/jpeg" | "image/png" | "image/webp";
 
 export interface ProfilePortfolioItem {

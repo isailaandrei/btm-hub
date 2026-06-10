@@ -13,8 +13,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type {
+  AdminAssigneeProfile,
   AdminTask,
-  Profile,
   TaskGroup,
   TaskPriority,
   TaskStatus,
@@ -48,7 +48,7 @@ export function TaskDetailPanel({
   task: AdminTask | null;
   groups: TaskGroup[];
   tasks: AdminTask[];
-  admins: Profile[];
+  admins: AdminAssigneeProfile[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {

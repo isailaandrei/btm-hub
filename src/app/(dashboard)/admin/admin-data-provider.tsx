@@ -31,7 +31,15 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import type { Application, Profile, Contact, TagCategory, Tag, ContactTag, ContactEvent } from "@/types/database";
+import type {
+  AdminAssigneeProfile,
+  Application,
+  Contact,
+  TagCategory,
+  Tag,
+  ContactTag,
+  ContactEvent,
+} from "@/types/database";
 import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
@@ -52,7 +60,7 @@ interface AdminApplicationsContextValue {
 }
 
 interface AdminProfilesContextValue {
-  profiles: Profile[] | null;
+  profiles: AdminAssigneeProfile[] | null;
   profilesError: string | null;
   ensureProfiles: () => void;
 }
@@ -160,7 +168,7 @@ export function AdminDataProvider({
   const [applications, setApplications] = useState<
     ContactListApplication[] | null
   >(null);
-  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [profiles, setProfiles] = useState<AdminAssigneeProfile[] | null>(null);
   const [appsError, setAppsError] = useState<string | null>(null);
   const [profilesError, setProfilesError] = useState<string | null>(null);
 
@@ -398,7 +406,7 @@ export function AdminDataProvider({
     async function fetchProfiles() {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, email, role, display_name, bio, avatar_url, preferences, created_at, updated_at")
+        .select("id, email, role, display_name, avatar_url, created_at, updated_at")
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -418,7 +426,10 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "profiles" },
           (payload) => {
-            setProfiles((prev) => [payload.new as Profile, ...(prev ?? [])]);
+            setProfiles((prev) => [
+              payload.new as AdminAssigneeProfile,
+              ...(prev ?? []),
+            ]);
           },
         )
         .on(
@@ -428,7 +439,9 @@ export function AdminDataProvider({
             // Merge instead of replace — same partial-payload concern as the
             // applications handler above (Supabase Realtime can omit unchanged
             // columns when REPLICA IDENTITY isn't FULL).
-            const next = payload.new as Partial<Profile> & { id: string };
+            const next = payload.new as Partial<AdminAssigneeProfile> & {
+              id: string;
+            };
             setProfiles((prev) =>
               (prev ?? []).map((p) => (p.id === next.id ? { ...p, ...next } : p)),
             );
@@ -439,7 +452,9 @@ export function AdminDataProvider({
           { event: "DELETE", schema: "public", table: "profiles" },
           (payload) => {
             setProfiles((prev) =>
-              (prev ?? []).filter((p) => p.id !== (payload.old as Profile).id)
+              (prev ?? []).filter(
+                (p) => p.id !== (payload.old as AdminAssigneeProfile).id,
+              )
             );
           },
         )

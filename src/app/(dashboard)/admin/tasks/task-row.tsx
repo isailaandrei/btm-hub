@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
+  AdminAssigneeProfile,
   AdminTask,
-  Profile,
   TaskPriority,
   TaskStatus,
 } from "@/types/database";
@@ -25,7 +25,10 @@ import {
   type TaskUpdatePatch,
 } from "./task-data-provider";
 
-function displayProfile(profile: Profile | undefined, fallback = "Unassigned") {
+function displayProfile(
+  profile: AdminAssigneeProfile | undefined,
+  fallback = "Unassigned",
+) {
   if (!profile) return fallback;
   return profile.display_name ?? profile.email;
 }
@@ -41,7 +44,7 @@ export function TaskRow({
   compact = false,
 }: {
   task: AdminTask;
-  admins: Profile[];
+  admins: AdminAssigneeProfile[];
   onOpen: (task: AdminTask) => void;
   onRefresh: () => Promise<void>;
   onOptimisticUpdate?: (taskId: string, patch: OptimisticTaskPatch) => void;
