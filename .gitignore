@@ -90,4 +90,6 @@ supabase/seed.*.local.sql
 # May contain identifiable applicant data; never commit.
 /tmp/
 # Local Supabase Studio scratchpad (saved SQL snippets)
-supabase/snippets/.playwright-mcp/
+supabase/snippets/
+# Playwright MCP debug artifacts
+.playwright-mcp/
