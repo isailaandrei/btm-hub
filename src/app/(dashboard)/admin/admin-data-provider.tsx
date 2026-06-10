@@ -375,7 +375,7 @@ export function AdminDataProvider({
     }
 
     fetchApplications();
-  }, []);
+  }, [scheduleContactActivitySummaryRefetch]);
 
   const ensureAnswerKeys = useCallback((answerKeys: Iterable<string>) => {
     requestApplicationAnswerKeys(answerKeys);
@@ -642,7 +642,7 @@ export function AdminDataProvider({
     }
 
     fetchContacts();
-  }, []);
+  }, [scheduleContactActivitySummaryRefetch]);
 
   // Cleanup only the channels that were actually created
   useEffect(() => {

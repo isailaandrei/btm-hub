@@ -85,8 +85,6 @@ export function AuthButtons({
     }
 
     if (hasInitialUser) {
-      setUser(initialUser ?? null);
-      setLoading(false);
       try {
         if (initialUser) {
           sessionStorage.setItem(CACHE_KEY, JSON.stringify(initialUser));
