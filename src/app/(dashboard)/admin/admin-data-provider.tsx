@@ -34,13 +34,21 @@ import { createClient } from "@/lib/supabase/client";
 import type { Application, Profile, Contact, TagCategory, Tag, ContactTag, ContactEvent } from "@/types/database";
 import type { ContactEventSummary } from "@/lib/data/contact-events";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  buildApplicationProjectionSelect,
+  getApplicationProjectionAnswerKeys,
+  mergeProjectedApplicationAnswers,
+  reassembleProjectedApplications,
+  type ContactListApplication,
+} from "@/lib/admin/contacts/application-projection";
 
 type FetchState = "idle" | "loading" | "done";
 
 interface AdminApplicationsContextValue {
-  applications: Application[] | null;
+  applications: ContactListApplication[] | null;
   appsError: string | null;
-  ensureApplications: () => void;
+  ensureApplications: (answerKeys?: Iterable<string>) => void;
+  ensureAnswerKeys: (answerKeys: Iterable<string>) => void;
 }
 
 interface AdminProfilesContextValue {
@@ -74,8 +82,6 @@ const AdminPreferencesContext =
   createContext<AdminPreferencesContextValue | null>(null);
 
 const MAX_ADMIN_APPLICATIONS = 1000;
-const APPLICATION_SELECT =
-  "id, user_id, contact_id, program, status, answers, tags, admin_notes, submitted_at, updated_at";
 const CONTACT_SELECT =
   "id, email, name, phone, profile_id, created_at, updated_at";
 const TAG_CATEGORY_SELECT =
@@ -151,7 +157,9 @@ export function AdminDataProvider({
   children: ReactNode;
   initialPreferences?: Record<string, unknown>;
 }) {
-  const [applications, setApplications] = useState<Application[] | null>(null);
+  const [applications, setApplications] = useState<
+    ContactListApplication[] | null
+  >(null);
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [appsError, setAppsError] = useState<string | null>(null);
   const [profilesError, setProfilesError] = useState<string | null>(null);
@@ -178,22 +186,34 @@ export function AdminDataProvider({
     null,
   );
   const applicationsTruncatedNoticeShownRef = useRef(false);
+  const requestedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
+  const loadedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
+  const applicationsChannelStartedRef = useRef(false);
 
   function getSupabase() {
     if (!supabaseRef.current) supabaseRef.current = createClient();
     return supabaseRef.current;
   }
 
-  const ensureApplications = useCallback(() => {
-    if (appsFetchState.current !== "idle") return;
+  const requestApplicationAnswerKeys = useCallback((keys: Iterable<string>) => {
+    for (const key of getApplicationProjectionAnswerKeys(keys)) {
+      requestedApplicationAnswerKeysRef.current.add(key);
+    }
+  }, []);
+
+  const startApplicationsFetch = useCallback((mode: "replace" | "merge") => {
+    if (appsFetchState.current === "loading") return;
     appsFetchState.current = "loading";
 
     const supabase = getSupabase();
 
     async function fetchApplications() {
+      const projection = buildApplicationProjectionSelect(
+        requestedApplicationAnswerKeysRef.current,
+      );
       const { data, error, count } = await supabase
         .from("applications")
-        .select(APPLICATION_SELECT, { count: "exact" })
+        .select(projection.select, { count: mode === "replace" ? "exact" : undefined })
         .order("submitted_at", { ascending: false })
         .range(0, MAX_ADMIN_APPLICATIONS - 1);
 
@@ -205,8 +225,20 @@ export function AdminDataProvider({
         return;
       }
 
+      const projectedApplications = reassembleProjectedApplications(
+        (data ?? []) as unknown as Array<Record<string, unknown>>,
+        projection.answerKeys,
+      );
+
       setAppsError(null);
-      setApplications(data ?? []);
+      setApplications((previous) =>
+        mode === "merge"
+          ? mergeProjectedApplicationAnswers(previous, projectedApplications)
+          : projectedApplications,
+      );
+      for (const key of projection.answerKeys) {
+        loadedApplicationAnswerKeysRef.current.add(key);
+      }
       if (
         (count ?? 0) > MAX_ADMIN_APPLICATIONS &&
         !applicationsTruncatedNoticeShownRef.current
@@ -219,13 +251,32 @@ export function AdminDataProvider({
       appsFetchState.current = "done";
 
       // Subscribe to Realtime only after the initial fetch succeeds
+      if (applicationsChannelStartedRef.current) {
+        const missingKeys = [...requestedApplicationAnswerKeysRef.current].filter(
+          (key) => !loadedApplicationAnswerKeysRef.current.has(key),
+        );
+        if (missingKeys.length > 0) startApplicationsFetch("merge");
+        return;
+      }
+      applicationsChannelStartedRef.current = true;
+
       const channel = supabase
         .channel("admin-applications")
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "applications" },
           (payload) => {
-            setApplications((prev) => [payload.new as Application, ...(prev ?? [])]);
+            const next = payload.new as Application;
+            setApplications((prev) => [
+              {
+                id: next.id,
+                contact_id: next.contact_id,
+                program: next.program,
+                submitted_at: next.submitted_at,
+                answers: next.answers,
+              },
+              ...(prev ?? []),
+            ]);
           },
         )
         .on(
@@ -238,7 +289,18 @@ export function AdminDataProvider({
             // like `answers` from our in-memory copy.
             const next = payload.new as Partial<Application> & { id: string };
             setApplications((prev) =>
-              (prev ?? []).map((a) => (a.id === next.id ? { ...a, ...next } : a)),
+              (prev ?? []).map((a) =>
+                a.id === next.id
+                  ? {
+                      ...a,
+                      ...next,
+                      answers: {
+                        ...a.answers,
+                        ...(next.answers ?? {}),
+                      },
+                    }
+                  : a,
+              ),
             );
           },
         )
@@ -254,10 +316,35 @@ export function AdminDataProvider({
         .subscribe();
 
       channelsRef.current.push(channel);
+
+      const missingKeys = [...requestedApplicationAnswerKeysRef.current].filter(
+        (key) => !loadedApplicationAnswerKeysRef.current.has(key),
+      );
+      if (missingKeys.length > 0) startApplicationsFetch("merge");
     }
 
     fetchApplications();
   }, []);
+
+  const ensureAnswerKeys = useCallback((answerKeys: Iterable<string>) => {
+    requestApplicationAnswerKeys(answerKeys);
+    const missingKeys = [...requestedApplicationAnswerKeysRef.current].filter(
+      (key) => !loadedApplicationAnswerKeysRef.current.has(key),
+    );
+    if (missingKeys.length === 0) return;
+    if (appsFetchState.current === "idle") {
+      startApplicationsFetch("replace");
+    } else if (appsFetchState.current === "done") {
+      startApplicationsFetch("merge");
+    }
+  }, [requestApplicationAnswerKeys, startApplicationsFetch]);
+
+  const ensureApplications = useCallback((answerKeys: Iterable<string> = []) => {
+    requestApplicationAnswerKeys(answerKeys);
+    if (appsFetchState.current === "idle") {
+      startApplicationsFetch("replace");
+    }
+  }, [requestApplicationAnswerKeys, startApplicationsFetch]);
 
   const ensureProfiles = useCallback(() => {
     if (profilesFetchState.current !== "idle") return;
@@ -526,8 +613,9 @@ export function AdminDataProvider({
       applications,
       appsError,
       ensureApplications,
+      ensureAnswerKeys,
     }),
-    [applications, appsError, ensureApplications],
+    [applications, appsError, ensureApplications, ensureAnswerKeys],
   );
 
   const profilesValue = useMemo(

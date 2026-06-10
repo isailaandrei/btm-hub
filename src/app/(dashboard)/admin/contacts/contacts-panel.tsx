@@ -25,7 +25,11 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import type { Application, ProgramSlug } from "@/types/database";
+import type { ProgramSlug } from "@/types/database";
+import {
+  getContactsTableApplicationAnswerKeys,
+  type ContactListApplication,
+} from "@/lib/admin/contacts/application-projection";
 import { PROGRAMS } from "../applications/constants";
 import { type FieldRegistryEntry } from "./field-registry";
 import { ColumnFilterPopover } from "./column-filter-popover";
@@ -91,7 +95,7 @@ function renderSocialLinkText(value: string): ReactNode {
 }
 
 function renderFieldValue(
-  contactApps: Application[],
+  contactApps: ContactListApplication[],
   field: FieldRegistryEntry,
 ): ReactNode {
   const entries: { program: string; value: string }[] = [];
@@ -143,7 +147,8 @@ export function ContactsPanel({
     contactsError,
     ensureContacts,
   } = useAdminContactsData();
-  const { applications, ensureApplications } = useAdminApplicationsData();
+  const { applications, ensureApplications, ensureAnswerKeys } =
+    useAdminApplicationsData();
   const { preferences, setPreferences } = useAdminPreferencesData();
   const sync = useAcademyImportSync();
 
@@ -155,6 +160,20 @@ export function ContactsPanel({
     setPreferences,
   });
   const debouncedSearch = useDebouncedValue(state.search, 200);
+  const requiredApplicationAnswerKeys = useMemo(
+    () =>
+      getContactsTableApplicationAnswerKeys({
+        columnFilters: state.columnFilters,
+        sortBy: state.sortBy,
+        visibleColumns: state.visibleColumns,
+      }),
+    [state.columnFilters, state.sortBy, state.visibleColumns],
+  );
+
+  useEffect(() => {
+    ensureAnswerKeys(requiredApplicationAnswerKeys);
+  }, [ensureAnswerKeys, requiredApplicationAnswerKeys]);
+
   const {
     activeFields,
     categoriesById,

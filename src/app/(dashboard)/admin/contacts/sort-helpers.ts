@@ -1,4 +1,5 @@
-import type { Application, Contact, ContactTag } from "@/types/database";
+import type { Contact, ContactTag } from "@/types/database";
+import type { ContactListApplication } from "@/lib/admin/contacts/application-projection";
 import type { FieldRegistryEntry } from "./field-registry";
 
 export type SortDirection = "asc" | "desc";
@@ -37,7 +38,7 @@ function getNewestContactTagAssignedAt(
 export function getSortValue(
   contact: Contact,
   key: string,
-  appsByContact: Map<string, Application[]>,
+  appsByContact: Map<string, ContactListApplication[]>,
   field: FieldRegistryEntry | undefined,
   contactTagsByContactId?: Map<string, ContactTag[]>,
 ): SortValue {
@@ -99,7 +100,7 @@ export function compareContacts(
   a: Contact,
   b: Contact,
   sortBy: SortState,
-  appsByContact: Map<string, Application[]>,
+  appsByContact: Map<string, ContactListApplication[]>,
   field: FieldRegistryEntry | undefined,
   contactTagsByContactId?: Map<string, ContactTag[]>,
 ): number {

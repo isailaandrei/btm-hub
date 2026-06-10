@@ -2,13 +2,13 @@
 
 import { useMemo } from "react";
 import type {
-  Application,
   Contact,
   ContactTag,
   ProgramSlug,
   Tag,
   TagCategory,
 } from "@/types/database";
+import type { ContactListApplication } from "@/lib/admin/contacts/application-projection";
 import {
   getFieldEntry,
   type FieldRegistryEntry,
@@ -25,10 +25,10 @@ import {
 
 const EMPTY_TAG_ID_SET = new Set<string>();
 const EMPTY_CONTACT_TAGS: ContactTag[] = [];
-const EMPTY_APPLICATIONS: Application[] = [];
+const EMPTY_APPLICATIONS: ContactListApplication[] = [];
 
 interface UseContactsPanelViewModelArgs {
-  applications: Application[] | null;
+  applications: ContactListApplication[] | null;
   contacts: Contact[] | null;
   contactTags: ContactTag[] | null;
   contactEventSummaries: ContactEventSummary[] | null;
@@ -63,7 +63,7 @@ export function useContactsPanelViewModel({
   pageSize,
 }: UseContactsPanelViewModelArgs) {
   const appsByContact = useMemo(() => {
-    const map = new Map<string, Application[]>();
+    const map = new Map<string, ContactListApplication[]>();
     for (const application of applications ?? []) {
       if (!application.contact_id) continue;
       const existing = map.get(application.contact_id);

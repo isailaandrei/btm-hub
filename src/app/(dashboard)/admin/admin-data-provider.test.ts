@@ -13,3 +13,14 @@ describe("AdminDataProvider preferences", () => {
     expect(source).not.toContain('.select("preferences")');
   });
 });
+
+describe("AdminDataProvider application projection", () => {
+  it("uses projected contact-list application rows instead of full admin application rows", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    expect(source).toContain("buildApplicationProjectionSelect");
+    expect(source).toContain("reassembleProjectedApplications");
+    expect(source).not.toContain("admin_notes");
+    expect(source).not.toContain("tags, admin_notes");
+  });
+});
