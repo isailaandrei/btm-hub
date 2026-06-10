@@ -54,17 +54,21 @@ export function Navbar({ variant = "dark", initialUser }: NavbarProps) {
             <>
               {/* Desktop: brand logo image (falls back to text if missing) */}
               {logoError ? (
-                <LogoText className="hidden text-2xl font-bold text-white md:block" />
+                <span className="hidden h-10 w-[122px] items-center md:flex">
+                  <LogoText className="text-2xl font-bold text-white" />
+                </span>
               ) : (
-                <Image
-                  src="/logo-white.png"
-                  alt="Behind the Mask"
-                  width={122}
-                  height={40}
-                  className="hidden md:block"
-                  onError={() => setLogoError(true)}
-                  priority
-                />
+                <span className="hidden h-10 w-[122px] md:block">
+                  <Image
+                    src="/logo-white.png"
+                    alt="Behind the Mask"
+                    width={122}
+                    height={40}
+                    className="h-10 w-[122px] object-contain"
+                    onError={() => setLogoError(true)}
+                    priority
+                  />
+                </span>
               )}
               {/* Mobile: always text */}
               <LogoText className="text-lg font-medium text-white md:hidden" />

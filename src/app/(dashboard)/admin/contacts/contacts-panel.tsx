@@ -346,7 +346,6 @@ export function ContactsPanel({
 
       <div className="mb-6">
         <ContactsFilters
-          disabled={isHydratingFullData}
           search={state.search}
           selectedTagIds={state.selectedTagIds}
           tagCategories={effectiveTagCategories ?? []}
@@ -361,18 +360,6 @@ export function ContactsPanel({
           onPendingFilterChange={state.handlePendingFilterChange}
         />
       </div>
-
-      {isHydratingFullData && (
-        <div
-          role="status"
-          className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
-        >
-          Loading all contacts... Search, filters, sorting, and page size will be available shortly.
-          {initialData?.isSortApproximateUntilHydration
-            ? " Your saved sort will apply after hydration."
-            : ""}
-        </div>
-      )}
 
       {contactsError && contacts === null && initialData && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -391,9 +378,8 @@ export function ContactsPanel({
           {hasAnyFilter && (
             <button
               type="button"
-              disabled={isHydratingFullData}
               onClick={state.handleClearAllFilters}
-              className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
             >
               Clear all filters
             </button>
@@ -405,7 +391,6 @@ export function ContactsPanel({
             <button
               key={size}
               type="button"
-              disabled={isHydratingFullData}
               onClick={() => {
                 state.setPageSize(size);
                 state.setPage(1);
@@ -415,7 +400,7 @@ export function ContactsPanel({
                 state.pageSize === size
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              } disabled:cursor-not-allowed disabled:opacity-50`}
+              }`}
             >
               {size}
             </button>
@@ -457,7 +442,6 @@ export function ContactsPanel({
                           state.sortBy?.key === key ? state.sortBy.direction : null
                         }
                         onClick={() => state.toggleSort(key)}
-                        disabled={isHydratingFullData}
                         label={label}
                       />
                     </span>
@@ -488,7 +472,6 @@ export function ContactsPanel({
                           state.handleProgramFilterToggle(value as ProgramSlug)
                         }
                         onClear={state.handleProgramFilterClear}
-                        disabled={isHydratingFullData}
                         optionClassName="capitalize"
                       />
                     </span>
@@ -519,7 +502,6 @@ export function ContactsPanel({
                             : null
                         }
                         onClick={() => state.toggleSort(BUILTIN_COLUMN.tags)}
-                        disabled={isHydratingFullData}
                         label="Tags"
                       />
                     </span>
@@ -558,7 +540,6 @@ export function ContactsPanel({
                           onClear={() =>
                             state.handleColumnFilterClear(field.key)
                           }
-                          disabled={isHydratingFullData}
                         />
                       )}
                       <ColumnSortToggle
@@ -569,7 +550,6 @@ export function ContactsPanel({
                             : null
                         }
                         onClick={() => state.toggleSort(field.key)}
-                        disabled={isHydratingFullData}
                         label={field.label}
                       />
                     </span>
@@ -728,12 +708,11 @@ export function ContactsPanel({
           {currentPage > 1 && (
             <button
               type="button"
-              disabled={isHydratingFullData}
               onClick={() => {
                 state.setPage(currentPage - 1);
                 state.clearSelection();
               }}
-              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Previous
             </button>
@@ -744,12 +723,11 @@ export function ContactsPanel({
           {currentPage < totalPages && (
             <button
               type="button"
-              disabled={isHydratingFullData}
               onClick={() => {
                 state.setPage(currentPage + 1);
                 state.clearSelection();
               }}
-              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
             >
               Next
             </button>
