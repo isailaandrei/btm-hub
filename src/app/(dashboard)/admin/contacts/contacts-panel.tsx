@@ -144,15 +144,13 @@ export function ContactsPanel({
     ensureContacts,
   } = useAdminContactsData();
   const { applications, ensureApplications } = useAdminApplicationsData();
-  const { preferences, setPreferences, ensurePreferences } =
-    useAdminPreferencesData();
+  const { preferences, setPreferences } = useAdminPreferencesData();
   const sync = useAcademyImportSync();
 
   const state = useContactsPanelState({
     contacts,
     ensureApplications,
     ensureContacts,
-    ensurePreferences,
     preferences,
     setPreferences,
   });

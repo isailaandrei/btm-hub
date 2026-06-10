@@ -17,6 +17,10 @@ import {
   syncContactMemory,
   syncContactMemoryBulk,
 } from "@/lib/admin-ai-memory/server-action-sync";
+import {
+  contactsPreferencesPatchSchema,
+  mergeContactsTablePreferencePatch,
+} from "@/lib/admin/contacts/preferences";
 
 const contactEmailSchema = z.email("Please enter a valid email address");
 
@@ -64,7 +68,17 @@ export async function unassignContactTag(contactId: string, tagId: string) {
 
 export async function updatePreferences(patch: Record<string, unknown>) {
   const profile = await requireAdmin();
-  return updateProfilePreferences(profile.id, patch);
+  const parsed = contactsPreferencesPatchSchema.safeParse(patch);
+  if (!parsed.success) {
+    const message = parsed.error.issues[0]?.message ?? "Invalid preferences";
+    throw new Error(`Invalid preferences: ${message}`);
+  }
+
+  const mergedPatch = mergeContactsTablePreferencePatch(
+    profile.preferences,
+    parsed.data,
+  );
+  return updateProfilePreferences(profile.id, mergedPatch);
 }
 
 const MAX_BULK_ASSIGN = 500;

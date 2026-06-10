@@ -65,6 +65,7 @@ const {
 
 describe("updatePreferences", () => {
   beforeEach(() => {
+    mockProfile.preferences = {};
     mockUpdateProfilePreferences.mockResolvedValue({});
   });
 
@@ -72,6 +73,51 @@ describe("updatePreferences", () => {
     const patch = { contacts_table: { visible_columns: ["budget"] } };
     await updatePreferences(patch);
     expect(mockUpdateProfilePreferences).toHaveBeenCalledWith(mockProfile.id, patch);
+  });
+
+  it("preserves existing contacts_table preferences when patching one key", async () => {
+    mockProfile.preferences = {
+      contacts_table: {
+        visible_columns: ["budget"],
+        previously_selected_columns: ["budget", "age"],
+      },
+    };
+
+    await updatePreferences({
+      contacts_table: {
+        sort_by: { key: "name", direction: "asc" },
+        page_size: 50,
+      },
+    });
+
+    expect(mockUpdateProfilePreferences).toHaveBeenCalledWith(mockProfile.id, {
+      contacts_table: {
+        visible_columns: ["budget"],
+        previously_selected_columns: ["budget", "age"],
+        sort_by: { key: "name", direction: "asc" },
+        page_size: 50,
+      },
+    });
+  });
+
+  it("rejects unsupported preference keys", async () => {
+    await expect(
+      updatePreferences({ contacts_table: { dangerous: true } }),
+    ).rejects.toThrow("Invalid preferences");
+
+    expect(mockUpdateProfilePreferences).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid contacts table sort preferences", async () => {
+    await expect(
+      updatePreferences({
+        contacts_table: {
+          sort_by: { key: "name", direction: "sideways" },
+        },
+      }),
+    ).rejects.toThrow("Invalid preferences");
+
+    expect(mockUpdateProfilePreferences).not.toHaveBeenCalled();
   });
 });
 

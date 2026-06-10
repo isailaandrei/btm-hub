@@ -62,7 +62,6 @@ interface AdminContactsContextValue {
 interface AdminPreferencesContextValue {
   preferences: Record<string, unknown>;
   setPreferences: Dispatch<SetStateAction<Record<string, unknown>>>;
-  ensurePreferences: () => void;
 }
 
 const AdminApplicationsContext =
@@ -145,7 +144,13 @@ export function useAdminPreferencesData() {
   return ctx;
 }
 
-export function AdminDataProvider({ children }: { children: ReactNode }) {
+export function AdminDataProvider({
+  children,
+  initialPreferences = {},
+}: {
+  children: ReactNode;
+  initialPreferences?: Record<string, unknown>;
+}) {
   const [applications, setApplications] = useState<Application[] | null>(null);
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [appsError, setAppsError] = useState<string | null>(null);
@@ -159,12 +164,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     useState<ContactEventSummary[] | null>(null);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
-  const [preferences, setPreferences] = useState<Record<string, unknown>>({});
+  const [preferences, setPreferences] =
+    useState<Record<string, unknown>>(initialPreferences);
 
   const appsFetchState = useRef<FetchState>("idle");
   const profilesFetchState = useRef<FetchState>("idle");
   const contactsFetchState = useRef<FetchState>("idle");
-  const preferencesFetchState = useRef<FetchState>("idle");
   const channelsRef = useRef<RealtimeChannel[]>([]);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const tagCategoriesRefetchTimeoutRef =
@@ -502,38 +507,6 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     fetchContacts();
   }, []);
 
-  const ensurePreferences = useCallback(() => {
-    if (preferencesFetchState.current !== "idle") return;
-    preferencesFetchState.current = "loading";
-
-    const supabase = getSupabase();
-
-    async function fetchPreferences() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        preferencesFetchState.current = "done";
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("preferences")
-        .eq("id", user.id)
-        .single();
-
-      if (error) {
-        preferencesFetchState.current = "idle";
-        toast.error("Failed to load preferences.");
-        return;
-      }
-
-      setPreferences((data?.preferences as Record<string, unknown>) ?? {});
-      preferencesFetchState.current = "done";
-    }
-
-    fetchPreferences();
-  }, []);
-
   // Cleanup only the channels that were actually created
   useEffect(() => {
     return () => {
@@ -591,12 +564,10 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     () => ({
       preferences,
       setPreferences,
-      ensurePreferences,
     }),
     [
       preferences,
       setPreferences,
-      ensurePreferences,
     ],
   );
 

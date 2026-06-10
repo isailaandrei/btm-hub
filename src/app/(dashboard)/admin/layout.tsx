@@ -16,7 +16,7 @@ export default async function AdminLayout({
 
   return (
     <div>
-      <AdminDataProvider>
+      <AdminDataProvider initialPreferences={profile.preferences}>
         <AdminEmailDataProvider>
           {children}
         </AdminEmailDataProvider>

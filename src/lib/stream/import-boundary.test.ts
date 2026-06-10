@@ -3,13 +3,11 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ALLOWED_STREAM_REACT_IMPORTS = new Set([
-  "src/app/layout.tsx",
   "src/components/community/stream-chat-provider.tsx",
   "src/components/community/stream-messages-view.tsx",
 ]);
 
-const ALLOWED_GLOBAL_STREAM_CSS_IMPORT =
-  'import "stream-chat-react/dist/css/index.css";';
+const STREAM_CHAT_CSS_IMPORT = 'stream-chat-react/dist/css/index.css';
 
 function listSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -37,7 +35,7 @@ describe("Stream import boundaries", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("allows only Stream CSS as a global layout side effect", () => {
+  it("keeps Stream CSS out of the global layout", () => {
     const root = process.cwd();
     const source = readFileSync(join(root, "src/app/layout.tsx"), "utf8");
     const streamImportLines = source
@@ -45,6 +43,16 @@ describe("Stream import boundaries", () => {
       .map((line) => line.trim())
       .filter((line) => line.includes("stream-chat-react"));
 
-    expect(streamImportLines).toEqual([ALLOWED_GLOBAL_STREAM_CSS_IMPORT]);
+    expect(streamImportLines).toEqual([]);
+  });
+
+  it("loads Stream CSS from the community Stream provider", () => {
+    const root = process.cwd();
+    const source = readFileSync(
+      join(root, "src/components/community/stream-chat-provider.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain(STREAM_CHAT_CSS_IMPORT);
   });
 });

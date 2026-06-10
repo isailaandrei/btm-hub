@@ -14,6 +14,11 @@ import { updatePreferences } from "./actions";
 import { pruneSelectedIds } from "./selection-helpers";
 import { BUILTIN_COLUMN, type SortState } from "./sort-helpers";
 import type { PendingFilterValue } from "./pending-filter";
+import {
+  CONTACTS_TABLE_PAGE_SIZES,
+  readContactsTablePreferences,
+  type ContactsTablePageSize,
+} from "@/lib/admin/contacts/preferences";
 
 const FILTERS_STORAGE_KEY = "btm-admin-contacts-filters";
 const DEFAULT_CONTACTS_SORT: SortState = {
@@ -21,14 +26,7 @@ const DEFAULT_CONTACTS_SORT: SortState = {
   direction: "desc",
 };
 
-type PageSize = 25 | 50 | 150;
-
-type ContactsTablePreferences = {
-  contacts_table?: {
-    visible_columns?: string[];
-    previously_selected_columns?: string[];
-  };
-};
+type PageSize = ContactsTablePageSize;
 
 type StoredFilters = {
   search?: string;
@@ -58,7 +56,6 @@ interface UseContactsPanelStateArgs {
   contacts: Contact[] | null;
   ensureApplications: () => void;
   ensureContacts: () => void;
-  ensurePreferences: () => void;
   preferences: Record<string, unknown>;
   setPreferences: Dispatch<SetStateAction<Record<string, unknown>>>;
 }
@@ -67,11 +64,13 @@ export function useContactsPanelState({
   contacts,
   ensureApplications,
   ensureContacts,
-  ensurePreferences,
   preferences,
   setPreferences,
 }: UseContactsPanelStateArgs) {
   const [storedFilters] = useState<StoredFilters>(() => readStoredFilters());
+  const [initialContactsTablePreferences] = useState(() =>
+    readContactsTablePreferences(preferences),
+  );
 
   const [search, setSearch] = useState(storedFilters.search ?? "");
   const [programFilter, setProgramFilter] = useState<ProgramSlug[]>(
@@ -84,8 +83,8 @@ export function useContactsPanelState({
   const [pendingFilter, setPendingFilter] = useState<PendingFilterValue[]>(
     storedFilters.pendingFilter ?? [],
   );
-  const [pageSize, setPageSize] = useState<PageSize>(
-    storedFilters.pageSize ?? 25,
+  const [pageSize, setPageSizeState] = useState<PageSize>(
+    initialContactsTablePreferences.page_size ?? storedFilters.pageSize ?? 25,
   );
   const [page, setPage] = useState(storedFilters.page ?? 1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
@@ -96,7 +95,9 @@ export function useContactsPanelState({
     storedFilters.columnFilters ?? {},
   );
   const [sortBy, setSortBy] = useState<SortState | null>(
-    storedFilters.sortBy ?? DEFAULT_CONTACTS_SORT,
+    initialContactsTablePreferences.sort_by ??
+      storedFilters.sortBy ??
+      DEFAULT_CONTACTS_SORT,
   );
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(
     storedFilters.columnWidths ?? {},
@@ -105,13 +106,18 @@ export function useContactsPanelState({
 
   const visibleColumnsRef = useRef<string[]>([]);
   const previouslySelectedColumnsRef = useRef<string[]>([]);
+  const sortByRef = useRef<SortState | null>(sortBy);
+  const pageSizeRef = useRef<PageSize>(pageSize);
   const preferencesInitializedRef = useRef(false);
+  const legacySortPageWriteThroughRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const queuedPreferenceSnapshotRef = useRef<{
-    visibleColumns: string[];
-    previouslySelectedColumns: string[];
+  const queuedPreferencePatchRef = useRef<{
+    visibleColumns?: string[];
+    previouslySelectedColumns?: string[];
+    sortBy?: SortState | null;
+    pageSize?: PageSize;
   } | null>(null);
   const isSavingPreferencesRef = useRef(false);
   const preferenceSaveAttemptRef = useRef(0);
@@ -122,10 +128,6 @@ export function useContactsPanelState({
     ensureContacts();
     ensureApplications();
   }, [ensureApplications, ensureContacts]);
-
-  useEffect(() => {
-    ensurePreferences();
-  }, [ensurePreferences]);
 
   useEffect(() => {
     if (!contacts) return;
@@ -174,6 +176,14 @@ export function useContactsPanelState({
   }, [previouslySelectedColumns]);
 
   useEffect(() => {
+    sortByRef.current = sortBy;
+  }, [sortBy]);
+
+  useEffect(() => {
+    pageSizeRef.current = pageSize;
+  }, [pageSize]);
+
+  useEffect(() => {
     return () => {
       isMountedRef.current = false;
       clearTimeout(saveTimeoutRef.current);
@@ -183,12 +193,12 @@ export function useContactsPanelState({
   useEffect(() => {
     if (preferencesInitializedRef.current) return;
 
-    const contactsTable = (preferences as ContactsTablePreferences).contacts_table;
-    const savedVisible = contactsTable?.visible_columns;
+    const contactsTable = readContactsTablePreferences(preferences);
+    const savedVisible = contactsTable.visible_columns;
     if (!Array.isArray(savedVisible)) return;
 
     const savedPrevious = Array.isArray(
-      contactsTable?.previously_selected_columns,
+      contactsTable.previously_selected_columns,
     )
       ? contactsTable.previously_selected_columns
       : savedVisible;
@@ -205,18 +215,35 @@ export function useContactsPanelState({
     isSavingPreferencesRef.current = true;
 
     try {
-      while (queuedPreferenceSnapshotRef.current) {
-        const snapshot = queuedPreferenceSnapshotRef.current;
-        queuedPreferenceSnapshotRef.current = null;
+      while (queuedPreferencePatchRef.current) {
+        const patch = queuedPreferencePatchRef.current;
+        queuedPreferencePatchRef.current = null;
         const attemptId = ++preferenceSaveAttemptRef.current;
+
+        const contactsTablePatch: {
+          visible_columns?: string[];
+          previously_selected_columns?: string[];
+          sort_by?: SortState | null;
+          page_size?: PageSize;
+        } = {};
+
+        if (patch.visibleColumns !== undefined) {
+          contactsTablePatch.visible_columns = patch.visibleColumns;
+        }
+        if (patch.previouslySelectedColumns !== undefined) {
+          contactsTablePatch.previously_selected_columns =
+            patch.previouslySelectedColumns;
+        }
+        if (patch.sortBy !== undefined) {
+          contactsTablePatch.sort_by = patch.sortBy;
+        }
+        if (patch.pageSize !== undefined) {
+          contactsTablePatch.page_size = patch.pageSize;
+        }
 
         try {
           await updatePreferences({
-            contacts_table: {
-              visible_columns: snapshot.visibleColumns,
-              previously_selected_columns:
-                snapshot.previouslySelectedColumns,
-            },
+            contacts_table: contactsTablePatch,
           });
 
           if (!isMountedRef.current) continue;
@@ -226,18 +253,21 @@ export function useContactsPanelState({
           setPreferences((prior) => ({
             ...prior,
             contacts_table: {
-              visible_columns: snapshot.visibleColumns,
-              previously_selected_columns:
-                snapshot.previouslySelectedColumns,
+              ...((prior.contacts_table &&
+              typeof prior.contacts_table === "object" &&
+              !Array.isArray(prior.contacts_table))
+                ? prior.contacts_table
+                : {}),
+              ...contactsTablePatch,
             },
           }));
         } catch {
-          toast.error("Failed to save column preferences.");
+          toast.error("Failed to save contacts table preferences.");
         }
       }
     } finally {
       isSavingPreferencesRef.current = false;
-      if (queuedPreferenceSnapshotRef.current) {
+      if (queuedPreferencePatchRef.current) {
         void drainPreferenceSaveQueue();
       }
     }
@@ -247,16 +277,63 @@ export function useContactsPanelState({
     setSelectedIds(new Set());
   }, []);
 
-  const scheduleColumnPreferencesSave = useCallback(() => {
+  const schedulePreferencePatchSave = useCallback((patch: {
+    visibleColumns?: string[];
+    previouslySelectedColumns?: string[];
+    sortBy?: SortState | null;
+    pageSize?: PageSize;
+  }) => {
     clearTimeout(saveTimeoutRef.current);
+    queuedPreferencePatchRef.current = {
+      ...(queuedPreferencePatchRef.current ?? {}),
+      ...patch,
+    };
     saveTimeoutRef.current = setTimeout(() => {
-      queuedPreferenceSnapshotRef.current = {
-        visibleColumns: visibleColumnsRef.current,
-        previouslySelectedColumns: previouslySelectedColumnsRef.current,
-      };
       void drainPreferenceSaveQueue();
     }, 1000);
   }, [drainPreferenceSaveQueue]);
+
+  const scheduleColumnPreferencesSave = useCallback(() => {
+    schedulePreferencePatchSave({
+      visibleColumns: visibleColumnsRef.current,
+      previouslySelectedColumns: previouslySelectedColumnsRef.current,
+    });
+  }, [schedulePreferencePatchSave]);
+
+  const scheduleSortPagePreferencesSave = useCallback(() => {
+    schedulePreferencePatchSave({
+      sortBy: sortByRef.current,
+      pageSize: pageSizeRef.current,
+    });
+  }, [schedulePreferencePatchSave]);
+
+  useEffect(() => {
+    if (legacySortPageWriteThroughRef.current) return;
+    legacySortPageWriteThroughRef.current = true;
+
+    const contactsTable = readContactsTablePreferences(preferences);
+    const patch: {
+      sortBy?: SortState | null;
+      pageSize?: PageSize;
+    } = {};
+
+    if (contactsTable.sort_by === undefined && storedFilters.sortBy !== undefined) {
+      patch.sortBy = storedFilters.sortBy;
+    }
+    if (
+      contactsTable.page_size === undefined &&
+      storedFilters.pageSize !== undefined &&
+      (CONTACTS_TABLE_PAGE_SIZES as readonly number[]).includes(
+        storedFilters.pageSize,
+      )
+    ) {
+      patch.pageSize = storedFilters.pageSize;
+    }
+
+    if (patch.sortBy !== undefined || patch.pageSize !== undefined) {
+      schedulePreferencePatchSave(patch);
+    }
+  }, [preferences, schedulePreferencePatchSave, storedFilters]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
@@ -366,23 +443,32 @@ export function useContactsPanelState({
     clearSelection();
   }, [clearSelection]);
 
-  const toggleSort = useCallback((key: string) => {
-    setSortBy((previous) => {
-      if (key === BUILTIN_COLUMN.tags) {
-        return previous?.key === key ? null : { key, direction: "desc" };
-      }
+  const handlePageSizeChange = useCallback((nextPageSize: PageSize) => {
+    pageSizeRef.current = nextPageSize;
+    setPageSizeState(nextPageSize);
+    scheduleSortPagePreferencesSave();
+  }, [scheduleSortPagePreferencesSave]);
 
-      if (!previous || previous.key !== key) {
-        return { key, direction: "asc" };
-      }
-      if (previous.direction === "asc") {
-        return { key, direction: "desc" };
-      }
-      return null;
-    });
+  const toggleSort = useCallback((key: string) => {
+    const previous = sortByRef.current;
+    let next: SortState | null;
+
+    if (key === BUILTIN_COLUMN.tags) {
+      next = previous?.key === key ? null : { key, direction: "desc" };
+    } else if (!previous || previous.key !== key) {
+      next = { key, direction: "asc" };
+    } else if (previous.direction === "asc") {
+      next = { key, direction: "desc" };
+    } else {
+      next = null;
+    }
+
+    sortByRef.current = next;
+    setSortBy(next);
+    scheduleSortPagePreferencesSave();
     setPage(1);
     clearSelection();
-  }, [clearSelection]);
+  }, [clearSelection, scheduleSortPagePreferencesSave]);
 
   const handleClearAllFilters = useCallback(() => {
     setSearch("");
@@ -390,10 +476,12 @@ export function useContactsPanelState({
     setSelectedTagIds([]);
     setColumnFilters({});
     setPendingFilter([]);
+    sortByRef.current = DEFAULT_CONTACTS_SORT;
     setSortBy(DEFAULT_CONTACTS_SORT);
     setPage(1);
     clearSelection();
-  }, [clearSelection]);
+    scheduleSortPagePreferencesSave();
+  }, [clearSelection, scheduleSortPagePreferencesSave]);
 
   return {
     clearSelection,
@@ -419,7 +507,7 @@ export function useContactsPanelState({
     selectedTagIds,
     setColumnWidths,
     setPage,
-    setPageSize,
+    setPageSize: handlePageSizeChange,
     setSelectedIds,
     sortBy,
     toggleSort,

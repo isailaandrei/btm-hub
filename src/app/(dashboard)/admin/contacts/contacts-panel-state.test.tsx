@@ -24,6 +24,8 @@ vi.mock("./actions", () => ({
   updatePreferences: vi.fn(),
 }));
 
+const { updatePreferences } = await import("./actions");
+
 type ContactsPanelState = ReturnType<typeof useContactsPanelState>;
 
 function installLocalStorageMock() {
@@ -44,15 +46,16 @@ function installLocalStorageMock() {
 
 function StateHarness({
   onState,
+  preferences = {},
 }: {
   onState: (state: ContactsPanelState) => void;
+  preferences?: Record<string, unknown>;
 }) {
   const state = useContactsPanelState({
     contacts: [] satisfies Contact[],
     ensureApplications: () => undefined,
     ensureContacts: () => undefined,
-    ensurePreferences: () => undefined,
-    preferences: {},
+    preferences,
     setPreferences: vi.fn() as Dispatch<SetStateAction<Record<string, unknown>>>,
   });
 
@@ -83,6 +86,9 @@ describe("useContactsPanelState", () => {
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useRealTimers();
+    vi.mocked(updatePreferences).mockReset();
+    vi.mocked(updatePreferences).mockResolvedValue({});
     installLocalStorageMock();
     localStorage.clear();
     latestState = null;
@@ -125,6 +131,53 @@ describe("useContactsPanelState", () => {
       key: BUILTIN_COLUMN.submittedAt,
       direction: "desc",
     } satisfies SortState);
+  });
+
+  it("initializes sort and page size from server preferences", () => {
+    act(() => {
+      root.render(
+        <StateHarness
+          preferences={{
+            contacts_table: {
+              sort_by: { key: BUILTIN_COLUMN.name, direction: "asc" },
+              page_size: 50,
+            },
+          }}
+          onState={(state) => { latestState = state; }}
+        />,
+      );
+    });
+
+    expect(latestState?.sortBy).toEqual({
+      key: BUILTIN_COLUMN.name,
+      direction: "asc",
+    } satisfies SortState);
+    expect(latestState?.pageSize).toBe(50);
+  });
+
+  it("writes legacy local sort and page size to server preferences once", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(
+      "btm-admin-contacts-filters",
+      JSON.stringify({
+        sortBy: { key: BUILTIN_COLUMN.tags, direction: "desc" },
+        pageSize: 150,
+      }),
+    );
+
+    renderHarness();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+
+    expect(updatePreferences).toHaveBeenCalledWith({
+      contacts_table: {
+        sort_by: { key: BUILTIN_COLUMN.tags, direction: "desc" },
+        page_size: 150,
+      },
+    });
   });
 
   it("cycles tag sorting only through descending and off", () => {
