@@ -6,24 +6,22 @@ import Image from "next/image";
 import { logout } from "@/app/(auth)/actions";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
-
-
-type NavbarUser = {
-  id: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-  role: "admin" | "member";
-} | null;
+import type { NavbarUser } from "@/lib/data/auth";
 
 interface AuthButtonsProps {
   variant?: "light" | "dark";
+  initialUser?: NavbarUser;
 }
 
 const CACHE_KEY = "btm-navbar-user";
 
-export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
-  const [user, setUser] = useState<NavbarUser>(null);
-  const [loading, setLoading] = useState(true);
+export function AuthButtons({
+  variant = "dark",
+  initialUser,
+}: AuthButtonsProps) {
+  const hasInitialUser = initialUser !== undefined;
+  const [user, setUser] = useState<NavbarUser>(initialUser ?? null);
+  const [loading, setLoading] = useState(!hasInitialUser);
 
   useEffect(() => {
     const supabase = createClient();
@@ -52,17 +50,19 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
       }
     }
 
-    async function checkAuth() {
+    async function checkAuth({ readCache = true }: { readCache?: boolean } = {}) {
       // Apply sessionStorage cache immediately (before any await) to avoid skeleton flash
       let hadCache = false;
-      try {
-        const raw = sessionStorage.getItem(CACHE_KEY);
-        if (raw) {
-          setUser(JSON.parse(raw) as NavbarUser);
-          setLoading(false);
-          hadCache = true;
-        }
-      } catch {}
+      if (readCache) {
+        try {
+          const raw = sessionStorage.getItem(CACHE_KEY);
+          if (raw) {
+            setUser(JSON.parse(raw) as NavbarUser);
+            setLoading(false);
+            hadCache = true;
+          }
+        } catch {}
+      }
 
       const {
         data: { session },
@@ -84,21 +84,34 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
       }
     }
 
-    checkAuth();
+    if (hasInitialUser) {
+      setUser(initialUser ?? null);
+      setLoading(false);
+      try {
+        if (initialUser) {
+          sessionStorage.setItem(CACHE_KEY, JSON.stringify(initialUser));
+        } else {
+          sessionStorage.removeItem(CACHE_KEY);
+        }
+      } catch {}
+    } else {
+      checkAuth();
+    }
 
     function handleProfileUpdate() {
       sessionStorage.removeItem(CACHE_KEY);
-      checkAuth();
+      checkAuth({ readCache: false });
     }
     window.addEventListener("profile-updated", handleProfileUpdate);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         setUser(null);
+        setLoading(false);
         sessionStorage.removeItem(CACHE_KEY);
       } else if (event === "SIGNED_IN") {
         sessionStorage.removeItem(CACHE_KEY);
-        checkAuth();
+        checkAuth({ readCache: false });
       }
     });
 
@@ -106,7 +119,7 @@ export function AuthButtons({ variant = "dark" }: AuthButtonsProps) {
       window.removeEventListener("profile-updated", handleProfileUpdate);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [hasInitialUser, initialUser]);
 
   if (loading) {
     return <Skeleton className="h-8 w-32 rounded-full" />;

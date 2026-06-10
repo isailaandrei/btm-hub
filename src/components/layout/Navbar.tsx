@@ -5,9 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthButtons } from "./AuthButtons";
+import type { NavbarUser } from "@/lib/data/auth";
 
 export interface NavbarProps {
   variant?: "light" | "dark";
+  initialUser?: NavbarUser;
 }
 
 const NAV_LINKS = [
@@ -24,7 +26,7 @@ function LogoText({ className }: { className?: string }) {
   );
 }
 
-export function Navbar({ variant = "dark" }: NavbarProps) {
+export function Navbar({ variant = "dark", initialUser }: NavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const pathname = usePathname();
@@ -82,7 +84,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
               {link.label}
             </Link>
           ))}
-          <AuthButtons variant={variant} />
+          <AuthButtons variant={variant} initialUser={initialUser} />
         </div>
 
         {/* Mobile hamburger */}
@@ -125,7 +127,7 @@ export function Navbar({ variant = "dark" }: NavbarProps) {
           ))}
           {mobileOpen && (
             <div className="mt-auto border-t border-border pt-6">
-              <AuthButtons variant={variant} />
+              <AuthButtons variant={variant} initialUser={initialUser} />
             </div>
           )}
         </div>

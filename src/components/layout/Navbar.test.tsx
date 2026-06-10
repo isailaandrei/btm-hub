@@ -11,7 +11,15 @@ vi.mock("next/image", () => ({
 }));
 
 vi.mock("./AuthButtons", () => ({
-  AuthButtons: () => <span data-testid="auth-buttons">Auth</span>,
+  AuthButtons: ({
+    initialUser,
+  }: {
+    initialUser?: { id: string } | null;
+  }) => (
+    <span data-testid="auth-buttons" data-user-id={initialUser?.id ?? ""}>
+      Auth
+    </span>
+  ),
 }));
 
 describe("Navbar", () => {
@@ -19,5 +27,20 @@ describe("Navbar", () => {
     const html = renderToStaticMarkup(<Navbar />);
 
     expect(html.match(/data-testid="auth-buttons"/g)).toHaveLength(1);
+  });
+
+  it("passes the server-provided initial user to auth buttons", () => {
+    const html = renderToStaticMarkup(
+      <Navbar
+        initialUser={{
+          id: "user-1",
+          displayName: "Admin User",
+          avatarUrl: null,
+          role: "admin",
+        }}
+      />,
+    );
+
+    expect(html).toContain('data-user-id="user-1"');
   });
 });
