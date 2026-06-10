@@ -7,6 +7,7 @@ export type PendingFilterValue = "awaiting_applicant" | "awaiting_btm";
 
 interface PendingFilterProps {
   value: PendingFilterValue[];
+  disabled?: boolean;
   onChange: (next: PendingFilterValue[]) => void;
 }
 
@@ -18,7 +19,11 @@ export const PENDING_FILTER_OPTIONS: {
   { value: "awaiting_btm", label: "Needs BTM response" },
 ];
 
-export function PendingFilter({ value, onChange }: PendingFilterProps) {
+export function PendingFilter({
+  disabled = false,
+  value,
+  onChange,
+}: PendingFilterProps) {
   function toggle(v: PendingFilterValue) {
     if (value.includes(v)) onChange(value.filter((x) => x !== v));
     else onChange([...value, v]);
@@ -31,9 +36,10 @@ export function PendingFilter({ value, onChange }: PendingFilterProps) {
       <PopoverTrigger asChild>
         <button
           type="button"
+          disabled={disabled}
           className={`inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted ${
             activeCount > 0 ? "text-foreground" : "text-muted-foreground"
-          }`}
+          } disabled:cursor-not-allowed disabled:opacity-50`}
         >
           Pending
           {activeCount > 0 && (
@@ -54,6 +60,7 @@ export function PendingFilter({ value, onChange }: PendingFilterProps) {
           >
             <Checkbox
               checked={value.includes(o.value)}
+              disabled={disabled}
               onCheckedChange={() => toggle(o.value)}
             />
             <span className="text-xs">{o.label}</span>

@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 interface ColumnSortToggleProps {
   active: boolean;
   direction: "asc" | "desc" | null;
+  disabled?: boolean;
   onClick: () => void;
   label: string;
 }
@@ -19,6 +20,7 @@ interface ColumnSortToggleProps {
  */
 export function ColumnSortToggle({
   active,
+  disabled = false,
   direction,
   onClick,
   label,
@@ -32,12 +34,13 @@ export function ColumnSortToggle({
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       className={`ml-0.5 inline-flex items-center rounded p-0.5 text-xs transition-colors ${
         active
           ? "text-primary"
           : "text-muted-foreground/50 hover:text-muted-foreground"
-      }`}
+      } disabled:cursor-not-allowed disabled:opacity-40`}
       aria-label={`Sort by ${label}${
         active ? ` (${direction}ending, click to ${direction === "asc" ? "reverse" : "clear"})` : ""
       }`}

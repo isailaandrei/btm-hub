@@ -30,6 +30,7 @@ import {
   getContactsTableApplicationAnswerKeys,
   type ContactListApplication,
 } from "@/lib/admin/contacts/application-projection";
+import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 import { PROGRAMS } from "../applications/constants";
 import { type FieldRegistryEntry } from "./field-registry";
 import { ColumnFilterPopover } from "./column-filter-popover";
@@ -134,8 +135,10 @@ function renderFieldValue(
 }
 
 export function ContactsPanel({
+  initialData,
   onSendEmail,
 }: {
+  initialData?: AdminContactsInitialData;
   onSendEmail?: (contactIds: string[]) => void;
 }) {
   const {
@@ -151,9 +154,25 @@ export function ContactsPanel({
     useAdminApplicationsData();
   const { preferences, setPreferences } = useAdminPreferencesData();
   const sync = useAcademyImportSync();
+  const effectiveContacts = contacts ?? initialData?.contacts ?? null;
+  const effectiveApplications = applications ?? initialData?.applications ?? null;
+  const effectiveContactTags = contactTags ?? initialData?.contactTags ?? null;
+  const effectiveActivitySummaries =
+    contactActivitySummaries ?? initialData?.contactActivitySummaries ?? null;
+  const effectiveTagCategories =
+    tagCategories ?? initialData?.tagCategories ?? null;
+  const effectiveTags = tags ?? initialData?.tags ?? null;
+  const isHydratingFullData = Boolean(initialData) && (
+    contacts === null ||
+    applications === null ||
+    contactTags === null ||
+    contactActivitySummaries === null ||
+    tagCategories === null ||
+    tags === null
+  );
 
   const state = useContactsPanelState({
-    contacts,
+    contacts: effectiveContacts,
     ensureApplications,
     ensureContacts,
     preferences,
@@ -174,6 +193,19 @@ export function ContactsPanel({
     ensureAnswerKeys(requiredApplicationAnswerKeys);
   }, [ensureAnswerKeys, requiredApplicationAnswerKeys]);
 
+  const viewModelSearch = isHydratingFullData ? "" : debouncedSearch;
+  const viewModelProgramFilter = isHydratingFullData ? [] : state.programFilter;
+  const viewModelSelectedTagIds = isHydratingFullData ? [] : state.selectedTagIds;
+  const viewModelColumnFilters = isHydratingFullData ? {} : state.columnFilters;
+  const viewModelPendingFilter = isHydratingFullData ? [] : state.pendingFilter;
+  const viewModelSortBy =
+    isHydratingFullData && initialData?.isSortApproximateUntilHydration
+      ? null
+      : state.sortBy;
+  const viewModelPage = isHydratingFullData ? 1 : state.page;
+  const viewModelPageSize =
+    isHydratingFullData && initialData ? initialData.pageSize : state.pageSize;
+
   const {
     activeFields,
     categoriesById,
@@ -184,21 +216,21 @@ export function ContactsPanel({
     tagsById,
     totalPages,
   } = useContactsPanelViewModel({
-    applications,
-    contacts,
-    contactTags,
-    contactActivitySummaries,
-    tags,
-    tagCategories,
+    applications: effectiveApplications,
+    contacts: effectiveContacts,
+    contactTags: effectiveContactTags,
+    contactActivitySummaries: effectiveActivitySummaries,
+    tags: effectiveTags,
+    tagCategories: effectiveTagCategories,
     visibleColumns: state.visibleColumns,
-    search: debouncedSearch,
-    programFilter: state.programFilter,
-    selectedTagIds: state.selectedTagIds,
-    columnFilters: state.columnFilters,
-    pendingFilter: state.pendingFilter,
-    sortBy: state.sortBy,
-    page: state.page,
-    pageSize: state.pageSize,
+    search: viewModelSearch,
+    programFilter: viewModelProgramFilter,
+    selectedTagIds: viewModelSelectedTagIds,
+    columnFilters: viewModelColumnFilters,
+    pendingFilter: viewModelPendingFilter,
+    sortBy: viewModelSortBy,
+    page: viewModelPage,
+    pageSize: viewModelPageSize,
   });
 
   const allOnPageSelected =
@@ -264,7 +296,7 @@ export function ContactsPanel({
     });
   }
 
-  if (contacts === null) {
+  if (effectiveContacts === null) {
     if (contactsError) {
       return (
         <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-destructive/50 bg-destructive/5 p-12 text-center">
@@ -314,10 +346,11 @@ export function ContactsPanel({
 
       <div className="mb-6">
         <ContactsFilters
+          disabled={isHydratingFullData}
           search={state.search}
           selectedTagIds={state.selectedTagIds}
-          tagCategories={tagCategories ?? []}
-          tags={tags ?? []}
+          tagCategories={effectiveTagCategories ?? []}
+          tags={effectiveTags ?? []}
           visibleColumns={state.visibleColumns}
           previouslySelectedColumns={state.previouslySelectedColumns}
           pendingFilter={state.pendingFilter}
@@ -329,17 +362,38 @@ export function ContactsPanel({
         />
       </div>
 
+      {isHydratingFullData && (
+        <div
+          role="status"
+          className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        >
+          Loading all contacts... Search, filters, sorting, and page size will be available shortly.
+          {initialData?.isSortApproximateUntilHydration
+            ? " Your saved sort will apply after hydration."
+            : ""}
+        </div>
+      )}
+
+      {contactsError && contacts === null && initialData && (
+        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {contactsError}
+        </div>
+      )}
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-muted-foreground">
-            {filtered.length} contact{filtered.length !== 1 ? "s" : ""} found
+            {isHydratingFullData && initialData
+              ? `${paginatedRows.length} of ${initialData.totalCount} contacts loaded`
+              : `${filtered.length} contact${filtered.length !== 1 ? "s" : ""} found`}
           </p>
           <AcademyImportSyncButton controller={sync} />
           {hasAnyFilter && (
             <button
               type="button"
+              disabled={isHydratingFullData}
               onClick={state.handleClearAllFilters}
-              className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             >
               Clear all filters
             </button>
@@ -351,6 +405,7 @@ export function ContactsPanel({
             <button
               key={size}
               type="button"
+              disabled={isHydratingFullData}
               onClick={() => {
                 state.setPageSize(size);
                 state.setPage(1);
@@ -360,7 +415,7 @@ export function ContactsPanel({
                 state.pageSize === size
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
+              } disabled:cursor-not-allowed disabled:opacity-50`}
             >
               {size}
             </button>
@@ -402,6 +457,7 @@ export function ContactsPanel({
                           state.sortBy?.key === key ? state.sortBy.direction : null
                         }
                         onClick={() => state.toggleSort(key)}
+                        disabled={isHydratingFullData}
                         label={label}
                       />
                     </span>
@@ -432,6 +488,7 @@ export function ContactsPanel({
                           state.handleProgramFilterToggle(value as ProgramSlug)
                         }
                         onClear={state.handleProgramFilterClear}
+                        disabled={isHydratingFullData}
                         optionClassName="capitalize"
                       />
                     </span>
@@ -462,6 +519,7 @@ export function ContactsPanel({
                             : null
                         }
                         onClick={() => state.toggleSort(BUILTIN_COLUMN.tags)}
+                        disabled={isHydratingFullData}
                         label="Tags"
                       />
                     </span>
@@ -500,6 +558,7 @@ export function ContactsPanel({
                           onClear={() =>
                             state.handleColumnFilterClear(field.key)
                           }
+                          disabled={isHydratingFullData}
                         />
                       )}
                       <ColumnSortToggle
@@ -510,6 +569,7 @@ export function ContactsPanel({
                             : null
                         }
                         onClick={() => state.toggleSort(field.key)}
+                        disabled={isHydratingFullData}
                         label={field.label}
                       />
                     </span>
@@ -656,8 +716,8 @@ export function ContactsPanel({
         <BulkActionBar
           selectedCount={state.selectedIds.size}
           selectedIds={selectedIdsList}
-          tagCategories={tagCategories ?? []}
-          tags={tags ?? []}
+          tagCategories={effectiveTagCategories ?? []}
+          tags={effectiveTags ?? []}
           onClearSelection={state.clearSelection}
           onSendEmail={onSendEmail}
         />
@@ -668,11 +728,12 @@ export function ContactsPanel({
           {currentPage > 1 && (
             <button
               type="button"
+              disabled={isHydratingFullData}
               onClick={() => {
                 state.setPage(currentPage - 1);
                 state.clearSelection();
               }}
-              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
+              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
             >
               Previous
             </button>
@@ -683,11 +744,12 @@ export function ContactsPanel({
           {currentPage < totalPages && (
             <button
               type="button"
+              disabled={isHydratingFullData}
               onClick={() => {
                 state.setPage(currentPage + 1);
                 state.clearSelection();
               }}
-              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border"
+              className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
             >
               Next
             </button>

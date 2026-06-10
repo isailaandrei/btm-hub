@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useState } from "react";
 import { ContactsPanel } from "./contacts/contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
+import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 
 const EmailStudio = dynamic(
   () => import("./email/email-studio").then((module) => module.EmailStudio),
@@ -38,7 +39,11 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "email", label: "Email" },
 ];
 
-export function AdminDashboard() {
+export function AdminDashboard({
+  initialContactsData,
+}: {
+  initialContactsData?: AdminContactsInitialData;
+}) {
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
   const [hasVisitedEmail, setHasVisitedEmail] = useState(false);
   const [hasVisitedTasks, setHasVisitedTasks] = useState(false);
@@ -83,7 +88,10 @@ export function AdminDashboard() {
       </nav>
 
       {activeTab === "contacts" && (
-        <ContactsPanel onSendEmail={handleSendEmail} />
+        <ContactsPanel
+          initialData={initialContactsData}
+          onSendEmail={handleSendEmail}
+        />
       )}
 
       {activeTab === "tags" && <TagsPanel />}

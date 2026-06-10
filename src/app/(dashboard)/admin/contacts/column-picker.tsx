@@ -20,6 +20,7 @@ interface ColumnPickerProps {
    * `profiles.preferences.contacts_table.previously_selected_columns`.
    */
   previouslySelectedColumns: string[];
+  disabled?: boolean;
   onToggle: (key: string) => void;
 }
 
@@ -28,6 +29,7 @@ function byLabel(a: FieldRegistryEntry, b: FieldRegistryEntry): number {
 }
 
 export function ColumnPicker({
+  disabled = false,
   visibleColumns,
   previouslySelectedColumns,
   onToggle,
@@ -83,7 +85,8 @@ export function ColumnPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          disabled={disabled}
+          className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
         >
           Active Columns
           {visibleColumns.length > 0 && (
@@ -99,8 +102,9 @@ export function ColumnPicker({
             type="text"
             placeholder="Search fields..."
             value={search}
+            disabled={disabled}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
+            className="w-full rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
           />
         </div>
         <div className="max-h-64 overflow-y-auto p-2">
@@ -115,6 +119,7 @@ export function ColumnPicker({
                   key={field.key}
                   field={field}
                   checked={selectedKeys.has(field.key)}
+                  disabled={disabled}
                   onToggle={onToggle}
                 />
               ))
@@ -131,6 +136,7 @@ export function ColumnPicker({
                       key={field.key}
                       field={field}
                       checked={selectedKeys.has(field.key)}
+                      disabled={disabled}
                       onToggle={onToggle}
                     />
                   ))}
@@ -150,6 +156,7 @@ export function ColumnPicker({
                       key={field.key}
                       field={field}
                       checked={selectedKeys.has(field.key)}
+                      disabled={disabled}
                       onToggle={onToggle}
                     />
                   ))}
@@ -166,15 +173,25 @@ export function ColumnPicker({
 function FieldRow({
   field,
   checked,
+  disabled = false,
   onToggle,
 }: {
   field: FieldRegistryEntry;
   checked: boolean;
+  disabled?: boolean;
   onToggle: (key: string) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
-      <Checkbox checked={checked} onCheckedChange={() => onToggle(field.key)} />
+    <label
+      className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted"
+      }`}
+    >
+      <Checkbox
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={() => onToggle(field.key)}
+      />
       <span className="flex-1 text-sm text-foreground">{field.label}</span>
       <span className="flex gap-0.5">
         {field.programs.map((p) => (

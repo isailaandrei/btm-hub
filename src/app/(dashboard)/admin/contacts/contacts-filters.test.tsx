@@ -9,7 +9,11 @@ import type { Tag, TagCategory } from "@/types/database";
 import { ContactsFilters } from "./contacts-filters";
 
 vi.mock("./column-picker", () => ({
-  ColumnPicker: () => <button type="button">Columns</button>,
+  ColumnPicker: ({ disabled }: { disabled?: boolean }) => (
+    <button type="button" disabled={disabled}>
+      Columns
+    </button>
+  ),
 }));
 
 describe("ContactsFilters", () => {
@@ -52,10 +56,11 @@ describe("ContactsFilters", () => {
     };
   }
 
-  function renderFilters() {
+  function renderFilters({ disabled = false }: { disabled?: boolean } = {}) {
     act(() => {
       root.render(
         <ContactsFilters
+          disabled={disabled}
           search=""
           selectedTagIds={[]}
           tagCategories={[
@@ -112,6 +117,26 @@ describe("ContactsFilters", () => {
 
     expect(filterRow?.textContent).not.toContain("Role");
     expect(filterRow?.textContent).not.toContain("Level");
+  });
+
+  it("disables search, filter, and column controls during full hydration", () => {
+    renderFilters({ disabled: true });
+
+    const searchInput = container.querySelector("input[type='text']");
+    const pendingButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Pending"),
+    );
+    const filtersButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Filters"),
+    );
+    const columnsButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Columns"),
+    );
+
+    expect(searchInput).toHaveProperty("disabled", true);
+    expect(pendingButton).toHaveProperty("disabled", true);
+    expect(filtersButton).toHaveProperty("disabled", true);
+    expect(columnsButton).toHaveProperty("disabled", true);
   });
 
   it("shows tag categories first and reveals tags only when a category expands", async () => {

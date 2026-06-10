@@ -21,6 +21,7 @@ interface ContactsFiltersProps {
   tags: Tag[];
   visibleColumns: string[];
   previouslySelectedColumns: string[];
+  disabled?: boolean;
   onSearchChange: (value: string) => void;
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
@@ -36,6 +37,7 @@ export const ContactsFilters = memo(function ContactsFilters({
   tags,
   visibleColumns,
   previouslySelectedColumns,
+  disabled = false,
   onSearchChange,
   onTagToggle,
   onClearTags,
@@ -98,11 +100,13 @@ export const ContactsFilters = memo(function ContactsFilters({
             type="text"
             placeholder="Search by name or email..."
             value={search}
+            disabled={disabled}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="min-w-60 rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
+            className="min-w-60 rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
           />
 
           <PendingFilter
+            disabled={disabled}
             value={pendingFilter}
             onChange={onPendingFilterChange}
           />
@@ -112,9 +116,10 @@ export const ContactsFilters = memo(function ContactsFilters({
               <PopoverTrigger asChild>
                 <button
                   type="button"
+                  disabled={disabled}
                   className={`inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted ${
                     tagFilterCount > 0 ? "text-foreground" : "text-muted-foreground"
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   Filters
                   {tagFilterCount > 0 && (
@@ -160,8 +165,9 @@ export const ContactsFilters = memo(function ContactsFilters({
                           aria-controls={tagListId}
                           aria-expanded={isExpanded}
                           data-testid={`contacts-filter-category-${category.id}`}
+                          disabled={disabled}
                           onClick={() => toggleCategory(category.id)}
-                          className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
+                          className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <span className="min-w-0 text-xs font-medium text-foreground">
                             {category.name}
@@ -200,10 +206,15 @@ export const ContactsFilters = memo(function ContactsFilters({
                               return (
                                 <label
                                   key={tag.id}
-                                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
+                                  className={`flex items-center gap-2 rounded-md px-2 py-1 ${
+                                    disabled
+                                      ? "cursor-not-allowed opacity-60"
+                                      : "cursor-pointer hover:bg-muted"
+                                  }`}
                                 >
                                   <Checkbox
                                     checked={isActive}
+                                    disabled={disabled}
                                     onCheckedChange={() => onTagToggle(tag.id)}
                                   />
                                   <Badge
@@ -233,6 +244,7 @@ export const ContactsFilters = memo(function ContactsFilters({
           <ColumnPicker
             visibleColumns={visibleColumns}
             previouslySelectedColumns={previouslySelectedColumns}
+            disabled={disabled}
             onToggle={onColumnToggle}
           />
         </div>
@@ -244,8 +256,9 @@ export const ContactsFilters = memo(function ContactsFilters({
             <button
               key={option.value}
               type="button"
+              disabled={disabled}
               onClick={() => handlePendingChipRemove(option.value)}
-              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-100"
+              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {option.label} ×
             </button>
@@ -257,8 +270,9 @@ export const ContactsFilters = memo(function ContactsFilters({
               <button
                 key={tag.id}
                 type="button"
+                disabled={disabled}
                 onClick={() => onTagToggle(tag.id)}
-                className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className={TAG_COLOR_CLASSES[color] ?? ""}>
                   {category?.name ? `${category.name}: ` : ""}
@@ -271,8 +285,9 @@ export const ContactsFilters = memo(function ContactsFilters({
           {selectedTags.length > 0 && (
             <button
               type="button"
+              disabled={disabled}
               onClick={onClearTags}
-              className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
               Clear tags
             </button>

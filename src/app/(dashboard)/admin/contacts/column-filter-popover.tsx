@@ -7,6 +7,7 @@ interface ColumnFilterPopoverProps {
   label: string;
   options: string[];
   selected: string[];
+  disabled?: boolean;
   onToggle: (value: string) => void;
   onClear: () => void;
   optionClassName?: string;
@@ -16,6 +17,7 @@ export function ColumnFilterPopover({
   label,
   options,
   selected,
+  disabled = false,
   onToggle,
   onClear,
   optionClassName,
@@ -27,11 +29,12 @@ export function ColumnFilterPopover({
       <PopoverTrigger asChild>
         <button
           type="button"
+          disabled={disabled}
           className={`ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-xs transition-colors ${
             hasActive
               ? "text-primary"
               : "text-muted-foreground/50 hover:text-muted-foreground"
-          }`}
+          } disabled:cursor-not-allowed disabled:opacity-40`}
           aria-label={`Filter by ${label}`}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -53,7 +56,11 @@ export function ColumnFilterPopover({
                 key={option}
                 className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
               >
-                <Checkbox checked={checked} onCheckedChange={() => onToggle(option)} />
+                <Checkbox
+                  checked={checked}
+                  disabled={disabled}
+                  onCheckedChange={() => onToggle(option)}
+                />
                 <span className={`text-sm text-foreground ${optionClassName ?? ""}`}>{option}</span>
               </label>
             );
@@ -63,8 +70,9 @@ export function ColumnFilterPopover({
           <div className="border-t border-border p-2">
             <button
               type="button"
+              disabled={disabled}
               onClick={onClear}
-              className="w-full rounded-md px-2 py-1 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="w-full rounded-md px-2 py-1 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             >
               Clear filter
             </button>

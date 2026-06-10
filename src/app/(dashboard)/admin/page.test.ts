@@ -4,6 +4,8 @@ const mockListAdminAiThreadSummaries = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
 const mockListEmailSends = vi.fn();
 const mockListEmailTemplates = vi.fn();
+const mockGetProfile = vi.fn();
+const mockGetAdminContactsInitialData = vi.fn();
 const mockAdminDashboard = vi.fn((props: unknown) => ({
   type: "AdminDashboard",
   props,
@@ -25,6 +27,14 @@ vi.mock("@/lib/data/email-templates", () => ({
   listEmailTemplates: mockListEmailTemplates,
 }));
 
+vi.mock("@/lib/data/profiles", () => ({
+  getProfile: mockGetProfile,
+}));
+
+vi.mock("@/lib/data/admin-contact-list", () => ({
+  getAdminContactsInitialData: mockGetAdminContactsInitialData,
+}));
+
 vi.mock("./admin-dashboard", () => ({
   AdminDashboard: mockAdminDashboard,
 }));
@@ -33,10 +43,31 @@ const { default: AdminPage } = await import("./page");
 
 describe("AdminPage", () => {
   it("does not fetch inactive tab data before rendering the default contacts tab", async () => {
+    const initialContactsData = {
+      applications: [],
+      contactActivitySummaries: [],
+      contactTags: [],
+      contacts: [],
+      isSortApproximateUntilHydration: false,
+      pageSize: 25,
+      tagCategories: [],
+      tags: [],
+      totalCount: 0,
+    };
+    const preferences = { contacts_table: { page_size: 25 } };
+
+    mockGetProfile.mockResolvedValue({
+      id: "profile-1",
+      role: "admin",
+      preferences,
+    });
+    mockGetAdminContactsInitialData.mockResolvedValue(initialContactsData);
+
     const result = await AdminPage();
 
     expect(result.type).toBe(mockAdminDashboard);
-    expect(result.props).toEqual({});
+    expect(result.props).toEqual({ initialContactsData });
+    expect(mockGetAdminContactsInitialData).toHaveBeenCalledWith(preferences);
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
     expect(mockListEmailTemplates).not.toHaveBeenCalled();
