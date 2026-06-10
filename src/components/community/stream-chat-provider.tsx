@@ -1,5 +1,7 @@
 "use client";
 
+import "stream-chat-react/dist/css/index.css";
+import "./stream-chat.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, MessageSquareWarning } from "lucide-react";
 import { useRouter } from "next/navigation";
