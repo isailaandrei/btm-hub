@@ -150,8 +150,7 @@ export function ContactsPanel({
     contactsError,
     ensureContacts,
   } = useAdminContactsData();
-  const { applications, ensureApplications, ensureAnswerKeys } =
-    useAdminApplicationsData();
+  const { applications, ensureAnswerKeys } = useAdminApplicationsData();
   const { preferences, setPreferences } = useAdminPreferencesData();
   const sync = useAcademyImportSync();
   const hasFullContactsData =
@@ -184,7 +183,6 @@ export function ContactsPanel({
 
   const state = useContactsPanelState({
     contacts: effectiveContacts,
-    ensureApplications,
     ensureContacts,
     preferences,
     setPreferences,

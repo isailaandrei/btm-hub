@@ -54,7 +54,6 @@ function readStoredFilters(): StoredFilters {
 
 interface UseContactsPanelStateArgs {
   contacts: Contact[] | null;
-  ensureApplications: () => void;
   ensureContacts: () => void;
   preferences: Record<string, unknown>;
   setPreferences: Dispatch<SetStateAction<Record<string, unknown>>>;
@@ -62,7 +61,6 @@ interface UseContactsPanelStateArgs {
 
 export function useContactsPanelState({
   contacts,
-  ensureApplications,
   ensureContacts,
   preferences,
   setPreferences,
@@ -71,6 +69,14 @@ export function useContactsPanelState({
   const [initialContactsTablePreferences] = useState(() =>
     readContactsTablePreferences(preferences),
   );
+  // Server-provided preferences are available synchronously (identical on
+  // server and client first render), so saved columns must be part of the
+  // initial paint — applying them post-mount shifts the table rows (CLS).
+  const initialVisibleColumns =
+    initialContactsTablePreferences.visible_columns ?? [];
+  const initialPreviouslySelectedColumns =
+    initialContactsTablePreferences.previously_selected_columns ??
+    initialVisibleColumns;
 
   const [search, setSearch] = useState(storedFilters.search ?? "");
   const [programFilter, setProgramFilter] = useState<ProgramSlug[]>(
@@ -87,10 +93,12 @@ export function useContactsPanelState({
     initialContactsTablePreferences.page_size ?? storedFilters.pageSize ?? 25,
   );
   const [page, setPage] = useState(storedFilters.page ?? 1);
-  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(
+    initialVisibleColumns,
+  );
   const [previouslySelectedColumns, setPreviouslySelectedColumns] = useState<
     string[]
-  >([]);
+  >(initialPreviouslySelectedColumns);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(
     storedFilters.columnFilters ?? {},
   );
@@ -104,11 +112,12 @@ export function useContactsPanelState({
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const visibleColumnsRef = useRef<string[]>([]);
-  const previouslySelectedColumnsRef = useRef<string[]>([]);
+  const visibleColumnsRef = useRef<string[]>(initialVisibleColumns);
+  const previouslySelectedColumnsRef = useRef<string[]>(
+    initialPreviouslySelectedColumns,
+  );
   const sortByRef = useRef<SortState | null>(sortBy);
   const pageSizeRef = useRef<PageSize>(pageSize);
-  const preferencesInitializedRef = useRef(false);
   const legacySortPageWriteThroughRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -126,8 +135,7 @@ export function useContactsPanelState({
 
   useEffect(() => {
     ensureContacts();
-    ensureApplications();
-  }, [ensureApplications, ensureContacts]);
+  }, [ensureContacts]);
 
   useEffect(() => {
     if (!contacts) return;
@@ -189,26 +197,6 @@ export function useContactsPanelState({
       clearTimeout(saveTimeoutRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (preferencesInitializedRef.current) return;
-
-    const contactsTable = readContactsTablePreferences(preferences);
-    const savedVisible = contactsTable.visible_columns;
-    if (!Array.isArray(savedVisible)) return;
-
-    const savedPrevious = Array.isArray(
-      contactsTable.previously_selected_columns,
-    )
-      ? contactsTable.previously_selected_columns
-      : savedVisible;
-
-    visibleColumnsRef.current = savedVisible;
-    previouslySelectedColumnsRef.current = savedPrevious;
-    setVisibleColumns(savedVisible);
-    setPreviouslySelectedColumns(savedPrevious);
-    preferencesInitializedRef.current = true;
-  }, [preferences]);
 
   const drainPreferenceSaveQueue = useCallback(async () => {
     if (isSavingPreferencesRef.current) return;
@@ -383,8 +371,6 @@ export function useContactsPanelState({
   );
 
   const handleColumnToggle = useCallback((key: string) => {
-    preferencesInitializedRef.current = true;
-
     const wasVisible = visibleColumnsRef.current.includes(key);
     const nextVisible = wasVisible
       ? visibleColumnsRef.current.filter((columnKey) => columnKey !== key)

@@ -53,7 +53,6 @@ function StateHarness({
 }) {
   const state = useContactsPanelState({
     contacts: [] satisfies Contact[],
-    ensureApplications: () => undefined,
     ensureContacts: () => undefined,
     preferences,
     setPreferences: vi.fn() as Dispatch<SetStateAction<Record<string, unknown>>>,
@@ -153,6 +152,42 @@ describe("useContactsPanelState", () => {
       direction: "asc",
     } satisfies SortState);
     expect(latestState?.pageSize).toBe(50);
+  });
+
+  it("initializes visible columns from server preferences on first render", () => {
+    act(() => {
+      root.render(
+        <StateHarness
+          preferences={{
+            contacts_table: {
+              visible_columns: ["budget"],
+              previously_selected_columns: ["budget", "age"],
+            },
+          }}
+          onState={(state) => { latestState = state; }}
+        />,
+      );
+    });
+
+    expect(latestState?.visibleColumns).toEqual(["budget"]);
+    expect(latestState?.previouslySelectedColumns).toEqual(["budget", "age"]);
+    // Initial render must not echo server preferences back to the server.
+    expect(updatePreferences).not.toHaveBeenCalled();
+  });
+
+  it("falls back to visible columns for previously selected columns", () => {
+    act(() => {
+      root.render(
+        <StateHarness
+          preferences={{
+            contacts_table: { visible_columns: ["budget"] },
+          }}
+          onState={(state) => { latestState = state; }}
+        />,
+      );
+    });
+
+    expect(latestState?.previouslySelectedColumns).toEqual(["budget"]);
   });
 
   it("writes legacy local sort and page size to server preferences once", async () => {
