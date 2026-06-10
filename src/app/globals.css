@@ -13,8 +13,7 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  /* WCAG AA: ≥4.5:1 with --primary-foreground text (was 0.609 → 3.45:1) */
-  --primary: oklch(0.53 0.126 221.723);
+  --primary: oklch(0.609 0.126 221.723);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
