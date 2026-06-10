@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import type { ContactEventSummary } from "@/lib/data/contact-events";
 import type { Application } from "@/types/database";
-import { deriveContactActivity } from "./events-derivation";
+import {
+  deriveContactActivity,
+  deriveContactActivityFromSummary,
+} from "./events-derivation";
 
 function event(partial: Partial<ContactEventSummary>): ContactEventSummary {
   return {
@@ -119,5 +122,45 @@ describe("deriveContactActivity", () => {
     const result = deriveContactActivity(events, []);
     expect(result.last_activity_label).toBe("Note");
     expect(result.awaiting_applicant).toBe(true);
+  });
+});
+
+describe("deriveContactActivityFromSummary", () => {
+  it("matches the event-first aggregate summary semantics", () => {
+    const result = deriveContactActivityFromSummary({
+      contact_id: "contact-1",
+      last_event_type: "custom",
+      last_event_custom_label: "Intro with family",
+      last_event_at: "2026-04-20T10:00:00.000Z",
+      awaiting_applicant: true,
+      awaiting_btm: false,
+      latest_app_submitted_at: "2026-04-21T10:00:00.000Z",
+    });
+
+    expect(result).toEqual({
+      last_activity_at: "2026-04-20T10:00:00.000Z",
+      last_activity_label: "Intro with family",
+      awaiting_applicant: true,
+      awaiting_btm: false,
+    });
+  });
+
+  it("falls back to latest application when the summary has no events", () => {
+    const result = deriveContactActivityFromSummary({
+      contact_id: "contact-1",
+      last_event_type: null,
+      last_event_custom_label: null,
+      last_event_at: null,
+      awaiting_applicant: false,
+      awaiting_btm: true,
+      latest_app_submitted_at: "2026-04-21T10:00:00.000Z",
+    });
+
+    expect(result).toEqual({
+      last_activity_at: "2026-04-21T10:00:00.000Z",
+      last_activity_label: "Application submitted",
+      awaiting_applicant: false,
+      awaiting_btm: true,
+    });
   });
 });

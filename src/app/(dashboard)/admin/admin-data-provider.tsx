@@ -32,7 +32,7 @@ import {
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Application, Profile, Contact, TagCategory, Tag, ContactTag, ContactEvent } from "@/types/database";
-import type { ContactEventSummary } from "@/lib/data/contact-events";
+import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   buildApplicationProjectionSelect,
@@ -62,7 +62,7 @@ interface AdminContactsContextValue {
   tagCategories: TagCategory[] | null;
   tags: Tag[] | null;
   contactTags: ContactTag[] | null;
-  contactEventSummaries: ContactEventSummary[] | null;
+  contactActivitySummaries: ContactActivitySummary[] | null;
   contactsError: string | null;
   ensureContacts: () => void;
 }
@@ -88,8 +88,8 @@ const TAG_CATEGORY_SELECT =
   "id, name, color, sort_order, created_at, updated_at";
 const TAG_SELECT =
   "id, category_id, name, sort_order, updated_at";
-const CONTACT_EVENT_SUMMARY_SELECT =
-  "id, contact_id, type, custom_label, happened_at, resolved_at";
+const CONTACT_ACTIVITY_SUMMARY_SELECT =
+  "contact_id, last_event_type, last_event_custom_label, last_event_at, awaiting_applicant, awaiting_btm, latest_app_submitted_at";
 const TAGS_REFETCH_DEBOUNCE_MS = 200;
 
 function sortContactsByName(items: Contact[]): Contact[] {
@@ -168,8 +168,8 @@ export function AdminDataProvider({
   const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(null);
   const [tags, setTags] = useState<Tag[] | null>(null);
   const [contactTags, setContactTags] = useState<ContactTag[] | null>(null);
-  const [contactEventSummaries, setContactEventSummaries] =
-    useState<ContactEventSummary[] | null>(null);
+  const [contactActivitySummaries, setContactActivitySummaries] =
+    useState<ContactActivitySummary[] | null>(null);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
   const [preferences, setPreferences] =
@@ -185,6 +185,9 @@ export function AdminDataProvider({
   const tagsRefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const activitySummaryRefetchTimeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingActivitySummaryContactIdsRef = useRef<Set<string>>(new Set());
   const applicationsTruncatedNoticeShownRef = useRef(false);
   const requestedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
   const loadedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
@@ -194,6 +197,41 @@ export function AdminDataProvider({
     if (!supabaseRef.current) supabaseRef.current = createClient();
     return supabaseRef.current;
   }
+
+  const scheduleContactActivitySummaryRefetch = useCallback((contactId: string | null | undefined) => {
+    if (!contactId) return;
+    pendingActivitySummaryContactIdsRef.current.add(contactId);
+    clearTimeout(activitySummaryRefetchTimeoutRef.current ?? undefined);
+
+    activitySummaryRefetchTimeoutRef.current = setTimeout(async () => {
+      const ids = [...pendingActivitySummaryContactIdsRef.current];
+      pendingActivitySummaryContactIdsRef.current.clear();
+      if (ids.length === 0) return;
+
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("contact_activity_summary")
+        .select(CONTACT_ACTIVITY_SUMMARY_SELECT)
+        .in("contact_id", ids);
+
+      if (error) {
+        toast.error("Failed to refresh contact activity.");
+        return;
+      }
+
+      const nextSummaries =
+        (data ?? []) as unknown as ContactActivitySummary[];
+      setContactActivitySummaries((previous) => {
+        const byContactId = new Map(
+          (previous ?? []).map((summary) => [summary.contact_id, summary]),
+        );
+        for (const summary of nextSummaries) {
+          byContactId.set(summary.contact_id, summary);
+        }
+        return [...byContactId.values()];
+      });
+    }, TAGS_REFETCH_DEBOUNCE_MS);
+  }, []);
 
   const requestApplicationAnswerKeys = useCallback((keys: Iterable<string>) => {
     for (const key of getApplicationProjectionAnswerKeys(keys)) {
@@ -267,6 +305,7 @@ export function AdminDataProvider({
           { event: "INSERT", schema: "public", table: "applications" },
           (payload) => {
             const next = payload.new as Application;
+            scheduleContactActivitySummaryRefetch(next.contact_id);
             setApplications((prev) => [
               {
                 id: next.id,
@@ -288,6 +327,7 @@ export function AdminDataProvider({
             // REPLICA IDENTITY isn't FULL, which would otherwise wipe fields
             // like `answers` from our in-memory copy.
             const next = payload.new as Partial<Application> & { id: string };
+            scheduleContactActivitySummaryRefetch(next.contact_id);
             setApplications((prev) =>
               (prev ?? []).map((a) =>
                 a.id === next.id
@@ -308,6 +348,9 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "applications" },
           (payload) => {
+            scheduleContactActivitySummaryRefetch(
+              (payload.old as Partial<Application>).contact_id,
+            );
             setApplications((prev) =>
               (prev ?? []).filter((a) => a.id !== (payload.old as Application).id)
             );
@@ -420,7 +463,7 @@ export function AdminDataProvider({
         { data: tagCategoriesData, error: tagCategoriesErr },
         { data: tagsData, error: tagsErr },
         { data: contactTagsData, error: contactTagsErr },
-        { data: contactEventSummariesData, error: contactEventSummariesErr },
+        { data: contactActivitySummariesData, error: contactActivitySummariesErr },
       ] = await Promise.all([
         supabase.from("contacts").select(CONTACT_SELECT).order("name"),
         supabase
@@ -429,11 +472,13 @@ export function AdminDataProvider({
           .order("sort_order"),
         supabase.from("tags").select(TAG_SELECT).order("sort_order"),
         supabase.from("contact_tags").select("*"),
-        supabase.from("contact_events").select(CONTACT_EVENT_SUMMARY_SELECT),
+        supabase
+          .from("contact_activity_summary")
+          .select(CONTACT_ACTIVITY_SUMMARY_SELECT),
       ]);
 
       const fetchError =
-        contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr ?? contactEventSummariesErr;
+        contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr ?? contactActivitySummariesErr;
       if (fetchError) {
         contactsFetchState.current = "idle";
         setContactsError("Failed to load contacts.");
@@ -446,7 +491,9 @@ export function AdminDataProvider({
       setTagCategories(tagCategoriesData ?? []);
       setTags(tagsData ?? []);
       setContactTags(contactTagsData ?? []);
-      setContactEventSummaries(contactEventSummariesData ?? []);
+      setContactActivitySummaries(
+        (contactActivitySummariesData ?? []) as unknown as ContactActivitySummary[],
+      );
       contactsFetchState.current = "done";
 
       // Subscribe to Realtime only after the initial fetch succeeds
@@ -551,28 +598,17 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "contact_events" },
           (payload) => {
-            const row = payload.new as ContactEvent;
-            const summary: ContactEventSummary = {
-              id: row.id,
-              contact_id: row.contact_id,
-              type: row.type,
-              custom_label: row.custom_label,
-              happened_at: row.happened_at,
-              resolved_at: row.resolved_at,
-            };
-            setContactEventSummaries((prev) => [...(prev ?? []), summary]);
+            scheduleContactActivitySummaryRefetch(
+              (payload.new as ContactEvent).contact_id,
+            );
           },
         )
         .on(
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "contact_events" },
           (payload) => {
-            // Merge in just the fields Realtime delivered. If the payload is
-            // partial (REPLICA IDENTITY non-FULL), unchanged fields stay
-            // intact instead of being overwritten with undefined.
-            const next = payload.new as Partial<ContactEvent> & { id: string };
-            setContactEventSummaries((prev) =>
-              (prev ?? []).map((s) => (s.id === next.id ? { ...s, ...next } : s)),
+            scheduleContactActivitySummaryRefetch(
+              (payload.new as Partial<ContactEvent>).contact_id,
             );
           },
         )
@@ -580,9 +616,8 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "contact_events" },
           (payload) => {
-            const row = payload.old as ContactEvent;
-            setContactEventSummaries((prev) =>
-              (prev ?? []).filter((s) => s.id !== row.id),
+            scheduleContactActivitySummaryRefetch(
+              (payload.old as Partial<ContactEvent>).contact_id,
             );
           },
         )
@@ -601,6 +636,7 @@ export function AdminDataProvider({
       if (!supabase) return;
       clearTimeout(tagCategoriesRefetchTimeoutRef.current ?? undefined);
       clearTimeout(tagsRefetchTimeoutRef.current ?? undefined);
+      clearTimeout(activitySummaryRefetchTimeoutRef.current ?? undefined);
       // eslint-disable-next-line react-hooks/exhaustive-deps -- channelsRef is intentionally read at cleanup time to get the latest channels
       for (const channel of channelsRef.current) {
         supabase.removeChannel(channel);
@@ -633,7 +669,7 @@ export function AdminDataProvider({
       tagCategories,
       tags,
       contactTags,
-      contactEventSummaries,
+      contactActivitySummaries,
       contactsError,
       ensureContacts,
     }),
@@ -642,7 +678,7 @@ export function AdminDataProvider({
       tagCategories,
       tags,
       contactTags,
-      contactEventSummaries,
+      contactActivitySummaries,
       contactsError,
       ensureContacts,
     ],

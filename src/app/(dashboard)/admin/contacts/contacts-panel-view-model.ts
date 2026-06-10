@@ -17,11 +17,11 @@ import {
   compareContacts,
   type SortState,
 } from "./sort-helpers";
-import type { ContactEventSummary } from "@/lib/data/contact-events";
 import {
-  deriveContactActivity,
+  deriveContactActivityFromSummary,
   type ContactActivityDerivation,
 } from "./events-derivation";
+import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
 
 const EMPTY_TAG_ID_SET = new Set<string>();
 const EMPTY_CONTACT_TAGS: ContactTag[] = [];
@@ -31,7 +31,7 @@ interface UseContactsPanelViewModelArgs {
   applications: ContactListApplication[] | null;
   contacts: Contact[] | null;
   contactTags: ContactTag[] | null;
-  contactEventSummaries: ContactEventSummary[] | null;
+  contactActivitySummaries: ContactActivitySummary[] | null;
   tags: Tag[] | null;
   tagCategories: TagCategory[] | null;
   visibleColumns: string[];
@@ -49,7 +49,7 @@ export function useContactsPanelViewModel({
   applications,
   contacts,
   contactTags,
-  contactEventSummaries,
+  contactActivitySummaries,
   tags,
   tagCategories,
   visibleColumns,
@@ -93,29 +93,25 @@ export function useContactsPanelViewModel({
     return map;
   }, [contactTags]);
 
-  const eventsByContact = useMemo(() => {
-    const map = new Map<string, ContactEventSummary[]>();
-    for (const ev of contactEventSummaries ?? []) {
-      const existing = map.get(ev.contact_id);
-      if (existing) existing.push(ev);
-      else map.set(ev.contact_id, [ev]);
-    }
-    return map;
-  }, [contactEventSummaries]);
+  const activitySummaryByContact = useMemo(
+    () =>
+      new Map(
+        (contactActivitySummaries ?? []).map((summary) => [
+          summary.contact_id,
+          summary,
+        ]),
+      ),
+    [contactActivitySummaries],
+  );
 
   const derivationsByContact = useMemo(() => {
     const map = new Map<string, ContactActivityDerivation>();
     for (const contact of contacts ?? []) {
-      map.set(
-        contact.id,
-        deriveContactActivity(
-          eventsByContact.get(contact.id) ?? [],
-          appsByContact.get(contact.id) ?? EMPTY_APPLICATIONS,
-        ),
-      );
+      const summary = activitySummaryByContact.get(contact.id);
+      map.set(contact.id, deriveContactActivityFromSummary(summary));
     }
     return map;
-  }, [contacts, eventsByContact, appsByContact]);
+  }, [contacts, activitySummaryByContact]);
 
   const tagsById = useMemo(
     () => new Map((tags ?? []).map((tag) => [tag.id, tag])),

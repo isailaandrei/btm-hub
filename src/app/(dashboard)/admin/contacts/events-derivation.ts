@@ -1,5 +1,6 @@
 import type { Application } from "@/types/database";
 import type { ContactEventSummary } from "@/lib/data/contact-events";
+import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
 import { eventTypeLabel } from "./[id]/event-types";
 
 export interface ContactActivityDerivation {
@@ -56,5 +57,46 @@ export function deriveContactActivity(
     last_activity_label: null,
     awaiting_applicant,
     awaiting_btm,
+  };
+}
+
+export function deriveContactActivityFromSummary(
+  summary: ContactActivitySummary | undefined,
+): ContactActivityDerivation {
+  if (!summary) {
+    return {
+      last_activity_at: null,
+      last_activity_label: null,
+      awaiting_applicant: false,
+      awaiting_btm: false,
+    };
+  }
+
+  if (summary.last_event_at && summary.last_event_type) {
+    return {
+      last_activity_at: summary.last_event_at,
+      last_activity_label: eventTypeLabel(
+        summary.last_event_type,
+        summary.last_event_custom_label,
+      ),
+      awaiting_applicant: summary.awaiting_applicant,
+      awaiting_btm: summary.awaiting_btm,
+    };
+  }
+
+  if (summary.latest_app_submitted_at) {
+    return {
+      last_activity_at: summary.latest_app_submitted_at,
+      last_activity_label: "Application submitted",
+      awaiting_applicant: summary.awaiting_applicant,
+      awaiting_btm: summary.awaiting_btm,
+    };
+  }
+
+  return {
+    last_activity_at: null,
+    last_activity_label: null,
+    awaiting_applicant: summary.awaiting_applicant,
+    awaiting_btm: summary.awaiting_btm,
   };
 }

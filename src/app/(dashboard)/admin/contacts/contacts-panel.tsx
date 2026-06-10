@@ -143,7 +143,7 @@ export function ContactsPanel({
     tagCategories,
     tags,
     contactTags,
-    contactEventSummaries,
+    contactActivitySummaries,
     contactsError,
     ensureContacts,
   } = useAdminContactsData();
@@ -187,7 +187,7 @@ export function ContactsPanel({
     applications,
     contacts,
     contactTags,
-    contactEventSummaries,
+    contactActivitySummaries,
     tags,
     tagCategories,
     visibleColumns: state.visibleColumns,

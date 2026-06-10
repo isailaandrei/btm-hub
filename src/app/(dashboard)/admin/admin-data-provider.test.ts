@@ -24,3 +24,13 @@ describe("AdminDataProvider application projection", () => {
     expect(source).not.toContain("tags, admin_notes");
   });
 });
+
+describe("AdminDataProvider activity summaries", () => {
+  it("loads aggregate activity summaries instead of downloading contact_events", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    expect(source).toContain("contact_activity_summary");
+    expect(source).not.toContain('.from("contact_events").select');
+    expect(source).not.toContain("CONTACT_EVENT_SUMMARY_SELECT");
+  });
+});
