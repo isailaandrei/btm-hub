@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 const ADMIN_DATA_PROVIDER_PATH =
   "src/app/(dashboard)/admin/admin-data-provider.tsx";
+const TASK_LOADERS_PATH =
+  "src/app/(dashboard)/admin/tasks/task-loaders.ts";
 
 describe("AdminDataProvider preferences", () => {
   it("does not fetch admin preferences through the browser Supabase client", () => {
@@ -36,8 +38,16 @@ describe("AdminDataProvider activity summaries", () => {
 });
 
 describe("AdminDataProvider task profiles", () => {
-  it("does not download profile bio or preferences for task assignee pickers", () => {
+  it("does not own task assignee profile fetching", () => {
     const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    expect(source).not.toContain("useAdminProfilesData");
+    expect(source).not.toContain("AdminProfilesContext");
+    expect(source).not.toContain('.from("profiles")');
+  });
+
+  it("loads trimmed task assignee profiles with the task board payload", () => {
+    const source = readFileSync(TASK_LOADERS_PATH, "utf8");
     const select = source.match(
       /\.from\("profiles"\)\s*\.select\("([^"]+)"\)/,
     )?.[1];

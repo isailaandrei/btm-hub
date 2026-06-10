@@ -19,20 +19,39 @@ import {
 import {
   createAndPublishTemplateAction,
   deleteTemplateAction,
-  getTemplateVersionForEditorAction,
   publishTemplateVersionAction,
 } from "./actions";
+import type {
+  EmailTemplateVersionDocument,
+  EmailTemplateVersionsById,
+} from "../actions";
 import {
   EmailDesigner,
   type EmailDesignerHandle,
 } from "./email-designer";
 import { prependTemplateOnce } from "./template-list-state";
 
+function readCachedTemplateDocument(
+  versionId: string,
+  templateVersionsById: EmailTemplateVersionsById,
+) {
+  const cachedVersion = templateVersionsById[versionId];
+  if (!cachedVersion) return null;
+  return assertMailyDocument(cachedVersion.builderJson);
+}
+
 export function TemplateEditor({
   templates,
+  templateVersionsById,
+  ensureTemplateVersion,
   onTemplatesChange,
 }: {
   templates: EmailTemplate[];
+  templateVersionsById: EmailTemplateVersionsById;
+  ensureTemplateVersion: (
+    versionId: string,
+    options?: { quiet?: boolean },
+  ) => Promise<EmailTemplateVersionDocument | null>;
   onTemplatesChange?: (templates: EmailTemplate[]) => void;
 }) {
   const [uncontrolledTemplates, setUncontrolledTemplates] = useState(templates);
@@ -40,12 +59,36 @@ export function TemplateEditor({
   const [selectedTemplateId, setSelectedTemplateId] = useState(
     templates[0]?.id ?? "",
   );
+  const initialTemplateVersionId = templates[0]?.current_version_id ?? "";
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
-  const [document, setDocument] = useState<MailyDocument>(() =>
-    createDefaultMailyDocument(),
-  );
+  const [document, setDocument] = useState<MailyDocument>(() => {
+    if (!initialTemplateVersionId) return createDefaultMailyDocument();
+    try {
+      return (
+        readCachedTemplateDocument(
+          initialTemplateVersionId,
+          templateVersionsById,
+        ) ?? createDefaultMailyDocument()
+      );
+    } catch {
+      return createDefaultMailyDocument();
+    }
+  });
+  const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState(() => {
+    if (!initialTemplateVersionId) return "";
+    try {
+      return readCachedTemplateDocument(
+        initialTemplateVersionId,
+        templateVersionsById,
+      )
+        ? initialTemplateVersionId
+        : "";
+    } catch {
+      return "";
+    }
+  });
   const [templateLoadError, setTemplateLoadError] = useState<{
     versionId: string;
     message: string;
@@ -79,16 +122,19 @@ export function TemplateEditor({
   useEffect(() => {
     if (isCreatingTemplate) return;
     if (!selectedTemplateVersionId) return;
+    if (loadedTemplateVersionId === selectedTemplateVersionId) return;
     let isActive = true;
 
     startLoadTransition(async () => {
       try {
-        const version = await getTemplateVersionForEditorAction(
+        const version = await ensureTemplateVersion(
           selectedTemplateVersionId,
+          { quiet: true },
         );
         if (!isActive || !version) return;
         const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
+        setLoadedTemplateVersionId(selectedTemplateVersionId);
         setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
       } catch (error) {
@@ -108,11 +154,17 @@ export function TemplateEditor({
     return () => {
       isActive = false;
     };
-  }, [isCreatingTemplate, selectedTemplateVersionId]);
+  }, [
+    ensureTemplateVersion,
+    isCreatingTemplate,
+    loadedTemplateVersionId,
+    selectedTemplateVersionId,
+  ]);
 
   const resetEditor = useCallback(() => {
     const fresh = createDefaultMailyDocument();
     setDocument(fresh);
+    setLoadedTemplateVersionId("");
     designerRef.current?.loadDocument(fresh);
   }, []);
 
@@ -150,6 +202,7 @@ export function TemplateEditor({
             prependTemplateOnce(localTemplates, result.template),
           );
           setSelectedTemplateId(result.template.id);
+          setLoadedTemplateVersionId(result.versionId);
           setIsCreatingTemplate(false);
           toast.success("Template created.");
           return;
@@ -176,6 +229,7 @@ export function TemplateEditor({
               : template,
           ),
         );
+        setLoadedTemplateVersionId(result.versionId);
         toast.success("Template published.");
       } catch (error) {
         toast.error(

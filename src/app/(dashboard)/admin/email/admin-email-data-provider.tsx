@@ -13,7 +13,13 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { EmailSend, EmailTemplate } from "@/types/database";
-import { loadEmailStudioDataAction } from "./actions";
+import {
+  loadEmailSendsAction,
+  loadEmailTemplatesAction,
+  type EmailTemplateVersionDocument,
+  type EmailTemplateVersionsById,
+} from "./actions";
+import { getTemplateVersionForEditorAction } from "./templates/actions";
 
 type FetchState = "idle" | "loading" | "done";
 type LoadOptions = { quiet?: boolean };
@@ -21,9 +27,16 @@ type LoadOptions = { quiet?: boolean };
 interface AdminEmailDataContextValue {
   templates: EmailTemplate[] | null;
   sends: EmailSend[] | null;
+  templateVersionsById: EmailTemplateVersionsById;
   emailError: string | null;
-  ensureEmailStudioData: (options?: LoadOptions) => Promise<void>;
-  refreshEmailStudioData: (options?: LoadOptions) => Promise<void>;
+  ensureEmailTemplates: (options?: LoadOptions) => Promise<void>;
+  refreshEmailTemplates: (options?: LoadOptions) => Promise<void>;
+  ensureEmailSends: (options?: LoadOptions) => Promise<void>;
+  refreshEmailSends: (options?: LoadOptions) => Promise<void>;
+  ensureTemplateVersion: (
+    versionId: string,
+    options?: LoadOptions,
+  ) => Promise<EmailTemplateVersionDocument | null>;
   setEmailTemplates: Dispatch<SetStateAction<EmailTemplate[] | null>>;
   setEmailSends: Dispatch<SetStateAction<EmailSend[] | null>>;
 }
@@ -44,77 +57,191 @@ export function useAdminEmailData() {
 export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
   const [templates, setEmailTemplates] = useState<EmailTemplate[] | null>(null);
   const [sends, setEmailSends] = useState<EmailSend[] | null>(null);
+  const [templateVersionsById, setTemplateVersionsById] =
+    useState<EmailTemplateVersionsById>({});
   const [emailError, setEmailError] = useState<string | null>(null);
-  const fetchStateRef = useRef<FetchState>("idle");
-  const pendingLoadRef = useRef<Promise<void> | null>(null);
+  const templateFetchStateRef = useRef<FetchState>("idle");
+  const sendsFetchStateRef = useRef<FetchState>("idle");
+  const pendingTemplateLoadRef = useRef<Promise<void> | null>(null);
+  const pendingSendsLoadRef = useRef<Promise<void> | null>(null);
+  const templateVersionsByIdRef = useRef<EmailTemplateVersionsById>({});
+  const pendingTemplateVersionLoadsRef = useRef<
+    Map<string, Promise<EmailTemplateVersionDocument | null>>
+  >(new Map());
 
-  const loadEmailStudioData = useCallback(
+  const mergeTemplateVersions = useCallback(
+    (nextVersions: EmailTemplateVersionsById) => {
+      if (Object.keys(nextVersions).length === 0) return;
+      const merged = {
+        ...templateVersionsByIdRef.current,
+        ...nextVersions,
+      };
+      templateVersionsByIdRef.current = merged;
+      setTemplateVersionsById(merged);
+    },
+    [],
+  );
+
+  const loadEmailTemplates = useCallback(
     (options?: LoadOptions & { force?: boolean }) => {
-      if (fetchStateRef.current === "loading") {
-        return pendingLoadRef.current ?? Promise.resolve();
+      if (templateFetchStateRef.current === "loading") {
+        return pendingTemplateLoadRef.current ?? Promise.resolve();
       }
-      if (!options?.force && fetchStateRef.current === "done") {
+      if (!options?.force && templateFetchStateRef.current === "done") {
         return Promise.resolve();
       }
 
-      fetchStateRef.current = "loading";
+      templateFetchStateRef.current = "loading";
 
       const pendingLoad = (async () => {
         try {
-          const data = await loadEmailStudioDataAction();
+          const data = await loadEmailTemplatesAction();
+          mergeTemplateVersions(data.templateVersionsById);
           setEmailTemplates(data.templates);
-          setEmailSends(data.sends);
           setEmailError(null);
-          fetchStateRef.current = "done";
+          templateFetchStateRef.current = "done";
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Failed to load email data.";
-          fetchStateRef.current = "idle";
+          templateFetchStateRef.current = "idle";
           setEmailError(message);
           if (!options?.quiet) {
             toast.error(message);
           }
         } finally {
-          pendingLoadRef.current = null;
+          pendingTemplateLoadRef.current = null;
         }
       })();
 
-      pendingLoadRef.current = pendingLoad;
+      pendingTemplateLoadRef.current = pendingLoad;
+      return pendingLoad;
+    },
+    [mergeTemplateVersions],
+  );
+
+  const ensureEmailTemplates = useCallback(
+    (options?: LoadOptions) => loadEmailTemplates(options),
+    [loadEmailTemplates],
+  );
+
+  const refreshEmailTemplates = useCallback(
+    (options?: LoadOptions) =>
+      loadEmailTemplates({
+        ...options,
+        force: true,
+      }),
+    [loadEmailTemplates],
+  );
+
+  const loadEmailSends = useCallback(
+    (options?: LoadOptions & { force?: boolean }) => {
+      if (sendsFetchStateRef.current === "loading") {
+        return pendingSendsLoadRef.current ?? Promise.resolve();
+      }
+      if (!options?.force && sendsFetchStateRef.current === "done") {
+        return Promise.resolve();
+      }
+
+      sendsFetchStateRef.current = "loading";
+
+      const pendingLoad = (async () => {
+        try {
+          const data = await loadEmailSendsAction();
+          setEmailSends(data.sends);
+          setEmailError(null);
+          sendsFetchStateRef.current = "done";
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Failed to load sent emails.";
+          sendsFetchStateRef.current = "idle";
+          setEmailError(message);
+          if (!options?.quiet) {
+            toast.error(message);
+          }
+        } finally {
+          pendingSendsLoadRef.current = null;
+        }
+      })();
+
+      pendingSendsLoadRef.current = pendingLoad;
       return pendingLoad;
     },
     [],
   );
 
-  const ensureEmailStudioData = useCallback(
-    (options?: LoadOptions) => loadEmailStudioData(options),
-    [loadEmailStudioData],
+  const ensureEmailSends = useCallback(
+    (options?: LoadOptions) => loadEmailSends(options),
+    [loadEmailSends],
   );
 
-  const refreshEmailStudioData = useCallback(
+  const refreshEmailSends = useCallback(
     (options?: LoadOptions) =>
-      loadEmailStudioData({
+      loadEmailSends({
         ...options,
         force: true,
       }),
-    [loadEmailStudioData],
+    [loadEmailSends],
+  );
+
+  const ensureTemplateVersion = useCallback(
+    (versionId: string, options?: LoadOptions) => {
+      const cached = templateVersionsByIdRef.current[versionId];
+      if (cached) return Promise.resolve(cached);
+
+      const pending = pendingTemplateVersionLoadsRef.current.get(versionId);
+      if (pending) return pending;
+
+      const pendingLoad = (async () => {
+        try {
+          const version = await getTemplateVersionForEditorAction(versionId);
+          if (version) {
+            mergeTemplateVersions({ [versionId]: version });
+          }
+          setEmailError(null);
+          return version;
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Failed to load template.";
+          setEmailError(message);
+          if (!options?.quiet) {
+            toast.error(message);
+          }
+          throw error;
+        } finally {
+          pendingTemplateVersionLoadsRef.current.delete(versionId);
+        }
+      })();
+
+      pendingTemplateVersionLoadsRef.current.set(versionId, pendingLoad);
+      return pendingLoad;
+    },
+    [mergeTemplateVersions],
   );
 
   const value = useMemo(
     () => ({
       templates,
       sends,
+      templateVersionsById,
       emailError,
-      ensureEmailStudioData,
-      refreshEmailStudioData,
+      ensureEmailTemplates,
+      refreshEmailTemplates,
+      ensureEmailSends,
+      refreshEmailSends,
+      ensureTemplateVersion,
       setEmailTemplates,
       setEmailSends,
     }),
     [
       templates,
       sends,
+      templateVersionsById,
       emailError,
-      ensureEmailStudioData,
-      refreshEmailStudioData,
+      ensureEmailTemplates,
+      refreshEmailTemplates,
+      ensureEmailSends,
+      refreshEmailSends,
+      ensureTemplateVersion,
       setEmailTemplates,
       setEmailSends,
     ],

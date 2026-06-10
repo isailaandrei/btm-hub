@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAdminProfilesData } from "../admin-data-provider";
 import type { AdminTask } from "@/types/database";
 import { CreateTaskGroupForm } from "./task-forms";
 import { TaskBoardView } from "./task-board-view";
@@ -12,11 +11,7 @@ import { TaskDetailPanel } from "./task-detail-panel";
 
 function TasksPanelContent() {
   const {
-    profiles,
-    profilesError,
-    ensureProfiles,
-  } = useAdminProfilesData();
-  const {
+    admins,
     groups,
     tasks,
     today,
@@ -33,17 +28,11 @@ function TasksPanelContent() {
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
 
   useEffect(() => {
-    ensureProfiles();
     ensureTasks();
-  }, [ensureProfiles, ensureTasks]);
+  }, [ensureTasks]);
 
-  const admins = useMemo(
-    () => (profiles ?? []).filter((profile) => profile.role === "admin"),
-    [profiles],
-  );
-
-  const sharedError = tasksError ?? profilesError;
-  const ready = groups && tasks && profiles && today;
+  const sharedError = tasksError;
+  const ready = groups && tasks && admins && today;
 
   return (
     <section className="space-y-5">
@@ -104,7 +93,7 @@ function TasksPanelContent() {
         task={selectedTask}
         groups={groups ?? []}
         tasks={tasks ?? []}
-        admins={admins}
+        admins={admins ?? []}
         open={Boolean(selectedTask)}
         onOpenChange={(open) => {
           if (!open) setSelectedTask(null);

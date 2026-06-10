@@ -12,20 +12,39 @@ import {
   EmailDesigner,
   type EmailDesignerHandle,
 } from "../templates/email-designer";
-import { getTemplateVersionForEditorAction } from "../templates/actions";
-import { sendEmailNowAction } from "../actions";
+import {
+  sendEmailNowAction,
+  type EmailTemplateVersionsById,
+  type EmailTemplateVersionDocument,
+} from "../actions";
 import {
   BROADCAST_CONFIRMATION_MESSAGE,
   requiresBroadcastConfirmation,
 } from "./broadcast-confirmation";
 import { getRecipientSummary } from "./recipient-summary";
 
+function readCachedTemplateDocument(
+  versionId: string,
+  templateVersionsById: EmailTemplateVersionsById,
+) {
+  const cachedVersion = templateVersionsById[versionId];
+  if (!cachedVersion) return null;
+  return assertMailyDocument(cachedVersion.builderJson);
+}
+
 export function EmailComposer({
   templates,
+  templateVersionsById,
+  ensureTemplateVersion,
   selectedContactIds,
   onSendStarted,
 }: {
   templates: EmailTemplate[];
+  templateVersionsById: EmailTemplateVersionsById;
+  ensureTemplateVersion: (
+    versionId: string,
+    options?: { quiet?: boolean },
+  ) => Promise<EmailTemplateVersionDocument | null>;
   selectedContactIds: string[];
   onSendStarted?: () => void;
 }) {
@@ -39,12 +58,36 @@ export function EmailComposer({
   const [selectedTemplateId, setSelectedTemplateId] = useState(
     publishedTemplates[0]?.id ?? "",
   );
+  const initialTemplateVersionId =
+    publishedTemplates[0]?.current_version_id ?? "";
   const [subject, setSubject] = useState("Hello {{contact.name}}");
   const [previewText, setPreviewText] = useState("");
-  const [document, setDocument] = useState<MailyDocument>(() =>
-    createDefaultMailyDocument(),
-  );
-  const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState("");
+  const [document, setDocument] = useState<MailyDocument>(() => {
+    if (!initialTemplateVersionId) return createDefaultMailyDocument();
+    try {
+      return (
+        readCachedTemplateDocument(
+          initialTemplateVersionId,
+          templateVersionsById,
+        ) ?? createDefaultMailyDocument()
+      );
+    } catch {
+      return createDefaultMailyDocument();
+    }
+  });
+  const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState(() => {
+    if (!initialTemplateVersionId) return "";
+    try {
+      return readCachedTemplateDocument(
+        initialTemplateVersionId,
+        templateVersionsById,
+      )
+        ? initialTemplateVersionId
+        : "";
+    } catch {
+      return "";
+    }
+  });
   const [templateLoadError, setTemplateLoadError] = useState<{
     versionId: string;
     message: string;
@@ -65,12 +108,14 @@ export function EmailComposer({
 
   useEffect(() => {
     if (!selectedTemplateVersionId) return;
+    if (loadedTemplateVersionId === selectedTemplateVersionId) return;
     let isActive = true;
 
     startLoadTransition(async () => {
       try {
-        const version = await getTemplateVersionForEditorAction(
+        const version = await ensureTemplateVersion(
           selectedTemplateVersionId,
+          { quiet: true },
         );
         if (!isActive || !version) return;
         const nextDocument = assertMailyDocument(version.builderJson);
@@ -95,7 +140,7 @@ export function EmailComposer({
     return () => {
       isActive = false;
     };
-  }, [selectedTemplateVersionId]);
+  }, [ensureTemplateVersion, loadedTemplateVersionId, selectedTemplateVersionId]);
 
   const isTemplateReady =
     Boolean(selectedTemplateVersionId) &&

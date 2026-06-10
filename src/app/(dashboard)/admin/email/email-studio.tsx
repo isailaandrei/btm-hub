@@ -22,7 +22,10 @@ import {
   getEmailSendDiagnosticsAction,
   type EmailSendDiagnostics,
 } from "./actions";
-import { useAdminEmailData } from "./admin-email-data-provider";
+import {
+  AdminEmailDataProvider,
+  useAdminEmailData,
+} from "./admin-email-data-provider";
 import { EmailComposer } from "./compose/email-composer";
 import {
   buildEmailSendMetrics,
@@ -96,7 +99,7 @@ function formatRecipientStatus(status: string) {
   return status.replace("_", " ");
 }
 
-export function EmailStudio({
+function EmailStudioContent({
   isVisible = true,
   selectedContactIds,
 }: {
@@ -106,9 +109,12 @@ export function EmailStudio({
   const {
     templates,
     sends,
+    templateVersionsById,
     emailError,
-    ensureEmailStudioData,
-    refreshEmailStudioData,
+    ensureEmailTemplates,
+    ensureEmailSends,
+    refreshEmailSends,
+    ensureTemplateVersion,
     setEmailSends,
     setEmailTemplates,
   } = useAdminEmailData();
@@ -116,6 +122,7 @@ export function EmailStudio({
   const [hasVisitedTemplates, setHasVisitedTemplates] = useState(false);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
   const [isLoadingData, startLoadDataTransition] = useTransition();
+  const [isLoadingSends, startLoadSendsTransition] = useTransition();
   const [isDeletingSend, startDeleteSendTransition] = useTransition();
   const [expandedSendId, setExpandedSendId] = useState<string | null>(null);
   const [diagnosticsBySendId, setDiagnosticsBySendId] =
@@ -130,15 +137,22 @@ export function EmailStudio({
   const loadError = emailError;
 
   const refreshData = useCallback(
-    (options?: { quiet?: boolean }) => refreshEmailStudioData(options),
-    [refreshEmailStudioData],
+    (options?: { quiet?: boolean }) => refreshEmailSends(options),
+    [refreshEmailSends],
   );
 
   useEffect(() => {
     startLoadDataTransition(async () => {
-      await ensureEmailStudioData({ quiet: true });
+      await ensureEmailTemplates({ quiet: true });
     });
-  }, [ensureEmailStudioData]);
+  }, [ensureEmailTemplates]);
+
+  useEffect(() => {
+    if (activeTab !== "sent") return;
+    startLoadSendsTransition(async () => {
+      await ensureEmailSends({ quiet: true });
+    });
+  }, [activeTab, ensureEmailSends]);
 
   const hasActiveSends = localSends.some(isActiveSend);
 
@@ -230,7 +244,7 @@ export function EmailStudio({
               type="button"
               onClick={() =>
                 startLoadDataTransition(async () => {
-                  await ensureEmailStudioData();
+                  await ensureEmailTemplates();
                 })
               }
               disabled={isLoadingData}
@@ -283,6 +297,8 @@ export function EmailStudio({
         <EmailComposer
           key={selectedContactIds.join(",")}
           templates={templates}
+          templateVersionsById={templateVersionsById}
+          ensureTemplateVersion={ensureTemplateVersion}
           selectedContactIds={selectedContactIds}
           onSendStarted={handleSendStarted}
         />
@@ -292,6 +308,8 @@ export function EmailStudio({
         <div hidden={activeTab !== "templates"}>
           <TemplateEditor
             templates={templates}
+            templateVersionsById={templateVersionsById}
+            ensureTemplateVersion={ensureTemplateVersion}
             onTemplatesChange={(nextTemplates) =>
               setEmailTemplates(nextTemplates)
             }
@@ -314,16 +332,23 @@ export function EmailStudio({
                 type="button"
                 onClick={refreshStatuses}
                 className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
-                disabled={isRefreshing}
+                disabled={isRefreshing || isLoadingSends}
               >
                 <RefreshCw
-                  className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+                  className={`h-3.5 w-3.5 ${
+                    isRefreshing || isLoadingSends ? "animate-spin" : ""
+                  }`}
                 />
                 Refresh
               </button>
             </div>
           </div>
-          {localSends.length === 0 ? (
+          {sends === null ? (
+            <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading sent emails...
+            </div>
+          ) : localSends.length === 0 ? (
             <p className="px-4 py-8 text-sm text-muted-foreground">
               No emails have been sent yet.
             </p>
@@ -500,5 +525,16 @@ export function EmailStudio({
         </div>
       )}
     </div>
+  );
+}
+
+export function EmailStudio(props: {
+  isVisible?: boolean;
+  selectedContactIds: string[];
+}) {
+  return (
+    <AdminEmailDataProvider>
+      <EmailStudioContent {...props} />
+    </AdminEmailDataProvider>
   );
 }

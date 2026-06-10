@@ -32,7 +32,6 @@ import {
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type {
-  AdminAssigneeProfile,
   Application,
   Contact,
   TagCategory,
@@ -59,12 +58,6 @@ interface AdminApplicationsContextValue {
   ensureAnswerKeys: (answerKeys: Iterable<string>) => void;
 }
 
-interface AdminProfilesContextValue {
-  profiles: AdminAssigneeProfile[] | null;
-  profilesError: string | null;
-  ensureProfiles: () => void;
-}
-
 interface AdminContactsContextValue {
   contacts: Contact[] | null;
   tagCategories: TagCategory[] | null;
@@ -82,8 +75,6 @@ interface AdminPreferencesContextValue {
 
 const AdminApplicationsContext =
   createContext<AdminApplicationsContextValue | null>(null);
-const AdminProfilesContext =
-  createContext<AdminProfilesContextValue | null>(null);
 const AdminContactsContext =
   createContext<AdminContactsContextValue | null>(null);
 const AdminPreferencesContext =
@@ -128,16 +119,6 @@ export function useAdminApplicationsData() {
   return ctx;
 }
 
-export function useAdminProfilesData() {
-  const ctx = useContext(AdminProfilesContext);
-  if (!ctx) {
-    throw new Error(
-      "useAdminProfilesData must be used within AdminDataProvider",
-    );
-  }
-  return ctx;
-}
-
 export function useAdminContactsData() {
   const ctx = useContext(AdminContactsContext);
   if (!ctx) {
@@ -168,9 +149,7 @@ export function AdminDataProvider({
   const [applications, setApplications] = useState<
     ContactListApplication[] | null
   >(null);
-  const [profiles, setProfiles] = useState<AdminAssigneeProfile[] | null>(null);
   const [appsError, setAppsError] = useState<string | null>(null);
-  const [profilesError, setProfilesError] = useState<string | null>(null);
 
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(null);
@@ -184,7 +163,6 @@ export function AdminDataProvider({
     useState<Record<string, unknown>>(initialPreferences);
 
   const appsFetchState = useRef<FetchState>("idle");
-  const profilesFetchState = useRef<FetchState>("idle");
   const contactsFetchState = useRef<FetchState>("idle");
   const channelsRef = useRef<RealtimeChannel[]>([]);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -397,75 +375,6 @@ export function AdminDataProvider({
     }
   }, [requestApplicationAnswerKeys, startApplicationsFetch]);
 
-  const ensureProfiles = useCallback(() => {
-    if (profilesFetchState.current !== "idle") return;
-    profilesFetchState.current = "loading";
-
-    const supabase = getSupabase();
-
-    async function fetchProfiles() {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, email, role, display_name, avatar_url, created_at, updated_at")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        profilesFetchState.current = "idle";
-        setProfilesError("Failed to load profiles.");
-        toast.error("Failed to load profiles. Please try again.");
-        return;
-      }
-
-      setProfilesError(null);
-      setProfiles(data ?? []);
-      profilesFetchState.current = "done";
-
-      const channel = supabase
-        .channel("admin-profiles")
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "profiles" },
-          (payload) => {
-            setProfiles((prev) => [
-              payload.new as AdminAssigneeProfile,
-              ...(prev ?? []),
-            ]);
-          },
-        )
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "profiles" },
-          (payload) => {
-            // Merge instead of replace — same partial-payload concern as the
-            // applications handler above (Supabase Realtime can omit unchanged
-            // columns when REPLICA IDENTITY isn't FULL).
-            const next = payload.new as Partial<AdminAssigneeProfile> & {
-              id: string;
-            };
-            setProfiles((prev) =>
-              (prev ?? []).map((p) => (p.id === next.id ? { ...p, ...next } : p)),
-            );
-          },
-        )
-        .on(
-          "postgres_changes",
-          { event: "DELETE", schema: "public", table: "profiles" },
-          (payload) => {
-            setProfiles((prev) =>
-              (prev ?? []).filter(
-                (p) => p.id !== (payload.old as AdminAssigneeProfile).id,
-              )
-            );
-          },
-        )
-        .subscribe();
-
-      channelsRef.current.push(channel);
-    }
-
-    fetchProfiles();
-  }, []);
-
   const ensureContacts = useCallback(() => {
     if (contactsFetchState.current !== "idle") return;
     contactsFetchState.current = "loading";
@@ -528,7 +437,7 @@ export function AdminDataProvider({
           { event: "UPDATE", schema: "public", table: "contacts" },
           (payload) => {
             // Merge into the existing contact rather than overwriting; see
-            // applications/profiles handlers above for the rationale.
+            // the applications handler above for the rationale.
             const next = payload.new as Partial<Contact> & { id: string };
             setContacts((prev) => {
               const existing = (prev ?? []).find((c) => c.id === next.id);
@@ -669,15 +578,6 @@ export function AdminDataProvider({
     [applications, appsError, ensureApplications, ensureAnswerKeys],
   );
 
-  const profilesValue = useMemo(
-    () => ({
-      profiles,
-      profilesError,
-      ensureProfiles,
-    }),
-    [profiles, profilesError, ensureProfiles],
-  );
-
   const contactsValue = useMemo(
     () => ({
       contacts,
@@ -712,13 +612,11 @@ export function AdminDataProvider({
 
   return (
     <AdminApplicationsContext.Provider value={applicationsValue}>
-      <AdminProfilesContext.Provider value={profilesValue}>
-        <AdminContactsContext.Provider value={contactsValue}>
-          <AdminPreferencesContext.Provider value={preferencesValue}>
-            {children}
-          </AdminPreferencesContext.Provider>
-        </AdminContactsContext.Provider>
-      </AdminProfilesContext.Provider>
+      <AdminContactsContext.Provider value={contactsValue}>
+        <AdminPreferencesContext.Provider value={preferencesValue}>
+          {children}
+        </AdminPreferencesContext.Provider>
+      </AdminContactsContext.Provider>
     </AdminApplicationsContext.Provider>
   );
 }

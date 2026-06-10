@@ -63,14 +63,62 @@ const draftEmailSchema = previewEmailSchema.extend({
 
 type ParsedEmailSendInput = z.infer<typeof draftEmailSchema>;
 
+export type EmailTemplateVersionDocument = {
+  builderJson: Record<string, unknown>;
+};
+
+export type EmailTemplateVersionsById = Record<
+  string,
+  EmailTemplateVersionDocument
+>;
+
+async function loadTemplatesWithInitialVersion(): Promise<{
+  templates: Awaited<ReturnType<typeof listEmailTemplates>>;
+  templateVersionsById: EmailTemplateVersionsById;
+}> {
+  const templates = await listEmailTemplates();
+  const initialVersionId =
+    templates.find((template) => template.current_version_id)
+      ?.current_version_id ?? null;
+  const templateVersionsById: EmailTemplateVersionsById = {};
+
+  if (initialVersionId) {
+    const version = await getEmailTemplateVersion(initialVersionId);
+    if (version) {
+      templateVersionsById[initialVersionId] = {
+        builderJson: version.builder_json,
+      };
+    }
+  }
+
+  return {
+    templates,
+    templateVersionsById,
+  };
+}
+
+export async function loadEmailTemplatesAction() {
+  await requireAdmin();
+  return loadTemplatesWithInitialVersion();
+}
+
+export async function loadEmailSendsAction() {
+  await requireAdmin();
+  const sends = await listEmailSends();
+  return { sends };
+}
+
 export async function loadEmailStudioDataAction() {
   await requireAdmin();
-  const [templates, sends] = await Promise.all([
-    listEmailTemplates(),
+  const [templateData, sends] = await Promise.all([
+    loadTemplatesWithInitialVersion(),
     listEmailSends(),
   ]);
 
-  return { templates, sends };
+  return {
+    ...templateData,
+    sends,
+  };
 }
 
 async function resolvePreview(input: {

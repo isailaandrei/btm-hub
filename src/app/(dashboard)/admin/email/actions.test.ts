@@ -78,7 +78,9 @@ vi.mock("next/server", () => ({
 const {
   createEmailDraftAction,
   getEmailSendDiagnosticsAction,
+  loadEmailSendsAction,
   loadEmailStudioDataAction,
+  loadEmailTemplatesAction,
   previewEmailAction,
   sendEmailNowAction,
 } = await import("./actions");
@@ -148,8 +150,41 @@ describe("loadEmailStudioDataAction", () => {
     expect(mockRequireAdmin).toHaveBeenCalled();
     expect(result).toEqual({
       templates: [{ id: "template-1" }],
+      templateVersionsById: {},
       sends: [{ id: "send-1" }],
     });
+  });
+});
+
+describe("loadEmailTemplatesAction", () => {
+  it("loads templates with the first published template version document", async () => {
+    mockListEmailTemplates.mockResolvedValue([
+      { id: "template-1", current_version_id: TEMPLATE_VERSION_ID },
+    ]);
+
+    const result = await loadEmailTemplatesAction();
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockGetEmailTemplateVersion).toHaveBeenCalledWith(TEMPLATE_VERSION_ID);
+    expect(result).toEqual({
+      templates: [{ id: "template-1", current_version_id: TEMPLATE_VERSION_ID }],
+      templateVersionsById: {
+        [TEMPLATE_VERSION_ID]: {
+          builderJson: { type: "doc", content: [] },
+        },
+      },
+    });
+  });
+});
+
+describe("loadEmailSendsAction", () => {
+  it("loads sent email history separately from templates", async () => {
+    const result = await loadEmailSendsAction();
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockListEmailSends).toHaveBeenCalled();
+    expect(mockListEmailTemplates).not.toHaveBeenCalled();
+    expect(result).toEqual({ sends: [{ id: "send-1" }] });
   });
 });
 

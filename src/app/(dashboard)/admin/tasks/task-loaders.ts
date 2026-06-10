@@ -7,7 +7,12 @@ import {
   TASK_COMMENT_SELECT,
   TASK_SELECT,
 } from "@/lib/data/tasks";
-import type { AdminTask, TaskComment, TaskGroup } from "@/types/database";
+import type {
+  AdminAssigneeProfile,
+  AdminTask,
+  TaskComment,
+  TaskGroup,
+} from "@/types/database";
 import {
   TASK_DATE_BUCKET_ORDER,
   DEFAULT_DONE_TASK_LIMIT,
@@ -23,6 +28,7 @@ export interface TaskDoneCursor {
 }
 
 export interface TaskBoardData {
+  admins: AdminAssigneeProfile[];
   groups: TaskGroup[];
   activeTasks: AdminTask[];
   doneTasks: AdminTask[];
@@ -83,8 +89,19 @@ export async function loadTaskBoardDataAction(): Promise<TaskBoardData> {
   const supabase = await createClient();
   const today = getTodayInBtmTimezone();
 
-  const [groupsResult, activeTasksResult, doneTasksResult, doneCountsResult] =
+  const [
+    adminsResult,
+    groupsResult,
+    activeTasksResult,
+    doneTasksResult,
+    doneCountsResult,
+  ] =
     await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id, email, role, display_name, avatar_url, created_at, updated_at")
+        .eq("role", "admin")
+        .order("created_at", { ascending: false }),
       supabase
         .from("task_groups")
         .select(TASK_GROUP_SELECT)
@@ -107,6 +124,11 @@ export async function loadTaskBoardDataAction(): Promise<TaskBoardData> {
       supabase.rpc("get_task_done_counts_by_group"),
     ]);
 
+  if (adminsResult.error) {
+    throw new Error(
+      `Failed to load task assignee profiles: ${adminsResult.error.message}`,
+    );
+  }
   if (groupsResult.error) {
     throw new Error(`Failed to load task groups: ${groupsResult.error.message}`);
   }
@@ -132,6 +154,7 @@ export async function loadTaskBoardDataAction(): Promise<TaskBoardData> {
   }
 
   return {
+    admins: (adminsResult.data ?? []) as AdminAssigneeProfile[],
     groups: (groupsResult.data ?? []) as TaskGroup[],
     activeTasks: (activeTasksResult.data ?? []) as AdminTask[],
     doneTasks,

@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type {
+  AdminAssigneeProfile,
   AdminTask,
   TaskComment,
   TaskGroup,
@@ -59,6 +60,7 @@ export type OptimisticTaskPatch = Partial<
 >;
 
 interface TaskDataContextValue {
+  admins: AdminAssigneeProfile[] | null;
   groups: TaskGroup[] | null;
   tasks: AdminTask[] | null;
   dateTasks: AdminTask[] | null;
@@ -107,6 +109,32 @@ function patchById<T extends { id: string }>(
   return current.map((item) => (item.id === id ? { ...item, ...patch } : item));
 }
 
+function sortAdminProfiles(profiles: AdminAssigneeProfile[]) {
+  return [...profiles].sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+}
+
+function upsertAdminProfile(
+  current: AdminAssigneeProfile[] | null,
+  profile: Partial<AdminAssigneeProfile> & { id: string },
+) {
+  if (profile.role && profile.role !== "admin") {
+    return (current ?? []).filter((item) => item.id !== profile.id);
+  }
+
+  const existing = (current ?? []).find((item) => item.id === profile.id);
+  if (!existing && profile.role !== "admin") return current ?? [];
+
+  const nextProfile = {
+    ...existing,
+    ...profile,
+  } as AdminAssigneeProfile;
+  const withoutExisting = (current ?? []).filter((item) => item.id !== profile.id);
+  return sortAdminProfiles([nextProfile, ...withoutExisting]);
+}
+
 export function buildOptimisticTaskPatch(
   task: AdminTask,
   patch: TaskUpdatePatch,
@@ -130,6 +158,7 @@ export function buildOptimisticTaskPatch(
 }
 
 export function TaskDataProvider({ children }: { children: ReactNode }) {
+  const [admins, setAdmins] = useState<AdminAssigneeProfile[] | null>(null);
   const [groups, setGroups] = useState<TaskGroup[] | null>(null);
   const [tasks, setTasks] = useState<AdminTask[] | null>(null);
   const [dateTasks, setDateTasks] = useState<AdminTask[] | null>(null);
@@ -160,6 +189,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   }
 
   const applyBoardData = useCallback((data: TaskBoardData) => {
+    setAdmins(data.admins);
     setGroups(data.groups);
     setTasks([...data.activeTasks, ...data.doneTasks]);
     setDoneCountsByGroupId(data.doneCountsByGroupId);
@@ -253,6 +283,44 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         "postgres_changes",
         { event: "*", schema: "public", table: "tasks" },
         () => scheduleRefresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "profiles" },
+        (payload) => {
+          setAdmins((prev) =>
+            upsertAdminProfile(
+              prev,
+              payload.new as Partial<AdminAssigneeProfile> & { id: string },
+            ),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles" },
+        (payload) => {
+          setAdmins((prev) =>
+            upsertAdminProfile(
+              prev,
+              payload.new as Partial<AdminAssigneeProfile> & { id: string },
+            ),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "profiles" },
+        (payload) => {
+          setAdmins(
+            (prev) =>
+              prev?.filter(
+                (profile) =>
+                  profile.id !==
+                  (payload.old as Partial<AdminAssigneeProfile>).id,
+              ) ?? prev,
+          );
+        },
       )
       .on(
         "postgres_changes",
@@ -365,6 +433,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
+      admins,
       groups,
       tasks,
       dateTasks,
@@ -390,6 +459,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       reloadComments,
     }),
     [
+      admins,
       groups,
       tasks,
       dateTasks,

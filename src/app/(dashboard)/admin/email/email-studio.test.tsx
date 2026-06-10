@@ -2,13 +2,15 @@
  * @vitest-environment jsdom
  */
 
-import { act, useEffect } from "react";
+import { act, useEffect, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmailTemplate } from "@/types/database";
 
-const mockEnsureEmailStudioData = vi.fn();
-const mockRefreshEmailStudioData = vi.fn();
+const mockEnsureEmailTemplates = vi.fn();
+const mockEnsureEmailSends = vi.fn();
+const mockRefreshEmailSends = vi.fn();
+const mockEnsureTemplateVersion = vi.fn();
 const mockSetEmailSends = vi.fn();
 const mockSetEmailTemplates = vi.fn();
 const mockEmailComposerMount = vi.fn();
@@ -29,6 +31,9 @@ vi.mock("./actions", () => ({
 }));
 
 vi.mock("./admin-email-data-provider", () => ({
+  AdminEmailDataProvider: ({ children }: { children: ReactNode }) => (
+    <>{children}</>
+  ),
   useAdminEmailData: () => ({
     templates: [
       {
@@ -38,9 +43,12 @@ vi.mock("./admin-email-data-provider", () => ({
       } as EmailTemplate,
     ],
     sends: [],
+    templateVersionsById: {},
     emailError: null,
-    ensureEmailStudioData: mockEnsureEmailStudioData,
-    refreshEmailStudioData: mockRefreshEmailStudioData,
+    ensureEmailTemplates: mockEnsureEmailTemplates,
+    ensureEmailSends: mockEnsureEmailSends,
+    refreshEmailSends: mockRefreshEmailSends,
+    ensureTemplateVersion: mockEnsureTemplateVersion,
     setEmailSends: mockSetEmailSends,
     setEmailTemplates: mockSetEmailTemplates,
   }),
@@ -78,8 +86,10 @@ describe("EmailStudio", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    mockEnsureEmailStudioData.mockResolvedValue(undefined);
-    mockRefreshEmailStudioData.mockResolvedValue(undefined);
+    mockEnsureEmailTemplates.mockReset().mockResolvedValue(undefined);
+    mockEnsureEmailSends.mockReset().mockResolvedValue(undefined);
+    mockRefreshEmailSends.mockReset().mockResolvedValue(undefined);
+    mockEnsureTemplateVersion.mockReset().mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -118,5 +128,18 @@ describe("EmailStudio", () => {
     expect(mockEmailComposerMount).toHaveBeenCalledTimes(1);
     expect(mockEmailComposerUnmount).not.toHaveBeenCalled();
     expect(mockTemplateEditorUnmount).not.toHaveBeenCalled();
+  });
+
+  it("loads templates on mount and defers sends until the sent tab is selected", () => {
+    act(() => {
+      root.render(<EmailStudio selectedContactIds={[]} />);
+    });
+
+    expect(mockEnsureEmailTemplates).toHaveBeenCalledWith({ quiet: true });
+    expect(mockEnsureEmailSends).not.toHaveBeenCalled();
+
+    clickEmailTab("Sent emails");
+
+    expect(mockEnsureEmailSends).toHaveBeenCalledWith({ quiet: true });
   });
 });
