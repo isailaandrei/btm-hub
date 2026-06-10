@@ -154,22 +154,33 @@ export function ContactsPanel({
     useAdminApplicationsData();
   const { preferences, setPreferences } = useAdminPreferencesData();
   const sync = useAcademyImportSync();
-  const effectiveContacts = contacts ?? initialData?.contacts ?? null;
-  const effectiveApplications = applications ?? initialData?.applications ?? null;
-  const effectiveContactTags = contactTags ?? initialData?.contactTags ?? null;
-  const effectiveActivitySummaries =
-    contactActivitySummaries ?? initialData?.contactActivitySummaries ?? null;
-  const effectiveTagCategories =
-    tagCategories ?? initialData?.tagCategories ?? null;
-  const effectiveTags = tags ?? initialData?.tags ?? null;
-  const isHydratingFullData = Boolean(initialData) && (
-    contacts === null ||
-    applications === null ||
-    contactTags === null ||
-    contactActivitySummaries === null ||
-    tagCategories === null ||
-    tags === null
-  );
+  const hasFullContactsData =
+    contacts !== null &&
+    applications !== null &&
+    contactTags !== null &&
+    contactActivitySummaries !== null &&
+    tagCategories !== null &&
+    tags !== null;
+  const isHydratingFullData = Boolean(initialData) && !hasFullContactsData;
+  const useInitialContactsData = isHydratingFullData;
+  const effectiveContacts = useInitialContactsData
+    ? (initialData?.contacts ?? null)
+    : contacts;
+  const effectiveApplications = useInitialContactsData
+    ? (initialData?.applications ?? null)
+    : applications;
+  const effectiveContactTags = useInitialContactsData
+    ? (initialData?.contactTags ?? null)
+    : contactTags;
+  const effectiveActivitySummaries = useInitialContactsData
+    ? (initialData?.contactActivitySummaries ?? null)
+    : contactActivitySummaries;
+  const effectiveTagCategories = useInitialContactsData
+    ? (initialData?.tagCategories ?? null)
+    : tagCategories;
+  const effectiveTags = useInitialContactsData
+    ? (initialData?.tags ?? null)
+    : tags;
 
   const state = useContactsPanelState({
     contacts: effectiveContacts,

@@ -15,9 +15,29 @@ describe("admin contacts initial query", () => {
       }),
     ).toEqual({
       pageSize: 50,
-      nativeSort: { key: "email", ascending: false },
+      serverSort: { source: "contacts", key: "email", ascending: false },
       isSortApproximateUntilHydration: false,
       answerKeys: [],
+    });
+  });
+
+  it("uses the activity summary read model for the default submitted-date sort", () => {
+    expect(
+      getAdminContactsInitialQuery({
+        contacts_table: {
+          visible_columns: ["budget", "bad key"],
+        },
+      }),
+    ).toEqual({
+      pageSize: 25,
+      serverSort: {
+        source: "activity_summary",
+        key: "submitted_at",
+        column: "latest_app_submitted_at",
+        ascending: false,
+      },
+      isSortApproximateUntilHydration: false,
+      answerKeys: ["budget"],
     });
   });
 
@@ -26,12 +46,12 @@ describe("admin contacts initial query", () => {
       getAdminContactsInitialQuery({
         contacts_table: {
           visible_columns: ["budget", "bad key"],
-          sort_by: { key: "submitted_at", direction: "desc" },
+          sort_by: { key: "budget", direction: "desc" },
         },
       }),
     ).toEqual({
       pageSize: 25,
-      nativeSort: { key: "name", ascending: true },
+      serverSort: { source: "contacts", key: "name", ascending: true },
       isSortApproximateUntilHydration: true,
       answerKeys: ["budget"],
     });
