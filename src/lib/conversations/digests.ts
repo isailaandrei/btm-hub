@@ -2,12 +2,17 @@ import { createHash } from "node:crypto";
 import {
   appendConversationFacts,
   conversationDigestExists,
-  listConversationMessagesForDigest,
+  listMessagesMissingEmbeddings,
+  listUndigestedConversationMessages,
   upsertConversationDigest,
   upsertConversationEmbeddings,
 } from "@/lib/data/conversations";
 import { extractConversationDigest } from "./digest-provider";
-import { buildConversationEmbeddingRows } from "./embeddings";
+import {
+  buildConversationEmbeddingRows,
+  DEFAULT_EMBEDDING_MODEL,
+  DEFAULT_MESSAGE_EMBEDDING_VERSION,
+} from "./embeddings";
 import { buildConversationFactInputs } from "./facts";
 import type { ConversationSource } from "./ingestion/adapter";
 
@@ -82,6 +87,7 @@ type DigestWindowWorkItem = {
 
 function splitMessagesIntoDigestWindows(
   messages: DigestWindowMessage[],
+  now: number,
 ): DigestWindowWorkItem[] {
   const byContact = new Map<string, DigestWindowMessage[]>();
   for (const message of messages) {
@@ -107,10 +113,12 @@ function splitMessagesIntoDigestWindows(
         currentTime - previousTime > DIGEST_WINDOW_SESSION_GAP_MS;
 
       if (startsNewWindow) {
-        windows.push({
-          window: buildDigestWindow(current),
-          messages: current,
-        });
+        if (isDigestWindowClosed(current, now)) {
+          windows.push({
+            window: buildDigestWindow(current),
+            messages: current,
+          });
+        }
         current = [];
       }
 
@@ -118,7 +126,7 @@ function splitMessagesIntoDigestWindows(
       previousTime = currentTime;
     }
 
-    if (current.length > 0) {
+    if (current.length > 0 && isDigestWindowClosed(current, now)) {
       windows.push({
         window: buildDigestWindow(current),
         messages: current,
@@ -131,11 +139,14 @@ function splitMessagesIntoDigestWindows(
 
 export async function processConversationDigestWindows(input?: {
   limit?: number;
+  embeddingLimit?: number;
+  now?: number;
 }): Promise<ConversationDigestProcessSummary> {
-  const messages = await listConversationMessagesForDigest({
+  const now = input?.now ?? Date.now();
+  const messages = await listUndigestedConversationMessages({
     limit: input?.limit ?? 500,
   });
-  const windows = splitMessagesIntoDigestWindows(messages);
+  const windows = splitMessagesIntoDigestWindows(messages, now);
   const summary: ConversationDigestProcessSummary = {
     processedWindows: 0,
     digestsCreated: 0,
@@ -175,19 +186,35 @@ export async function processConversationDigestWindows(input?: {
     });
     await appendConversationFacts(facts);
 
-    const embeddingResult = await buildConversationEmbeddingRows({
-      messages: windowMessages.map((message) => ({
-        id: message.id,
-        body: message.body,
-      })),
-    });
-    await upsertConversationEmbeddings(embeddingResult.rows);
-
     summary.processedWindows += 1;
     summary.digestsCreated += 1;
     summary.factsCreated += facts.length;
-    summary.embeddingsCreated += embeddingResult.rows.length;
   }
 
+  const messagesMissingEmbeddings = await listMessagesMissingEmbeddings({
+    embeddingModel: DEFAULT_EMBEDDING_MODEL,
+    embeddingVersion: DEFAULT_MESSAGE_EMBEDDING_VERSION,
+    limit: input?.embeddingLimit ?? 500,
+  });
+  const embeddingResult = await buildConversationEmbeddingRows({
+    messages: messagesMissingEmbeddings,
+    model: DEFAULT_EMBEDDING_MODEL,
+    version: DEFAULT_MESSAGE_EMBEDDING_VERSION,
+  });
+  await upsertConversationEmbeddings(embeddingResult.rows);
+  summary.embeddingsCreated = embeddingResult.rows.length;
+
   return summary;
+}
+
+function isDigestWindowClosed(
+  messages: DigestWindowMessage[],
+  now: number,
+): boolean {
+  const last = [...messages].sort((a, b) =>
+    a.happenedAt.localeCompare(b.happenedAt),
+  ).at(-1);
+  if (!last) return false;
+  const windowEnd = Date.parse(last.happenedAt);
+  return Number.isFinite(windowEnd) && windowEnd < now - DIGEST_WINDOW_SESSION_GAP_MS;
 }

@@ -78,6 +78,11 @@ export type ConversationDigestMessage = {
   happenedAt: string;
 };
 
+export type ConversationEmbeddingMessage = {
+  id: string;
+  body: string;
+};
+
 type MessageRow = {
   id: string;
   contact_id: string | null;
@@ -97,6 +102,11 @@ type ConversationDigestMessageRow = {
   contact_id: string | null;
   body: string;
   happened_at: string;
+};
+
+type ConversationEmbeddingMessageRow = {
+  id: string;
+  body: string;
 };
 
 export async function upsertConversationMessage(
@@ -314,4 +324,60 @@ export async function listConversationMessagesForDigest(input: {
       body: row.body,
       happenedAt: row.happened_at,
     }));
+}
+
+export async function listUndigestedConversationMessages(input: {
+  limit: number;
+}): Promise<ConversationDigestMessage[]> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc(
+    "list_undigested_conversation_messages",
+    {
+      p_limit: input.limit,
+    },
+  );
+
+  if (error) {
+    throw new Error(
+      `Failed to list undigested conversation messages: ${error.message}`,
+    );
+  }
+
+  return ((data ?? []) as ConversationDigestMessageRow[])
+    .filter((row): row is ConversationDigestMessageRow & { contact_id: string } =>
+      Boolean(row.contact_id),
+    )
+    .map((row) => ({
+      id: row.id,
+      contactId: row.contact_id,
+      body: row.body,
+      happenedAt: row.happened_at,
+    }));
+}
+
+export async function listMessagesMissingEmbeddings(input: {
+  embeddingModel: string;
+  embeddingVersion: string;
+  limit: number;
+}): Promise<ConversationEmbeddingMessage[]> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc(
+    "list_conversation_messages_missing_embeddings",
+    {
+      p_embedding_model: input.embeddingModel,
+      p_embedding_version: input.embeddingVersion,
+      p_limit: input.limit,
+    },
+  );
+
+  if (error) {
+    throw new Error(
+      `Failed to list conversation messages missing embeddings: ${error.message}`,
+    );
+  }
+
+  return ((data ?? []) as ConversationEmbeddingMessageRow[]).map((row) => ({
+    id: row.id,
+    body: row.body,
+  }));
 }

@@ -143,6 +143,88 @@ describe("conversation data layer", () => {
     expect(exists).toBe(true);
   });
 
+  it("lists only messages after each contact digest watermark for digesting", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const client = {
+      from: vi.fn(),
+      rpc: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "message-after-watermark",
+            contact_id: "contact-1",
+            body: "New message.",
+            happened_at: "2026-06-11T11:00:00Z",
+          },
+          {
+            id: "message-no-watermark",
+            contact_id: "contact-2",
+            body: "First message.",
+            happened_at: "2026-06-11T09:00:00Z",
+          },
+        ],
+        error: null,
+      }),
+    };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { listUndigestedConversationMessages } = await import("./conversations");
+    const result = await listUndigestedConversationMessages({ limit: 250 });
+
+    expect(client.rpc).toHaveBeenCalledWith("list_undigested_conversation_messages", {
+      p_limit: 250,
+    });
+    expect(result).toEqual([
+      {
+        id: "message-after-watermark",
+        contactId: "contact-1",
+        body: "New message.",
+        happenedAt: "2026-06-11T11:00:00Z",
+      },
+      {
+        id: "message-no-watermark",
+        contactId: "contact-2",
+        body: "First message.",
+        happenedAt: "2026-06-11T09:00:00Z",
+      },
+    ]);
+  });
+
+  it("lists messages missing a current-version embedding", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const client = {
+      from: vi.fn(),
+      rpc: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "message-without-embedding",
+            body: "Needs embedding.",
+          },
+        ],
+        error: null,
+      }),
+    };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { listMessagesMissingEmbeddings } = await import("./conversations");
+    const result = await listMessagesMissingEmbeddings({
+      embeddingModel: "text-embedding-3-small",
+      embeddingVersion: "message-v1",
+      limit: 100,
+    });
+
+    expect(client.rpc).toHaveBeenCalledWith("list_conversation_messages_missing_embeddings", {
+      p_embedding_model: "text-embedding-3-small",
+      p_embedding_version: "message-v1",
+      p_limit: 100,
+    });
+    expect(result).toEqual([
+      {
+        id: "message-without-embedding",
+        body: "Needs embedding.",
+      },
+    ]);
+  });
+
   it("searches conversation embeddings through the vector RPC", async () => {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const client = {

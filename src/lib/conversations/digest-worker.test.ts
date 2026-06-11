@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockListConversationMessagesForDigest = vi.fn();
+const mockListUndigestedConversationMessages = vi.fn();
+const mockListMessagesMissingEmbeddings = vi.fn();
 const mockUpsertConversationDigest = vi.fn();
 const mockAppendConversationFacts = vi.fn();
 const mockUpsertConversationEmbeddings = vi.fn();
@@ -9,7 +10,8 @@ const mockExtractConversationDigest = vi.fn();
 const mockBuildConversationEmbeddingRows = vi.fn();
 
 vi.mock("@/lib/data/conversations", () => ({
-  listConversationMessagesForDigest: mockListConversationMessagesForDigest,
+  listUndigestedConversationMessages: mockListUndigestedConversationMessages,
+  listMessagesMissingEmbeddings: mockListMessagesMissingEmbeddings,
   upsertConversationDigest: mockUpsertConversationDigest,
   appendConversationFacts: mockAppendConversationFacts,
   upsertConversationEmbeddings: mockUpsertConversationEmbeddings,
@@ -22,13 +24,15 @@ vi.mock("./digest-provider", () => ({
 
 vi.mock("./embeddings", () => ({
   buildConversationEmbeddingRows: mockBuildConversationEmbeddingRows,
+  DEFAULT_EMBEDDING_MODEL: "text-embedding-3-small",
+  DEFAULT_MESSAGE_EMBEDDING_VERSION: "message-v1",
 }));
 
 describe("processConversationDigestWindows", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    mockListConversationMessagesForDigest.mockResolvedValue([
+    mockListUndigestedConversationMessages.mockResolvedValue([
       {
         id: "message-1",
         contactId: "contact-1",
@@ -40,6 +44,12 @@ describe("processConversationDigestWindows", () => {
         contactId: "contact-1",
         body: "Can travel in August.",
         happenedAt: "2026-06-11T10:05:00Z",
+      },
+    ]);
+    mockListMessagesMissingEmbeddings.mockResolvedValue([
+      {
+        id: "message-1",
+        body: "Budget is around $5k.",
       },
     ]);
     mockConversationDigestExists.mockResolvedValue(false);
@@ -73,9 +83,13 @@ describe("processConversationDigestWindows", () => {
     });
   });
 
-  it("creates digest, append-only facts, and embeddings for each contact window", async () => {
+  it("creates digest and append-only facts for closed contact windows, then embeds missing messages", async () => {
     const { processConversationDigestWindows } = await import("./digests");
-    await expect(processConversationDigestWindows()).resolves.toEqual({
+    await expect(
+      processConversationDigestWindows({
+        now: Date.parse("2026-06-11T11:00:00Z"),
+      }),
+    ).resolves.toEqual({
       processedWindows: 1,
       digestsCreated: 1,
       factsCreated: 1,
@@ -105,19 +119,67 @@ describe("processConversationDigestWindows", () => {
     ]);
   });
 
-  it("skips already-digested windows by content hash", async () => {
+  it("skips already-digested windows by content hash but still embeds missing messages", async () => {
     mockConversationDigestExists.mockResolvedValue(true);
 
     const { processConversationDigestWindows } = await import("./digests");
-    await expect(processConversationDigestWindows()).resolves.toEqual({
+    await expect(
+      processConversationDigestWindows({
+        now: Date.parse("2026-06-11T11:00:00Z"),
+      }),
+    ).resolves.toEqual({
       processedWindows: 0,
       digestsCreated: 0,
       factsCreated: 0,
-      embeddingsCreated: 0,
+      embeddingsCreated: 1,
     });
 
     expect(mockExtractConversationDigest).not.toHaveBeenCalled();
     expect(mockAppendConversationFacts).not.toHaveBeenCalled();
-    expect(mockUpsertConversationEmbeddings).not.toHaveBeenCalled();
+    expect(mockUpsertConversationEmbeddings).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not digest a still-open trailing session window", async () => {
+    mockListUndigestedConversationMessages.mockResolvedValue([
+      {
+        id: "message-1",
+        contactId: "contact-1",
+        body: "Earlier closed message.",
+        happenedAt: "2026-06-11T09:00:00Z",
+      },
+      {
+        id: "message-2",
+        contactId: "contact-1",
+        body: "Still active conversation.",
+        happenedAt: "2026-06-11T10:45:00Z",
+      },
+    ]);
+    mockListMessagesMissingEmbeddings.mockResolvedValue([]);
+    mockBuildConversationEmbeddingRows.mockResolvedValue({
+      rows: [],
+      model: "text-embedding-3-small",
+      version: "message-v1",
+      usage: null,
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    await expect(
+      processConversationDigestWindows({
+        now: Date.parse("2026-06-11T11:00:00Z"),
+      }),
+    ).resolves.toEqual({
+      processedWindows: 1,
+      digestsCreated: 1,
+      factsCreated: 1,
+      embeddingsCreated: 0,
+    });
+
+    expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firstMessageId: "message-1",
+        lastMessageId: "message-1",
+        sourceMessageCount: 1,
+      }),
+    );
   });
 });
