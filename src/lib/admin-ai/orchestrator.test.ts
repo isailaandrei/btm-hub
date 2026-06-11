@@ -1,17 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  AdminAiQueryPlan,
-  AdminAiResponse,
-  ContactFactRow,
-  GlobalCohortProjection,
-  EvidenceItem,
-} from "@/types/admin-ai";
-import type { CrmAiContactDossier } from "@/types/admin-ai-memory";
-import { DOSSIER_GENERATOR_VERSION } from "@/lib/admin-ai-memory/dossier-prompt";
-
-vi.mock("./query-plan", () => ({
-  buildAdminAiQueryPlan: vi.fn(),
-}));
+import type { AdminAiResponse, EvidenceItem } from "@/types/admin-ai";
+import type { ContactCardRecord } from "@/lib/data/contact-cards";
 
 vi.mock("./provider", () => ({
   getAdminAiProvider: vi.fn(),
@@ -22,236 +11,149 @@ vi.mock("@/lib/data/admin-ai", () => ({
   createAdminAiCitations: vi.fn(),
 }));
 
-vi.mock("@/lib/data/contacts", () => ({
-  getTags: vi.fn(),
+vi.mock("@/lib/data/contact-cards", () => ({
+  loadEligibleContactCardRecords: vi.fn(),
+  loadContactCardRecords: vi.fn(),
 }));
 
-vi.mock("@/lib/admin-ai-memory/global-retrieval", () => ({
-  assembleGlobalSinglePassCohort: vi.fn(),
-}));
-
-vi.mock("@/lib/admin-ai-memory/contact-retrieval", () => ({
-  assembleContactScopedMemory: vi.fn(),
+vi.mock("@/lib/conversations/retrieval", () => ({
+  retrieveConversationEvidence: vi.fn(),
 }));
 
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
 const APPLICATION_ID = "22222222-2222-4222-8222-222222222222";
 const OTHER_CONTACT_ID = "33333333-3333-4333-8333-333333333333";
 
-function makePlan(overrides: Partial<AdminAiQueryPlan> = {}): AdminAiQueryPlan {
+function makeRecord(contactId = CONTACT_ID): ContactCardRecord {
   return {
-    mode: "global_search",
-    structuredFilters: [],
-    textFocus: ["ocean"],
-    requestedLimit: 25,
-    ...overrides,
-  };
-}
-
-function makeContactPlan(): AdminAiQueryPlan {
-  return {
-    mode: "contact_synthesis",
-    contactId: CONTACT_ID,
-    structuredFilters: [],
-    textFocus: ["motivation"],
-    requestedLimit: 1,
-  };
-}
-
-function makeCandidate(contactId: string): ContactFactRow {
-  return {
-    contact_id: contactId,
-    application_id: APPLICATION_ID,
-    contact_name: contactId,
-    contact_email: null,
-    contact_phone: null,
-    program: "filmmaking",
-    status: "reviewing",
-    submitted_at: null,
-    tag_ids: [],
-    tag_names: [],
-    budget: null,
-    time_availability: null,
-    start_timeline: null,
-    btm_category: null,
-    travel_willingness: null,
-    languages: null,
-    country_of_residence: null,
-    certification_level: null,
-    years_experience: null,
-    involvement_level: null,
-  };
-}
-
-function makeGlobalCohortProjection(
-  contactId: string,
-  options?: {
-    supportRefs?: Array<{
-      supportRef: string;
-      claim: string;
-      confidence: "high" | "medium" | "low";
-    }>;
-    memoryStatus?: "fresh" | "stale" | "missing";
-  },
-): GlobalCohortProjection {
-  return {
-    contactId,
-    contactName: contactId,
-    memoryStatus: options?.memoryStatus ?? "fresh",
-    coverage: {
-      applicationCount: 1,
-      contactNoteCount: 0,
-      applicationAdminNoteCount: 0,
+    contact: {
+      id: contactId,
+      name: contactId === CONTACT_ID ? "Marina Costa" : "Ivo Santos",
+      email: `${contactId}@example.com`,
+      phone: null,
+      profile_id: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
     },
-    facts: {
-      programHistory: ["filmmaking"],
-      statusHistory: ["reviewing"],
-      tagNames: [],
-    },
-    summary: "Wildlife-focused storyteller.",
-    supportRefs: options?.supportRefs ?? [
+    applications: [
       {
-        supportRef: "support_1",
-        claim: "Strong excitement about conservation storytelling.",
-        confidence: "high",
+        id: contactId === CONTACT_ID ? APPLICATION_ID : "44444444-4444-4444-8444-444444444444",
+        user_id: null,
+        contact_id: contactId,
+        program: "filmmaking",
+        status: "reviewing",
+        answers: { ultimate_vision: "I want to film ocean conservation stories." },
+        tags: [],
+        admin_notes: [],
+        submitted_at: "2026-03-02T00:00:00Z",
+        updated_at: "2026-03-02T00:00:00Z",
       },
     ],
-    contradictions: [],
-    unknowns: [],
+    contactNotes: [],
+    contactTags: [],
   };
 }
 
-function makeDossier(contactId: string): CrmAiContactDossier {
-  return {
-    contact_id: contactId,
-    dossier_version: 1,
-    generator_version: DOSSIER_GENERATOR_VERSION,
-    source_fingerprint: "fp",
-    source_coverage: {
-      applicationCount: 1,
-      contactNoteCount: 0,
-      applicationAdminNoteCount: 0,
-      whatsappMessageCount: 0,
-      instagramMessageCount: 0,
-      zoomChunkCount: 0,
-    },
-    facts_json: {},
-    signals_json: {
-      motivation: [],
-      communicationStyle: [],
-      reliabilitySignals: [],
-      fitSignals: [],
-      concerns: [],
-    },
-    contradictions_json: [],
-    unknowns_json: [],
-    evidence_anchors_json: [],
-    short_summary: "s",
-    medium_summary: "m",
-    confidence_json: {},
-    last_built_at: "2026-04-15T00:00:00Z",
-    stale_at: null,
-    created_at: "2026-04-15T00:00:00Z",
-    updated_at: "2026-04-15T00:00:00Z",
-  };
-}
-
-function makeEvidence(
-  contactId: string,
-  evidenceId = "evidence-1",
-): EvidenceItem {
+function makeEvidence(evidenceId = `application_answer:${APPLICATION_ID}:ultimate_vision`): EvidenceItem {
   return {
     evidenceId,
-    contactId,
+    contactId: CONTACT_ID,
     applicationId: APPLICATION_ID,
     sourceType: "application_answer",
     sourceId: `${APPLICATION_ID}:ultimate_vision`,
-    sourceLabel: "ultimate_vision",
-    sourceTimestamp: "2026-04-15T00:00:00Z",
+    sourceLabel: "Ultimate Vision",
+    sourceTimestamp: "2026-03-02T00:00:00Z",
     program: "filmmaking",
-    text: "I want to be the voice of the ocean.",
+    text: "I want to film ocean conservation stories.",
   };
 }
 
-describe("runAdminAiAnalysis (global)", () => {
+describe("runAdminAiAnalysis (raw cards)", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
-  it("uses the single-pass cohort path and keeps only grounded raw-evidence citations", async () => {
-    const planMod = await import("./query-plan");
+  it("runs global analysis over rendered eligible contact cards and persists grounded citations", async () => {
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const globalMod = await import("@/lib/admin-ai-memory/global-retrieval");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
 
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makePlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(globalMod.assembleGlobalSinglePassCohort).mockResolvedValue({
-      candidates: [makeCandidate(CONTACT_ID), makeCandidate(OTHER_CONTACT_ID)],
-      projections: [
-        makeGlobalCohortProjection(CONTACT_ID),
-        makeGlobalCohortProjection(OTHER_CONTACT_ID, {
-          supportRefs: [
-            {
-              supportRef: "support_2",
-              claim: "Looks excited by field reporting work.",
-              confidence: "medium",
-            },
-          ],
-        }),
-      ],
-      evidence: [
-        makeEvidence(CONTACT_ID, "evidence-1"),
-        makeEvidence(OTHER_CONTACT_ID, "evidence-2"),
-      ],
-      contactsMissingDossiers: [],
-      contactsServingStaleDossiers: [],
-      cohortTokenEstimate: 2000,
-      cohortTokenBudget: 280000,
-      compressionLevel: "full",
-      wasCompressed: false,
-      promptCacheKey: "cache-key-1",
-    });
-
-    const cohortGenerate = vi.fn().mockResolvedValue({
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+      makeRecord(OTHER_CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([
+      {
+        evidenceId: "whatsapp_message:message-1",
+        contactId: CONTACT_ID,
+        applicationId: null,
+        sourceType: "whatsapp_message",
+        sourceId: "message-1",
+        sourceLabel: "WhatsApp message",
+        sourceTimestamp: "2026-06-11T10:00:00Z",
+        program: null,
+        text: "Budget is around $5k.",
+      },
+    ]);
+    const generate = vi.fn().mockResolvedValue({
       response: {
         uncertainty: [],
         shortlist: [
           {
             contactId: CONTACT_ID,
-            contactName: CONTACT_ID,
-            whyFit: ["Mission match"],
+            contactName: "Marina Costa",
+            whyFit: ["Ocean conservation mission match"],
             concerns: [],
             citations: [
-              { evidenceId: "evidence-1", claimKey: "shortlist.0.whyFit.0" },
+              {
+                evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+                claimKey: "shortlist.0.whyFit.0",
+              },
             ],
           },
         ],
       } as AdminAiResponse,
-      modelMetadata: { model: "single-pass" },
+      modelMetadata: { model: "card-model" },
     });
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
-      generateGlobalCohortResponse: cohortGenerate,
-      generate: vi.fn(),
+      generate,
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
     vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
     const result = await runAdminAiAnalysis({
       scope: "global",
       threadId: "thread-1",
-      question: "find mission-driven candidates",
+      question: "Find ocean storytellers",
     });
 
-    expect(globalMod.assembleGlobalSinglePassCohort).toHaveBeenCalledTimes(1);
-    expect(cohortGenerate).toHaveBeenCalledTimes(1);
+    expect(cardDataMod.loadEligibleContactCardRecords).toHaveBeenCalledTimes(1);
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "global",
+        question: "Find ocean storytellers",
+        cards: expect.arrayContaining([
+          expect.objectContaining({
+            contactId: CONTACT_ID,
+            text: expect.stringContaining("Contact: Marina Costa"),
+          }),
+        ]),
+        evidence: expect.arrayContaining([
+          expect.objectContaining({
+            evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+          }),
+          expect.objectContaining({
+            evidenceId: "whatsapp_message:message-1",
+          }),
+        ]),
+        promptCacheKey: expect.stringMatching(/^admin-ai-cards:/),
+      }),
+    );
     expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
       messageId: "assistant-1",
       citations: [
@@ -262,403 +164,271 @@ describe("runAdminAiAnalysis (global)", () => {
         }),
       ],
     });
-    expect(
-      result.response?.shortlist?.[0]?.citations.map((citation) => citation.evidenceId),
-    ).toEqual(["evidence-1"]);
+    expect(result.status).toBe("complete");
   });
 
-  it("drops unsupported global shortlist entries instead of failing the whole response", async () => {
-    const planMod = await import("./query-plan");
+  it("drops unsupported global shortlist entries after citation guardrails", async () => {
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const globalMod = await import("@/lib/admin-ai-memory/global-retrieval");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
 
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makePlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(globalMod.assembleGlobalSinglePassCohort).mockResolvedValue({
-      candidates: [makeCandidate(CONTACT_ID), makeCandidate(OTHER_CONTACT_ID)],
-      projections: [
-        makeGlobalCohortProjection(CONTACT_ID),
-        makeGlobalCohortProjection(OTHER_CONTACT_ID, {
-          supportRefs: [
-            {
-              supportRef: "support_2",
-              claim: "Looks excited by field reporting work.",
-              confidence: "medium",
-            },
-          ],
-        }),
-      ],
-      evidence: [
-        makeEvidence(CONTACT_ID, "evidence-1"),
-        makeEvidence(OTHER_CONTACT_ID, "evidence-2"),
-      ],
-      contactsMissingDossiers: [],
-      contactsServingStaleDossiers: [],
-      cohortTokenEstimate: 2000,
-      cohortTokenBudget: 280000,
-      compressionLevel: "full",
-      wasCompressed: false,
-      promptCacheKey: "cache-key-1",
-    });
-
-    const cohortGenerate = vi.fn().mockResolvedValue({
-      response: {
-        uncertainty: [],
-        shortlist: [
-          {
-            contactId: CONTACT_ID,
-            contactName: CONTACT_ID,
-            whyFit: ["Mission match"],
-            concerns: [],
-            citations: [
-              { evidenceId: "evidence-1", claimKey: "shortlist.0.whyFit.0" },
-            ],
-          },
-          {
-            contactId: OTHER_CONTACT_ID,
-            contactName: OTHER_CONTACT_ID,
-            whyFit: ["Field reporting fit"],
-            concerns: [],
-            citations: [
-              { evidenceId: "missing-evidence", claimKey: "shortlist.1.whyFit.0" },
-            ],
-          },
-        ],
-      } as AdminAiResponse,
-      modelMetadata: { model: "single-pass" },
-    });
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+      makeRecord(OTHER_CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([]);
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
-      generateGlobalCohortResponse: cohortGenerate,
-      generate: vi.fn(),
+      generate: vi.fn().mockResolvedValue({
+        response: {
+          uncertainty: [],
+          shortlist: [
+            {
+              contactId: CONTACT_ID,
+              contactName: "Marina Costa",
+              whyFit: ["Grounded"],
+              concerns: [],
+              citations: [
+                {
+                  evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+                  claimKey: "shortlist.0.whyFit.0",
+                },
+              ],
+            },
+            {
+              contactId: OTHER_CONTACT_ID,
+              contactName: "Ivo Santos",
+              whyFit: ["Unsupported"],
+              concerns: [],
+              citations: [
+                {
+                  evidenceId: "missing-evidence",
+                  claimKey: "shortlist.1.whyFit.0",
+                },
+              ],
+            },
+          ],
+        } as AdminAiResponse,
+        modelMetadata: {},
+      }),
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
     vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
     const result = await runAdminAiAnalysis({
       scope: "global",
       threadId: "thread-1",
-      question: "find mission-driven candidates",
+      question: "Find candidates",
     });
 
-    expect(result.status).toBe("complete");
     expect(result.response?.shortlist?.map((entry) => entry.contactId)).toEqual([
       CONTACT_ID,
     ]);
     expect(result.response?.uncertainty).toContain(
       "Some model-returned shortlist entries were dropped because their citations could not be resolved to raw evidence.",
     );
-    expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
-      messageId: "assistant-1",
-      citations: [
-        expect.objectContaining({
-          contact_id: CONTACT_ID,
-        }),
-      ],
-    });
-  });
-});
-
-describe("runAdminAiAnalysis (contact, dossier-first)", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
   });
 
-  it("uses dossier + contact-scoped evidence and persists citations", async () => {
-    const planMod = await import("./query-plan");
+  it("runs contact analysis over one rendered contact card", async () => {
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
 
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
-      dossier: makeDossier(CONTACT_ID),
-      evidence: [makeEvidence(CONTACT_ID)],
-      fallbackUsed: false,
-    });
-    const synthesisGenerate = vi.fn().mockResolvedValue({
+    vi.mocked(cardDataMod.loadContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([]);
+    const generate = vi.fn().mockResolvedValue({
       response: {
         uncertainty: [],
         contactAssessment: {
-          inferredQualities: ["Ocean focus."],
+          inferredQualities: ["Mission-driven ocean storyteller."],
           concerns: [],
           citations: [
             {
-              evidenceId: "evidence-1",
+              evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
               claimKey: "contactAssessment.inferredQualities.0",
             },
           ],
         },
       } as AdminAiResponse,
-      modelMetadata: { model: "synthesis" },
+      modelMetadata: { model: "card-model" },
     });
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
-      generateGlobalCohortResponse: vi.fn(),
-      generate: synthesisGenerate,
+      generate,
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
     vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
     const result = await runAdminAiAnalysis({
       scope: "contact",
       threadId: "thread-1",
-      question: "what do we know?",
+      question: "What do we know?",
       contactId: CONTACT_ID,
     });
 
-    expect(contactMod.assembleContactScopedMemory).toHaveBeenCalledWith(
+    expect(cardDataMod.loadContactCardRecords).toHaveBeenCalledWith({
+      contactIds: [CONTACT_ID],
+    });
+    expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
-        contactId: CONTACT_ID,
+        scope: "contact",
+        cards: [expect.objectContaining({ contactId: CONTACT_ID })],
       }),
     );
-    expect(synthesisGenerate).toHaveBeenCalledTimes(1);
-    expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
-      messageId: "assistant-1",
-      citations: [
-        expect.objectContaining({
-          source_type: "application_answer",
-          contact_id: CONTACT_ID,
-        }),
-      ],
-    });
     expect(result.status).toBe("complete");
   });
 
-  it("short-circuits when no dossier and no evidence are available", async () => {
-    const planMod = await import("./query-plan");
+  it("returns a visible insufficient-evidence response when no card evidence exists", async () => {
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
 
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
-      dossier: null,
-      evidence: [],
-      fallbackUsed: true,
-    });
-    const synthesisGenerate = vi.fn();
+    vi.mocked(cardDataMod.loadContactCardRecords).mockResolvedValue([]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([]);
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
-      generateGlobalCohortResponse: vi.fn(),
-      generate: synthesisGenerate,
+      generate: vi.fn(),
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
     const result = await runAdminAiAnalysis({
       scope: "contact",
       threadId: "thread-1",
-      question: "what do we know?",
+      question: "What do we know?",
       contactId: CONTACT_ID,
     });
 
-    expect(synthesisGenerate).not.toHaveBeenCalled();
     expect(result.status).toBe("complete");
-    expect(result.response?.uncertainty?.[0]).toMatch(/too thin/i);
+    expect(result.response?.uncertainty.join(" ")).toMatch(/too thin/i);
   });
 
-  it("short-circuits when a dossier exists but no raw evidence can be retrieved", async () => {
-    const planMod = await import("./query-plan");
+  it("returns failed when the provider is not configured", async () => {
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
 
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
-      dossier: makeDossier(CONTACT_ID),
-      evidence: [],
-      fallbackUsed: false,
-    });
-    const synthesisGenerate = vi.fn();
-    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
-      isConfigured: () => true,
-      getUnavailableReason: () => null,
-      generateGlobalCohortResponse: vi.fn(),
-      generate: synthesisGenerate,
-    });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
-
-    const { runAdminAiAnalysis } = await import("./orchestrator");
-    const result = await runAdminAiAnalysis({
-      scope: "contact",
-      threadId: "thread-1",
-      question: "what do we know?",
-      contactId: CONTACT_ID,
-    });
-
-    expect(synthesisGenerate).not.toHaveBeenCalled();
-    expect(result.status).toBe("complete");
-    expect(result.response?.uncertainty.join(" ")).toMatch(/raw evidence/i);
-  });
-});
-
-describe("runAdminAiAnalysis (provider failures)", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-  });
-
-  it("returns failed when the synthesis provider is not configured", async () => {
-    const planMod = await import("./query-plan");
-    const providerMod = await import("./provider");
-    const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
-
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
-      dossier: makeDossier(CONTACT_ID),
-      evidence: [makeEvidence(CONTACT_ID)],
-      fallbackUsed: false,
-    });
+    vi.mocked(cardDataMod.loadContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([]);
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => false,
       getUnavailableReason: () => "Admin AI is not configured yet.",
-      generateGlobalCohortResponse: vi.fn(),
       generate: vi.fn(),
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
     const result = await runAdminAiAnalysis({
       scope: "contact",
       threadId: "thread-1",
-      question: "what do we know?",
+      question: "What do we know?",
       contactId: CONTACT_ID,
     });
+
     expect(result.status).toBe("failed");
     expect(result.error).toMatch(/not configured/i);
+    expect(retrievalMod.retrieveConversationEvidence).not.toHaveBeenCalled();
   });
 
-  it("drops citations with unknown evidence ids from the persisted response instead of throwing", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const planMod = await import("./query-plan");
+  it("discloses chat retrieval degradation while still answering from CRM card evidence", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
 
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
-      dossier: makeDossier(CONTACT_ID),
-      evidence: [makeEvidence(CONTACT_ID)],
-      fallbackUsed: false,
-    });
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockRejectedValue(
+      new Error("embeddings unavailable"),
+    );
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
-      generateGlobalCohortResponse: vi.fn(),
       generate: vi.fn().mockResolvedValue({
         response: {
           uncertainty: [],
-          contactAssessment: {
-            inferredQualities: ["Real inferred quality."],
-            concerns: [],
-            citations: [
-              {
-                evidenceId: "evidence-1",
-                claimKey: "contactAssessment.inferredQualities.0",
-              },
-              {
-                evidenceId: "missing",
-                claimKey: "contactAssessment.inferredQualities.1",
-              },
-            ],
-          },
+          shortlist: [
+            {
+              contactId: CONTACT_ID,
+              contactName: "Marina Costa",
+              whyFit: ["Grounded in application"],
+              concerns: [],
+              citations: [
+                {
+                  evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+                  claimKey: "shortlist.0.whyFit.0",
+                },
+              ],
+            },
+          ],
         } as AdminAiResponse,
-        modelMetadata: { model: "synthesis" },
+        modelMetadata: {},
       }),
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
-      id: "assistant-1",
-    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
     vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
     const result = await runAdminAiAnalysis({
-      scope: "contact",
+      scope: "global",
       threadId: "thread-1",
-      question: "what?",
-      contactId: CONTACT_ID,
+      question: "Find candidates",
     });
 
-    // The real citation survives, the `missing` one is dropped silently.
-    expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
-      messageId: "assistant-1",
-      citations: [
-        expect.objectContaining({
-          claim_key: "contactAssessment.inferredQualities.0",
-          source_type: "application_answer",
-        }),
-      ],
-    });
     expect(result.status).toBe("complete");
-    expect(
-      result.response?.contactAssessment?.citations.map((c) => c.evidenceId),
-    ).toEqual(["evidence-1"]);
-    expect(result.modelMetadata?.droppedEvidenceIds).toEqual(["missing"]);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("outside the evidence pack"),
-      expect.objectContaining({ droppedEvidenceIds: ["missing"] }),
+    expect(result.response?.uncertainty).toContain(
+      "Conversation evidence retrieval was unavailable for this answer.",
+    );
+    expect(result.modelMetadata?.rawCards).toEqual(
+      expect.objectContaining({
+        chatRetrievalUnavailable: true,
+      }),
     );
   });
 
-  it("persists an empty citations array (not a throw) when every citation is foreign", async () => {
+  it("drops unknown citation ids from persisted contact responses", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const planMod = await import("./query-plan");
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
-    const tagsMod = await import("@/lib/data/contacts");
-    const contactMod = await import("@/lib/admin-ai-memory/contact-retrieval");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
 
-    vi.mocked(planMod.buildAdminAiQueryPlan).mockReturnValue(makeContactPlan());
-    vi.mocked(tagsMod.getTags).mockResolvedValue([]);
-    vi.mocked(contactMod.assembleContactScopedMemory).mockResolvedValue({
-      dossier: makeDossier(CONTACT_ID),
-      evidence: [makeEvidence(CONTACT_ID)],
-      fallbackUsed: false,
-    });
+    vi.mocked(cardDataMod.loadContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([]);
     vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
       isConfigured: () => true,
       getUnavailableReason: () => null,
-      generateGlobalCohortResponse: vi.fn(),
       generate: vi.fn().mockResolvedValue({
         response: {
           uncertainty: [],
           contactAssessment: {
-            inferredQualities: ["inferred"],
+            inferredQualities: ["Grounded", "Foreign"],
             concerns: [],
             citations: [
               {
-                evidenceId: "ghost-1",
+                evidenceId: makeEvidence().evidenceId,
                 claimKey: "contactAssessment.inferredQualities.0",
+              },
+              {
+                evidenceId: "ghost",
+                claimKey: "contactAssessment.inferredQualities.1",
               },
             ],
           },
@@ -666,22 +436,23 @@ describe("runAdminAiAnalysis (provider failures)", () => {
         modelMetadata: {},
       }),
     });
-    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "asst" });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
     vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
 
     const { runAdminAiAnalysis } = await import("./orchestrator");
     const result = await runAdminAiAnalysis({
       scope: "contact",
       threadId: "thread-1",
-      question: "what?",
+      question: "What?",
       contactId: CONTACT_ID,
     });
 
-    expect(result.status).toBe("complete");
-    expect(result.citations).toEqual([]);
-    expect(
-      result.response?.contactAssessment?.citations,
-    ).toEqual([]);
-    expect(result.modelMetadata?.droppedEvidenceIds).toEqual(["ghost-1"]);
+    expect(result.response?.contactAssessment?.citations).toEqual([
+      {
+        evidenceId: makeEvidence().evidenceId,
+        claimKey: "contactAssessment.inferredQualities.0",
+      },
+    ]);
+    expect(result.modelMetadata?.droppedEvidenceIds).toEqual(["ghost"]);
   });
 });

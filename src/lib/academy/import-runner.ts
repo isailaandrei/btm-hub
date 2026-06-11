@@ -5,11 +5,10 @@ import {
   runAcademySheetsImport,
   type AcademySheetsImportSummary,
 } from "@/lib/academy/import-service";
-import { syncContactMemoryBulk } from "@/lib/admin-ai-memory/server-action-sync";
 
 export type AcademyImportRunResult = {
   summary: AcademySheetsImportSummary;
-  memorySync: Awaited<ReturnType<typeof syncContactMemoryBulk>> | null;
+  memorySync: null;
 };
 
 export async function executeAcademyImportRun(options: {
@@ -31,15 +30,8 @@ export async function executeAcademyImportRun(options: {
     revalidatePath(`/admin/contacts/${contactId}`);
   }
 
-  const memorySync =
-    summary.insertedContactIds.length > 0
-      ? await syncContactMemoryBulk(summary.insertedContactIds, {
-          concurrency: 8,
-        })
-      : null;
-
   return {
     summary,
-    memorySync,
+    memorySync: null,
   };
 }

@@ -14,10 +14,6 @@ import {
 } from "@/lib/data/contacts";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 import {
-  syncContactMemory,
-  syncContactMemoryBulk,
-} from "@/lib/admin-ai-memory/server-action-sync";
-import {
   contactsPreferencesPatchSchema,
   mergeContactsTablePreferencePatch,
 } from "@/lib/admin/contacts/preferences";
@@ -45,7 +41,6 @@ export async function editContact(
   await updateContact(contactId, fields, options);
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
-  await syncContactMemory(contactId);
 }
 
 export async function assignContactTag(contactId: string, tagId: string) {
@@ -54,7 +49,6 @@ export async function assignContactTag(contactId: string, tagId: string) {
   await assignTag(contactId, tagId);
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
-  await syncContactMemory(contactId);
 }
 
 export async function unassignContactTag(contactId: string, tagId: string) {
@@ -63,7 +57,6 @@ export async function unassignContactTag(contactId: string, tagId: string) {
   await unassignTag(contactId, tagId);
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
-  await syncContactMemory(contactId);
 }
 
 export async function updatePreferences(patch: Record<string, unknown>) {
@@ -92,7 +85,6 @@ export async function bulkAssignTag(contactIds: string[], tagId: string) {
   validateUUID(tagId, "tag");
   const result = await bulkAssignTags(contactIds, tagId);
   revalidatePath("/admin");
-  await syncContactMemoryBulk(contactIds);
   return result;
 }
 
@@ -105,7 +97,6 @@ export async function bulkUnassignTag(contactIds: string[], tagId: string) {
   validateUUID(tagId, "tag");
   await bulkUnassignTags(contactIds, tagId);
   revalidatePath("/admin");
-  await syncContactMemoryBulk(contactIds);
 }
 
 export async function deleteApplication(applicationId: string) {
@@ -113,7 +104,6 @@ export async function deleteApplication(applicationId: string) {
   const deletedApplication = await deleteApplicationData(applicationId);
   if (deletedApplication.contact_id) {
     revalidatePath(`/admin/contacts/${deletedApplication.contact_id}`);
-    await syncContactMemory(deletedApplication.contact_id);
   }
   revalidatePath("/admin");
 }

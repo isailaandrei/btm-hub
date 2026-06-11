@@ -1,47 +1,34 @@
 /**
- * Memory-first admin AI orchestration.
+ * Raw-card admin AI orchestration.
  *
- * Global path:
- *   1. plan -> structured filters
- *   2. assemble whole-cohort profile scaffold + dynamic evidence pack
- *   3. single global reasoning call over the cohort
- *   4. strip unsupported raw-evidence citations before persistence
- *   5. persist assistant message + raw-evidence citations
- *
- * Contact path:
- *   1. plan
- *   2. assemble dossier-first contact memory + hybrid evidence pack
- *   3. grounded synthesis pass
- *   4. persist assistant message + raw-evidence citations
- *
- * The final answer schema (`AdminAiResponse`) and citation persistence model
- * are unchanged so the existing UI keeps working.
+ * The CRM corpus is small enough to stuff directly. This path renders eligible
+ * contacts as verbatim cards, sends those cards plus raw citation anchors to
+ * the model, then strips any citation that is not backed by supplied evidence
+ * before persistence.
  */
 
-import { buildAdminAiQueryPlan } from "./query-plan";
+import { createHash } from "node:crypto";
+import { renderContactCard, type RenderedContactCard } from "./contact-card";
 import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
 import { getAdminAiProvider } from "./provider";
 import { adminAiResponseSchema } from "./schemas";
-import { getTags } from "@/lib/data/contacts";
+import { retrieveConversationEvidence } from "@/lib/conversations/retrieval";
 import {
   createAdminAiCitations,
   createAdminAiMessage,
 } from "@/lib/data/admin-ai";
 import {
-  assembleGlobalSinglePassCohort,
-} from "@/lib/admin-ai-memory/global-retrieval";
-import { assembleContactScopedMemory } from "@/lib/admin-ai-memory/contact-retrieval";
+  loadContactCardRecords,
+  loadEligibleContactCardRecords,
+  type ContactCardRecord,
+} from "@/lib/data/contact-cards";
 import type {
   AdminAiCitationDraft,
   AdminAiQueryPlan,
   AdminAiResponse,
   AdminAiScope,
-  ContactFactRow,
   EvidenceItem,
 } from "@/types/admin-ai";
-import type {
-  CrmAiContactDossier,
-} from "@/types/admin-ai-memory";
 
 export type RunAdminAiAnalysisResult = {
   status: "complete" | "failed";
@@ -53,6 +40,20 @@ export type RunAdminAiAnalysisResult = {
   error: string | null;
 };
 
+const CHAT_RETRIEVAL_UNAVAILABLE_NOTE =
+  "Conversation evidence retrieval was unavailable for this answer.";
+
+function appendUncertainty(
+  response: AdminAiResponse,
+  note: string,
+): AdminAiResponse {
+  if (response.uncertainty.includes(note)) return response;
+  return {
+    ...response,
+    uncertainty: [...response.uncertainty, note],
+  };
+}
+
 function buildInsufficientEvidenceResponse(
   scope: AdminAiScope,
   options?: { extra?: string },
@@ -62,51 +63,64 @@ function buildInsufficientEvidenceResponse(
       ? "The current CRM evidence for this contact is too thin to support a reliable synthesis."
       : "The current CRM evidence is too thin to support a reliable shortlist for this question.";
   const uncertainty = options?.extra ? [base, options.extra] : [base];
-  return {
-    uncertainty,
-  };
+  return { uncertainty };
 }
 
-/**
- * One-line description of an assistant response. Used for `admin_ai_messages.content`
- * (where the structured response_json carries the real payload that drives
- * the UI). Keeping `content` human-readable makes log scans and future
- * message-history search work without re-deriving the shape.
- */
+function discloseChatRetrievalUnavailable(
+  response: AdminAiResponse,
+  unavailable: boolean,
+): AdminAiResponse {
+  return unavailable
+    ? appendUncertainty(response, CHAT_RETRIEVAL_UNAVAILABLE_NOTE)
+    : response;
+}
+
 export function describeAssistantResponse(response: AdminAiResponse): string {
   if (response.shortlist && response.shortlist.length > 0) {
     const names = response.shortlist.map((entry) => entry.contactName);
     const preview = names.slice(0, 3).join(", ");
-    const tail =
-      names.length > 3 ? `, +${names.length - 3} more` : "";
+    const tail = names.length > 3 ? `, +${names.length - 3} more` : "";
     const label =
       names.length === 1 ? "Shortlisted 1 contact" : `Shortlisted ${names.length} contacts`;
     return `${label}: ${preview}${tail}.`;
   }
-  if (response.contactAssessment) {
-    return "Contact assessment returned.";
-  }
-  if (response.uncertainty.length > 0) {
-    return response.uncertainty[0]!;
-  }
+  if (response.contactAssessment) return "Contact assessment returned.";
+  if (response.uncertainty.length > 0) return response.uncertainty[0]!;
   return "Admin AI response.";
+}
+
+function buildCardQueryPlan(input: {
+  scope: AdminAiScope;
+  question: string;
+  contactId?: string;
+}): AdminAiQueryPlan {
+  return {
+    mode: input.scope === "contact" ? "contact_synthesis" : "global_search",
+    contactId: input.scope === "contact" ? input.contactId : undefined,
+    structuredFilters: [],
+    textFocus: input.question.trim() ? [input.question.trim()] : [],
+    requestedLimit: input.scope === "contact" ? 1 : 25,
+  };
+}
+
+function buildPromptCacheKey(cards: RenderedContactCard[]): string {
+  const hash = createHash("sha256");
+  for (const card of [...cards].sort((a, b) => a.contactId.localeCompare(b.contactId))) {
+    hash.update(card.contactId);
+    hash.update("\0");
+    hash.update(card.text);
+    hash.update("\0");
+  }
+  return `admin-ai-cards:${hash.digest("hex").slice(0, 32)}`;
 }
 
 function collectCitationRefs(
   response: AdminAiResponse,
 ): Array<{ evidenceId: string; claimKey: string }> {
   const refs: Array<{ evidenceId: string; claimKey: string }> = [];
-  for (const entry of response.shortlist ?? []) {
-    refs.push(...entry.citations);
-  }
-  if (response.contactAssessment) {
-    refs.push(...response.contactAssessment.citations);
-  }
-  // Dedupe on evidenceId alone. The UI surfaces citations as "pieces of
-  // evidence" grouped by contact — it does not render claim_key — so two
-  // refs that point at the same evidence under different claims would
-  // render as duplicate snippets. Keep the first ref per evidenceId as
-  // the representative attribution.
+  for (const entry of response.shortlist ?? []) refs.push(...entry.citations);
+  if (response.contactAssessment) refs.push(...response.contactAssessment.citations);
+
   const seen = new Set<string>();
   return refs.filter((ref) => {
     if (seen.has(ref.evidenceId)) return false;
@@ -127,6 +141,7 @@ function resolveCitationDrafts(
   const evidenceById = new Map(evidence.map((item) => [item.evidenceId, item] as const));
   const drafts: AdminAiCitationDraft[] = [];
   const droppedEvidenceIds: string[] = [];
+
   for (const ref of collectCitationRefs(response)) {
     const item = evidenceById.get(ref.evidenceId);
     if (!item) {
@@ -143,6 +158,7 @@ function resolveCitationDrafts(
       snippet: item.text,
     });
   }
+
   if (droppedEvidenceIds.length > 0) {
     console.warn(
       "[admin-ai] synthesis returned citations outside the evidence pack — dropping",
@@ -166,14 +182,8 @@ function pruneUncitedGlobalShortlistEntries(input: {
     return false;
   });
 
-  if (
-    input.droppedEvidenceIds.length === 0 &&
-    droppedContactIds.length === 0
-  ) {
-    return {
-      response: input.response,
-      droppedContactIds,
-    };
+  if (input.droppedEvidenceIds.length === 0 && droppedContactIds.length === 0) {
+    return { response: input.response, droppedContactIds };
   }
 
   const uncertainty = [...input.response.uncertainty];
@@ -181,9 +191,7 @@ function pruneUncitedGlobalShortlistEntries(input: {
     shortlist && shortlist.length > 0
       ? "Some model-returned shortlist entries were dropped because their citations could not be resolved to raw evidence."
       : "The model returned shortlist entries, but their citations could not be resolved to raw evidence, so no grounded shortlist could be kept.";
-  if (!uncertainty.includes(note)) {
-    uncertainty.push(note);
-  }
+  if (!uncertainty.includes(note)) uncertainty.push(note);
 
   return {
     response: {
@@ -195,13 +203,6 @@ function pruneUncitedGlobalShortlistEntries(input: {
   };
 }
 
-/**
- * Rebuild the response payload with foreign citations stripped so the
- * persisted `response_json` and the persisted citation rows agree on
- * what actually got cited. Entries / assessments whose citations were
- * all foreign end up with an empty citations array — acceptable as a
- * degradation mode; the UI still renders the entry with a gap.
- */
 function applyDroppedEvidenceIdsToResponse(
   response: AdminAiResponse,
   droppedEvidenceIds: Set<string>,
@@ -212,14 +213,14 @@ function applyDroppedEvidenceIdsToResponse(
     shortlist: response.shortlist?.map((entry) => ({
       ...entry,
       citations: entry.citations.filter(
-        (c) => !droppedEvidenceIds.has(c.evidenceId),
+        (citation) => !droppedEvidenceIds.has(citation.evidenceId),
       ),
     })),
     contactAssessment: response.contactAssessment
       ? {
           ...response.contactAssessment,
           citations: response.contactAssessment.citations.filter(
-            (c) => !droppedEvidenceIds.has(c.evidenceId),
+            (citation) => !droppedEvidenceIds.has(citation.evidenceId),
           ),
         }
       : undefined,
@@ -271,15 +272,25 @@ async function persistInsufficientResponse(input: {
   };
 }
 
-async function runFinalSynthesis(input: {
+function renderRecords(records: ContactCardRecord[]): {
+  cards: RenderedContactCard[];
+  evidence: EvidenceItem[];
+} {
+  const cards = records.map(renderContactCard);
+  return {
+    cards,
+    evidence: cards.flatMap((card) => card.evidence),
+  };
+}
+
+async function runCardSynthesis(input: {
   scope: AdminAiScope;
   question: string;
   queryPlan: AdminAiQueryPlan;
   threadId: string;
-  candidates: ContactFactRow[];
-  dossiers: CrmAiContactDossier[];
-  evidence: EvidenceItem[];
+  records: ContactCardRecord[];
 }): Promise<RunAdminAiAnalysisResult> {
+  const { cards, evidence } = renderRecords(input.records);
   const provider = getAdminAiProvider();
   if (!provider.isConfigured()) {
     const reason = provider.getUnavailableReason() ?? "Admin AI is unavailable.";
@@ -300,78 +311,163 @@ async function runFinalSynthesis(input: {
     };
   }
 
+  let chatEvidence: EvidenceItem[] = [];
+  let chatRetrievalUnavailable = false;
   try {
-    const synthesisTimer = startAdminAiDebugTimer("final-synthesis", {
-      scope: input.scope,
-      candidateCount: input.candidates.length,
-      dossierCount: input.dossiers.length,
-      evidenceCount: input.evidence.length,
+    chatEvidence = await retrieveConversationEvidence({
+      question: input.question,
+      contactId:
+        input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+      limit: 40,
     });
+  } catch (error) {
+    chatRetrievalUnavailable = true;
+    const message = error instanceof Error ? error.message : String(error);
+    adminAiDebugLog("conversation-retrieval-unavailable", {
+      scope: input.scope,
+      contactId: input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+      error: message,
+    });
+    console.warn("[admin-ai] conversation evidence retrieval unavailable", {
+      error: message,
+    });
+  }
+  const allowedEvidence = [...evidence, ...chatEvidence];
+
+  adminAiDebugLog("raw-cards-assembled", {
+    scope: input.scope,
+    cardCount: cards.length,
+    evidenceCount: allowedEvidence.length,
+    chatEvidenceCount: chatEvidence.length,
+    chatRetrievalUnavailable,
+    promptCacheKey: input.scope === "global" ? buildPromptCacheKey(cards) : null,
+  });
+
+  if (cards.length === 0 || allowedEvidence.length === 0) {
+    const response = discloseChatRetrievalUnavailable(
+      buildInsufficientEvidenceResponse(input.scope, {
+        extra:
+          input.scope === "contact"
+            ? "No raw application, note, tag, or conversation evidence is available for this contact."
+            : "No eligible contacts with raw application, note, tag, or conversation evidence are available.",
+      }),
+      chatRetrievalUnavailable,
+    );
+    return persistInsufficientResponse({
+      threadId: input.threadId,
+      queryPlan: input.queryPlan,
+      response,
+      reason: "no_raw_card_evidence",
+    });
+  }
+
+  try {
+    const timer = startAdminAiDebugTimer("raw-card-synthesis", {
+      scope: input.scope,
+      cardCount: cards.length,
+      evidenceCount: allowedEvidence.length,
+    });
+    const promptCacheKey =
+      input.scope === "global" ? buildPromptCacheKey(cards) : null;
     const { response: rawResponse, modelMetadata } = await provider.generate({
       question: input.question,
       scope: input.scope,
       queryPlan: input.queryPlan,
-      candidates: input.candidates,
-      dossiers: input.dossiers,
-      evidence: input.evidence,
+      cards,
+      evidence: allowedEvidence,
+      promptCacheKey,
     });
 
-    let response: AdminAiResponse;
-    try {
-      response = adminAiResponseSchema.parse(rawResponse);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`AdminAiResponse validation failed: ${message}`);
-    }
-
+    let response = adminAiResponseSchema.parse(rawResponse);
     const { drafts: citations, droppedEvidenceIds } = resolveCitationDrafts(
       response,
-      input.evidence,
+      allowedEvidence,
     );
-    const cleanedResponse = applyDroppedEvidenceIdsToResponse(
+    response = applyDroppedEvidenceIdsToResponse(
       response,
       new Set(droppedEvidenceIds),
     );
 
+    let droppedContactIds: string[] = [];
+    if (input.scope === "global") {
+      const cleaned = pruneUncitedGlobalShortlistEntries({
+        response,
+        droppedEvidenceIds,
+      });
+      response = cleaned.response;
+      droppedContactIds = cleaned.droppedContactIds;
+
+      if ((response.shortlist?.length ?? 0) === 0) {
+        const insufficient = discloseChatRetrievalUnavailable(
+          buildInsufficientEvidenceResponse("global", {
+            extra:
+              response.uncertainty.at(-1) ??
+              "The model did not return any grounded shortlist entries for this question.",
+          }),
+          chatRetrievalUnavailable,
+        );
+        timer.end({
+          status: "insufficient_after_evidence_cleanup",
+          droppedEvidenceCount: droppedEvidenceIds.length,
+          droppedShortlistCount: droppedContactIds.length,
+        });
+        return persistInsufficientResponse({
+          threadId: input.threadId,
+          queryPlan: input.queryPlan,
+          response: insufficient,
+          reason: "ungrounded_raw_card_shortlist",
+        });
+      }
+    }
+
+    response = discloseChatRetrievalUnavailable(
+      response,
+      chatRetrievalUnavailable,
+    );
+
     const mergedMetadata: Record<string, unknown> = {
       ...modelMetadata,
+      rawCards: {
+        cardCount: cards.length,
+        evidenceCount: allowedEvidence.length,
+        chatEvidenceCount: chatEvidence.length,
+        chatRetrievalUnavailable,
+        promptCacheKey,
+        droppedEvidenceIds,
+        droppedShortlistContactIds: droppedContactIds,
+      },
       ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
     };
 
     const { id } = await createAdminAiMessage({
       threadId: input.threadId,
       role: "assistant",
-      content: describeAssistantResponse(cleanedResponse),
+      content: describeAssistantResponse(response),
       status: "complete",
       queryPlan: input.queryPlan,
-      responseJson: cleanedResponse,
+      responseJson: response,
       modelMetadata: mergedMetadata,
     });
 
     await createAdminAiCitations({ messageId: id, citations });
-
-    synthesisTimer.end({
+    timer.end({
       status: "complete",
       citationCount: citations.length,
-      model: (modelMetadata.model as string | undefined) ?? null,
-      responseId: (modelMetadata.responseId as string | undefined) ?? null,
+      droppedEvidenceCount: droppedEvidenceIds.length,
     });
 
     return {
       status: "complete",
       assistantMessageId: id,
       queryPlan: input.queryPlan,
-      response: cleanedResponse,
+      response,
       citations,
       modelMetadata: mergedMetadata,
       error: null,
     };
   } catch (error) {
-    adminAiDebugLog("final-synthesis-failed", {
+    adminAiDebugLog("raw-card-synthesis-failed", {
       scope: input.scope,
-      candidateCount: input.candidates.length,
-      dossierCount: input.dossiers.length,
-      evidenceCount: input.evidence.length,
       error: error instanceof Error ? error.message : String(error),
     });
     const message =
@@ -382,275 +478,11 @@ async function runFinalSynthesis(input: {
       queryPlan: input.queryPlan,
       modelMetadata: { source: "system", reason: "analysis_failed" },
     });
-    // Preserve the original error's stack so downstream logs can point at
-    // the actual failure (Zod validation, timeout, JSON parse, etc.)
-    // rather than this re-throw site.
     throw Object.assign(
       error instanceof Error ? error : new Error(message),
       { assistantMessageId },
     );
   }
-}
-
-async function runGlobalAnalysis(input: {
-  threadId: string;
-  question: string;
-  queryPlan: AdminAiQueryPlan;
-}): Promise<RunAdminAiAnalysisResult> {
-  const cohort = await assembleGlobalSinglePassCohort({
-    plan: input.queryPlan,
-    question: input.question,
-  });
-  adminAiDebugLog("global-single-pass-assembled", {
-    candidateCount: cohort.candidates.length,
-    projectionCount: cohort.projections.length,
-    evidenceCount: cohort.evidence.length,
-    contactsMissingDossiers: cohort.contactsMissingDossiers.length,
-    contactsServingStaleDossiers: cohort.contactsServingStaleDossiers.length,
-    compressionLevel: cohort.compressionLevel,
-    wasCompressed: cohort.wasCompressed,
-    cohortTokenEstimate: cohort.cohortTokenEstimate,
-    cohortTokenBudget: cohort.cohortTokenBudget,
-    promptCacheKey: cohort.promptCacheKey,
-  });
-
-  if (cohort.candidates.length === 0 || cohort.projections.length === 0) {
-    const response = buildInsufficientEvidenceResponse("global");
-    return persistInsufficientResponse({
-      threadId: input.threadId,
-      queryPlan: input.queryPlan,
-      response,
-      reason: "no_candidates",
-    });
-  }
-
-  if (cohort.evidence.length === 0) {
-    const response = buildInsufficientEvidenceResponse("global", {
-      extra:
-        "No raw evidence could be retrieved for the current cohort yet.",
-    });
-    return persistInsufficientResponse({
-      threadId: input.threadId,
-      queryPlan: input.queryPlan,
-      response,
-      reason: "no_retrieved_evidence",
-    });
-  }
-
-  const provider = getAdminAiProvider();
-  if (!provider.isConfigured()) {
-    const reason =
-      provider.getUnavailableReason() ?? "Admin AI is unavailable.";
-    const assistantMessageId = await persistFailedAssistantMessage({
-      threadId: input.threadId,
-      content: reason,
-      queryPlan: input.queryPlan,
-      modelMetadata: { source: "system", reason: "provider_not_configured" },
-    });
-    return {
-      status: "failed",
-      assistantMessageId,
-      queryPlan: input.queryPlan,
-      response: null,
-      citations: [],
-      modelMetadata: { source: "system", reason: "provider_not_configured" },
-      error: reason,
-    };
-  }
-
-  try {
-    const timer = startAdminAiDebugTimer("global-single-pass", {
-      candidateCount: cohort.candidates.length,
-      projectionCount: cohort.projections.length,
-      evidenceCount: cohort.evidence.length,
-      compressionLevel: cohort.compressionLevel,
-      wasCompressed: cohort.wasCompressed,
-    });
-    const { response: rawResponse, modelMetadata } =
-      await provider.generateGlobalCohortResponse({
-        question: input.question,
-        queryPlan: input.queryPlan,
-        cohort: cohort.projections,
-        coverage: {
-          totalCandidates: cohort.candidates.length,
-          candidatesWithoutDossierCount:
-            cohort.contactsMissingDossiers.length,
-          staleDossierCount: cohort.contactsServingStaleDossiers.length,
-          compressionLevel: cohort.compressionLevel,
-          wasCompressed: cohort.wasCompressed,
-        },
-        evidence: cohort.evidence,
-        promptCacheKey: cohort.promptCacheKey,
-      });
-
-    const response = adminAiResponseSchema.parse(rawResponse);
-    const { drafts: citations, droppedEvidenceIds } = resolveCitationDrafts(
-      response,
-      cohort.evidence,
-    );
-    const cleanedResponse = applyDroppedEvidenceIdsToResponse(
-      response,
-      new Set(droppedEvidenceIds),
-    );
-    const cleaned = pruneUncitedGlobalShortlistEntries({
-      response: cleanedResponse,
-      droppedEvidenceIds,
-    });
-    if (
-      droppedEvidenceIds.length > 0 ||
-      cleaned.droppedContactIds.length > 0
-    ) {
-      console.warn(
-        "[admin-ai] single-pass global response contained unresolved evidence citations — dropping unsupported shortlist entries",
-        {
-          droppedEvidenceIds,
-          droppedContactIds: cleaned.droppedContactIds,
-          keptCount: cleaned.response.shortlist?.length ?? 0,
-        },
-      );
-      adminAiDebugLog("global-evidence-cleanup", {
-        droppedEvidenceIds,
-        droppedContactIds: cleaned.droppedContactIds,
-        keptCount: cleaned.response.shortlist?.length ?? 0,
-      });
-    }
-
-    if ((cleaned.response.shortlist?.length ?? 0) === 0) {
-      const response = buildInsufficientEvidenceResponse("global", {
-        extra:
-          cleaned.response.uncertainty.at(-1) ??
-          "The model did not return any grounded shortlist entries for this question.",
-      });
-      timer.end({
-        status: "insufficient_after_evidence_cleanup",
-        droppedEvidenceCount: droppedEvidenceIds.length,
-        droppedShortlistCount: cleaned.droppedContactIds.length,
-      });
-      return persistInsufficientResponse({
-        threadId: input.threadId,
-        queryPlan: input.queryPlan,
-        response,
-        reason: "ungrounded_retrieved_evidence_shortlist",
-      });
-    }
-
-    const mergedMetadata: Record<string, unknown> = {
-      ...modelMetadata,
-      globalSinglePass: {
-        evidenceCount: cohort.evidence.length,
-        contactsMissingDossiers: cohort.contactsMissingDossiers.length,
-        contactsServingStaleDossiers:
-          cohort.contactsServingStaleDossiers.length,
-        compressionLevel: cohort.compressionLevel,
-        wasCompressed: cohort.wasCompressed,
-        cohortTokenEstimate: cohort.cohortTokenEstimate,
-        cohortTokenBudget: cohort.cohortTokenBudget,
-        promptCacheKey: cohort.promptCacheKey,
-        droppedEvidenceIds,
-        droppedShortlistContactIds: cleaned.droppedContactIds,
-      },
-    };
-
-    const { id } = await createAdminAiMessage({
-      threadId: input.threadId,
-      role: "assistant",
-      content: describeAssistantResponse(cleaned.response),
-      status: "complete",
-      queryPlan: input.queryPlan,
-      responseJson: cleaned.response,
-      modelMetadata: mergedMetadata,
-    });
-
-    await createAdminAiCitations({ messageId: id, citations });
-    timer.end({
-      status: "complete",
-      shortlistCount: cleaned.response.shortlist?.length ?? 0,
-      citationCount: citations.length,
-      cacheKey: cohort.promptCacheKey,
-    });
-
-    return {
-      status: "complete",
-      assistantMessageId: id,
-      queryPlan: input.queryPlan,
-      response: cleaned.response,
-      citations,
-      modelMetadata: mergedMetadata,
-      error: null,
-    };
-  } catch (error) {
-    adminAiDebugLog("global-single-pass-failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    const message =
-      error instanceof Error ? error.message : "Global single-pass analysis failed.";
-    const assistantMessageId = await persistFailedAssistantMessage({
-      threadId: input.threadId,
-      content: message,
-      queryPlan: input.queryPlan,
-      modelMetadata: { source: "system", reason: "analysis_failed" },
-    });
-    throw Object.assign(
-      error instanceof Error ? error : new Error(message),
-      { assistantMessageId },
-    );
-  }
-}
-
-async function runContactAnalysis(input: {
-  threadId: string;
-  question: string;
-  queryPlan: AdminAiQueryPlan;
-  contactId: string;
-}): Promise<RunAdminAiAnalysisResult> {
-  const memory = await assembleContactScopedMemory({
-    contactId: input.contactId,
-    question: input.question,
-    textFocus: input.queryPlan.textFocus,
-  });
-  adminAiDebugLog("contact-memory-assembled", {
-    contactId: input.contactId,
-    hasDossier: Boolean(memory.dossier),
-    evidenceCount: memory.evidence.length,
-    fallbackUsed: memory.fallbackUsed,
-  });
-
-  if (!memory.dossier && memory.evidence.length === 0) {
-    const response = buildInsufficientEvidenceResponse("contact", {
-      extra: memory.fallbackUsed
-        ? "No dossier exists for this contact yet. Run the admin AI memory backfill to enable richer analysis."
-        : undefined,
-    });
-    return persistInsufficientResponse({
-      threadId: input.threadId,
-      queryPlan: input.queryPlan,
-      response,
-      reason: "insufficient_contact_memory",
-    });
-  }
-
-  if (memory.evidence.length === 0) {
-    const response = buildInsufficientEvidenceResponse("contact", {
-      extra:
-        "No raw evidence could be retrieved for this contact, so I can't provide a cited assessment yet.",
-    });
-    return persistInsufficientResponse({
-      threadId: input.threadId,
-      queryPlan: input.queryPlan,
-      response,
-      reason: "missing_contact_evidence",
-    });
-  }
-
-  return runFinalSynthesis({
-    scope: "contact",
-    question: input.question,
-    queryPlan: input.queryPlan,
-    threadId: input.threadId,
-    candidates: [],
-    dossiers: memory.dossier ? [memory.dossier] : [],
-    evidence: memory.evidence,
-  });
 }
 
 export async function runAdminAiAnalysis(input: {
@@ -659,34 +491,34 @@ export async function runAdminAiAnalysis(input: {
   threadId: string;
   contactId?: string;
 }): Promise<RunAdminAiAnalysisResult> {
-  const tags = await getTags();
-  const queryPlan = buildAdminAiQueryPlan({
+  const queryPlan = buildCardQueryPlan({
     scope: input.scope,
-    contactId: input.contactId,
     question: input.question,
-    availableTags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
-  });
-  adminAiDebugLog("query-plan", {
-    scope: input.scope,
-    contactId: input.contactId ?? null,
-    mode: queryPlan.mode,
-    structuredFilterCount: queryPlan.structuredFilters.length,
-    textFocus: queryPlan.textFocus,
-    requestedLimit: queryPlan.requestedLimit,
+    contactId: input.contactId,
   });
 
-  if (input.scope === "contact" && input.contactId) {
-    return runContactAnalysis({
-      threadId: input.threadId,
+  if (input.scope === "contact") {
+    if (!input.contactId) {
+      throw new Error("contactId is required when scope is 'contact'");
+    }
+    const records = await loadContactCardRecords({
+      contactIds: [input.contactId],
+    });
+    return runCardSynthesis({
+      scope: "contact",
       question: input.question,
       queryPlan,
-      contactId: input.contactId,
+      threadId: input.threadId,
+      records,
     });
   }
 
-  return runGlobalAnalysis({
-    threadId: input.threadId,
+  const records = await loadEligibleContactCardRecords();
+  return runCardSynthesis({
+    scope: "global",
     question: input.question,
     queryPlan,
+    threadId: input.threadId,
+    records,
   });
 }

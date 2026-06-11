@@ -1,19 +1,9 @@
 /**
  * Single source of truth for the admin AI analyst's allowlisted fields.
  *
- * There are intentionally two allowlists in the codebase:
- *
- *   1. This TypeScript file (consumed by the query planner, server action,
- *      Zod schema validation, and UI).
- *   2. The chunk builder in `src/lib/admin-ai-memory/chunk-builder.ts`,
- *      which materializes the current CRM text fields into
- *      `crm_ai_evidence_chunks` for answer-time retrieval.
- *
- * These must stay in sync manually. If you change `ADMIN_AI_TEXT_FIELDS`
- * below, update the chunk builder allowlist to match, and vice versa.
- * Any other field-level metadata (labels, options, canonicalization) comes
- * from the shared contacts `FIELD_REGISTRY` so there is no second source
- * of truth for those properties.
+ * Field-level metadata (labels, options, canonicalization) comes from the
+ * shared contacts `FIELD_REGISTRY` so there is no second source of truth for
+ * prompt rendering or future structured filters.
  */
 
 import {
@@ -121,13 +111,9 @@ export function isAdminAiArrayFactField(key: string): key is AdminAiArrayFactFie
 // ---------------------------------------------------------------------------
 
 /**
- * Free-text answer keys eligible for chunking into `crm_ai_evidence_chunks`.
- *
- * MUST match the allowlist consumed by
- * `src/lib/admin-ai-memory/chunk-builder.ts`. Any change here requires the
- * chunk builder to be updated too — otherwise the planner can request keys
- * the memory layer does not materialize and retrieval will silently lose
- * evidence.
+ * Free-text answer keys that are especially useful to highlight in admin AI
+ * prompts and future structured helpers. Raw contact cards still render every
+ * answer key, including keys not listed here.
  */
 export const ADMIN_AI_TEXT_FIELDS = [
   "ultimate_vision",

@@ -44,15 +44,6 @@ vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
 }));
 
-vi.mock("@/lib/admin-ai-memory/server-action-sync", () => ({
-  syncContactMemory: vi.fn().mockResolvedValue(undefined),
-  syncContactMemoryBulk: vi.fn().mockResolvedValue({
-    succeeded: 0,
-    failed: 0,
-    failures: [],
-  }),
-}));
-
 const {
   updatePreferences,
   bulkAssignTag,

@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { validateUUID } from "@/lib/validation-helpers";
@@ -12,22 +11,8 @@ import {
   resolveContactEvent,
   unresolveContactEvent,
 } from "@/lib/data/contact-events";
-import { syncContactMemory } from "@/lib/admin-ai-memory/server-action-sync";
 import type { ContactEventType } from "@/types/database";
 import { bodyRequiredFor, EVENT_TYPE_META } from "./event-types";
-
-function scheduleNoteMemorySync(contactId: string): void {
-  after(async () => {
-    try {
-      await syncContactMemory(contactId);
-    } catch (err) {
-      console.error(
-        "[event-actions] post-response memory sync failed",
-        { contactId, error: err instanceof Error ? err.message : String(err) },
-      );
-    }
-  });
-}
 
 const FUTURE_SKEW_MS = 60 * 1000; // 1 minute
 
@@ -114,9 +99,6 @@ export async function createEvent(args: CreateEventArgs) {
   });
   revalidatePath(`/admin/contacts/${args.contactId}`);
   revalidatePath("/admin");
-  if (parsed.data.type === "note") {
-    scheduleNoteMemorySync(args.contactId);
-  }
   return created;
 }
 
@@ -168,9 +150,6 @@ export async function updateEvent(
   const updated = await updateContactEvent(eventId, parsed.data);
   revalidatePath(`/admin/contacts/${updated.contact_id}`);
   revalidatePath("/admin");
-  if (updated.type === "note") {
-    scheduleNoteMemorySync(updated.contact_id);
-  }
   return updated;
 }
 
@@ -179,9 +158,6 @@ export async function deleteEvent(eventId: string) {
   const deleted = await deleteContactEvent(eventId);
   revalidatePath(`/admin/contacts/${deleted.contact_id}`);
   revalidatePath("/admin");
-  if (deleted.type === "note") {
-    scheduleNoteMemorySync(deleted.contact_id);
-  }
   return deleted;
 }
 

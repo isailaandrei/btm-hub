@@ -11,7 +11,6 @@ import {
 import type { ApplicationStatus } from "@/types/database";
 import { isValidISODate, validateUUID } from "@/lib/validation-helpers";
 import { VersionConflictError } from "@/lib/optimistic-concurrency";
-import { syncContactMemory } from "@/lib/admin-ai-memory/server-action-sync";
 import { STATUSES } from "./constants";
 
 export type ChangeStatusResult =
@@ -43,7 +42,6 @@ export async function changeStatus(
     };
   }
 
-  let affectedContactId: string | null = null;
   try {
     const application = await updateApplicationStatus(
       applicationId,
@@ -53,7 +51,6 @@ export async function changeStatus(
       },
     );
 
-    affectedContactId = application.contact_id;
     if (application.contact_id) {
       revalidatePath(`/admin/contacts/${application.contact_id}`);
     }
@@ -70,9 +67,6 @@ export async function changeStatus(
     throw error;
   }
   revalidatePath("/admin");
-  if (affectedContactId) {
-    await syncContactMemory(affectedContactId);
-  }
   return { ok: true };
 }
 
@@ -105,7 +99,5 @@ export async function addNote(applicationId: string, text: string) {
     trimmed,
   );
   revalidatePath("/admin");
-  if (application.contact_id) {
-    await syncContactMemory(application.contact_id);
-  }
+  if (application.contact_id) revalidatePath(`/admin/contacts/${application.contact_id}`);
 }

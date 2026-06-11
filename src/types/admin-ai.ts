@@ -7,8 +7,6 @@
  * `supabase/migrations/20260415000001_admin_ai_analyst.sql`.
  */
 
-import type { DossierSignals } from "@/types/admin-ai-memory";
-
 // ---------------------------------------------------------------------------
 // Scope, mode, and query plan
 // ---------------------------------------------------------------------------
@@ -70,7 +68,7 @@ export type GlobalCohortProjection = {
     }>;
     conflictingFieldKeys?: string[];
   };
-  signals?: DossierSignals;
+  signals?: Record<string, unknown>;
   summary: string | null;
   supportRefs: Array<{
     supportRef: string;
@@ -90,7 +88,9 @@ export type EvidenceSourceType =
   | "application_structured_field"
   | "contact_note"
   | "contact_tag"
-  | "application_admin_note";
+  | "application_admin_note"
+  | "whatsapp_message"
+  | "conversation_fact";
 
 export type EvidenceItem = {
   evidenceId: string;
