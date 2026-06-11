@@ -87,7 +87,7 @@ describe("POST /api/whatsapp/webhook", () => {
       id: "message-1",
       contactId: null,
     });
-    mockUpdateConversationMessageMatch.mockResolvedValue();
+    mockUpdateConversationMessageMatch.mockResolvedValue(undefined);
   });
 
   it("rejects invalid Twilio signatures", async () => {

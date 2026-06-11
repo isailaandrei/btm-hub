@@ -42,11 +42,7 @@ describe("GET /api/cron/academy-import", () => {
         insertedContactIds: ["contact-1", "contact-2"],
         sources: [],
       },
-      memorySync: {
-        succeeded: 2,
-        failed: 0,
-        failures: [],
-      },
+      memorySync: null,
     });
 
     const { GET } = await import("./route");
