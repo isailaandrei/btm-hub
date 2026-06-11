@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAdminAiProvider } from "./provider";
-import type {
-  GlobalCohortProjection,
-  AdminAiQueryPlan,
-} from "@/types/admin-ai";
+import type { AdminAiQueryPlan } from "@/types/admin-ai";
 
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
+const APPLICATION_ID = "22222222-2222-4222-8222-222222222222";
 const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ORIGINAL_OPENAI_MODEL = process.env.OPENAI_MODEL;
 
@@ -18,35 +16,7 @@ function makePlan(): AdminAiQueryPlan {
   };
 }
 
-function makeGlobalProjection(contactId: string): GlobalCohortProjection {
-  return {
-    contactId,
-    contactName: contactId,
-    memoryStatus: "fresh",
-    coverage: {
-      applicationCount: 1,
-      contactNoteCount: 0,
-      applicationAdminNoteCount: 0,
-    },
-    facts: {
-      programHistory: ["filmmaking"],
-      statusHistory: ["reviewing"],
-      tagNames: [],
-    },
-    summary: "Wildlife-focused storyteller.",
-    supportRefs: [
-      {
-        supportRef: "support_1",
-        claim: "Strong excitement about conservation storytelling.",
-        confidence: "high",
-      },
-    ],
-    contradictions: [],
-    unknowns: [],
-  };
-}
-
-describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
+describe("openAiAdminAiProvider.generate", () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-key";
     process.env.OPENAI_MODEL = "gpt-5-mini";
@@ -69,7 +39,7 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
     }
   });
 
-  it("sends the whole cohort projections and accepts support refs as citations", async () => {
+  it("sends raw contact cards, supplied evidence ids, and prompt cache metadata", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -84,13 +54,13 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
                 text: JSON.stringify({
                   shortlist: [
                     {
-                    contactId: CONTACT_ID,
-                    contactName: CONTACT_ID,
-                    whyFit: ["Mission-driven fit"],
-                    concerns: [],
+                      contactId: CONTACT_ID,
+                      contactName: "Marina Costa",
+                      whyFit: ["Mission-driven fit"],
+                      concerns: [],
                       citations: [
                         {
-                          evidenceId: "evidence-1",
+                          evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
                           claimKey: "shortlist.0.whyFit.0",
                         },
                       ],
@@ -109,36 +79,40 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const provider = getAdminAiProvider();
-    const result = await provider.generateGlobalCohortResponse({
+    const result = await provider.generate({
       question: "Find mission-driven candidates",
+      scope: "global",
       queryPlan: makePlan(),
-      promptCacheKey: "cache-key-1",
-      coverage: {
-        totalCandidates: 1,
-        candidatesWithoutDossierCount: 0,
-        staleDossierCount: 0,
-        compressionLevel: "full",
-        wasCompressed: false,
-      },
-      cohort: [makeGlobalProjection(CONTACT_ID)],
+      promptCacheKey: "admin-ai-cards:test",
+      cards: [
+        {
+          contactId: CONTACT_ID,
+          contactName: "Marina Costa",
+          text: [
+            "Contact: Marina Costa",
+            `- Ultimate Vision: I want to film ocean conservation stories. [application_answer:${APPLICATION_ID}:ultimate_vision]`,
+          ].join("\n"),
+          evidence: [],
+        },
+      ],
       evidence: [
         {
-          evidenceId: "evidence-1",
+          evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
           contactId: CONTACT_ID,
-          applicationId: null,
+          applicationId: APPLICATION_ID,
           sourceType: "application_answer",
-          sourceId: "app-1:ultimate_vision",
-          sourceLabel: "ultimate_vision",
+          sourceId: `${APPLICATION_ID}:ultimate_vision`,
+          sourceLabel: "Ultimate Vision",
           sourceTimestamp: "2026-04-15T00:00:00Z",
           program: "filmmaking",
-          text: "I would love to work on conservation storytelling.",
+          text: "I want to film ocean conservation stories.",
         },
       ],
     });
 
     expect(result.response.shortlist?.[0]?.citations).toEqual([
       {
-        evidenceId: "evidence-1",
+        evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
         claimKey: "shortlist.0.whyFit.0",
       },
     ]);
@@ -146,13 +120,16 @@ describe("openAiAdminAiProvider.generateGlobalCohortResponse", () => {
     const body = JSON.parse(
       String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
     ) as { input?: Array<{ role?: string; content?: string }> };
+    const systemMessage = body.input?.find((message) => message.role === "system");
     const userMessage = body.input?.find((message) => message.role === "user");
-    expect(userMessage?.content).toContain("\"supportRef\": \"support_1\"");
-    expect(userMessage?.content).toContain("\"memoryStatus\": \"fresh\"");
-    expect(userMessage?.content).toContain("\"compressionLevel\": \"full\"");
-    expect(userMessage?.content).toContain("\"evidenceId\": \"evidence-1\"");
+    expect(systemMessage?.content).toContain("raw contact cards");
+    expect(userMessage?.content).toContain("\"rawContactCards\"");
+    expect(userMessage?.content).toContain("Contact: Marina Costa");
+    expect(userMessage?.content).toContain(
+      `application_answer:${APPLICATION_ID}:ultimate_vision`,
+    );
     expect(body).toMatchObject({
-      prompt_cache_key: "cache-key-1",
+      prompt_cache_key: "admin-ai-cards:test",
     });
   });
 });

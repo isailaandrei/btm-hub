@@ -104,7 +104,7 @@ describe("runAcademyImportAction", () => {
     expect(result.message).toContain("Preview ready");
   });
 
-  it("runs a real sync and reports memory refresh results", async () => {
+  it("runs a real sync without derived memory refresh results", async () => {
     mockExecuteAcademyImportRun.mockResolvedValue({
       summary: {
         dryRun: false,
@@ -119,11 +119,7 @@ describe("runAcademyImportAction", () => {
         insertedContactIds: ["contact-1", "contact-2"],
         sources: [],
       },
-      memorySync: {
-        succeeded: 2,
-        failed: 0,
-        failures: [],
-      },
+      memorySync: null,
     });
 
     const formData = new FormData();
@@ -154,11 +150,7 @@ describe("runAcademyImportAction", () => {
         backfilled: 1,
         drifted: 1,
       },
-      memorySync: {
-        succeeded: 2,
-        failed: 0,
-        failures: [],
-      },
+      memorySync: null,
     });
     expect(result.message).toContain("Success");
   });

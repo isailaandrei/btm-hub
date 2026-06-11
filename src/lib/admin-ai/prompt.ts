@@ -1,14 +1,10 @@
+import type { RenderedContactCard } from "./contact-card";
 import type {
-  GlobalCohortProjection,
   AdminAiQueryPlan,
   AdminAiResponse,
   AdminAiScope,
-  ContactFactRow,
   EvidenceItem,
 } from "@/types/admin-ai";
-import type {
-  CrmAiContactDossier,
-} from "@/types/admin-ai-memory";
 
 export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
   const scopeInstruction =
@@ -19,19 +15,20 @@ export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
         ].join(" ")
       : [
           "This is a global admin-AI response over the supplied eligible cohort.",
-          "Return `shortlist` populated and `contactAssessment` as null. Never emit a contactAssessment object on global-scope questions — it will be stripped server-side regardless.",
+          "Return `shortlist` populated and `contactAssessment` as null. Never emit a contactAssessment object on global-scope questions.",
         ].join(" ");
 
   return [
     "You are the BTM Hub Admin AI Analyst.",
     scopeInstruction,
-    "Answer only from the supplied dossiers, candidate facts, and evidence.",
+    "Answer only from the supplied raw contact cards, conversation facts, conversation digests, and evidence.",
+    "The cards are verbatim CRM records, not summaries. Do not invent contacts or details outside them.",
+    "Surface discrepancies and conflicts explicitly; do not resolve conflicting values away.",
     "Separate grounded facts from inferences.",
     "Be conservative. If evidence is weak, say so.",
-    "Never invent missing details or unsupported qualifications.",
-    "Use only supplied evidenceIds inside citations — never cite dossier prose alone.",
-    "Every shortlist entry and every contact assessment must include at least one citation from the supplied raw evidence.",
-    "If you cannot support the answer with raw evidence, say so in `uncertainty` instead of answering from dossier memory alone.",
+    "Use only supplied evidenceIds inside citations.",
+    "Every shortlist entry and every contact assessment must include at least one supplied citation.",
+    "If you cannot support the answer with supplied raw evidence, say so in `uncertainty`.",
     "Return valid JSON matching the required schema.",
   ].join(" ");
 }
@@ -40,9 +37,9 @@ export type AdminAiSynthesisInput = {
   question: string;
   scope: AdminAiScope;
   queryPlan: AdminAiQueryPlan;
-  candidates: ContactFactRow[];
-  dossiers: CrmAiContactDossier[];
+  cards: RenderedContactCard[];
   evidence: EvidenceItem[];
+  promptCacheKey?: string | null;
 };
 
 export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
@@ -51,15 +48,10 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
       question: input.question,
       scope: input.scope,
       queryPlan: input.queryPlan,
-      candidates: input.candidates,
-      dossiers: input.dossiers.map((d) => ({
-        contactId: d.contact_id,
-        facts: d.facts_json,
-        signals: d.signals_json,
-        contradictions: d.contradictions_json,
-        unknowns: d.unknowns_json,
-        summary: { short: d.short_summary, medium: d.medium_summary },
-        sourceCoverage: d.source_coverage,
+      rawContactCards: input.cards.map((card) => ({
+        contactId: card.contactId,
+        contactName: card.contactName,
+        card: card.text,
       })),
       evidence: input.evidence,
       responseContract: {
@@ -168,82 +160,8 @@ export function normalizeProviderResponse(
       Array.isArray(payload.shortlist) && payload.shortlist.length > 0
         ? payload.shortlist
         : undefined,
-    // Defense against the model emitting a contactAssessment on global
-    // questions — the prompt + schema tell it to return null, but we
-    // strip here too so the persisted response never has cross-scope
-    // clutter.
     contactAssessment:
       scope === "global" ? undefined : payload.contactAssessment ?? undefined,
     uncertainty: payload.uncertainty,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Global single-pass cohort response
-// ---------------------------------------------------------------------------
-
-export type AdminAiGlobalCohortInput = {
-  question: string;
-  queryPlan: AdminAiQueryPlan;
-  cohort: GlobalCohortProjection[];
-  evidence: EvidenceItem[];
-  coverage: {
-    totalCandidates: number;
-    candidatesWithoutDossierCount: number;
-    staleDossierCount: number;
-    compressionLevel: "full" | "compact" | "minimal";
-    wasCompressed: boolean;
-  };
-  promptCacheKey?: string | null;
-};
-
-export function buildAdminAiGlobalCohortSystemPrompt(): string {
-  return [
-    "You are the BTM Hub Admin AI Analyst.",
-    "This is a single-pass global cohort reasoning call over cached profile scaffolds plus a dynamic evidence pack.",
-    "You must reason over the full supplied cohort directly. Do not invent contacts outside the cohort.",
-    "Profile supportRefs are memory hints only. Final citations must use only the supplied raw evidenceIds from the evidence pack.",
-    "Never invent evidence ids. Never cite dossier prose alone.",
-    "A contact can appear in the shortlist only if you can support that entry with at least one supplied raw evidence citation.",
-    "Contacts marked stale or missing may still be considered, but you must reflect lower confidence in `concerns` or `uncertainty` when evidence is thin.",
-    "Return valid JSON matching the required schema.",
-  ].join(" ");
-}
-
-export function buildAdminAiGlobalCohortUserPrompt(
-  input: AdminAiGlobalCohortInput,
-): string {
-  const stablePrefix = JSON.stringify(
-    {
-      coverage: input.coverage,
-      cohort: input.cohort,
-    },
-    null,
-    2,
-  );
-
-  const dynamicSuffix = JSON.stringify(
-    {
-      question: input.question,
-      queryPlan: input.queryPlan,
-      evidence: input.evidence,
-      responseContract: {
-        shortlist: [
-          {
-            contactId: "uuid",
-            contactName: "string",
-            whyFit: ["string"],
-            concerns: ["string"],
-            citations: [{ evidenceId: "evidence-1", claimKey: "string" }],
-          },
-        ],
-        contactAssessment: null,
-        uncertainty: ["string"],
-      },
-    },
-    null,
-    2,
-  );
-
-  return `${stablePrefix}\n${dynamicSuffix}`;
 }

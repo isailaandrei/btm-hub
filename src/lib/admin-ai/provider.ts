@@ -1,8 +1,5 @@
 import {
-  buildAdminAiGlobalCohortSystemPrompt,
-  buildAdminAiGlobalCohortUserPrompt,
   ADMIN_AI_RESPONSE_JSON_SCHEMA,
-  type AdminAiGlobalCohortInput,
   buildAdminAiSystemPrompt,
   buildAdminAiUserPrompt,
   normalizeProviderResponse,
@@ -19,10 +16,6 @@ const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 export interface AdminAiProvider {
   isConfigured(): boolean;
   getUnavailableReason(): string | null;
-  generateGlobalCohortResponse(input: AdminAiGlobalCohortInput): Promise<{
-    response: AdminAiResponse;
-    modelMetadata: Record<string, unknown>;
-  }>;
   generate(input: AdminAiSynthesisInput): Promise<{
     response: AdminAiResponse;
     modelMetadata: Record<string, unknown>;
@@ -56,14 +49,6 @@ function getApiKey(): string | null {
 
 function getSynthesisModel(): string {
   return process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
-}
-
-function getGlobalCohortModel(): string {
-  return (
-    process.env.OPENAI_GLOBAL_MODEL?.trim()
-    || process.env.OPENAI_MODEL?.trim()
-    || DEFAULT_OPENAI_MODEL
-  );
 }
 
 function getGlobalPromptCacheRetention(): string | null {
@@ -213,6 +198,9 @@ const openAiAdminAiProvider: AdminAiProvider = {
       userPrompt: buildAdminAiUserPrompt(input),
       schemaName: "admin_ai_response",
       schema: ADMIN_AI_RESPONSE_JSON_SCHEMA,
+      promptCacheKey: input.promptCacheKey ?? null,
+      promptCacheRetention:
+        input.scope === "global" ? getGlobalPromptCacheRetention() : null,
     });
 
     const rawResponse = JSON.parse(rawText) as {
@@ -225,45 +213,6 @@ const openAiAdminAiProvider: AdminAiProvider = {
       scope: input.scope,
       shortlistCount: normalized.shortlist?.length ?? 0,
       hasContactAssessment: Boolean(normalized.contactAssessment),
-      uncertaintyCount: normalized.uncertainty.length,
-    });
-
-    return {
-      response: normalized,
-      modelMetadata: {
-        provider: "openai",
-        responseId: payload.id ?? null,
-        model: payload.model ?? model,
-        usage: payload.usage ?? null,
-      },
-    };
-  },
-
-  async generateGlobalCohortResponse(input) {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      throw new Error(PROVIDER_UNAVAILABLE_REASON);
-    }
-    const model = getGlobalCohortModel();
-    const { payload, rawText } = await callOpenAi({
-      apiKey,
-      model,
-      systemPrompt: buildAdminAiGlobalCohortSystemPrompt(),
-      userPrompt: buildAdminAiGlobalCohortUserPrompt(input),
-      schemaName: "admin_ai_response",
-      schema: ADMIN_AI_RESPONSE_JSON_SCHEMA,
-      promptCacheKey: input.promptCacheKey ?? null,
-      promptCacheRetention: getGlobalPromptCacheRetention(),
-    });
-
-    const rawResponse = JSON.parse(rawText) as {
-      shortlist: AdminAiResponse["shortlist"] | [];
-      contactAssessment: AdminAiResponse["contactAssessment"] | null;
-      uncertainty: string[];
-    };
-    const normalized = normalizeProviderResponse(rawResponse, "global");
-    adminAiDebugLog("global-cohort-response", {
-      shortlistCount: normalized.shortlist?.length ?? 0,
       uncertaintyCount: normalized.uncertainty.length,
     });
 

@@ -312,12 +312,6 @@ function SyncedView({
         </details>
       )}
 
-      {result.memorySync && (
-        <div className="mt-3 rounded-xl border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          AI memory refresh: {result.memorySync.succeeded} succeeded,{" "}
-          {result.memorySync.failed} failed.
-        </div>
-      )}
     </div>
   );
 }
