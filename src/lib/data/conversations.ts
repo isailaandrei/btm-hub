@@ -26,6 +26,14 @@ export type UpsertConversationMessageInput = {
   matchedVia: string | null;
 };
 
+export type UpdateConversationMessageMatchInput = {
+  messageId: string;
+  contactId: string | null;
+  matchStatus: ConversationMessageMatchStatus;
+  matchedVia: string | null;
+  rawPayload: Record<string, unknown>;
+};
+
 export type ConversationFactInput = {
   contactId: string;
   source: ConversationSource;
@@ -144,6 +152,25 @@ export async function upsertConversationMessage(
   const row = data as MessageRow | null;
   if (!row) throw new Error("Failed to upsert conversation message: no row returned");
   return { id: row.id, contactId: row.contact_id };
+}
+
+export async function updateConversationMessageMatch(
+  input: UpdateConversationMessageMatchInput,
+): Promise<void> {
+  const supabase = await createAdminClient();
+  const { error } = await supabase
+    .from("conversation_messages")
+    .update({
+      contact_id: input.contactId,
+      match_status: input.matchStatus,
+      matched_via: input.matchedVia,
+      raw_payload: input.rawPayload,
+    })
+    .eq("id", input.messageId);
+
+  if (error) {
+    throw new Error(`Failed to update conversation message match: ${error.message}`);
+  }
 }
 
 export async function upsertConversationDigest(

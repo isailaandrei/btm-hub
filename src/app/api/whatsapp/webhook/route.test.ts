@@ -5,6 +5,7 @@ import type { ContactCardRecord } from "@/lib/data/contact-cards";
 const mockLoadContactPhoneIndexRecords = vi.fn();
 const mockLoadAdminGatedContactCards = vi.fn();
 const mockUpsertConversationMessage = vi.fn();
+const mockUpdateConversationMessageMatch = vi.fn();
 
 vi.mock("@/lib/data/contact-phone-index", () => ({
   loadContactPhoneIndexRecords: mockLoadContactPhoneIndexRecords,
@@ -16,6 +17,7 @@ vi.mock("@/lib/data/contact-cards", () => ({
 
 vi.mock("@/lib/data/conversations", () => ({
   upsertConversationMessage: mockUpsertConversationMessage,
+  updateConversationMessageMatch: mockUpdateConversationMessageMatch,
 }));
 
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
@@ -59,10 +61,11 @@ function makeBody(from = "whatsapp:+12133734253") {
 }
 
 async function postSigned(body: URLSearchParams) {
-  const url = "https://example.com/api/whatsapp/webhook";
+  const url = process.env.TWILIO_WEBHOOK_URL ?? "https://example.com/api/whatsapp/webhook";
+  const requestUrl = "https://example.com/api/whatsapp/webhook";
   const { POST } = await import("./route");
   return POST(
-    new Request(url, {
+    new Request(requestUrl, {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
@@ -78,11 +81,13 @@ describe("POST /api/whatsapp/webhook", () => {
     vi.resetModules();
     vi.clearAllMocks();
     process.env.TWILIO_AUTH_TOKEN = "twilio-secret";
+    delete process.env.TWILIO_WEBHOOK_URL;
     mockLoadAdminGatedContactCards.mockRejectedValue(new Error("admin gated"));
     mockUpsertConversationMessage.mockResolvedValue({
       id: "message-1",
-      contactId: CONTACT_ID,
+      contactId: null,
     });
+    mockUpdateConversationMessageMatch.mockResolvedValue();
   });
 
   it("rejects invalid Twilio signatures", async () => {
@@ -112,10 +117,18 @@ describe("POST /api/whatsapp/webhook", () => {
     expect(response.status).toBe(200);
     expect(mockUpsertConversationMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        contactId: CONTACT_ID,
+        contactId: null,
         provider: "twilio",
         providerMessageId: "SM123",
         fromIdentifier: "+12133734253",
+        matchStatus: "unmatched",
+        matchedVia: null,
+      }),
+    );
+    expect(mockUpdateConversationMessageMatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: "message-1",
+        contactId: CONTACT_ID,
         matchStatus: "matched",
         matchedVia: "contact.phone",
       }),
@@ -131,8 +144,9 @@ describe("POST /api/whatsapp/webhook", () => {
     const response = await postSigned(makeBody("whatsapp:+15551234567"));
 
     expect(response.status).toBe(200);
-    expect(mockUpsertConversationMessage).toHaveBeenCalledWith(
+    expect(mockUpdateConversationMessageMatch).toHaveBeenCalledWith(
       expect.objectContaining({
+        messageId: "message-1",
         contactId: null,
         matchStatus: "unmatched",
         matchedVia: null,
@@ -149,11 +163,65 @@ describe("POST /api/whatsapp/webhook", () => {
     const response = await postSigned(makeBody());
 
     expect(response.status).toBe(200);
-    expect(mockUpsertConversationMessage).toHaveBeenCalledWith(
+    expect(mockUpdateConversationMessageMatch).toHaveBeenCalledWith(
       expect.objectContaining({
+        messageId: "message-1",
         contactId: null,
         matchStatus: "ambiguous",
         matchedVia: expect.stringContaining(CONTACT_ID),
+      }),
+    );
+  });
+
+  it("verifies signatures against the configured public webhook URL behind a proxy", async () => {
+    process.env.TWILIO_WEBHOOK_URL =
+      "https://public.example.com/api/whatsapp/webhook";
+    mockLoadContactPhoneIndexRecords.mockResolvedValue([
+      makeRecord(CONTACT_ID, "+12133734253"),
+    ]);
+    const body = makeBody();
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://internal.vercel.local/api/whatsapp/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "x-twilio-signature": sign(
+            "https://public.example.com/api/whatsapp/webhook",
+            body,
+            "twilio-secret",
+          ),
+        },
+        body,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpsertConversationMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores the raw message even when phone matching fails", async () => {
+    mockLoadContactPhoneIndexRecords.mockRejectedValue(
+      new Error("phone index unavailable"),
+    );
+
+    const response = await postSigned(makeBody());
+
+    expect(response.status).toBe(200);
+    expect(mockUpsertConversationMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactId: null,
+        providerMessageId: "SM123",
+        matchStatus: "unmatched",
+      }),
+    );
+    expect(mockUpdateConversationMessageMatch).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        messageId: "message-1",
+        matchStatus: "unmatched",
+        warning: expect.stringMatching(/matching failed/i),
       }),
     );
   });

@@ -9,6 +9,7 @@ function makeQuery(data: unknown = null, error: unknown = null) {
   for (const method of [
     "select",
     "insert",
+    "update",
     "upsert",
     "eq",
     "is",
@@ -69,6 +70,35 @@ describe("conversation data layer", () => {
       { onConflict: "provider,provider_message_id" },
     );
     expect(result).toEqual({ id: "message-1", contactId: null });
+  });
+
+  it("patches phone match metadata after raw message storage", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery([]);
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { updateConversationMessageMatch } = await import("./conversations");
+    await updateConversationMessageMatch({
+      messageId: "message-1",
+      contactId: "contact-1",
+      matchStatus: "matched",
+      matchedVia: "contact.phone",
+      rawPayload: { MessageSid: "SM123", phoneMatch: { status: "matched" } },
+    });
+
+    expect(client.from).toHaveBeenCalledWith("conversation_messages");
+    expect(query.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contact_id: "contact-1",
+        match_status: "matched",
+        matched_via: "contact.phone",
+        raw_payload: expect.objectContaining({
+          MessageSid: "SM123",
+        }),
+      }),
+    );
+    expect(query.eq).toHaveBeenCalledWith("id", "message-1");
   });
 
   it("inserts conversation facts append-only without upsert", async () => {

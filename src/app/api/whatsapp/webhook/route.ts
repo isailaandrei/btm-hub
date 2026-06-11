@@ -7,7 +7,10 @@ import {
   type ContactPhoneMatch,
 } from "@/lib/conversations/phone";
 import { loadContactPhoneIndexRecords } from "@/lib/data/contact-phone-index";
-import { upsertConversationMessage } from "@/lib/data/conversations";
+import {
+  updateConversationMessageMatch,
+  upsertConversationMessage,
+} from "@/lib/data/conversations";
 
 function constantTimeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -25,13 +28,29 @@ function signatureBase(url: string, payload: URLSearchParams): string {
   );
 }
 
+function getTwilioSignatureUrl(request: Request): string {
+  const configuredUrl = process.env.TWILIO_WEBHOOK_URL?.trim();
+  if (configuredUrl) return configuredUrl;
+
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.trim();
+  const forwardedHost =
+    request.headers.get("x-forwarded-host")?.trim() ??
+    request.headers.get("host")?.trim();
+  if (forwardedProto && forwardedHost) {
+    const requestUrl = new URL(request.url);
+    return `${forwardedProto}://${forwardedHost}${requestUrl.pathname}${requestUrl.search}`;
+  }
+
+  return request.url;
+}
+
 function verifyTwilioSignature(request: Request, payload: URLSearchParams): boolean {
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
   if (!authToken) return false;
   const provided = request.headers.get("x-twilio-signature") ?? "";
   if (!provided) return false;
   const expected = createHmac("sha1", authToken)
-    .update(signatureBase(request.url, payload))
+    .update(signatureBase(getTwilioSignatureUrl(request), payload))
     .digest("base64");
   return constantTimeEqual(provided, expected);
 }
@@ -81,15 +100,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const records = await loadContactPhoneIndexRecords();
-  const match = matchContactByPhone(
-    buildContactPhoneIndex(records),
-    message.fromIdentifier,
-  );
-  const contact = contactFieldsForMatch(match);
-
   const stored = await upsertConversationMessage({
-    contactId: contact.contactId,
+    contactId: null,
     source: message.source,
     provider: message.provider,
     providerMessageId: message.providerMessageId,
@@ -99,18 +111,50 @@ export async function POST(request: Request) {
     body: message.body,
     media: message.media,
     happenedAt: message.happenedAt,
-    rawPayload: {
-      ...message.rawPayload,
-      phoneMatch: match,
-    },
-    matchStatus: contact.matchStatus,
-    matchedVia: contact.matchedVia,
+    rawPayload: message.rawPayload,
+    matchStatus: "unmatched",
+    matchedVia: null,
   });
+
+  let contact: ReturnType<typeof contactFieldsForMatch>;
+  try {
+    const records = await loadContactPhoneIndexRecords();
+    const match = matchContactByPhone(
+      buildContactPhoneIndex(records),
+      message.fromIdentifier,
+    );
+    contact = contactFieldsForMatch(match);
+
+    await updateConversationMessageMatch({
+      messageId: stored.id,
+      contactId: contact.contactId,
+      matchStatus: contact.matchStatus,
+      matchedVia: contact.matchedVia,
+      rawPayload: {
+        ...message.rawPayload,
+        phoneMatch: match,
+      },
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn("[whatsapp-webhook] stored message but phone matching failed", {
+      messageId: stored.id,
+      detail,
+    });
+    return NextResponse.json({
+      ok: true,
+      messageId: stored.id,
+      contactId: null,
+      matchStatus: "unmatched",
+      warning: "Phone matching failed after raw message storage.",
+      detail,
+    });
+  }
 
   return NextResponse.json({
     ok: true,
     messageId: stored.id,
-    contactId: stored.contactId,
+    contactId: contact.contactId,
     matchStatus: contact.matchStatus,
   });
 }
