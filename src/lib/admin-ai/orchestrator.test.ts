@@ -343,6 +343,64 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     expect(retrievalMod.retrieveConversationEvidence).not.toHaveBeenCalled();
   });
 
+  it("discloses chat retrieval degradation while still answering from CRM card evidence", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
+
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockRejectedValue(
+      new Error("embeddings unavailable"),
+    );
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: vi.fn().mockResolvedValue({
+        response: {
+          uncertainty: [],
+          shortlist: [
+            {
+              contactId: CONTACT_ID,
+              contactName: "Marina Costa",
+              whyFit: ["Grounded in application"],
+              concerns: [],
+              citations: [
+                {
+                  evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+                  claimKey: "shortlist.0.whyFit.0",
+                },
+              ],
+            },
+          ],
+        } as AdminAiResponse,
+        modelMetadata: {},
+      }),
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "Find candidates",
+    });
+
+    expect(result.status).toBe("complete");
+    expect(result.response?.uncertainty).toContain(
+      "Conversation evidence retrieval was unavailable for this answer.",
+    );
+    expect(result.modelMetadata?.rawCards).toEqual(
+      expect.objectContaining({
+        chatRetrievalUnavailable: true,
+      }),
+    );
+  });
+
   it("drops unknown citation ids from persisted contact responses", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const providerMod = await import("./provider");

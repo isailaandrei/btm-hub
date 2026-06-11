@@ -101,6 +101,23 @@ describe("conversation data layer", () => {
     expect(query.eq).toHaveBeenCalledWith("id", "message-1");
   });
 
+  it("checks whether conversation messages exist for retrieval short-circuiting", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery({ id: "message-1" });
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { hasConversationMessages } = await import("./conversations");
+    const exists = await hasConversationMessages({ contactId: "contact-1" });
+
+    expect(client.from).toHaveBeenCalledWith("conversation_messages");
+    expect(query.select).toHaveBeenCalledWith("id");
+    expect(query.eq).toHaveBeenCalledWith("contact_id", "contact-1");
+    expect(query.limit).toHaveBeenCalledWith(1);
+    expect(query.maybeSingle).toHaveBeenCalledTimes(1);
+    expect(exists).toBe(true);
+  });
+
   it("inserts conversation facts append-only without upsert", async () => {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const query = makeQuery([{ id: "fact-1" }]);

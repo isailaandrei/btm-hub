@@ -40,6 +40,20 @@ export type RunAdminAiAnalysisResult = {
   error: string | null;
 };
 
+const CHAT_RETRIEVAL_UNAVAILABLE_NOTE =
+  "Conversation evidence retrieval was unavailable for this answer.";
+
+function appendUncertainty(
+  response: AdminAiResponse,
+  note: string,
+): AdminAiResponse {
+  if (response.uncertainty.includes(note)) return response;
+  return {
+    ...response,
+    uncertainty: [...response.uncertainty, note],
+  };
+}
+
 function buildInsufficientEvidenceResponse(
   scope: AdminAiScope,
   options?: { extra?: string },
@@ -50,6 +64,15 @@ function buildInsufficientEvidenceResponse(
       : "The current CRM evidence is too thin to support a reliable shortlist for this question.";
   const uncertainty = options?.extra ? [base, options.extra] : [base];
   return { uncertainty };
+}
+
+function discloseChatRetrievalUnavailable(
+  response: AdminAiResponse,
+  unavailable: boolean,
+): AdminAiResponse {
+  return unavailable
+    ? appendUncertainty(response, CHAT_RETRIEVAL_UNAVAILABLE_NOTE)
+    : response;
 }
 
 export function describeAssistantResponse(response: AdminAiResponse): string {
@@ -288,12 +311,27 @@ async function runCardSynthesis(input: {
     };
   }
 
-  const chatEvidence = await retrieveConversationEvidence({
-    question: input.question,
-    contactId:
-      input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
-    limit: 40,
-  });
+  let chatEvidence: EvidenceItem[] = [];
+  let chatRetrievalUnavailable = false;
+  try {
+    chatEvidence = await retrieveConversationEvidence({
+      question: input.question,
+      contactId:
+        input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+      limit: 40,
+    });
+  } catch (error) {
+    chatRetrievalUnavailable = true;
+    const message = error instanceof Error ? error.message : String(error);
+    adminAiDebugLog("conversation-retrieval-unavailable", {
+      scope: input.scope,
+      contactId: input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+      error: message,
+    });
+    console.warn("[admin-ai] conversation evidence retrieval unavailable", {
+      error: message,
+    });
+  }
   const allowedEvidence = [...evidence, ...chatEvidence];
 
   adminAiDebugLog("raw-cards-assembled", {
@@ -301,16 +339,20 @@ async function runCardSynthesis(input: {
     cardCount: cards.length,
     evidenceCount: allowedEvidence.length,
     chatEvidenceCount: chatEvidence.length,
+    chatRetrievalUnavailable,
     promptCacheKey: input.scope === "global" ? buildPromptCacheKey(cards) : null,
   });
 
   if (cards.length === 0 || allowedEvidence.length === 0) {
-    const response = buildInsufficientEvidenceResponse(input.scope, {
-      extra:
-        input.scope === "contact"
-          ? "No raw application, note, tag, or conversation evidence is available for this contact."
-          : "No eligible contacts with raw application, note, tag, or conversation evidence are available.",
-    });
+    const response = discloseChatRetrievalUnavailable(
+      buildInsufficientEvidenceResponse(input.scope, {
+        extra:
+          input.scope === "contact"
+            ? "No raw application, note, tag, or conversation evidence is available for this contact."
+            : "No eligible contacts with raw application, note, tag, or conversation evidence are available.",
+      }),
+      chatRetrievalUnavailable,
+    );
     return persistInsufficientResponse({
       threadId: input.threadId,
       queryPlan: input.queryPlan,
@@ -356,11 +398,14 @@ async function runCardSynthesis(input: {
       droppedContactIds = cleaned.droppedContactIds;
 
       if ((response.shortlist?.length ?? 0) === 0) {
-        const insufficient = buildInsufficientEvidenceResponse("global", {
-          extra:
-            response.uncertainty.at(-1) ??
-            "The model did not return any grounded shortlist entries for this question.",
-        });
+        const insufficient = discloseChatRetrievalUnavailable(
+          buildInsufficientEvidenceResponse("global", {
+            extra:
+              response.uncertainty.at(-1) ??
+              "The model did not return any grounded shortlist entries for this question.",
+          }),
+          chatRetrievalUnavailable,
+        );
         timer.end({
           status: "insufficient_after_evidence_cleanup",
           droppedEvidenceCount: droppedEvidenceIds.length,
@@ -375,12 +420,18 @@ async function runCardSynthesis(input: {
       }
     }
 
+    response = discloseChatRetrievalUnavailable(
+      response,
+      chatRetrievalUnavailable,
+    );
+
     const mergedMetadata: Record<string, unknown> = {
       ...modelMetadata,
       rawCards: {
         cardCount: cards.length,
         evidenceCount: allowedEvidence.length,
         chatEvidenceCount: chatEvidence.length,
+        chatRetrievalUnavailable,
         promptCacheKey,
         droppedEvidenceIds,
         droppedShortlistContactIds: droppedContactIds,

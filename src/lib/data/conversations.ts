@@ -173,6 +173,26 @@ export async function updateConversationMessageMatch(
   }
 }
 
+export async function hasConversationMessages(input?: {
+  contactId?: string | null;
+}): Promise<boolean> {
+  const supabase = await createAdminClient();
+  let query = supabase
+    .from("conversation_messages")
+    .select("id")
+    .limit(1);
+
+  if (input?.contactId) {
+    query = query.eq("contact_id", input.contactId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    throw new Error(`Failed to check conversation messages: ${error.message}`);
+  }
+  return Boolean(data);
+}
+
 export async function upsertConversationDigest(
   input: ConversationDigestInput,
 ): Promise<void> {
