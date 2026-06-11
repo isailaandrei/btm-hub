@@ -1,4 +1,4 @@
-import parsePhoneNumber from "libphonenumber-js";
+import parsePhoneNumber, { type CountryCode } from "libphonenumber-js";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
 
 export type NormalizedPhone = {
@@ -35,14 +35,32 @@ function stripKnownProviderPrefix(raw: string): string {
   return raw.replace(/^whatsapp:/i, "").trim();
 }
 
+function parseValidPhoneNumber(raw: string, country?: CountryCode) {
+  try {
+    const parsed = country ? parsePhoneNumber(raw, country) : parsePhoneNumber(raw);
+    return parsed?.isValid() ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizePhoneNumber(
   raw: string | null | undefined,
-  defaultCountry = "US",
+  defaultCountry?: string,
 ): NormalizedPhone | null {
   const stripped = stripKnownProviderPrefix(raw?.trim() ?? "");
   if (!stripped) return null;
-  const parsed = parsePhoneNumber(stripped, defaultCountry as never);
-  if (!parsed || !parsed.isValid()) return null;
+
+  const e164Parsed = stripped.startsWith("+")
+    ? parseValidPhoneNumber(stripped)
+    : null;
+  const parsed =
+    e164Parsed ??
+    parseValidPhoneNumber(
+      stripped,
+      (defaultCountry ?? process.env.DEFAULT_PHONE_REGION ?? "US").toUpperCase() as CountryCode,
+    );
+  if (!parsed) return null;
   return {
     raw: raw ?? stripped,
     e164: parsed.number,
