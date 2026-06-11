@@ -82,6 +82,7 @@ export type ConversationEvidenceHit = {
 export type ConversationDigestMessage = {
   id: string;
   contactId: string;
+  direction: ConversationDirection;
   body: string;
   happenedAt: string;
 };
@@ -108,6 +109,7 @@ type ConversationSearchRow = {
 type ConversationDigestMessageRow = {
   id: string;
   contact_id: string | null;
+  direction: ConversationDirection;
   body: string;
   happened_at: string;
 };
@@ -350,7 +352,7 @@ export async function listConversationMessagesForDigest(input: {
   const supabase = await createAdminClient();
   const { data, error } = await supabase
     .from("conversation_messages")
-    .select("id, contact_id, body, happened_at")
+    .select("id, contact_id, direction, body, happened_at")
     .not("contact_id", "is", null)
     .order("happened_at", { ascending: true })
     .limit(input.limit);
@@ -368,6 +370,7 @@ export async function listConversationMessagesForDigest(input: {
     .map((row) => ({
       id: row.id,
       contactId: row.contact_id,
+      direction: row.direction,
       body: row.body,
       happenedAt: row.happened_at,
     }));
@@ -397,6 +400,7 @@ export async function listUndigestedConversationMessages(input: {
     .map((row) => ({
       id: row.id,
       contactId: row.contact_id,
+      direction: row.direction,
       body: row.body,
       happenedAt: row.happened_at,
     }));

@@ -199,12 +199,14 @@ describe("conversation data layer", () => {
           {
             id: "message-after-watermark",
             contact_id: "contact-1",
+            direction: "inbound",
             body: "New message.",
             happened_at: "2026-06-11T11:00:00Z",
           },
           {
             id: "message-no-watermark",
             contact_id: "contact-2",
+            direction: "outbound",
             body: "First message.",
             happened_at: "2026-06-11T09:00:00Z",
           },
@@ -224,12 +226,14 @@ describe("conversation data layer", () => {
       {
         id: "message-after-watermark",
         contactId: "contact-1",
+        direction: "inbound",
         body: "New message.",
         happenedAt: "2026-06-11T11:00:00Z",
       },
       {
         id: "message-no-watermark",
         contactId: "contact-2",
+        direction: "outbound",
         body: "First message.",
         happenedAt: "2026-06-11T09:00:00Z",
       },

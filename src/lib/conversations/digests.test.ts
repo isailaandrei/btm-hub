@@ -16,12 +16,14 @@ describe("conversation digests", () => {
       {
         id: "m1",
         contactId: "contact-1",
+        direction: "inbound",
         body: "Hello",
         happenedAt: "2026-06-11T10:00:00Z",
       },
       {
         id: "m2",
         contactId: "contact-1",
+        direction: "outbound",
         body: "Budget is around $5k",
         happenedAt: "2026-06-11T10:10:00Z",
       },
@@ -36,7 +38,8 @@ describe("conversation digests", () => {
       lastMessageId: "m2",
       sourceMessageCount: 2,
       contentHash: buildDigestContentHash(["m1", "m2"]),
-      transcript: "m1: Hello\nm2: Budget is around $5k",
+      transcript:
+        "2026-06-11T10:00:00Z inbound m1: Hello\n2026-06-11T10:10:00Z outbound m2: Budget is around $5k",
     });
   });
 

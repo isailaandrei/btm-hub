@@ -79,6 +79,110 @@ function answerSourceType(key: string, value: unknown): EvidenceSourceType {
   return "application_answer";
 }
 
+type ApplicationAnswerSignal = {
+  fieldKey: string;
+  value: string;
+  evidenceId: string;
+  submittedAt: string | null;
+};
+
+type ConversationFactSignal = NonNullable<
+  ContactCardRecord["conversationFacts"]
+>[number] & {
+  fieldKey: string;
+};
+
+function collectApplicationAnswerSignals(
+  record: ContactCardRecord,
+): Map<string, ApplicationAnswerSignal[]> {
+  const byField = new Map<string, ApplicationAnswerSignal[]>();
+  for (const application of record.applications) {
+    const entries = Object.entries(application.answers ?? {}).sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    for (const [key, rawValue] of entries) {
+      const value = formatValue(rawValue);
+      if (!value) continue;
+      const sourceType = answerSourceType(key, rawValue);
+      const signal: ApplicationAnswerSignal = {
+        fieldKey: key,
+        value,
+        evidenceId: `${sourceType}:${application.id}:${key}`,
+        submittedAt: application.submitted_at,
+      };
+      const bucket = byField.get(key);
+      if (bucket) bucket.push(signal);
+      else byField.set(key, [signal]);
+    }
+  }
+  return byField;
+}
+
+function collectConversationFactSignals(
+  record: ContactCardRecord,
+): Map<string, ConversationFactSignal[]> {
+  const byField = new Map<string, ConversationFactSignal[]>();
+  for (const fact of record.conversationFacts ?? []) {
+    if (!fact.fieldKey) continue;
+    const bucket = byField.get(fact.fieldKey);
+    if (bucket) bucket.push(fact as ConversationFactSignal);
+    else byField.set(fact.fieldKey, [fact as ConversationFactSignal]);
+  }
+  return byField;
+}
+
+function normalizedConflictValue(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function hasCrossSourceConflict(
+  applicationSignals: ApplicationAnswerSignal[],
+  conversationSignals: ConversationFactSignal[],
+): boolean {
+  const values = new Set(
+    [...applicationSignals.map((signal) => signal.value), ...conversationSignals.map((fact) => fact.valueText)]
+      .map(normalizedConflictValue)
+      .filter(Boolean),
+  );
+  return values.size > 1;
+}
+
+function appendCrossSourceSignals(
+  lines: string[],
+  record: ContactCardRecord,
+): void {
+  const applicationsByField = collectApplicationAnswerSignals(record);
+  const conversationFactsByField = collectConversationFactSignals(record);
+  const rendered: string[] = [];
+
+  const fieldKeys = [...applicationsByField.keys()]
+    .filter((key) => conversationFactsByField.has(key))
+    .sort((a, b) => fieldLabel(a).localeCompare(fieldLabel(b)));
+
+  for (const fieldKey of fieldKeys) {
+    const applicationSignals = applicationsByField.get(fieldKey) ?? [];
+    const conversationSignals = conversationFactsByField.get(fieldKey) ?? [];
+    if (!hasCrossSourceConflict(applicationSignals, conversationSignals)) continue;
+
+    const label = fieldLabel(fieldKey);
+    const applicationParts = applicationSignals.map((signal) => {
+      const date = isoDate(signal.submittedAt) ?? "unknown";
+      return `application ${date} ${signal.value} [${signal.evidenceId}]`;
+    });
+    const conversationParts = conversationSignals.map((fact) => {
+      const date = isoDate(fact.observedAt) ?? "unknown";
+      return `${fact.source} ${date} ${fact.valueText} [conversation_fact:${fact.id}]`;
+    });
+    rendered.push(
+      `- ${label}: ${[...applicationParts, ...conversationParts].join(" / ")}`,
+    );
+  }
+
+  if (rendered.length === 0) return;
+  lines.push("Cross-source signals");
+  lines.push(...rendered);
+}
+
 function appendApplication(
   lines: string[],
   evidence: EvidenceItem[],
@@ -230,6 +334,8 @@ export function renderContactCard(record: ContactCardRecord): RenderedContactCar
   for (const application of record.applications) {
     appendApplication(lines, evidence, record.contact.id, application);
   }
+
+  appendCrossSourceSignals(lines, record);
 
   if (record.contactNotes.length > 0) {
     lines.push("Contact notes");

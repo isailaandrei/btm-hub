@@ -142,4 +142,29 @@ describe("renderContactCard", () => {
       ]),
     );
   });
+
+  it("co-locates conflicting application answers and conversation facts", () => {
+    const card = renderContactCard(makeRecord());
+
+    expect(card.text).toContain("Cross-source signals");
+    expect(card.text).toContain(
+      `Budget: application 2026-03-04 $3,000 - $5,000 [application_structured_field:${APPLICATION_ID}:budget] / whatsapp 2026-05-01 $3-5k [conversation_fact:fact-1] / whatsapp 2026-05-12 ~$8k [conversation_fact:fact-2]`,
+    );
+    expect(card.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          evidenceId: `application_structured_field:${APPLICATION_ID}:budget`,
+          text: "$3,000 - $5,000",
+        }),
+        expect.objectContaining({
+          evidenceId: "conversation_fact:fact-1",
+          text: "$3-5k",
+        }),
+        expect.objectContaining({
+          evidenceId: "conversation_fact:fact-2",
+          text: "~$8k",
+        }),
+      ]),
+    );
+  });
 });

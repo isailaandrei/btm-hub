@@ -14,7 +14,7 @@ import {
   DEFAULT_MESSAGE_EMBEDDING_VERSION,
 } from "./embeddings";
 import { buildConversationFactInputs } from "./facts";
-import type { ConversationSource } from "./ingestion/adapter";
+import type { ConversationDirection, ConversationSource } from "./ingestion/adapter";
 
 export const DIGEST_GENERATOR_VERSION = "conversation-digest-v1";
 export const DIGEST_WINDOW_SESSION_GAP_MS = 30 * 60 * 1000;
@@ -22,6 +22,7 @@ export const DIGEST_WINDOW_SESSION_GAP_MS = 30 * 60 * 1000;
 export type DigestWindowMessage = {
   id: string;
   contactId: string;
+  direction: ConversationDirection;
   body: string;
   happenedAt: string;
 };
@@ -46,6 +47,10 @@ export function buildDigestContentHash(messageIds: string[]): string {
     .digest("hex");
 }
 
+function formatTranscriptLine(message: DigestWindowMessage): string {
+  return `${message.happenedAt} ${message.direction} ${message.id}: ${message.body}`;
+}
+
 export function buildDigestWindow(
   messages: DigestWindowMessage[],
   source: ConversationSource = "whatsapp",
@@ -68,7 +73,7 @@ export function buildDigestWindow(
     sourceMessageCount: ordered.length,
     contentHash: buildDigestContentHash(ordered.map((message) => message.id)),
     transcript: ordered
-      .map((message) => `${message.id}: ${message.body}`)
+      .map(formatTranscriptLine)
       .join("\n"),
   };
 }

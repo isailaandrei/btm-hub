@@ -36,12 +36,14 @@ describe("processConversationDigestWindows", () => {
       {
         id: "message-1",
         contactId: "contact-1",
+        direction: "inbound",
         body: "Budget is around $5k.",
         happenedAt: "2026-06-11T10:00:00Z",
       },
       {
         id: "message-2",
         contactId: "contact-1",
+        direction: "outbound",
         body: "Can travel in August.",
         happenedAt: "2026-06-11T10:05:00Z",
       },
@@ -103,6 +105,12 @@ describe("processConversationDigestWindows", () => {
         sourceMessageCount: 2,
       }),
     );
+    expect(mockExtractConversationDigest).toHaveBeenCalledWith({
+      transcript: [
+        "2026-06-11T10:00:00Z inbound message-1: Budget is around $5k.",
+        "2026-06-11T10:05:00Z outbound message-2: Can travel in August.",
+      ].join("\n"),
+    });
     expect(mockAppendConversationFacts).toHaveBeenCalledWith([
       expect.objectContaining({
         contactId: "contact-1",
@@ -144,12 +152,14 @@ describe("processConversationDigestWindows", () => {
       {
         id: "message-1",
         contactId: "contact-1",
+        direction: "inbound",
         body: "Earlier closed message.",
         happenedAt: "2026-06-11T09:00:00Z",
       },
       {
         id: "message-2",
         contactId: "contact-1",
+        direction: "inbound",
         body: "Still active conversation.",
         happenedAt: "2026-06-11T10:45:00Z",
       },

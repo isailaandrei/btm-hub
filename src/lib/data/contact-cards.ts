@@ -45,6 +45,9 @@ export type ContactCardRecord = {
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
+const CONVERSATION_DIGESTS_PER_CONTACT_LIMIT = 200;
+const CONVERSATION_FACTS_PER_CONTACT_LIMIT = 400;
+
 type ContactTagJoinRow = {
   contact_id: string;
   tag_id: string;
@@ -118,8 +121,9 @@ async function loadRecordsForContactIds(
         "id, contact_id, source, window_start, window_end, summary, source_message_count",
       )
       .in("contact_id", contactIds)
-      .order("window_end", { ascending: false })
-      .limit(200),
+      .order("window_end", { ascending: false }),
+    // Intentionally read the append-only ledger instead of a current-facts view:
+    // raw contact cards must surface conflicts, not collapse them away.
     supabase
       .from("conversation_facts")
       .select(
@@ -127,8 +131,7 @@ async function loadRecordsForContactIds(
       )
       .in("contact_id", contactIds)
       .is("invalidated_at", null)
-      .order("observed_at", { ascending: false })
-      .limit(400),
+      .order("observed_at", { ascending: false }),
   ]);
 
   if (contactError) {
@@ -260,8 +263,14 @@ async function loadRecordsForContactIds(
     applications: applicationsByContact.get(contact.id) ?? [],
     contactNotes: notesByContact.get(contact.id) ?? [],
     contactTags: tagsByContact.get(contact.id) ?? [],
-    conversationDigests: digestsByContact.get(contact.id) ?? [],
-    conversationFacts: factsByContact.get(contact.id) ?? [],
+    conversationDigests: (digestsByContact.get(contact.id) ?? []).slice(
+      0,
+      CONVERSATION_DIGESTS_PER_CONTACT_LIMIT,
+    ),
+    conversationFacts: (factsByContact.get(contact.id) ?? []).slice(
+      0,
+      CONVERSATION_FACTS_PER_CONTACT_LIMIT,
+    ),
   }));
 }
 
