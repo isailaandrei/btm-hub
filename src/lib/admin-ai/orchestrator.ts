@@ -7,7 +7,6 @@
  * before persistence.
  */
 
-import { createHash } from "node:crypto";
 import { renderContactCard, type RenderedContactCard } from "./contact-card";
 import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
 import { getAdminAiProvider } from "./provider";
@@ -103,16 +102,12 @@ function buildCardQueryPlan(input: {
   };
 }
 
-function buildPromptCacheKey(cards: RenderedContactCard[]): string {
-  const hash = createHash("sha256");
-  for (const card of [...cards].sort((a, b) => a.contactId.localeCompare(b.contactId))) {
-    hash.update(card.contactId);
-    hash.update("\0");
-    hash.update(card.text);
-    hash.update("\0");
-  }
-  return `admin-ai-cards:${hash.digest("hex").slice(0, 32)}`;
-}
+// Stable per-scope prompt-cache key. OpenAI prompt caching matches on the
+// prompt *prefix*, so correctness across cohort changes is already guaranteed
+// by that prefix match. A constant key (rather than a content hash that changes
+// on every data change) routes all global questions to the same cache node so
+// they share the long, stable card prefix and maximize hit rate.
+const ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY = "admin-ai-cards:global";
 
 function collectCitationRefs(
   response: AdminAiResponse,
@@ -340,7 +335,7 @@ async function runCardSynthesis(input: {
     evidenceCount: allowedEvidence.length,
     chatEvidenceCount: chatEvidence.length,
     chatRetrievalUnavailable,
-    promptCacheKey: input.scope === "global" ? buildPromptCacheKey(cards) : null,
+    promptCacheKey: input.scope === "global" ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY : null,
   });
 
   if (cards.length === 0 || allowedEvidence.length === 0) {
@@ -368,7 +363,7 @@ async function runCardSynthesis(input: {
       evidenceCount: allowedEvidence.length,
     });
     const promptCacheKey =
-      input.scope === "global" ? buildPromptCacheKey(cards) : null;
+      input.scope === "global" ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY : null;
     const { response: rawResponse, modelMetadata } = await provider.generate({
       question: input.question,
       scope: input.scope,

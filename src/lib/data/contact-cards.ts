@@ -94,8 +94,12 @@ async function loadRecordsForContactIds(
     supabase
       .from("contacts")
       .select("*")
+      // Oldest-first + id tiebreaker: a stable, append-only order so new
+      // contacts land at the tail and preserve the cached prompt prefix
+      // (and volatile recent contacts sit at the end, minimizing invalidation).
       .in("id", contactIds)
-      .order("name", { ascending: true }),
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }),
     applicationRows
       ? Promise.resolve({ data: applicationRows, error: null })
       : supabase

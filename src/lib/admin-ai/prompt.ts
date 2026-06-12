@@ -43,17 +43,19 @@ export type AdminAiSynthesisInput = {
 };
 
 export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
+  // Key order is deliberate for OpenAI prompt caching, which caches the longest
+  // stable *prefix* of the prompt. The large, stable `rawContactCards` block and
+  // the static `responseContract`/`scope` come FIRST so they form a cacheable
+  // prefix; the per-question `evidence` (incl. chat hits), `queryPlan`, and
+  // `question` come LAST. Cards are ordered oldest-first by the loader, so new
+  // contacts append to the tail and preserve the cached prefix.
   return JSON.stringify(
     {
-      question: input.question,
-      scope: input.scope,
-      queryPlan: input.queryPlan,
       rawContactCards: input.cards.map((card) => ({
         contactId: card.contactId,
         contactName: card.contactName,
         card: card.text,
       })),
-      evidence: input.evidence,
       responseContract: {
         shortlist: [
           {
@@ -71,6 +73,10 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
         },
         uncertainty: ["string"],
       },
+      scope: input.scope,
+      evidence: input.evidence,
+      queryPlan: input.queryPlan,
+      question: input.question,
     },
     null,
     2,
