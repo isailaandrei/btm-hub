@@ -22,7 +22,7 @@ export function CollapsibleAiPanel({
   const [open, setOpen] = useState(false);
 
   return (
-    <Card className="mt-8 hidden">
+    <Card className="mt-8">
       <CardContent className="py-4">
         <button
           type="button"

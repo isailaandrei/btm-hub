@@ -8,23 +8,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockEmailStudioMount = vi.fn();
 const mockEmailStudioUnmount = vi.fn();
+const mockTagsPanelMount = vi.fn();
+const mockTagsPanelUnmount = vi.fn();
 const mockTasksPanelMount = vi.fn();
 const mockTasksPanelUnmount = vi.fn();
 let dynamicCallIndex = 0;
 
 vi.mock("next/dynamic", () => ({
   default: () => {
-    const isEmailStudio = dynamicCallIndex === 0;
+    const callIndex = dynamicCallIndex;
     dynamicCallIndex += 1;
     return function MockDynamic() {
       useEffect(() => {
-        if (isEmailStudio) {
+        if (callIndex === 0) {
+          mockTagsPanelMount();
+        } else if (callIndex === 1) {
           mockEmailStudioMount();
         } else {
           mockTasksPanelMount();
         }
         return () => {
-          if (isEmailStudio) {
+          if (callIndex === 0) {
+            mockTagsPanelUnmount();
+          } else if (callIndex === 1) {
             mockEmailStudioUnmount();
           } else {
             mockTasksPanelUnmount();
@@ -33,7 +39,15 @@ vi.mock("next/dynamic", () => ({
       }, []);
 
       return (
-        <section data-testid={isEmailStudio ? "email-panel" : "tasks-panel"}>
+        <section
+          data-testid={
+            callIndex === 0
+              ? "tags-panel"
+              : callIndex === 1
+                ? "email-panel"
+                : "tasks-panel"
+          }
+        >
           Dynamic panel
         </section>
       );
@@ -62,6 +76,8 @@ describe("AdminDashboard", () => {
   beforeEach(() => {
     mockEmailStudioMount.mockClear();
     mockEmailStudioUnmount.mockClear();
+    mockTagsPanelMount.mockClear();
+    mockTagsPanelUnmount.mockClear();
     mockTasksPanelMount.mockClear();
     mockTasksPanelUnmount.mockClear();
     container = document.createElement("div");
@@ -118,6 +134,19 @@ describe("AdminDashboard", () => {
     expect(container.textContent).toContain("Dynamic panel");
     expect(mockTasksPanelMount).toHaveBeenCalledTimes(1);
     expect(mockEmailStudioMount).not.toHaveBeenCalled();
+  });
+
+  it("does not mount the tags panel before the tags tab is opened", () => {
+    act(() => {
+      root.render(<AdminDashboard />);
+    });
+
+    expect(mockTagsPanelMount).not.toHaveBeenCalled();
+
+    clickTab("Tags");
+
+    expect(mockTagsPanelMount).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("[data-testid='tags-panel']")).not.toBeNull();
   });
 
   it("keeps the tasks panel mounted after its first visit", () => {

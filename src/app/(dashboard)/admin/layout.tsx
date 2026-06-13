@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getProfile } from "@/lib/data/profiles";
-import { AdminDataProvider } from "./admin-data-provider";
 
 export default async function AdminLayout({
   children,
@@ -15,9 +14,7 @@ export default async function AdminLayout({
 
   return (
     <div>
-      <AdminDataProvider initialPreferences={profile.preferences}>
-        {children}
-      </AdminDataProvider>
+      {children}
     </div>
   );
 }

@@ -4,6 +4,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
@@ -16,6 +17,23 @@ const mockFrom = vi.fn(() => ({ select: mockSelect }));
 
 vi.mock("@/app/(auth)/actions", () => ({
   logout: vi.fn(),
+}));
+
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    prefetch,
+    children,
+    ...props
+  }: {
+    href: string;
+    prefetch?: boolean;
+    children: ReactNode;
+  } & AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={href} data-prefetch={String(prefetch)} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("@/lib/supabase/client", () => ({
@@ -83,5 +101,24 @@ describe("AuthButtons", () => {
     expect(mockGetSession).not.toHaveBeenCalled();
     expect(mockFrom).not.toHaveBeenCalled();
     expect(mockOnAuthStateChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables automatic prefetch for the authenticated profile link", async () => {
+    await act(async () => {
+      root.render(
+        <AuthButtons
+          initialUser={{
+            id: "user-1",
+            displayName: "Member User",
+            avatarUrl: null,
+            role: "member",
+          }}
+        />,
+      );
+    });
+
+    const profileLink = container.querySelector('a[href="/profile"]');
+    expect(profileLink).not.toBeNull();
+    expect(profileLink?.getAttribute("data-prefetch")).toBe("false");
   });
 });

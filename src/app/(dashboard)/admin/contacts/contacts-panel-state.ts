@@ -18,7 +18,7 @@ import {
   CONTACTS_TABLE_PAGE_SIZES,
   readContactsTablePreferences,
   type ContactsTablePageSize,
-} from "@/lib/admin/contacts/preferences";
+} from "@/lib/admin/contacts/preferences-shared";
 
 const FILTERS_STORAGE_KEY = "btm-admin-contacts-filters";
 const DEFAULT_CONTACTS_SORT: SortState = {
@@ -78,21 +78,16 @@ export function useContactsPanelState({
     initialContactsTablePreferences.previously_selected_columns ??
     initialVisibleColumns;
 
-  const [search, setSearch] = useState(storedFilters.search ?? "");
-  const [programFilter, setProgramFilter] = useState<ProgramSlug[]>(
-    storedFilters.programFilter ??
-      (storedFilters.selectedProgram ? [storedFilters.selectedProgram] : []),
-  );
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
-    storedFilters.selectedTagIds ?? [],
-  );
+  const [search, setSearch] = useState("");
+  const [programFilter, setProgramFilter] = useState<ProgramSlug[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [pendingFilter, setPendingFilter] = useState<PendingFilterValue[]>(
-    storedFilters.pendingFilter ?? [],
+    [],
   );
   const [pageSize, setPageSizeState] = useState<PageSize>(
-    initialContactsTablePreferences.page_size ?? storedFilters.pageSize ?? 25,
+    initialContactsTablePreferences.page_size ?? 25,
   );
-  const [page, setPage] = useState(storedFilters.page ?? 1);
+  const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<string[]>(
     initialVisibleColumns,
   );
@@ -100,16 +95,12 @@ export function useContactsPanelState({
     string[]
   >(initialPreviouslySelectedColumns);
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(
-    storedFilters.columnFilters ?? {},
+    {},
   );
   const [sortBy, setSortBy] = useState<SortState | null>(
-    initialContactsTablePreferences.sort_by ??
-      storedFilters.sortBy ??
-      DEFAULT_CONTACTS_SORT,
+    initialContactsTablePreferences.sort_by ?? DEFAULT_CONTACTS_SORT,
   );
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(
-    storedFilters.columnWidths ?? {},
-  );
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const visibleColumnsRef = useRef<string[]>(initialVisibleColumns);

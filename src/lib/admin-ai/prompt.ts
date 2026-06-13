@@ -6,7 +6,11 @@ import type {
   EvidenceItem,
 } from "@/types/admin-ai";
 
-export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
+export function buildAdminAiSystemPrompt(
+  scope: AdminAiScope,
+  options: { includeEvidence?: boolean } = {},
+): string {
+  const includeEvidence = options.includeEvidence ?? true;
   const scopeInstruction =
     scope === "contact"
       ? [
@@ -15,19 +19,39 @@ export function buildAdminAiSystemPrompt(scope: AdminAiScope): string {
         ].join(" ")
       : [
           "This is a global admin-AI response over the supplied eligible cohort.",
-          "Return `shortlist` populated and `contactAssessment` as null. Never emit a contactAssessment object on global-scope questions.",
+          "Return `shortlist` entries only for candidates who satisfy the user's explicit constraints, and return `contactAssessment` as null. Never emit a contactAssessment object on global-scope questions.",
         ].join(" ");
 
-  return [
+  const base = [
     "You are the BTM Hub Admin AI Analyst.",
     scopeInstruction,
-    "Answer only from the supplied raw contact cards, conversation facts, conversation digests, and evidence.",
+    includeEvidence
+      ? "Answer only from the supplied raw contact cards, conversation facts, conversation digests, and evidence."
+      : "Answer only from the supplied raw contact cards, conversation facts, and conversation digests.",
     "The cards are verbatim CRM records, not summaries. Do not invent contacts or details outside them.",
     "Surface discrepancies and conflicts explicitly; do not resolve conflicting values away.",
     "Separate grounded facts from inferences.",
     "Be conservative. If evidence is weak, say so.",
-    "Use only supplied evidenceIds inside citations.",
-    "Every shortlist entry and every contact assessment must include at least one supplied citation.",
+    "Hard constraints are exclusionary. Explicit user requirements such as budget minimums, program, status, gender, location, certification, or required experience are filters, not ranking preferences.",
+    "Do not include candidates who fail a hard constraint or whose data is missing for a required hard constraint.",
+    "Return fewer results, or an empty shortlist, rather than padding the answer with near misses.",
+  ];
+
+  const evidenceInstructions = includeEvidence
+    ? [
+        "Evidence ids appear inline in each card in square brackets (e.g. `[e12]`); supplemental conversation evidence items are listed in `evidence` with their ids.",
+        "Compact structured facts and tag lists may be uncited because admins can verify those predefined CRM fields directly; cite bracketed evidence ids for free-text answers, notes, conflicts, and conversation facts.",
+        "Use only supplied evidenceIds inside citations.",
+        "Every shortlist entry and every contact assessment must include at least one supplied citation.",
+      ]
+    : [
+        "Do not cite evidence ids and do not include evidence snippets.",
+        "Return empty citation arrays for every shortlist entry and contact assessment.",
+      ];
+
+  return [
+    ...base,
+    ...evidenceInstructions,
     "If you cannot support the answer with supplied raw evidence, say so in `uncertainty`.",
     "Return valid JSON matching the required schema.",
   ].join(" ");
@@ -39,6 +63,7 @@ export type AdminAiSynthesisInput = {
   queryPlan: AdminAiQueryPlan;
   cards: RenderedContactCard[];
   evidence: EvidenceItem[];
+  includeEvidence?: boolean;
   promptCacheKey?: string | null;
 };
 
@@ -46,9 +71,10 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
   // Key order is deliberate for OpenAI prompt caching, which caches the longest
   // stable *prefix* of the prompt. The large, stable `rawContactCards` block and
   // the static `responseContract`/`scope` come FIRST so they form a cacheable
-  // prefix; the per-question `evidence` (incl. chat hits), `queryPlan`, and
+  // prefix; the per-question `evidence` when enabled, `queryPlan`, and
   // `question` come LAST. Cards are ordered oldest-first by the loader, so new
   // contacts append to the tail and preserve the cached prefix.
+  const includeEvidence = input.includeEvidence ?? true;
   return JSON.stringify(
     {
       rawContactCards: input.cards.map((card) => ({
@@ -63,18 +89,22 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
             contactName: "string",
             whyFit: ["string"],
             concerns: ["string"],
-            citations: [{ evidenceId: "string", claimKey: "string" }],
+            citations: includeEvidence
+              ? [{ evidenceId: "string", claimKey: "string" }]
+              : [],
           },
         ],
         contactAssessment: {
           inferredQualities: ["string"],
           concerns: ["string"],
-          citations: [{ evidenceId: "string", claimKey: "string" }],
+          citations: includeEvidence
+            ? [{ evidenceId: "string", claimKey: "string" }]
+            : [],
         },
         uncertainty: ["string"],
       },
       scope: input.scope,
-      evidence: input.evidence,
+      ...(includeEvidence ? { evidence: input.evidence } : {}),
       queryPlan: input.queryPlan,
       question: input.question,
     },
@@ -83,75 +113,82 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
   );
 }
 
+function citationArraySchema(includeEvidence: boolean) {
+  return {
+    type: "array",
+    ...(includeEvidence ? { minItems: 1 } : {}),
+    items: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        evidenceId: { type: "string" },
+        claimKey: { type: "string" },
+      },
+      required: ["evidenceId", "claimKey"],
+    },
+  };
+}
+
 /**
  * JSON schema for Structured Outputs. The provider normalizes `null` /
  * empty-array values back into the app's `AdminAiResponse` shape after parse.
  */
-export const ADMIN_AI_RESPONSE_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    shortlist: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          contactId: { type: "string", format: "uuid" },
-          contactName: { type: "string" },
-          whyFit: { type: "array", items: { type: "string" } },
-          concerns: { type: "array", items: { type: "string" } },
-          citations: {
-            type: "array",
-            minItems: 1,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                evidenceId: { type: "string" },
-                claimKey: { type: "string" },
-              },
-              required: ["evidenceId", "claimKey"],
-            },
-          },
-        },
-        required: ["contactId", "contactName", "whyFit", "concerns", "citations"],
-      },
-    },
-    contactAssessment: {
-      anyOf: [
-        {
+export function buildAdminAiResponseJsonSchema(
+  options: { includeEvidence?: boolean } = {},
+) {
+  const includeEvidence = options.includeEvidence ?? true;
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      shortlist: {
+        type: "array",
+        items: {
           type: "object",
           additionalProperties: false,
           properties: {
-            inferredQualities: { type: "array", items: { type: "string" } },
+            contactId: { type: "string", format: "uuid" },
+            contactName: { type: "string" },
+            whyFit: { type: "array", items: { type: "string" } },
             concerns: { type: "array", items: { type: "string" } },
-            citations: {
-              type: "array",
-              minItems: 1,
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  evidenceId: { type: "string" },
-                  claimKey: { type: "string" },
-                },
-                required: ["evidenceId", "claimKey"],
-              },
-            },
+            citations: citationArraySchema(includeEvidence),
           },
-          required: ["inferredQualities", "concerns", "citations"],
+          required: [
+            "contactId",
+            "contactName",
+            "whyFit",
+            "concerns",
+            "citations",
+          ],
         },
-        { type: "null" },
-      ],
+      },
+      contactAssessment: {
+        anyOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              inferredQualities: { type: "array", items: { type: "string" } },
+              concerns: { type: "array", items: { type: "string" } },
+              citations: citationArraySchema(includeEvidence),
+            },
+            required: ["inferredQualities", "concerns", "citations"],
+          },
+          { type: "null" },
+        ],
+      },
+      uncertainty: {
+        type: "array",
+        items: { type: "string" },
+      },
     },
-    uncertainty: {
-      type: "array",
-      items: { type: "string" },
-    },
-  },
-  required: ["shortlist", "contactAssessment", "uncertainty"],
-} as const;
+    required: ["shortlist", "contactAssessment", "uncertainty"],
+  } as const;
+}
+
+export const ADMIN_AI_RESPONSE_JSON_SCHEMA = buildAdminAiResponseJsonSchema({
+  includeEvidence: true,
+});
 
 export function normalizeProviderResponse(
   payload: {

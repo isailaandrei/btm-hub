@@ -10,7 +10,7 @@ export function MessageList({
 }) {
   if (!messages) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-dashed border-border bg-white p-4 text-sm text-muted-foreground shadow-sm">
         Select a past question or ask a new one.
       </div>
     );
@@ -18,7 +18,7 @@ export function MessageList({
 
   if (messages.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-dashed border-border bg-white p-4 text-sm text-muted-foreground shadow-sm">
         No messages yet.
       </div>
     );
@@ -31,10 +31,10 @@ export function MessageList({
           key={message.id}
           className={`rounded-lg border p-4 ${
             message.role === "user"
-              ? "border-border bg-background"
+              ? "border-border bg-white shadow-sm"
               : message.status === "failed"
-                ? "border-destructive/40 bg-destructive/5"
-                : "border-border bg-muted/20"
+                ? "border-destructive/40 bg-white shadow-sm ring-1 ring-destructive/10"
+                : "border-primary/20 bg-white shadow-sm ring-1 ring-primary/10"
           }`}
         >
           <div className="mb-2 flex items-center justify-between gap-3">

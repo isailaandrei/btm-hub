@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminAiResponse, EvidenceItem } from "@/types/admin-ai";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
 
@@ -23,12 +23,23 @@ vi.mock("@/lib/conversations/retrieval", () => ({
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
 const APPLICATION_ID = "22222222-2222-4222-8222-222222222222";
 const OTHER_CONTACT_ID = "33333333-3333-4333-8333-333333333333";
+const MISSING_BUDGET_CONTACT_ID = "55555555-5555-4555-8555-555555555555";
 
-function makeRecord(contactId = CONTACT_ID): ContactCardRecord {
+function makeRecord(
+  contactId = CONTACT_ID,
+  answers: Record<string, unknown> = {
+    ultimate_vision: "I want to film ocean conservation stories.",
+  },
+): ContactCardRecord {
   return {
     contact: {
       id: contactId,
-      name: contactId === CONTACT_ID ? "Marina Costa" : "Ivo Santos",
+      name:
+        contactId === CONTACT_ID
+          ? "Marina Costa"
+          : contactId === OTHER_CONTACT_ID
+            ? "Ivo Santos"
+            : "No Budget",
       email: `${contactId}@example.com`,
       phone: null,
       profile_id: null,
@@ -42,7 +53,7 @@ function makeRecord(contactId = CONTACT_ID): ContactCardRecord {
         contact_id: contactId,
         program: "filmmaking",
         status: "reviewing",
-        answers: { ultimate_vision: "I want to film ocean conservation stories." },
+        answers,
         tags: [],
         admin_notes: [],
         submitted_at: "2026-03-02T00:00:00Z",
@@ -68,13 +79,174 @@ function makeEvidence(evidenceId = `application_answer:${APPLICATION_ID}:ultimat
   };
 }
 
+function enableEvidence() {
+  vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "1");
+}
+
 describe("runAdminAiAnalysis (raw cards)", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("omits evidence by default when generating and returning an answer", async () => {
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
+
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([
+      makeEvidence("whatsapp_message:message-1"),
+    ]);
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["Ocean conservation mission match"],
+            concerns: [],
+            citations: [
+              {
+                evidenceId: "e1",
+                claimKey: "shortlist.0.whyFit.0",
+              },
+            ],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { model: "card-model" },
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "Find ocean storytellers",
+    });
+
+    expect(retrievalMod.retrieveConversationEvidence).not.toHaveBeenCalled();
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        evidence: [],
+      }),
+    );
+    const generatedCards = (generate.mock.calls[0]?.[0].cards ?? []) as Array<{
+      text: string;
+    }>;
+    expect(generatedCards.map((card) => card.text).join("\n")).not.toMatch(
+      /\[e\d+\]/,
+    );
+    expect(dataMod.createAdminAiCitations).not.toHaveBeenCalled();
+    expect(result.citations).toEqual([]);
+    expect(result.response?.shortlist?.[0]?.citations).toEqual([]);
+    expect(result.modelMetadata?.rawCards).toEqual(
+      expect.objectContaining({
+        evidenceEnabled: false,
+      }),
+    );
+  });
+
+  it("enforces requested minimum budget as a hard global shortlist constraint", async () => {
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID, {
+        budget: "All-In budget (>12,000 €/USD)",
+        ultimate_vision: "I want to film ocean conservation stories.",
+      }),
+      makeRecord(OTHER_CONTACT_ID, {
+        budget: "Advanced budget (3,000 - 6,000 €/USD)",
+        ultimate_vision: "I want to film ocean conservation stories.",
+      }),
+      makeRecord(MISSING_BUDGET_CONTACT_ID, {
+        ultimate_vision: "I want to film ocean conservation stories.",
+      }),
+    ]);
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["Budget and experience match."],
+            concerns: [],
+            citations: [],
+          },
+          {
+            contactId: OTHER_CONTACT_ID,
+            contactName: "Ivo Santos",
+            whyFit: ["Experience match but below budget."],
+            concerns: [],
+            citations: [],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question:
+        "give me a list of all female candidates that have budget 6k or more and have extensive prior experience with filming or photography",
+    });
+
+    const cardText = ((generate.mock.calls[0]?.[0].cards ?? []) as Array<{
+      text: string;
+    }>).map((card) => card.text).join("\n");
+    expect(cardText).toContain("Marina Costa");
+    expect(cardText).not.toContain("Ivo Santos");
+    expect(cardText).not.toContain("No Budget");
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryPlan: expect.not.objectContaining({
+          requestedLimit: 25,
+        }),
+      }),
+    );
+    expect(result.response?.shortlist?.map((entry) => entry.contactId)).toEqual([
+      CONTACT_ID,
+    ]);
+    expect(result.response?.uncertainty).toContain(
+      "Some model-returned shortlist entries were dropped because they were outside deterministic hard filters.",
+    );
+    expect(result.modelMetadata?.hardConstraints).toEqual(
+      expect.objectContaining({
+        budgetMin: 6000,
+        prefilteredContactCount: 2,
+        droppedShortlistContactIds: [OTHER_CONTACT_ID],
+      }),
+    );
+  });
+
   it("runs global analysis over rendered eligible contact cards and persists grounded citations", async () => {
+    enableEvidence();
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
     const cardDataMod = await import("@/lib/data/contact-cards");
@@ -108,7 +280,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
             concerns: [],
             citations: [
               {
-                evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+                evidenceId: "e1",
                 claimKey: "shortlist.0.whyFit.0",
               },
             ],
@@ -142,17 +314,27 @@ describe("runAdminAiAnalysis (raw cards)", () => {
             contactId: CONTACT_ID,
             text: expect.stringContaining("Contact: Marina Costa"),
           }),
-        ]),
-        evidence: expect.arrayContaining([
           expect.objectContaining({
-            evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
-          }),
-          expect.objectContaining({
-            evidenceId: "whatsapp_message:message-1",
+            text: expect.stringContaining("[e1]"),
           }),
         ]),
+        // Card-derived evidence must NOT be sent to the model — its ids are
+        // already inline in the card text, and duplicating the items in the
+        // prompt made global payloads exceed provider limits. Only the
+        // conversation-retrieval evidence rides along.
+        evidence: [
+          expect.objectContaining({
+            evidenceId: "e3",
+          }),
+        ],
         promptCacheKey: expect.stringMatching(/^admin-ai-cards:/),
       }),
+    );
+    const generatedCards = (generate.mock.calls[0]?.[0].cards ?? []) as Array<{
+      text: string;
+    }>;
+    expect(generatedCards.map((card) => card.text).join("\n")).not.toContain(
+      "application_answer:",
     );
     expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
       messageId: "assistant-1",
@@ -168,6 +350,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
   });
 
   it("drops unsupported global shortlist entries after citation guardrails", async () => {
+    enableEvidence();
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
     const cardDataMod = await import("@/lib/data/contact-cards");
@@ -192,7 +375,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
               concerns: [],
               citations: [
                 {
-                  evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+                  evidenceId: "e1",
                   claimKey: "shortlist.0.whyFit.0",
                 },
               ],
@@ -204,7 +387,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
               concerns: [],
               citations: [
                 {
-                  evidenceId: "missing-evidence",
+                  evidenceId: "e999",
                   claimKey: "shortlist.1.whyFit.0",
                 },
               ],
@@ -230,9 +413,11 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     expect(result.response?.uncertainty).toContain(
       "Some model-returned shortlist entries were dropped because their citations could not be resolved to raw evidence.",
     );
+    expect(result.modelMetadata?.droppedEvidenceIds).toEqual(["e999"]);
   });
 
   it("runs contact analysis over one rendered contact card", async () => {
+    enableEvidence();
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
     const cardDataMod = await import("@/lib/data/contact-cards");
@@ -250,7 +435,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
           concerns: [],
           citations: [
             {
-              evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+              evidenceId: "e1",
               claimKey: "contactAssessment.inferredQualities.0",
             },
           ],
@@ -280,7 +465,12 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
         scope: "contact",
-        cards: [expect.objectContaining({ contactId: CONTACT_ID })],
+        cards: [
+          expect.objectContaining({
+            contactId: CONTACT_ID,
+            text: expect.stringContaining("[e1]"),
+          }),
+        ],
       }),
     );
     expect(result.status).toBe("complete");
@@ -344,6 +534,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
   });
 
   it("discloses chat retrieval degradation while still answering from CRM card evidence", async () => {
+    enableEvidence();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
@@ -370,7 +561,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
               concerns: [],
               citations: [
                 {
-                  evidenceId: `application_answer:${APPLICATION_ID}:ultimate_vision`,
+                  evidenceId: "e1",
                   claimKey: "shortlist.0.whyFit.0",
                 },
               ],
@@ -402,6 +593,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
   });
 
   it("drops unknown citation ids from persisted contact responses", async () => {
+    enableEvidence();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
@@ -423,7 +615,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
             concerns: [],
             citations: [
               {
-                evidenceId: makeEvidence().evidenceId,
+                evidenceId: "[e1]",
                 claimKey: "contactAssessment.inferredQualities.0",
               },
               {

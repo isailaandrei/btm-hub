@@ -11,8 +11,12 @@ import {
 } from "@/lib/data/contacts";
 import { getContactEvents } from "@/lib/data/contact-events";
 import { getPortfolioItemsByContactProfileId } from "@/lib/data/profile-portfolio";
+import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
+import { listAdminAiThreadSummaries } from "@/lib/data/admin-ai";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { isLocalAdminAiEnabled } from "../../admin-ai/visibility";
 import { ApplicationCard } from "./application-card";
+import { CollapsibleAiPanel } from "./collapsible-ai-panel";
 import { ContactTagManager } from "./contact-tag-manager";
 import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh";
 import { Timeline } from "./timeline";
@@ -31,6 +35,7 @@ export default async function ContactDetailPage({
   const contact = await getContactById(id);
   if (!contact) return notFound();
 
+  const showLocalAdminAi = isLocalAdminAiEnabled();
   const [
     applications,
     contactTagRows,
@@ -38,6 +43,7 @@ export default async function ContactDetailPage({
     categories,
     allTags,
     portfolioItems,
+    aiPanelData,
   ] = await Promise.all([
     getApplicationsByContactId(id),
     getContactTags(id),
@@ -47,6 +53,15 @@ export default async function ContactDetailPage({
     getPortfolioItemsByContactProfileId({
       profileId: contact.profile_id,
     }),
+    showLocalAdminAi
+      ? Promise.all([
+          listAdminAiThreadSummaries({ scope: "contact", contactId: id }),
+          Promise.resolve(getAdminAiProviderAvailability()),
+        ]).then(([initialThreads, providerAvailability]) => ({
+          initialThreads,
+          providerAvailability,
+        }))
+      : Promise.resolve(null),
   ]);
 
   const latestApplication = applications[0] ?? null;
@@ -98,6 +113,15 @@ export default async function ContactDetailPage({
           )}
         </div>
       </div>
+
+      {aiPanelData && (
+        <CollapsibleAiPanel
+          contactId={contact.id}
+          contactName={contact.name}
+          initialThreads={aiPanelData.initialThreads}
+          providerAvailability={aiPanelData.providerAvailability}
+        />
+      )}
 
       {/* Two-column: applications + timeline left, tags right */}
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">

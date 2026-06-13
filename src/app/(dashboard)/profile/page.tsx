@@ -12,7 +12,7 @@ export default async function ProfilePage() {
   const profile = await getProfile();
 
   if (!profile) {
-    redirect("/login");
+    redirect("/");
   }
 
   return (

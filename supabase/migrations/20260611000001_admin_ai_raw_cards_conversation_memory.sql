@@ -196,13 +196,13 @@ AS $$
     message.contact_id,
     message.body,
     message.happened_at,
-    1 - (embedding.embedding <=> p_query_embedding) AS similarity
+    1 - (embedding.embedding OPERATOR(extensions.<=>) p_query_embedding) AS similarity
   FROM conversation_embeddings embedding
   JOIN conversation_messages message
     ON message.id = embedding.target_id
   WHERE embedding.target_type = 'message'
     AND (p_contact_id IS NULL OR message.contact_id = p_contact_id)
-  ORDER BY embedding.embedding <=> p_query_embedding
+  ORDER BY embedding.embedding OPERATOR(extensions.<=>) p_query_embedding
   LIMIT p_limit;
 $$;
 

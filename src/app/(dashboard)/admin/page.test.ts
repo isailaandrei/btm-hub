@@ -10,6 +10,10 @@ const mockAdminDashboard = vi.fn((props: unknown) => ({
   type: "AdminDashboard",
   props,
 }));
+const mockAdminDataProvider = vi.fn((props: unknown) => ({
+  type: "AdminDataProvider",
+  props,
+}));
 
 vi.mock("@/lib/data/admin-ai", () => ({
   listAdminAiThreadSummaries: mockListAdminAiThreadSummaries,
@@ -39,6 +43,10 @@ vi.mock("./admin-dashboard", () => ({
   AdminDashboard: mockAdminDashboard,
 }));
 
+vi.mock("./admin-data-provider", () => ({
+  AdminDataProvider: mockAdminDataProvider,
+}));
+
 const { default: AdminPage } = await import("./page");
 
 describe("AdminPage", () => {
@@ -65,8 +73,11 @@ describe("AdminPage", () => {
 
     const result = await AdminPage();
 
-    expect(result.type).toBe(mockAdminDashboard);
-    expect(result.props).toEqual({ initialContactsData });
+    expect(result.type).toBe(mockAdminDataProvider);
+    expect(result.props.initialPreferences).toBe(preferences);
+    expect(result.props.initialContactsData).toBe(initialContactsData);
+    expect(result.props.children.type).toBe(mockAdminDashboard);
+    expect(result.props.children.props).toEqual({ initialContactsData });
     expect(mockGetAdminContactsInitialData).toHaveBeenCalledWith(preferences);
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();

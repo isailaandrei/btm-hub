@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const CONTACT_ID = "550e8400-e29b-41d4-a716-446655440001";
 
@@ -47,6 +47,10 @@ vi.mock("next/navigation", async (importOriginal) => ({
 const { default: ContactDetailPage } = await import("./page");
 
 describe("ContactDetailPage", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("does not fetch hidden contact AI data while the panel is paused", async () => {
     mockGetContactById.mockResolvedValue({
       id: CONTACT_ID,
@@ -72,6 +76,39 @@ describe("ContactDetailPage", () => {
     });
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
+  });
+
+  it("loads contact AI data when the local AI flag is enabled", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SHOW_ADMIN_AI", "1");
+    mockGetContactById.mockResolvedValue({
+      id: CONTACT_ID,
+      name: "Jane Contact",
+      email: "jane@example.com",
+      phone: null,
+      profile_id: "profile-1",
+    });
+    mockGetApplicationsByContactId.mockResolvedValue([]);
+    mockGetContactTags.mockResolvedValue([]);
+    mockGetContactEvents.mockResolvedValue([]);
+    mockGetTagCategories.mockResolvedValue([]);
+    mockGetTags.mockResolvedValue([]);
+    mockGetPortfolioItemsByContactProfileId.mockResolvedValue([]);
+    mockListAdminAiThreadSummaries.mockResolvedValue([]);
+    mockGetAdminAiProviderAvailability.mockReturnValue({
+      isConfigured: true,
+      unavailableReason: null,
+      model: "gpt-5-mini",
+    });
+
+    await ContactDetailPage({
+      params: Promise.resolve({ id: CONTACT_ID }),
+    });
+
+    expect(mockListAdminAiThreadSummaries).toHaveBeenCalledWith({
+      scope: "contact",
+      contactId: CONTACT_ID,
+    });
+    expect(mockGetAdminAiProviderAvailability).toHaveBeenCalled();
   });
 
   it("returns not found for invalid contact ids before fetching data", async () => {

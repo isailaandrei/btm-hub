@@ -118,7 +118,7 @@ export const adminAiQueryPlanSchema = z
     contactId: uuidSchema.optional(),
     structuredFilters: z.array(adminAiStructuredFilterSchema),
     textFocus: z.array(z.string().trim().min(1)),
-    requestedLimit: z.number().int().nonnegative(),
+    requestedLimit: z.number().int().positive().optional(),
   })
   .superRefine((plan, ctx) => {
     if (plan.mode === "contact_synthesis" && !plan.contactId) {
@@ -144,13 +144,13 @@ const adminAiShortlistEntrySchema = z.object({
   contactName: z.string(),
   whyFit: z.array(z.string()),
   concerns: z.array(z.string()),
-  citations: z.array(adminAiCitationSchema).min(1),
+  citations: z.array(adminAiCitationSchema),
 });
 
 const adminAiContactAssessmentSchema = z.object({
   inferredQualities: z.array(z.string()),
   concerns: z.array(z.string()),
-  citations: z.array(adminAiCitationSchema).min(1),
+  citations: z.array(adminAiCitationSchema),
 });
 
 /** Schema for `AdminAiResponse` — the structured LLM output. */

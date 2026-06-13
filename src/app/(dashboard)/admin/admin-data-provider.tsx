@@ -48,12 +48,14 @@ import {
   reassembleProjectedApplications,
   type ContactListApplication,
 } from "@/lib/admin/contacts/application-projection";
+import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 
 type FetchState = "idle" | "loading" | "done";
 
 interface AdminApplicationsContextValue {
   applications: ContactListApplication[] | null;
   appsError: string | null;
+  hasLoadedFullApplications: boolean;
   ensureApplications: (answerKeys?: Iterable<string>) => void;
   ensureAnswerKeys: (answerKeys: Iterable<string>) => void;
 }
@@ -65,6 +67,7 @@ interface AdminContactsContextValue {
   contactTags: ContactTag[] | null;
   contactActivitySummaries: ContactActivitySummary[] | null;
   contactsError: string | null;
+  hasLoadedFullContacts: boolean;
   ensureContacts: () => void;
 }
 
@@ -141,23 +144,38 @@ export function useAdminPreferencesData() {
 
 export function AdminDataProvider({
   children,
+  initialContactsData,
   initialPreferences = {},
 }: {
   children: ReactNode;
+  initialContactsData?: AdminContactsInitialData;
   initialPreferences?: Record<string, unknown>;
 }) {
   const [applications, setApplications] = useState<
     ContactListApplication[] | null
-  >(null);
+  >(initialContactsData?.applications ?? null);
   const [appsError, setAppsError] = useState<string | null>(null);
+  const [hasLoadedFullApplications, setHasLoadedFullApplications] =
+    useState(false);
 
-  const [contacts, setContacts] = useState<Contact[] | null>(null);
-  const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(null);
-  const [tags, setTags] = useState<Tag[] | null>(null);
-  const [contactTags, setContactTags] = useState<ContactTag[] | null>(null);
+  const [contacts, setContacts] = useState<Contact[] | null>(
+    initialContactsData?.contacts ?? null,
+  );
+  const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(
+    initialContactsData?.tagCategories ?? null,
+  );
+  const [tags, setTags] = useState<Tag[] | null>(
+    initialContactsData?.tags ?? null,
+  );
+  const [contactTags, setContactTags] = useState<ContactTag[] | null>(
+    initialContactsData?.contactTags ?? null,
+  );
   const [contactActivitySummaries, setContactActivitySummaries] =
-    useState<ContactActivitySummary[] | null>(null);
+    useState<ContactActivitySummary[] | null>(
+      initialContactsData?.contactActivitySummaries ?? null,
+    );
   const [contactsError, setContactsError] = useState<string | null>(null);
+  const [hasLoadedFullContacts, setHasLoadedFullContacts] = useState(false);
 
   const [preferences, setPreferences] =
     useState<Record<string, unknown>>(initialPreferences);
@@ -260,6 +278,7 @@ export function AdminDataProvider({
           ? mergeProjectedApplicationAnswers(previous, projectedApplications)
           : projectedApplications,
       );
+      setHasLoadedFullApplications(true);
       for (const key of projection.answerKeys) {
         loadedApplicationAnswerKeysRef.current.add(key);
       }
@@ -418,6 +437,7 @@ export function AdminDataProvider({
       setContactActivitySummaries(
         (contactActivitySummariesData ?? []) as unknown as ContactActivitySummary[],
       );
+      setHasLoadedFullContacts(true);
       contactsFetchState.current = "done";
 
       // Subscribe to Realtime only after the initial fetch succeeds
@@ -572,10 +592,17 @@ export function AdminDataProvider({
     () => ({
       applications,
       appsError,
+      hasLoadedFullApplications,
       ensureApplications,
       ensureAnswerKeys,
     }),
-    [applications, appsError, ensureApplications, ensureAnswerKeys],
+    [
+      applications,
+      appsError,
+      hasLoadedFullApplications,
+      ensureApplications,
+      ensureAnswerKeys,
+    ],
   );
 
   const contactsValue = useMemo(
@@ -586,6 +613,7 @@ export function AdminDataProvider({
       contactTags,
       contactActivitySummaries,
       contactsError,
+      hasLoadedFullContacts,
       ensureContacts,
     }),
     [
@@ -595,6 +623,7 @@ export function AdminDataProvider({
       contactTags,
       contactActivitySummaries,
       contactsError,
+      hasLoadedFullContacts,
       ensureContacts,
     ],
   );

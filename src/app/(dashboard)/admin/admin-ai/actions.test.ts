@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AdminAiQueryPlan,
   AdminAiResponse,
@@ -16,14 +16,17 @@ const mockCreateAdminAiMessage = vi.fn();
 const mockGetAdminAiThreadDetail = vi.fn();
 const mockRenameAdminAiThread = vi.fn();
 const mockDeleteAdminAiThread = vi.fn();
+const mockListAdminAiThreadSummaries = vi.fn();
 const mockRunAdminAiAnalysis = vi.fn();
 const mockRevalidatePath = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
+const mockRequireAdmin = vi.fn();
 
 vi.mock("@/lib/data/admin-ai", () => ({
   createAdminAiThread: mockCreateAdminAiThread,
   createAdminAiMessage: mockCreateAdminAiMessage,
   getAdminAiThreadDetail: mockGetAdminAiThreadDetail,
+  listAdminAiThreadSummaries: mockListAdminAiThreadSummaries,
   renameAdminAiThread: mockRenameAdminAiThread,
   deleteAdminAiThread: mockDeleteAdminAiThread,
 }));
@@ -36,6 +39,10 @@ vi.mock("@/lib/admin-ai/orchestrator", () => ({
 
 vi.mock("@/lib/admin-ai/provider", () => ({
   getAdminAiProviderAvailability: mockGetAdminAiProviderAvailability,
+}));
+
+vi.mock("@/lib/auth/require-admin", () => ({
+  requireAdmin: mockRequireAdmin,
 }));
 
 vi.mock("next/cache", () => ({
@@ -123,6 +130,10 @@ function makeThreadDetail() {
   };
 }
 
+function enableEvidence() {
+  vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "1");
+}
+
 describe("askAdminAiQuestion", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -131,11 +142,16 @@ describe("askAdminAiQuestion", () => {
     mockRunAdminAiAnalysis.mockReset();
     mockRevalidatePath.mockReset();
     mockGetAdminAiProviderAvailability.mockReset();
+    mockRequireAdmin.mockReset().mockResolvedValue({ id: "admin-1" });
     mockGetAdminAiProviderAvailability.mockReturnValue({
       isConfigured: true,
       unavailableReason: null,
       model: "gpt-4.1-mini",
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("short-circuits without creating a thread or message when the provider is unavailable", async () => {
@@ -218,6 +234,49 @@ describe("askAdminAiQuestion", () => {
     expect(result.success).toBe(true);
     expect(result.thread?.id).toBe(THREAD_ID);
     expect(result.messages).toHaveLength(2);
+  });
+
+  it("omits local assistant citations from the returned answer when evidence is disabled", async () => {
+    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
+    mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
+    mockRunAdminAiAnalysis.mockResolvedValue({
+      status: "complete",
+      assistantMessageId: ASSISTANT_MESSAGE_ID,
+      queryPlan: makePlan(),
+      response: makeResponse(),
+      citations: [
+        {
+          claim_key: "shortlist.0.whyFit.0",
+          source_type: "application_answer",
+          source_id: "source-1",
+          contact_id: CONTACT_ID,
+          application_id: null,
+          source_label: "ultimate_vision",
+          snippet: "voice of the ocean",
+        },
+      ],
+      modelMetadata: null,
+      error: null,
+    });
+
+    const { askAdminAiQuestion } = await import("./actions");
+    const formData = new FormData();
+    formData.set("scope", "global");
+    formData.set("question", "Find strong candidates");
+
+    const result = await askAdminAiQuestion(
+      {
+        errors: null,
+        message: null,
+        success: false,
+        thread: null,
+        messages: null,
+      },
+      formData,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.messages?.[1]?.citations).toEqual([]);
   });
 
   it("accepts contact-scoped seeded UUIDs that match the app-wide validator", async () => {
@@ -366,13 +425,65 @@ describe("askAdminAiQuestion", () => {
   });
 });
 
+describe("loadGlobalAdminAiPanelData", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mockRequireAdmin.mockReset().mockResolvedValue({ id: "admin-1" });
+    mockListAdminAiThreadSummaries.mockReset().mockResolvedValue([
+      {
+        id: THREAD_ID,
+        scope: "global",
+        contactId: null,
+        title: "Find strong candidates",
+        createdAt: "2026-04-15T00:00:00Z",
+        updatedAt: "2026-04-15T00:01:00Z",
+      },
+    ]);
+    mockGetAdminAiProviderAvailability.mockReset().mockReturnValue({
+      isConfigured: true,
+      unavailableReason: null,
+      model: "gpt-5-mini",
+    });
+  });
+
+  it("loads global AI panel data after an admin check", async () => {
+    const { loadGlobalAdminAiPanelData } = await import("./actions");
+    const result = await loadGlobalAdminAiPanelData();
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockListAdminAiThreadSummaries).toHaveBeenCalledWith({
+      scope: "global",
+    });
+    expect(result.initialThreads).toHaveLength(1);
+    expect(result.providerAvailability).toEqual({
+      isConfigured: true,
+      unavailableReason: null,
+      model: "gpt-5-mini",
+    });
+  });
+});
+
 describe("loadAdminAiThread", () => {
   beforeEach(() => {
     vi.resetModules();
     mockGetAdminAiThreadDetail.mockReset();
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("omits persisted citations from loaded messages when evidence is disabled", async () => {
+    mockGetAdminAiThreadDetail.mockResolvedValue(makeThreadDetail());
+
+    const { loadAdminAiThread } = await import("./actions");
+    const result = await loadAdminAiThread(THREAD_ID);
+
+    expect(result.messages[1]?.citations).toEqual([]);
+  });
+
   it("returns a serialized thread detail payload with citations attached per message", async () => {
+    enableEvidence();
     mockGetAdminAiThreadDetail.mockResolvedValue(makeThreadDetail());
 
     const { loadAdminAiThread } = await import("./actions");

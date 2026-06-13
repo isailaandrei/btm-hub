@@ -47,14 +47,21 @@ function createMockRequest(pathname: string) {
   } as unknown as Parameters<typeof updateSession>[0];
 }
 
+function authedUser() {
+  mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("updateSession", () => {
   beforeEach(() => {
+    // Default: unauthenticated. The proxy must verify auth with the SAME source
+    // the pages use (getUser) so the two layers can never disagree and bounce a
+    // user between /profile and /login forever (see proxy.ts comment).
+    mockGetUser.mockResolvedValue({ data: { user: null } });
     mockGetClaims.mockResolvedValue({ data: null });
-    mockGetUser.mockReset();
     mockRedirect.mockImplementation((url) => ({ redirectedTo: url }));
     mockNextResponse.next.mockReturnValue({ cookies: { set: vi.fn() } });
   });
@@ -97,10 +104,7 @@ describe("updateSession", () => {
   // --- Auth routes for authenticated users ---
 
   it("redirects authenticated user from /login to /profile", async () => {
-    mockGetClaims.mockResolvedValue({
-      data: { claims: { sub: "user-1" } },
-    });
-
+    authedUser();
     const req = createMockRequest("/login");
     await updateSession(req);
     expect(mockRedirect).toHaveBeenCalled();
@@ -109,10 +113,7 @@ describe("updateSession", () => {
   });
 
   it("redirects authenticated user from /register to /profile", async () => {
-    mockGetClaims.mockResolvedValue({
-      data: { claims: { sub: "user-1" } },
-    });
-
+    authedUser();
     const req = createMockRequest("/register");
     await updateSession(req);
     expect(mockRedirect).toHaveBeenCalled();
@@ -127,30 +128,26 @@ describe("updateSession", () => {
   });
 
   it("allows authenticated user on public route /", async () => {
-    mockGetClaims.mockResolvedValue({
-      data: { claims: { sub: "user-1" } },
-    });
-
+    authedUser();
     const req = createMockRequest("/");
     await updateSession(req);
     expect(mockRedirect).not.toHaveBeenCalled();
   });
 
   it("allows authenticated user on protected route /profile", async () => {
-    mockGetClaims.mockResolvedValue({
-      data: { claims: { sub: "user-1" } },
-    });
-
+    authedUser();
     const req = createMockRequest("/profile");
     await updateSession(req);
     expect(mockRedirect).not.toHaveBeenCalled();
   });
 
-  it("uses getClaims in the proxy and does not call the getUser path", async () => {
+  // --- Regression: proxy auth source must match the pages (getUser) ---
+
+  it("verifies auth with getUser (not getClaims) so it can't diverge from page-level getProfile", async () => {
     const req = createMockRequest("/academy");
     await updateSession(req);
 
-    expect(mockGetClaims).toHaveBeenCalledTimes(1);
-    expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockGetUser).toHaveBeenCalledTimes(1);
+    expect(mockGetClaims).not.toHaveBeenCalled();
   });
 });

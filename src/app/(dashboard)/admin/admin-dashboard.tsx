@@ -2,9 +2,23 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
 import { ContactsPanel } from "./contacts/contacts-panel";
-import { TagsPanel } from "./tags/tags-panel";
 import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
+
+const showLocalAdminAi = isLocalAdminAiEnabled();
+
+const TagsPanel = dynamic(
+  () => import("./tags/tags-panel").then((module) => module.TagsPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-md border border-border bg-card p-6 text-sm text-muted-foreground">
+        Loading tags...
+      </div>
+    ),
+  },
+);
 
 const EmailStudio = dynamic(
   () => import("./email/email-studio").then((module) => module.EmailStudio),
@@ -30,10 +44,35 @@ const TasksPanel = dynamic(
   },
 );
 
+const AdminAiDashboardPanel = showLocalAdminAi
+  ? dynamic(
+      () =>
+        import("./admin-ai/dashboard-panel").then(
+          (module) => module.AdminAiDashboardPanel,
+        ),
+      {
+        ssr: false,
+        loading: () => (
+          <div className="rounded-md border border-border bg-card p-6 text-sm text-muted-foreground">
+            Loading AI agent...
+          </div>
+        ),
+      },
+    )
+  : null;
+
 type Tab = "contacts" | "tags" | "tasks" | "email";
 
-const TABS: { key: Tab; label: string }[] = [
+type AdminTab = Tab | "ai";
+
+const TABS: { key: AdminTab; label: string }[] = [
   { key: "contacts", label: "Contacts" },
+  ...(showLocalAdminAi
+    ? ([{ key: "ai", label: "AI Agent" }] satisfies {
+        key: AdminTab;
+        label: string;
+      }[])
+    : []),
   { key: "tags", label: "Tags" },
   { key: "tasks", label: "Tasks" },
   { key: "email", label: "Email" },
@@ -44,7 +83,8 @@ export function AdminDashboard({
 }: {
   initialContactsData?: AdminContactsInitialData;
 }) {
-  const [activeTab, setActiveTab] = useState<Tab>("contacts");
+  const [activeTab, setActiveTab] = useState<AdminTab>("contacts");
+  const [hasVisitedAi, setHasVisitedAi] = useState(false);
   const [hasVisitedEmail, setHasVisitedEmail] = useState(false);
   const [hasVisitedTasks, setHasVisitedTasks] = useState(false);
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
@@ -55,7 +95,10 @@ export function AdminDashboard({
     setActiveTab("email");
   }
 
-  function handleSelectTab(tab: Tab) {
+  function handleSelectTab(tab: AdminTab) {
+    if (tab === "ai") {
+      setHasVisitedAi(true);
+    }
     if (tab === "tasks") {
       setHasVisitedTasks(true);
     }
@@ -95,6 +138,12 @@ export function AdminDashboard({
       )}
 
       {activeTab === "tags" && <TagsPanel />}
+
+      {AdminAiDashboardPanel && (activeTab === "ai" || hasVisitedAi) && (
+        <div hidden={activeTab !== "ai"}>
+          <AdminAiDashboardPanel isVisible={activeTab === "ai"} />
+        </div>
+      )}
 
       {(activeTab === "tasks" || hasVisitedTasks) && (
         <div hidden={activeTab !== "tasks"}>

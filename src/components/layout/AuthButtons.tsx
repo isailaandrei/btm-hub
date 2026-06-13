@@ -164,6 +164,7 @@ export function AuthButtons({
       )}
       <Link
         href="/profile"
+        prefetch={false}
         className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-border transition-colors hover:border-primary"
       >
         {user.avatarUrl ? (

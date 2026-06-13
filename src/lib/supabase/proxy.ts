@@ -25,12 +25,11 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Verify/refresh the session — do NOT add code between createServerClient and this auth call.
-  // getClaims() verifies asymmetric JWTs locally via cached JWKS; HS256 projects
-  // fall back to the Auth server. Admin gates/server actions keep getUser() for
-  // fresher revocation checks.
-  const { data: verifiedClaims } = await supabase.auth.getClaims();
-  const hasVerifiedSession = Boolean(verifiedClaims?.claims.sub);
+  // Verify/refresh the session — do NOT add code between createServerClient and getUser().
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const hasVerifiedSession = Boolean(user);
 
   // Redirect unauthenticated users from protected routes
   const protectedPaths = ["/profile", "/settings", "/dashboard", "/admin", "/community"];

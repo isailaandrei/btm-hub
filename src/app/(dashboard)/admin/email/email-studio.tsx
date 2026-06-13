@@ -1,5 +1,6 @@
 "use client";
 
+import "@maily-to/core/style.css";
 import {
   Fragment,
   useCallback,

@@ -47,9 +47,11 @@ function installLocalStorageMock() {
 function StateHarness({
   onState,
   preferences = {},
+  onRender,
 }: {
   onState: (state: ContactsPanelState) => void;
   preferences?: Record<string, unknown>;
+  onRender?: (state: ContactsPanelState) => void;
 }) {
   const state = useContactsPanelState({
     contacts: [] satisfies Contact[],
@@ -57,6 +59,8 @@ function StateHarness({
     preferences,
     setPreferences: vi.fn() as Dispatch<SetStateAction<Record<string, unknown>>>,
   });
+
+  onRender?.(state);
 
   useEffect(() => {
     onState(state);
@@ -213,6 +217,62 @@ describe("useContactsPanelState", () => {
         page_size: 150,
       },
     });
+  });
+
+  it("does not initialize table-shaping state from local storage", () => {
+    localStorage.setItem(
+      "btm-admin-contacts-filters",
+      JSON.stringify({
+        search: "Rachana",
+        programFilter: ["filmmaking"],
+        selectedTagIds: ["tag-1"],
+        columnFilters: { budget: ["5000"] },
+        pendingFilter: ["awaiting_btm"],
+        sortBy: { key: BUILTIN_COLUMN.tags, direction: "desc" },
+        pageSize: 150,
+        page: 3,
+        columnWidths: { [BUILTIN_COLUMN.name]: 188 },
+      }),
+    );
+
+    renderHarness();
+
+    expect(latestState?.search).toBe("");
+    expect(latestState?.programFilter).toEqual([]);
+    expect(latestState?.selectedTagIds).toEqual([]);
+    expect(latestState?.columnFilters).toEqual({});
+    expect(latestState?.pendingFilter).toEqual([]);
+    expect(latestState?.sortBy).toEqual({
+      key: BUILTIN_COLUMN.submittedAt,
+      direction: "desc",
+    } satisfies SortState);
+    expect(latestState?.pageSize).toBe(25);
+    expect(latestState?.page).toBe(1);
+    expect(latestState?.columnWidths).toEqual({});
+  });
+
+  it("does not apply stored column widths after the first render", () => {
+    localStorage.setItem(
+      "btm-admin-contacts-filters",
+      JSON.stringify({
+        columnWidths: { [BUILTIN_COLUMN.name]: 188 },
+      }),
+    );
+    const renderColumnWidths: Record<string, number>[] = [];
+
+    act(() => {
+      root.render(
+        <StateHarness
+          onState={(state) => { latestState = state; }}
+          onRender={(state) => {
+            renderColumnWidths.push(state.columnWidths);
+          }}
+        />,
+      );
+    });
+
+    expect(renderColumnWidths[0]).toEqual({});
+    expect(latestState?.columnWidths).toEqual({});
   });
 
   it("cycles tag sorting only through descending and off", () => {
