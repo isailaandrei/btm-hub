@@ -1,9 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ContactsPanel } from "./contacts/contacts-panel";
+import { ContactsPanelSkeleton } from "./contacts/contacts-panel-skeleton";
+import { DeferredContactsPanel } from "./contacts/deferred-contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
 import { resolveAdminPanelTab, type AdminPanelTab } from "./admin-navigation";
 import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
@@ -53,7 +54,7 @@ type VisitedTabs = Partial<Record<AdminPanelTab, true>>;
 export function AdminDashboard({
   initialContactsData,
 }: {
-  initialContactsData?: AdminContactsInitialData;
+  initialContactsData?: Promise<AdminContactsInitialData>;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -123,10 +124,12 @@ export function AdminDashboard({
   return (
     <div>
       {activeTab === "contacts" && (
-        <ContactsPanel
-          initialData={initialContactsData}
-          onSendEmail={handleSendEmail}
-        />
+        <Suspense fallback={<ContactsPanelSkeleton />}>
+          <DeferredContactsPanel
+            initialContactsData={initialContactsData}
+            onSendEmail={handleSendEmail}
+          />
+        </Suspense>
       )}
 
       {activeTab === "tags" && <TagsPanel />}

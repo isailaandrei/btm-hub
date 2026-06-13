@@ -50,8 +50,44 @@ vi.mock("./admin-dashboard", () => ({
 const { default: AdminPage } = await import("./page");
 
 describe("AdminPage", () => {
+  it("starts contacts data without blocking the default contacts tab shell", async () => {
+    const initialContactsDataPromise = new Promise(() => {
+      // Keep unresolved to prove AdminPage does not await contact data.
+    });
+    const preferences = { contacts_table: { page_size: 25 } };
+
+    mockGetProfile.mockResolvedValue({
+      id: "profile-1",
+      role: "admin",
+      preferences,
+    });
+    mockGetAdminContactsInitialData.mockReturnValue(initialContactsDataPromise);
+
+    const result = await Promise.race([
+      AdminPage(),
+      new Promise((resolve) => setTimeout(() => resolve("blocked"), 0)),
+    ]);
+
+    expect(result).not.toBe("blocked");
+    expect(result).toMatchObject({
+      type: mockAdminDataProvider,
+      props: {
+        initialPreferences: preferences,
+        children: {
+          type: mockAdminDashboard,
+          props: { initialContactsData: initialContactsDataPromise },
+        },
+      },
+    });
+    expect(mockGetAdminContactsInitialData).toHaveBeenCalledWith(preferences);
+    expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
+    expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
+    expect(mockListEmailTemplates).not.toHaveBeenCalled();
+    expect(mockListEmailSends).not.toHaveBeenCalled();
+  });
+
   it("does not fetch inactive tab data before rendering the default contacts tab", async () => {
-    const initialContactsData = {
+    const initialContactsDataPromise = Promise.resolve({
       applications: [],
       contactActivitySummaries: [],
       contactTags: [],
@@ -61,7 +97,7 @@ describe("AdminPage", () => {
       tagCategories: [],
       tags: [],
       totalCount: 0,
-    };
+    });
     const preferences = { contacts_table: { page_size: 25 } };
 
     mockGetProfile.mockResolvedValue({
@@ -69,18 +105,15 @@ describe("AdminPage", () => {
       role: "admin",
       preferences,
     });
-    mockGetAdminContactsInitialData.mockResolvedValue(initialContactsData);
+    mockGetAdminContactsInitialData.mockReturnValue(initialContactsDataPromise);
 
     const result = await AdminPage();
 
-    expect(result.props.children.type).toBe(mockAdminDataProvider);
-    expect(result.props.children.props.initialContactsData).toBe(
-      initialContactsData,
-    );
-    expect(result.props.children.props.initialPreferences).toBe(preferences);
-    expect(result.props.children.props.children.type).toBe(mockAdminDashboard);
-    expect(result.props.children.props.children.props).toEqual({
-      initialContactsData,
+    expect(result.type).toBe(mockAdminDataProvider);
+    expect(result.props.initialPreferences).toBe(preferences);
+    expect(result.props.children.type).toBe(mockAdminDashboard);
+    expect(result.props.children.props).toEqual({
+      initialContactsData: initialContactsDataPromise,
     });
     expect(mockGetAdminContactsInitialData).toHaveBeenCalledWith(preferences);
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
