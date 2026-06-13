@@ -136,43 +136,11 @@ export function useContactsPanelState({
   useEffect(() => {
     const nextStoredFilters = readStoredFilters();
     setStoredFilters(nextStoredFilters);
-    setSearch(nextStoredFilters.search ?? "");
-    setProgramFilter(
-      nextStoredFilters.programFilter ??
-        (nextStoredFilters.selectedProgram
-          ? [nextStoredFilters.selectedProgram]
-          : []),
-    );
-    setSelectedTagIds(nextStoredFilters.selectedTagIds ?? []);
-    setPendingFilter(nextStoredFilters.pendingFilter ?? []);
-    setPage(nextStoredFilters.page ?? 1);
-    setColumnFilters(nextStoredFilters.columnFilters ?? {});
-    setColumnWidths(nextStoredFilters.columnWidths ?? {});
-
-    if (nextStoredFilters.pageSize === "all") {
-      pageSizeRef.current = "all";
-      setPageSizeState("all");
-    } else if (
-      initialContactsTablePreferences.page_size === undefined &&
-      isContactsTablePageSize(nextStoredFilters.pageSize)
-    ) {
-      pageSizeRef.current = nextStoredFilters.pageSize;
-      setPageSizeState(nextStoredFilters.pageSize);
-    }
-
-    if (
-      initialContactsTablePreferences.sort_by === undefined &&
-      nextStoredFilters.sortBy !== undefined
-    ) {
-      sortByRef.current = nextStoredFilters.sortBy;
-      setSortBy(nextStoredFilters.sortBy);
-    }
-
+    // Legacy local filters are intentionally not applied after mount. They can
+    // reshape the contacts table after hydration and cause CLS; only sort/page
+    // size are read below for one-time migration into server preferences.
     setHasLoadedStoredFilters(true);
-  }, [
-    initialContactsTablePreferences.page_size,
-    initialContactsTablePreferences.sort_by,
-  ]);
+  }, []);
 
   useEffect(() => {
     ensureContacts();

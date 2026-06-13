@@ -148,13 +148,17 @@ export function ContactsPanel({
     tags,
     contactTags,
     contactActivitySummaries,
+    hasLoadedFullContacts,
     contactsError,
     ensureContacts,
   } = useAdminContactsData();
-  const { applications, ensureAnswerKeys } = useAdminApplicationsData();
+  const { applications, hasLoadedFullApplications, ensureAnswerKeys } =
+    useAdminApplicationsData();
   const { preferences, setPreferences } = useAdminPreferencesData();
   const sync = useAcademyImportSync();
   const hasFullContactsData =
+    hasLoadedFullContacts &&
+    hasLoadedFullApplications &&
     contacts !== null &&
     applications !== null &&
     contactTags !== null &&
@@ -401,10 +405,11 @@ export function ContactsPanel({
           onClearTags={state.handleClearTags}
           onColumnToggle={state.handleColumnToggle}
           onPendingFilterChange={state.handlePendingFilterChange}
+          disabled={isHydratingFullData}
         />
       </div>
 
-      {contactsError && contacts === null && initialData && (
+      {contactsError && initialData && !hasLoadedFullContacts && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {contactsError}
         </div>

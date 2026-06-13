@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AdminDashboard } from "./admin-dashboard";
+import { AdminDataProvider } from "./admin-data-provider";
 import { getProfile } from "@/lib/data/profiles";
 import { getAdminContactsInitialData } from "@/lib/data/admin-contact-list";
 
@@ -23,7 +24,12 @@ export default async function AdminPage() {
         </div>
       }
     >
-      <AdminDashboard initialContactsData={initialContactsData} />
+      <AdminDataProvider
+        initialContactsData={initialContactsData}
+        initialPreferences={profile.preferences}
+      >
+        <AdminDashboard initialContactsData={initialContactsData} />
+      </AdminDataProvider>
     </Suspense>
   );
 }

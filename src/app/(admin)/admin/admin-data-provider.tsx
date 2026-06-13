@@ -31,6 +31,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 import type {
   Application,
   Contact,
@@ -53,6 +54,7 @@ type FetchState = "idle" | "loading" | "done";
 
 interface AdminApplicationsContextValue {
   applications: ContactListApplication[] | null;
+  hasLoadedFullApplications: boolean;
   appsError: string | null;
   ensureApplications: (answerKeys?: Iterable<string>) => void;
   ensureAnswerKeys: (answerKeys: Iterable<string>) => void;
@@ -64,6 +66,7 @@ interface AdminContactsContextValue {
   tags: Tag[] | null;
   contactTags: ContactTag[] | null;
   contactActivitySummaries: ContactActivitySummary[] | null;
+  hasLoadedFullContacts: boolean;
   contactsError: string | null;
   ensureContacts: () => void;
 }
@@ -141,22 +144,37 @@ export function useAdminPreferencesData() {
 
 export function AdminDataProvider({
   children,
+  initialContactsData,
   initialPreferences = {},
 }: {
   children: ReactNode;
+  initialContactsData?: AdminContactsInitialData;
   initialPreferences?: Record<string, unknown>;
 }) {
   const [applications, setApplications] = useState<
     ContactListApplication[] | null
-  >(null);
+  >(initialContactsData?.applications ?? null);
+  const [hasLoadedFullApplications, setHasLoadedFullApplications] =
+    useState(false);
   const [appsError, setAppsError] = useState<string | null>(null);
 
-  const [contacts, setContacts] = useState<Contact[] | null>(null);
-  const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(null);
-  const [tags, setTags] = useState<Tag[] | null>(null);
-  const [contactTags, setContactTags] = useState<ContactTag[] | null>(null);
+  const [contacts, setContacts] = useState<Contact[] | null>(
+    initialContactsData?.contacts ?? null,
+  );
+  const [tagCategories, setTagCategories] = useState<TagCategory[] | null>(
+    initialContactsData?.tagCategories ?? null,
+  );
+  const [tags, setTags] = useState<Tag[] | null>(
+    initialContactsData?.tags ?? null,
+  );
+  const [contactTags, setContactTags] = useState<ContactTag[] | null>(
+    initialContactsData?.contactTags ?? null,
+  );
   const [contactActivitySummaries, setContactActivitySummaries] =
-    useState<ContactActivitySummary[] | null>(null);
+    useState<ContactActivitySummary[] | null>(
+      initialContactsData?.contactActivitySummaries ?? null,
+    );
+  const [hasLoadedFullContacts, setHasLoadedFullContacts] = useState(false);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
   const [preferences, setPreferences] =
@@ -263,6 +281,7 @@ export function AdminDataProvider({
       for (const key of projection.answerKeys) {
         loadedApplicationAnswerKeysRef.current.add(key);
       }
+      setHasLoadedFullApplications(true);
       if (
         (count ?? 0) > MAX_ADMIN_APPLICATIONS &&
         !applicationsTruncatedNoticeShownRef.current
@@ -418,6 +437,7 @@ export function AdminDataProvider({
       setContactActivitySummaries(
         (contactActivitySummariesData ?? []) as unknown as ContactActivitySummary[],
       );
+      setHasLoadedFullContacts(true);
       contactsFetchState.current = "done";
 
       // Subscribe to Realtime only after the initial fetch succeeds
@@ -571,11 +591,18 @@ export function AdminDataProvider({
   const applicationsValue = useMemo(
     () => ({
       applications,
+      hasLoadedFullApplications,
       appsError,
       ensureApplications,
       ensureAnswerKeys,
     }),
-    [applications, appsError, ensureApplications, ensureAnswerKeys],
+    [
+      applications,
+      hasLoadedFullApplications,
+      appsError,
+      ensureApplications,
+      ensureAnswerKeys,
+    ],
   );
 
   const contactsValue = useMemo(
@@ -585,6 +612,7 @@ export function AdminDataProvider({
       tags,
       contactTags,
       contactActivitySummaries,
+      hasLoadedFullContacts,
       contactsError,
       ensureContacts,
     }),
@@ -594,6 +622,7 @@ export function AdminDataProvider({
       tags,
       contactTags,
       contactActivitySummaries,
+      hasLoadedFullContacts,
       contactsError,
       ensureContacts,
     ],

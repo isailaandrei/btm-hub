@@ -6,6 +6,10 @@ const mockListEmailSends = vi.fn();
 const mockListEmailTemplates = vi.fn();
 const mockGetProfile = vi.fn();
 const mockGetAdminContactsInitialData = vi.fn();
+const mockAdminDataProvider = vi.fn((props: unknown) => ({
+  type: "AdminDataProvider",
+  props,
+}));
 const mockAdminDashboard = vi.fn((props: unknown) => ({
   type: "AdminDashboard",
   props,
@@ -33,6 +37,10 @@ vi.mock("@/lib/data/profiles", () => ({
 
 vi.mock("@/lib/data/admin-contact-list", () => ({
   getAdminContactsInitialData: mockGetAdminContactsInitialData,
+}));
+
+vi.mock("./admin-data-provider", () => ({
+  AdminDataProvider: mockAdminDataProvider,
 }));
 
 vi.mock("./admin-dashboard", () => ({
@@ -65,8 +73,15 @@ describe("AdminPage", () => {
 
     const result = await AdminPage();
 
-    expect(result.props.children.type).toBe(mockAdminDashboard);
-    expect(result.props.children.props).toEqual({ initialContactsData });
+    expect(result.props.children.type).toBe(mockAdminDataProvider);
+    expect(result.props.children.props.initialContactsData).toBe(
+      initialContactsData,
+    );
+    expect(result.props.children.props.initialPreferences).toBe(preferences);
+    expect(result.props.children.props.children.type).toBe(mockAdminDashboard);
+    expect(result.props.children.props.children.props).toEqual({
+      initialContactsData,
+    });
     expect(mockGetAdminContactsInitialData).toHaveBeenCalledWith(preferences);
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
