@@ -7,10 +7,25 @@ describe("getRecipientSummary", () => {
       getRecipientSummary({
         kind: "outreach",
         selectedContactCount: 1,
+        selectedManualRecipientCount: 0,
       }),
     ).toEqual({
       headline: "1 selected contact",
       detail: "Outreach sends to selected contacts unless they are suppressed.",
+    });
+  });
+
+  it("describes selected outreach contacts and manual recipients", () => {
+    expect(
+      getRecipientSummary({
+        kind: "outreach",
+        selectedContactCount: 2,
+        selectedManualRecipientCount: 3,
+      }),
+    ).toEqual({
+      headline: "5 selected recipients",
+      detail:
+        "Outreach sends to selected contacts and saved recipients unless they are suppressed.",
     });
   });
 
@@ -19,6 +34,7 @@ describe("getRecipientSummary", () => {
       getRecipientSummary({
         kind: "broadcast",
         selectedContactCount: 0,
+        selectedManualRecipientCount: 4,
       }),
     ).toEqual({
       headline: "All contacts with email",

@@ -16,6 +16,11 @@ import {
   queueEmailSend,
 } from "@/lib/data/email-sends";
 import {
+  getEmailManualRecipientsByIds,
+  listEmailManualRecipients,
+  upsertEmailManualRecipient,
+} from "@/lib/data/email-manual-recipients";
+import {
   getEmailTemplateVersion,
   listEmailTemplates,
 } from "@/lib/data/email-templates";
@@ -34,7 +39,12 @@ import { getEmailProvider } from "@/lib/email/provider";
 import { processEmailSendChunks } from "@/lib/email/send-pipeline";
 import { triggerEmailWorker } from "@/lib/email/worker-trigger";
 import { validateUUID } from "@/lib/validation-helpers";
-import type { EmailEvent, EmailSendKind } from "@/types/database";
+import type {
+  EmailEvent,
+  EmailManualRecipient,
+  EmailSendKind,
+  EmailSuppression,
+} from "@/types/database";
 
 const emailKindSchema = z.enum(["broadcast", "outreach"]);
 const INLINE_SEND_CAPACITY = 25 * 20;
@@ -42,6 +52,7 @@ const INLINE_SEND_CAPACITY = 25 * 20;
 const previewEmailSchema = z.object({
   kind: emailKindSchema,
   contactIds: z.array(z.string()).optional(),
+  manualRecipientIds: z.array(z.string()).optional(),
   subject: z.string().trim().min(1, "Subject is required"),
   templateVersionId: z.string().min(1, "Template is required"),
 });
@@ -62,6 +73,32 @@ const draftEmailSchema = previewEmailSchema.extend({
 });
 
 type ParsedEmailSendInput = z.infer<typeof draftEmailSchema>;
+
+const manualRecipientSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.email("Please enter a valid email address")),
+  name: z.string().trim().max(160, "Name must be 160 characters or fewer").optional(),
+  notes: z
+    .string()
+    .trim()
+    .max(1000, "Notes must be 1000 characters or fewer")
+    .optional(),
+});
+
+type ResolvedManualEligibleRecipient = {
+  contactId: null;
+  email: string;
+  name: string;
+  personalization: Record<string, unknown>;
+};
+
+type ResolvedManualSkippedRecipient = ResolvedManualEligibleRecipient & {
+  status: "skipped_suppressed";
+  reason: string;
+};
 
 export type EmailTemplateVersionDocument = {
   builderJson: Record<string, unknown>;
@@ -108,6 +145,33 @@ export async function loadEmailSendsAction() {
   return { sends };
 }
 
+export async function loadEmailManualRecipientsAction() {
+  await requireAdmin();
+  const manualRecipients = await listEmailManualRecipients();
+  return { manualRecipients };
+}
+
+export async function saveEmailManualRecipientAction(input: {
+  email: string;
+  name?: string;
+  notes?: string;
+}) {
+  await requireAdmin();
+  const parsed = manualRecipientSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid saved recipient",
+    );
+  }
+  const manualRecipient = await upsertEmailManualRecipient({
+    email: parsed.data.email,
+    name: parsed.data.name ?? "",
+    notes: parsed.data.notes ?? "",
+  });
+  revalidatePath("/admin");
+  return { manualRecipient };
+}
+
 export async function loadEmailStudioDataAction() {
   await requireAdmin();
   const [templateData, sends] = await Promise.all([
@@ -124,37 +188,150 @@ export async function loadEmailStudioDataAction() {
 async function resolvePreview(input: {
   kind: EmailSendKind;
   contactIds?: string[];
+  manualRecipientIds?: string[];
 }) {
+  const selectedContactIds = Array.from(new Set(input.contactIds ?? []));
+  const selectedManualRecipientIds = Array.from(
+    new Set(input.manualRecipientIds ?? []),
+  );
   if (input.kind === "outreach") {
-    const selectedIds = input.contactIds ?? [];
-    if (selectedIds.length === 0) throw new Error("Select at least one contact");
-    for (const contactId of selectedIds) validateUUID(contactId, "contact");
+    if (
+      selectedContactIds.length === 0 &&
+      selectedManualRecipientIds.length === 0
+    ) {
+      throw new Error("Select at least one recipient");
+    }
+    for (const contactId of selectedContactIds) validateUUID(contactId, "contact");
+    for (const recipientId of selectedManualRecipientIds) {
+      validateUUID(recipientId, "saved recipient");
+    }
+  }
+  if (input.kind === "broadcast" && selectedManualRecipientIds.length > 0) {
+    throw new Error("Manual recipients can only be used for outreach");
   }
 
-  const [contacts, preferences, suppressions] = await Promise.all([
+  const [contacts, preferences, suppressions, manualRecipients] =
+    await Promise.all([
     getContacts(),
     listContactEmailPreferences(),
     listActiveEmailSuppressions(),
-  ]);
+      input.kind === "outreach" && selectedManualRecipientIds.length > 0
+        ? getEmailManualRecipientsByIds(selectedManualRecipientIds)
+        : Promise.resolve([] as EmailManualRecipient[]),
+    ]);
 
-  return resolveEmailEligibility({
-    kind: input.kind,
-    contacts,
-    preferences,
+  const contactPreview =
+    input.kind === "outreach" && selectedContactIds.length === 0
+      ? { eligible: [], skipped: [] }
+      : resolveEmailEligibility({
+          kind: input.kind,
+          contacts,
+          preferences,
+          suppressions,
+          selectedContactIds,
+        });
+
+  const manualPreview = resolveManualRecipientEligibility({
+    manualRecipients,
+    selectedManualRecipientIds,
     suppressions,
-    selectedContactIds: input.contactIds,
+    contactEmails: [
+      ...contactPreview.eligible.map((recipient) => recipient.email),
+      ...contactPreview.skipped.map((recipient) => recipient.email),
+    ],
   });
+
+  return {
+    eligible: [...contactPreview.eligible, ...manualPreview.eligible],
+    skipped: [...contactPreview.skipped, ...manualPreview.skipped],
+  };
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function resolveManualRecipientEligibility(input: {
+  manualRecipients: EmailManualRecipient[];
+  selectedManualRecipientIds: string[];
+  suppressions: EmailSuppression[];
+  contactEmails: string[];
+}): {
+  eligible: ResolvedManualEligibleRecipient[];
+  skipped: ResolvedManualSkippedRecipient[];
+} {
+  if (input.selectedManualRecipientIds.length === 0) {
+    return { eligible: [], skipped: [] };
+  }
+
+  const manualRecipientsById = new Map(
+    input.manualRecipients.map((recipient) => [recipient.id, recipient]),
+  );
+  const missingIds = input.selectedManualRecipientIds.filter(
+    (recipientId) => !manualRecipientsById.has(recipientId),
+  );
+  if (missingIds.length > 0) {
+    throw new Error("Saved recipient not found");
+  }
+
+  const selectedContactEmails = new Set(input.contactEmails.map(normalizeEmail));
+  const suppressedEmails = new Set(
+    input.suppressions
+      .filter((suppression) => !suppression.lifted_at)
+      .map((suppression) => normalizeEmail(suppression.email)),
+  );
+
+  const eligible: ResolvedManualEligibleRecipient[] = [];
+  const skipped: ResolvedManualSkippedRecipient[] = [];
+  for (const recipientId of input.selectedManualRecipientIds) {
+    const recipient = manualRecipientsById.get(recipientId);
+    if (!recipient) continue;
+    const email = normalizeEmail(recipient.email);
+    if (selectedContactEmails.has(email)) {
+      throw new Error(
+        `Manual recipient ${email} duplicates a selected contact email`,
+      );
+    }
+    const name = recipient.name.trim() || email;
+    const base = {
+      contactId: null,
+      email,
+      name,
+      personalization: {
+        contact: {
+          id: recipient.id,
+          name,
+          email,
+        },
+        manualRecipient: {
+          id: recipient.id,
+        },
+      },
+    } satisfies ResolvedManualEligibleRecipient;
+
+    if (suppressedEmails.has(email)) {
+      skipped.push({
+        ...base,
+        status: "skipped_suppressed",
+        reason: "suppressed",
+      });
+    } else {
+      eligible.push(base);
+    }
+  }
+  return { eligible, skipped };
 }
 
 export async function previewEmailAction(input: {
   kind: EmailSendKind;
   contactIds?: string[];
+  manualRecipientIds?: string[];
   subject: string;
   templateVersionId: string;
 }): Promise<{
   eligibleCount: number;
   skipped: Array<{
-    contactId: string;
+    contactId: string | null;
     email: string;
     name: string;
     reason: string;
@@ -182,6 +359,7 @@ export async function createEmailDraftAction(input: {
   builderJson: unknown;
   previewText?: string;
   contactIds?: string[];
+  manualRecipientIds?: string[];
 }): Promise<{ sendId: string }> {
   await requireAdmin();
   const parsed = draftEmailSchema.safeParse(input);
@@ -227,13 +405,16 @@ async function createEmailSend(input: ParsedEmailSendInput) {
       email: recipient.email,
       name: recipient.name,
       status: recipient.status,
-      personalization: {
-        contact: {
-          id: recipient.contactId,
-          name: recipient.name,
-          email: recipient.email,
-        },
-      },
+      personalization:
+        "personalization" in recipient
+          ? recipient.personalization
+          : {
+              contact: {
+                id: recipient.contactId,
+                name: recipient.name,
+                email: recipient.email,
+              },
+            },
       skipReason: recipient.reason,
     })),
   ];
@@ -287,6 +468,7 @@ export async function sendEmailNowAction(input: {
   builderJson: unknown;
   previewText?: string;
   contactIds?: string[];
+  manualRecipientIds?: string[];
 }): Promise<{ sendId: string }> {
   await requireAdmin();
   const parsed = draftEmailSchema.safeParse(input);

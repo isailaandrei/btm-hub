@@ -124,14 +124,17 @@ function EmailStudioContent({
   const {
     templates,
     sends,
+    manualRecipients,
     templateVersionsById,
     emailError,
     ensureEmailTemplates,
+    ensureManualRecipients,
     ensureEmailSends,
     refreshEmailSends,
     ensureTemplateVersion,
     setEmailSends,
     setEmailTemplates,
+    setManualRecipients,
   } = useAdminEmailData();
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
   const [hasVisitedTemplates, setHasVisitedTemplates] = useState(false);
@@ -158,9 +161,12 @@ function EmailStudioContent({
 
   useEffect(() => {
     startLoadDataTransition(async () => {
-      await ensureEmailTemplates({ quiet: true });
+      await Promise.all([
+        ensureEmailTemplates({ quiet: true }),
+        ensureManualRecipients({ quiet: true }),
+      ]);
     });
-  }, [ensureEmailTemplates]);
+  }, [ensureEmailTemplates, ensureManualRecipients]);
 
   useEffect(() => {
     if (activeTab !== "sent") return;
@@ -324,6 +330,8 @@ function EmailStudioContent({
           templateVersionsById={templateVersionsById}
           ensureTemplateVersion={ensureTemplateVersion}
           selectedContactIds={selectedContactIds}
+          manualRecipients={manualRecipients ?? []}
+          setManualRecipients={setManualRecipients}
           onSendStarted={handleSendStarted}
         />
       </div>

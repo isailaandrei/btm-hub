@@ -5,6 +5,9 @@ const mockCreateEmailSendWithRecipients = vi.fn();
 const mockListEmailEventsForSend = vi.fn();
 const mockListEmailSendRecipients = vi.fn();
 const mockListEmailSends = vi.fn();
+const mockListEmailManualRecipients = vi.fn();
+const mockGetEmailManualRecipientsByIds = vi.fn();
+const mockUpsertEmailManualRecipient = vi.fn();
 const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
 const mockDeleteRemovableEmailSend = vi.fn();
@@ -34,6 +37,12 @@ vi.mock("@/lib/data/email-sends", () => ({
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
   queueEmailSend: mockQueueEmailSend,
+}));
+
+vi.mock("@/lib/data/email-manual-recipients", () => ({
+  getEmailManualRecipientsByIds: mockGetEmailManualRecipientsByIds,
+  listEmailManualRecipients: mockListEmailManualRecipients,
+  upsertEmailManualRecipient: mockUpsertEmailManualRecipient,
 }));
 
 vi.mock("@/lib/data/email-templates", () => ({
@@ -78,10 +87,12 @@ vi.mock("next/server", () => ({
 const {
   createEmailDraftAction,
   getEmailSendDiagnosticsAction,
+  loadEmailManualRecipientsAction,
   loadEmailSendsAction,
   loadEmailStudioDataAction,
   loadEmailTemplatesAction,
   previewEmailAction,
+  saveEmailManualRecipientAction,
   sendEmailNowAction,
 } = await import("./actions");
 
@@ -106,6 +117,16 @@ const CONTACT_TWO = {
 };
 
 const TEMPLATE_VERSION_ID = "550e8400-e29b-41d4-a716-446655440010";
+const MANUAL_RECIPIENT = {
+  id: "550e8400-e29b-41d4-a716-446655440030",
+  email: "friend@example.com",
+  name: "Future Applicant",
+  notes: "",
+  created_by: "admin-1",
+  updated_by: "admin-1",
+  created_at: "2026-05-01T00:00:00.000Z",
+  updated_at: "2026-05-01T00:00:00.000Z",
+};
 
 beforeEach(() => {
   delete process.env.EMAIL_FROM_EMAIL;
@@ -128,6 +149,11 @@ beforeEach(() => {
   mockListEmailEventsForSend.mockReset().mockResolvedValue([]);
   mockListEmailSendRecipients.mockReset().mockResolvedValue([]);
   mockListEmailSends.mockReset().mockResolvedValue([{ id: "send-1" }]);
+  mockListEmailManualRecipients.mockReset().mockResolvedValue([MANUAL_RECIPIENT]);
+  mockGetEmailManualRecipientsByIds
+    .mockReset()
+    .mockResolvedValue([MANUAL_RECIPIENT]);
+  mockUpsertEmailManualRecipient.mockReset().mockResolvedValue(MANUAL_RECIPIENT);
   mockDeleteRemovableEmailSend.mockReset().mockResolvedValue(true);
   mockQueueEmailSend.mockReset().mockResolvedValue({ id: "send-1" });
   mockListEmailTemplates.mockReset().mockResolvedValue([{ id: "template-1" }]);
@@ -153,6 +179,34 @@ describe("loadEmailStudioDataAction", () => {
       templateVersionsById: {},
       sends: [{ id: "send-1" }],
     });
+  });
+});
+
+describe("loadEmailManualRecipientsAction", () => {
+  it("loads saved manual recipients after an admin check", async () => {
+    const result = await loadEmailManualRecipientsAction();
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockListEmailManualRecipients).toHaveBeenCalled();
+    expect(result).toEqual({ manualRecipients: [MANUAL_RECIPIENT] });
+  });
+});
+
+describe("saveEmailManualRecipientAction", () => {
+  it("validates and saves a reusable manual recipient", async () => {
+    const result = await saveEmailManualRecipientAction({
+      email: " FRIEND@Example.com ",
+      name: " Future Applicant ",
+    });
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockUpsertEmailManualRecipient).toHaveBeenCalledWith({
+      email: "friend@example.com",
+      name: "Future Applicant",
+      notes: "",
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+    expect(result).toEqual({ manualRecipient: MANUAL_RECIPIENT });
   });
 });
 
@@ -214,6 +268,20 @@ describe("previewEmailAction", () => {
     ]);
     expect(mockRequireAdmin).toHaveBeenCalled();
   });
+
+  it("previews selected manual outreach recipients", async () => {
+    const result = await previewEmailAction({
+      kind: "outreach",
+      manualRecipientIds: [MANUAL_RECIPIENT.id],
+      subject: "Hello",
+      templateVersionId: TEMPLATE_VERSION_ID,
+    });
+
+    expect(result.eligibleCount).toBe(1);
+    expect(mockGetEmailManualRecipientsByIds).toHaveBeenCalledWith([
+      MANUAL_RECIPIENT.id,
+    ]);
+  });
 });
 
 describe("createEmailDraftAction", () => {
@@ -274,6 +342,102 @@ describe("sendEmailNowAction", () => {
     expect(mockQueueEmailSend).toHaveBeenCalledWith("send-1");
     expect(mockAfter).toHaveBeenCalled();
     expect(result).toEqual({ sendId: "send-1" });
+  });
+
+  it("creates send recipient rows for selected saved manual recipients", async () => {
+    await sendEmailNowAction({
+      kind: "outreach",
+      subject: "Hello {{contact.name}}",
+      templateVersionId: TEMPLATE_VERSION_ID,
+      builderJson: { type: "doc", content: [] },
+      manualRecipientIds: [MANUAL_RECIPIENT.id],
+    });
+
+    expect(mockCreateEmailSendWithRecipients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "outreach",
+        recipients: [
+          expect.objectContaining({
+            contactId: null,
+            email: MANUAL_RECIPIENT.email,
+            name: MANUAL_RECIPIENT.name,
+            status: "pending",
+            personalization: {
+              contact: {
+                id: MANUAL_RECIPIENT.id,
+                name: MANUAL_RECIPIENT.name,
+                email: MANUAL_RECIPIENT.email,
+              },
+              manualRecipient: {
+                id: MANUAL_RECIPIENT.id,
+              },
+            },
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("deduplicates repeated saved manual recipient ids before creating rows", async () => {
+    await sendEmailNowAction({
+      kind: "outreach",
+      subject: "Hello {{contact.name}}",
+      templateVersionId: TEMPLATE_VERSION_ID,
+      builderJson: { type: "doc", content: [] },
+      manualRecipientIds: [MANUAL_RECIPIENT.id, MANUAL_RECIPIENT.id],
+    });
+
+    expect(mockGetEmailManualRecipientsByIds).toHaveBeenCalledWith([
+      MANUAL_RECIPIENT.id,
+    ]);
+    expect(
+      mockCreateEmailSendWithRecipients.mock.calls[0][0].recipients,
+    ).toHaveLength(1);
+  });
+
+  it("skips suppressed selected manual recipients", async () => {
+    mockListActiveEmailSuppressions.mockResolvedValue([
+      {
+        contact_id: null,
+        email: MANUAL_RECIPIENT.email,
+        lifted_at: null,
+      },
+    ]);
+
+    await sendEmailNowAction({
+      kind: "outreach",
+      subject: "Hello {{contact.name}}",
+      templateVersionId: TEMPLATE_VERSION_ID,
+      builderJson: { type: "doc", content: [] },
+      manualRecipientIds: [MANUAL_RECIPIENT.id],
+    });
+
+    expect(mockCreateEmailSendWithRecipients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipients: [
+          expect.objectContaining({
+            contactId: null,
+            email: MANUAL_RECIPIENT.email,
+            status: "skipped_suppressed",
+            skipReason: "suppressed",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("rejects manual recipients for broadcasts", async () => {
+    await expect(
+      sendEmailNowAction({
+        kind: "broadcast",
+        subject: "Hello {{contact.name}}",
+        templateVersionId: TEMPLATE_VERSION_ID,
+        builderJson: { type: "doc", content: [] },
+        manualRecipientIds: [MANUAL_RECIPIENT.id],
+      }),
+    ).rejects.toThrow("Manual recipients can only be used for outreach");
+
+    expect(mockCreateEmailSendWithRecipients).not.toHaveBeenCalled();
   });
 
   it("fails before creating large sends when worker continuation is disabled", async () => {

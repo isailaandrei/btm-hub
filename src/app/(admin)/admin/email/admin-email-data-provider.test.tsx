@@ -9,6 +9,7 @@ import type { EmailSend, EmailTemplate } from "@/types/database";
 
 const mockLoadEmailTemplatesAction = vi.fn();
 const mockLoadEmailSendsAction = vi.fn();
+const mockLoadEmailManualRecipientsAction = vi.fn();
 const mockGetTemplateVersionForEditorAction = vi.fn();
 const mockToastError = vi.fn();
 
@@ -19,6 +20,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("./actions", () => ({
+  loadEmailManualRecipientsAction: mockLoadEmailManualRecipientsAction,
   loadEmailTemplatesAction: mockLoadEmailTemplatesAction,
   loadEmailSendsAction: mockLoadEmailSendsAction,
 }));
@@ -103,6 +105,22 @@ function SendsConsumer() {
   );
 }
 
+function ManualRecipientsConsumer() {
+  const { manualRecipients, ensureManualRecipients } = useAdminEmailData();
+
+  return (
+    <>
+      <output>{manualRecipients?.[0]?.email ?? "no-recipients"}</output>
+      <button
+        type="button"
+        onClick={() => void ensureManualRecipients({ quiet: true })}
+      >
+        Load recipients
+      </button>
+    </>
+  );
+}
+
 function TemplateVersionConsumer() {
   const {
     templateVersionsById,
@@ -153,6 +171,14 @@ function SendsShell() {
   );
 }
 
+function ManualRecipientsShell() {
+  return (
+    <AdminEmailDataProvider>
+      <ManualRecipientsConsumer />
+    </AdminEmailDataProvider>
+  );
+}
+
 function TemplateVersionShell() {
   return (
     <AdminEmailDataProvider>
@@ -178,6 +204,9 @@ describe("AdminEmailDataProvider", () => {
     mockLoadEmailSendsAction.mockResolvedValue({
       sends: [makeSend("send-1")],
     });
+    mockLoadEmailManualRecipientsAction.mockResolvedValue({
+      manualRecipients: [{ id: "manual-1", email: "test@example.com" }],
+    });
     mockGetTemplateVersionForEditorAction.mockResolvedValue({
       builderJson: { type: "doc", content: [{ type: "paragraph" }] },
     });
@@ -199,6 +228,7 @@ describe("AdminEmailDataProvider", () => {
     expect(container.querySelector("output")?.textContent).toBe("1:loading");
     expect(mockLoadEmailTemplatesAction).toHaveBeenCalledTimes(1);
     expect(mockLoadEmailSendsAction).not.toHaveBeenCalled();
+    expect(mockLoadEmailManualRecipientsAction).not.toHaveBeenCalled();
 
     await act(async () => {
       container.querySelector("button")?.dispatchEvent(
@@ -215,6 +245,7 @@ describe("AdminEmailDataProvider", () => {
     expect(container.querySelector("output")?.textContent).toBe("1:loading");
     expect(mockLoadEmailTemplatesAction).toHaveBeenCalledTimes(1);
     expect(mockLoadEmailSendsAction).not.toHaveBeenCalled();
+    expect(mockLoadEmailManualRecipientsAction).not.toHaveBeenCalled();
   });
 
   it("allows explicit template refresh after data has already loaded", async () => {
@@ -264,6 +295,28 @@ describe("AdminEmailDataProvider", () => {
 
     expect(container.querySelector("output")?.textContent).toBe("send-1");
     expect(mockLoadEmailSendsAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads manual recipients only when requested", async () => {
+    await act(async () => {
+      root.render(<ManualRecipientsShell />);
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector("output")?.textContent).toBe("no-recipients");
+    expect(mockLoadEmailManualRecipientsAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container.querySelector("button")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector("output")?.textContent).toBe(
+      "test@example.com",
+    );
+    expect(mockLoadEmailManualRecipientsAction).toHaveBeenCalledTimes(1);
   });
 
   it("caches individual template versions", async () => {

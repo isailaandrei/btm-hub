@@ -12,8 +12,13 @@ import {
   type SetStateAction,
 } from "react";
 import { toast } from "sonner";
-import type { EmailSend, EmailTemplate } from "@/types/database";
+import type {
+  EmailManualRecipient,
+  EmailSend,
+  EmailTemplate,
+} from "@/types/database";
 import {
+  loadEmailManualRecipientsAction,
   loadEmailSendsAction,
   loadEmailTemplatesAction,
   type EmailTemplateVersionDocument,
@@ -27,18 +32,24 @@ type LoadOptions = { quiet?: boolean };
 interface AdminEmailDataContextValue {
   templates: EmailTemplate[] | null;
   sends: EmailSend[] | null;
+  manualRecipients: EmailManualRecipient[] | null;
   templateVersionsById: EmailTemplateVersionsById;
   emailError: string | null;
   ensureEmailTemplates: (options?: LoadOptions) => Promise<void>;
   refreshEmailTemplates: (options?: LoadOptions) => Promise<void>;
   ensureEmailSends: (options?: LoadOptions) => Promise<void>;
   refreshEmailSends: (options?: LoadOptions) => Promise<void>;
+  ensureManualRecipients: (options?: LoadOptions) => Promise<void>;
+  refreshManualRecipients: (options?: LoadOptions) => Promise<void>;
   ensureTemplateVersion: (
     versionId: string,
     options?: LoadOptions,
   ) => Promise<EmailTemplateVersionDocument | null>;
   setEmailTemplates: Dispatch<SetStateAction<EmailTemplate[] | null>>;
   setEmailSends: Dispatch<SetStateAction<EmailSend[] | null>>;
+  setManualRecipients: Dispatch<
+    SetStateAction<EmailManualRecipient[] | null>
+  >;
 }
 
 const AdminEmailDataContext =
@@ -57,13 +68,18 @@ export function useAdminEmailData() {
 export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
   const [templates, setEmailTemplates] = useState<EmailTemplate[] | null>(null);
   const [sends, setEmailSends] = useState<EmailSend[] | null>(null);
+  const [manualRecipients, setManualRecipients] = useState<
+    EmailManualRecipient[] | null
+  >(null);
   const [templateVersionsById, setTemplateVersionsById] =
     useState<EmailTemplateVersionsById>({});
   const [emailError, setEmailError] = useState<string | null>(null);
   const templateFetchStateRef = useRef<FetchState>("idle");
   const sendsFetchStateRef = useRef<FetchState>("idle");
+  const manualRecipientsFetchStateRef = useRef<FetchState>("idle");
   const pendingTemplateLoadRef = useRef<Promise<void> | null>(null);
   const pendingSendsLoadRef = useRef<Promise<void> | null>(null);
+  const pendingManualRecipientsLoadRef = useRef<Promise<void> | null>(null);
   const templateVersionsByIdRef = useRef<EmailTemplateVersionsById>({});
   const pendingTemplateVersionLoadsRef = useRef<
     Map<string, Promise<EmailTemplateVersionDocument | null>>
@@ -183,6 +199,58 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
     [loadEmailSends],
   );
 
+  const loadManualRecipients = useCallback(
+    (options?: LoadOptions & { force?: boolean }) => {
+      if (manualRecipientsFetchStateRef.current === "loading") {
+        return pendingManualRecipientsLoadRef.current ?? Promise.resolve();
+      }
+      if (!options?.force && manualRecipientsFetchStateRef.current === "done") {
+        return Promise.resolve();
+      }
+
+      manualRecipientsFetchStateRef.current = "loading";
+
+      const pendingLoad = (async () => {
+        try {
+          const data = await loadEmailManualRecipientsAction();
+          setManualRecipients(data.manualRecipients);
+          setEmailError(null);
+          manualRecipientsFetchStateRef.current = "done";
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Failed to load saved recipients.";
+          manualRecipientsFetchStateRef.current = "idle";
+          setEmailError(message);
+          if (!options?.quiet) {
+            toast.error(message);
+          }
+        } finally {
+          pendingManualRecipientsLoadRef.current = null;
+        }
+      })();
+
+      pendingManualRecipientsLoadRef.current = pendingLoad;
+      return pendingLoad;
+    },
+    [],
+  );
+
+  const ensureManualRecipients = useCallback(
+    (options?: LoadOptions) => loadManualRecipients(options),
+    [loadManualRecipients],
+  );
+
+  const refreshManualRecipients = useCallback(
+    (options?: LoadOptions) =>
+      loadManualRecipients({
+        ...options,
+        force: true,
+      }),
+    [loadManualRecipients],
+  );
+
   const ensureTemplateVersion = useCallback(
     (versionId: string, options?: LoadOptions) => {
       const cached = templateVersionsByIdRef.current[versionId];
@@ -222,28 +290,36 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
     () => ({
       templates,
       sends,
+      manualRecipients,
       templateVersionsById,
       emailError,
       ensureEmailTemplates,
       refreshEmailTemplates,
       ensureEmailSends,
       refreshEmailSends,
+      ensureManualRecipients,
+      refreshManualRecipients,
       ensureTemplateVersion,
       setEmailTemplates,
       setEmailSends,
+      setManualRecipients,
     }),
     [
       templates,
       sends,
+      manualRecipients,
       templateVersionsById,
       emailError,
       ensureEmailTemplates,
       refreshEmailTemplates,
       ensureEmailSends,
       refreshEmailSends,
+      ensureManualRecipients,
+      refreshManualRecipients,
       ensureTemplateVersion,
       setEmailTemplates,
       setEmailSends,
+      setManualRecipients,
     ],
   );
 

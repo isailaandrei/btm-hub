@@ -304,6 +304,17 @@ export interface EmailAsset {
   created_at: string;
 }
 
+export interface EmailManualRecipient {
+  id: string;
+  email: string;
+  name: string;
+  notes: string;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContactEmailPreference {
   contact_id: string;
   newsletter_unsubscribed_at: string | null;

@@ -9,10 +9,12 @@ import type { EmailTemplate } from "@/types/database";
 
 const mockEnsureEmailTemplates = vi.fn();
 const mockEnsureEmailSends = vi.fn();
+const mockEnsureManualRecipients = vi.fn();
 const mockRefreshEmailSends = vi.fn();
 const mockEnsureTemplateVersion = vi.fn();
 const mockSetEmailSends = vi.fn();
 const mockSetEmailTemplates = vi.fn();
+const mockSetManualRecipients = vi.fn();
 const mockEmailComposerMount = vi.fn();
 const mockEmailComposerUnmount = vi.fn();
 const mockTemplateEditorMount = vi.fn();
@@ -43,14 +45,17 @@ vi.mock("./admin-email-data-provider", () => ({
       } as EmailTemplate,
     ],
     sends: [],
+    manualRecipients: [],
     templateVersionsById: {},
     emailError: null,
     ensureEmailTemplates: mockEnsureEmailTemplates,
     ensureEmailSends: mockEnsureEmailSends,
+    ensureManualRecipients: mockEnsureManualRecipients,
     refreshEmailSends: mockRefreshEmailSends,
     ensureTemplateVersion: mockEnsureTemplateVersion,
     setEmailSends: mockSetEmailSends,
     setEmailTemplates: mockSetEmailTemplates,
+    setManualRecipients: mockSetManualRecipients,
   }),
 }));
 
@@ -88,6 +93,7 @@ describe("EmailStudio", () => {
     root = createRoot(container);
     mockEnsureEmailTemplates.mockReset().mockResolvedValue(undefined);
     mockEnsureEmailSends.mockReset().mockResolvedValue(undefined);
+    mockEnsureManualRecipients.mockReset().mockResolvedValue(undefined);
     mockRefreshEmailSends.mockReset().mockResolvedValue(undefined);
     mockEnsureTemplateVersion.mockReset().mockResolvedValue(null);
   });
@@ -156,12 +162,13 @@ describe("EmailStudio", () => {
     expect(mockTemplateEditorUnmount).not.toHaveBeenCalled();
   });
 
-  it("loads templates on mount and defers sends until the sent tab is selected", () => {
+  it("loads compose data on mount and defers sends until the sent tab is selected", () => {
     act(() => {
       root.render(<EmailStudio selectedContactIds={[]} />);
     });
 
     expect(mockEnsureEmailTemplates).toHaveBeenCalledWith({ quiet: true });
+    expect(mockEnsureManualRecipients).toHaveBeenCalledWith({ quiet: true });
     expect(mockEnsureEmailSends).not.toHaveBeenCalled();
 
     clickEmailTab("Sent emails");

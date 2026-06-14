@@ -1,8 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
-import type { EmailSendKind, EmailTemplate } from "@/types/database";
+import type {
+  EmailManualRecipient,
+  EmailSendKind,
+  EmailTemplate,
+} from "@/types/database";
 import {
   assertMailyDocument,
   createDefaultMailyDocument,
@@ -13,6 +26,7 @@ import {
   type EmailDesignerHandle,
 } from "../templates/email-designer";
 import {
+  saveEmailManualRecipientAction,
   sendEmailNowAction,
   type EmailTemplateVersionsById,
   type EmailTemplateVersionDocument,
@@ -37,6 +51,8 @@ export function EmailComposer({
   templateVersionsById,
   ensureTemplateVersion,
   selectedContactIds,
+  manualRecipients,
+  setManualRecipients,
   onSendStarted,
 }: {
   templates: EmailTemplate[];
@@ -46,6 +62,8 @@ export function EmailComposer({
     options?: { quiet?: boolean },
   ) => Promise<EmailTemplateVersionDocument | null>;
   selectedContactIds: string[];
+  manualRecipients: EmailManualRecipient[];
+  setManualRecipients: Dispatch<SetStateAction<EmailManualRecipient[] | null>>;
   onSendStarted?: () => void;
 }) {
   const publishedTemplates = useMemo(
@@ -90,9 +108,16 @@ export function EmailComposer({
     versionId: string;
     message: string;
   } | null>(null);
+  const [selectedManualRecipientIds, setSelectedManualRecipientIds] = useState<
+    string[]
+  >([]);
+  const [manualRecipientName, setManualRecipientName] = useState("");
+  const [manualRecipientEmail, setManualRecipientEmail] = useState("");
   const [isBroadcastConfirmOpen, setIsBroadcastConfirmOpen] = useState(false);
   const [isLoadingTemplate, startLoadTransition] = useTransition();
   const [isSending, startSendTransition] = useTransition();
+  const [isSavingManualRecipient, startSaveManualRecipientTransition] =
+    useTransition();
   const designerRef = useRef<EmailDesignerHandle>(null);
 
   const selectedTemplate = publishedTemplates.find(
@@ -144,8 +169,53 @@ export function EmailComposer({
     Boolean(selectedTemplateVersionId) &&
     loadedTemplateVersionId === selectedTemplateVersionId &&
     !activeTemplateLoadError;
+  const selectedManualRecipientCount =
+    kind === "outreach" ? selectedManualRecipientIds.length : 0;
   const isOutreachWithoutRecipients =
-    kind === "outreach" && selectedContactIds.length === 0;
+    kind === "outreach" &&
+    selectedContactIds.length + selectedManualRecipientCount === 0;
+
+  function toggleManualRecipient(recipientId: string) {
+    setSelectedManualRecipientIds((current) =>
+      current.includes(recipientId)
+        ? current.filter((id) => id !== recipientId)
+        : [...current, recipientId],
+    );
+  }
+
+  function handleSaveManualRecipient() {
+    startSaveManualRecipientTransition(async () => {
+      try {
+        const result = await saveEmailManualRecipientAction({
+          email: manualRecipientEmail,
+          name: manualRecipientName,
+        });
+        setManualRecipients((current) => {
+          const existing = current ?? [];
+          const withoutSaved = existing.filter(
+            (recipient) =>
+              recipient.id !== result.manualRecipient.id &&
+              recipient.email !== result.manualRecipient.email,
+          );
+          return [...withoutSaved, result.manualRecipient].sort((a, b) =>
+            a.name.localeCompare(b.name),
+          );
+        });
+        setSelectedManualRecipientIds((current) =>
+          current.includes(result.manualRecipient.id)
+            ? current
+            : [...current, result.manualRecipient.id],
+        );
+        setManualRecipientName("");
+        setManualRecipientEmail("");
+        toast.success("Recipient saved.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to save recipient.",
+        );
+      }
+    });
+  }
 
   function startSendNow() {
     if (!selectedTemplateVersionId) {
@@ -159,7 +229,7 @@ export function EmailComposer({
       return;
     }
     if (isOutreachWithoutRecipients) {
-      toast.error("Select at least one contact before sending outreach.");
+      toast.error("Select at least one recipient before sending outreach.");
       return;
     }
     startSendTransition(async () => {
@@ -172,6 +242,8 @@ export function EmailComposer({
           builderJson: snapshot?.builderJson ?? document,
           previewText,
           contactIds: selectedContactIds,
+          manualRecipientIds:
+            kind === "outreach" ? selectedManualRecipientIds : [],
         });
         if (onSendStarted) {
           onSendStarted();
@@ -198,7 +270,7 @@ export function EmailComposer({
       return;
     }
     if (isOutreachWithoutRecipients) {
-      toast.error("Select at least one contact before sending outreach.");
+      toast.error("Select at least one recipient before sending outreach.");
       return;
     }
     if (requiresBroadcastConfirmation(kind)) {
@@ -216,6 +288,7 @@ export function EmailComposer({
   const recipientSummary = getRecipientSummary({
     kind,
     selectedContactCount: selectedContactIds.length,
+    selectedManualRecipientCount,
   });
 
   if (publishedTemplates.length === 0) {
@@ -300,30 +373,108 @@ export function EmailComposer({
         </p>
       )}
 
-      <div className="grid gap-4 rounded-md border border-border bg-card p-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">Recipients</p>
-          <p className="mt-1 text-sm text-foreground">
-            {recipientSummary.headline}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {recipientSummary.detail}
-          </p>
+      <div className="rounded-md border border-border bg-card p-4">
+        <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">
+              Recipients
+            </p>
+            <p className="mt-1 text-sm text-foreground">
+              {recipientSummary.headline}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {recipientSummary.detail}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSendNow}
+            disabled={
+              isSending ||
+              isLoadingTemplate ||
+              !isTemplateReady ||
+              isOutreachWithoutRecipients
+            }
+            className="h-[50px] w-[200px] justify-self-start rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 md:justify-self-end"
+          >
+            {isSending ? "Sending..." : "Send now"}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleSendNow}
-          disabled={
-            isSending ||
-            isLoadingTemplate ||
-            !isTemplateReady ||
-            isOutreachWithoutRecipients
-          }
-          className="h-[50px] w-[200px] justify-self-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
-          {isSending ? "Sending..." : "Send now"}
-        </button>
-        <div aria-hidden="true" />
+
+        {kind === "outreach" && (
+          <div className="mt-4 grid gap-4 border-t border-border pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground">
+                Saved recipients
+              </p>
+              <div className="mt-2 flex max-h-[180px] flex-col gap-2 overflow-auto pr-1">
+                {manualRecipients.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No saved recipients yet.
+                  </p>
+                ) : (
+                  manualRecipients.map((recipient) => (
+                    <label
+                      key={recipient.id}
+                      className="flex min-h-10 items-center gap-3 text-sm text-foreground"
+                    >
+                      <input
+                        type="checkbox"
+                        value={recipient.id}
+                        checked={selectedManualRecipientIds.includes(
+                          recipient.id,
+                        )}
+                        onChange={() => toggleManualRecipient(recipient.id)}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          {recipient.name}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {recipient.email}
+                        </span>
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Recipient name
+                </span>
+                <input
+                  value={manualRecipientName}
+                  onChange={(event) => setManualRecipientName(event.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Recipient email
+                </span>
+                <input
+                  value={manualRecipientEmail}
+                  onChange={(event) => setManualRecipientEmail(event.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  type="email"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={handleSaveManualRecipient}
+                disabled={isSavingManualRecipient}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-foreground disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                {isSavingManualRecipient ? "Saving..." : "Save recipient"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {isBroadcastConfirmOpen && (
