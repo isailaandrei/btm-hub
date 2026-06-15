@@ -6,7 +6,6 @@ const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
 const APPLICATION_ID = "22222222-2222-4222-8222-222222222222";
 const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ORIGINAL_OPENAI_MODEL = process.env.OPENAI_MODEL;
-const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const ORIGINAL_PRINT_OPENAI_PAYLOAD =
   process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD;
 
@@ -28,6 +27,7 @@ describe("openAiAdminAiProvider.generate", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
 
     if (ORIGINAL_OPENAI_API_KEY === undefined) {
       delete process.env.OPENAI_API_KEY;
@@ -45,12 +45,6 @@ describe("openAiAdminAiProvider.generate", () => {
       delete process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD;
     } else {
       process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD = ORIGINAL_PRINT_OPENAI_PAYLOAD;
-    }
-
-    if (ORIGINAL_NODE_ENV === undefined) {
-      delete process.env.NODE_ENV;
-    } else {
-      process.env.NODE_ENV = ORIGINAL_NODE_ENV;
     }
   });
 
@@ -359,7 +353,7 @@ describe("openAiAdminAiProvider.generate", () => {
 
   it("does not print the full OpenAI request by default, even in development", async () => {
     delete process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD;
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const fetchMock = makeOkFetchMock("global");
     vi.stubGlobal("fetch", fetchMock);
