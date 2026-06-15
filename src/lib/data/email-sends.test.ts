@@ -39,41 +39,6 @@ describe("email send data access", () => {
     vi.mocked(requireAdmin).mockResolvedValue(ADMIN_PROFILE);
   });
 
-  it("loads a bounded page of sent emails newest first by default", async () => {
-    const sends = [{ id: "send-1" }];
-    mockSupabase.mockQueryResult(sends);
-
-    const { DEFAULT_EMAIL_SENDS_LIMIT, listEmailSends } = await import(
-      "./email-sends"
-    );
-    const result = await listEmailSends();
-
-    expect(mockSupabase.client.from).toHaveBeenCalledWith("email_sends");
-    expect(mockSupabase.query.select).toHaveBeenCalledWith("*");
-    expect(mockSupabase.query.order).toHaveBeenCalledWith("created_at", {
-      ascending: false,
-    });
-    expect(mockSupabase.query.range).toHaveBeenCalledWith(
-      0,
-      DEFAULT_EMAIL_SENDS_LIMIT - 1,
-    );
-    expect(result).toBe(sends);
-  });
-
-  it("clamps custom sent email page sizes", async () => {
-    mockSupabase.mockQueryResult([]);
-
-    const { listEmailSends, MAX_EMAIL_SENDS_LIMIT } = await import(
-      "./email-sends"
-    );
-    await listEmailSends(MAX_EMAIL_SENDS_LIMIT + 500);
-
-    expect(mockSupabase.query.range).toHaveBeenCalledWith(
-      0,
-      MAX_EMAIL_SENDS_LIMIT - 1,
-    );
-  });
-
   it("creates an email send and recipients through one transaction RPC", async () => {
     const send = { id: "send-1", kind: "outreach", subject_template: "Hello" };
     mockSupabase.mockQueryResult(send);

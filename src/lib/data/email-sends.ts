@@ -14,9 +14,6 @@ import type {
   EmailSuppressionReason,
 } from "@/types/database";
 
-export const DEFAULT_EMAIL_SENDS_LIMIT = 50;
-export const MAX_EMAIL_SENDS_LIMIT = 200;
-
 export type EmailSendRecipientInput = {
   contactId: string | null;
   email: string;
@@ -27,22 +24,12 @@ export type EmailSendRecipientInput = {
 };
 
 export const listEmailSends = cache(
-  async function listEmailSends(
-    limit = DEFAULT_EMAIL_SENDS_LIMIT,
-  ): Promise<EmailSend[]> {
-    const requestedLimit = Number.isFinite(limit)
-      ? Math.floor(limit)
-      : DEFAULT_EMAIL_SENDS_LIMIT;
-    const normalizedLimit = Math.min(
-      MAX_EMAIL_SENDS_LIMIT,
-      Math.max(1, requestedLimit),
-    );
+  async function listEmailSends(): Promise<EmailSend[]> {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("email_sends")
       .select("*")
-      .order("created_at", { ascending: false })
-      .range(0, normalizedLimit - 1);
+      .order("created_at", { ascending: false });
 
     if (error) throw new Error(`Failed to load sent emails: ${error.message}`);
     return (data ?? []) as EmailSend[];

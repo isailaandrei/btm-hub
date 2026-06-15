@@ -16,7 +16,7 @@ import {
 import {
   readContactsTablePreferences,
   type ContactsTablePageSize,
-} from "@/lib/admin/contacts/preferences-shared";
+} from "@/lib/admin/contacts/preferences";
 
 const DEFAULT_PAGE_SIZE: ContactsTablePageSize = 25;
 const CONTACT_SELECT =

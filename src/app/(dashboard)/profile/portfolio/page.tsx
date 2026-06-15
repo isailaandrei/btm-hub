@@ -5,7 +5,7 @@ import { PortfolioUploader } from "./portfolio-uploader";
 
 export default async function ProfilePortfolioPage() {
   const profile = await getProfile();
-  if (!profile) redirect("/");
+  if (!profile) redirect("/login");
 
   const items = await getPortfolioItemsByProfileId(profile.id);
   const portfolioStateKey = items

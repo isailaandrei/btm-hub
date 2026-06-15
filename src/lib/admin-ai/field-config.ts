@@ -10,7 +10,7 @@ import {
   FIELD_REGISTRY,
   getFieldEntry,
   type FieldRegistryEntry,
-} from "@/app/(dashboard)/admin/contacts/field-registry";
+} from "@/app/(admin)/admin/contacts/field-registry";
 
 // ---------------------------------------------------------------------------
 // Structured (filterable) fields

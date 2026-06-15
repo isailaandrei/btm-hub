@@ -14,7 +14,7 @@ export default async function ProfileLayout({
   ]);
 
   if (!profile) {
-    redirect("/");
+    redirect("/login");
   }
 
   return (
