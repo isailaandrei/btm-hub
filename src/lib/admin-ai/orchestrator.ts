@@ -49,6 +49,14 @@ export type RunAdminAiAnalysisResult = {
 const CHAT_RETRIEVAL_UNAVAILABLE_NOTE =
   "Conversation evidence retrieval was unavailable for this answer.";
 
+function formatMoney(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+}
+
 function appendUncertainty(
   response: AdminAiResponse,
   note: string,
@@ -81,6 +89,24 @@ function discloseChatRetrievalUnavailable(
     : response;
 }
 
+function discloseHardConstraintPrefilter(input: {
+  response: AdminAiResponse;
+  droppedContactCount: number;
+  budgetMin?: number;
+}): AdminAiResponse {
+  if (input.droppedContactCount === 0) return input.response;
+  const budgetText =
+    input.budgetMin === undefined
+      ? "the deterministic hard filters"
+      : `the deterministic budget filter (${formatMoney(input.budgetMin)} minimum)`;
+  const contactLabel =
+    input.droppedContactCount === 1 ? "contact was" : "contacts were";
+  return appendUncertainty(
+    input.response,
+    `${input.droppedContactCount} ${contactLabel} excluded by ${budgetText} before synthesis because the available CRM data did not satisfy the user's hard constraint.`,
+  );
+}
+
 export function describeAssistantResponse(response: AdminAiResponse): string {
   if (response.shortlist && response.shortlist.length > 0) {
     const names = response.shortlist.map((entry) => entry.contactName);
@@ -105,11 +131,8 @@ function buildCardQueryPlan(input: {
     contactId: input.scope === "contact" ? input.contactId : undefined,
     structuredFilters: [],
     textFocus: input.question.trim() ? [input.question.trim()] : [],
+    requestedLimit: input.scope === "contact" ? 1 : 25,
   };
-
-  if (input.scope === "contact") {
-    plan.requestedLimit = 1;
-  }
 
   return plan;
 }
@@ -505,6 +528,33 @@ async function runCardSynthesis(input: {
       response = stripResponseCitations(response);
     }
 
+    if (
+      includeEvidence &&
+      input.scope === "contact" &&
+      response.contactAssessment &&
+      response.contactAssessment.citations.length === 0
+    ) {
+      const insufficient = discloseChatRetrievalUnavailable(
+        buildInsufficientEvidenceResponse("contact", {
+          extra:
+            droppedEvidenceIds.length > 0
+              ? "The model returned a contact assessment, but its citations could not be resolved to raw evidence, so no grounded assessment could be kept."
+              : "The model did not return a grounded contact assessment for this question.",
+        }),
+        chatRetrievalUnavailable,
+      );
+      timer.end({
+        status: "insufficient_after_evidence_cleanup",
+        droppedEvidenceCount: droppedEvidenceIds.length,
+      });
+      return persistInsufficientResponse({
+        threadId: input.threadId,
+        queryPlan: input.queryPlan,
+        response: insufficient,
+        reason: "ungrounded_raw_card_contact_assessment",
+      });
+    }
+
     let droppedContactIds: string[] = [];
     if (includeEvidence && input.scope === "global") {
       const cleaned = pruneUncitedGlobalShortlistEntries({
@@ -546,6 +596,14 @@ async function runCardSynthesis(input: {
       });
       response = constrained.response;
       hardConstraintDroppedShortlistContactIds = constrained.droppedContactIds;
+    }
+
+    if (hasHardConstraints && input.scope === "global") {
+      response = discloseHardConstraintPrefilter({
+        response,
+        droppedContactCount: hardConstraintFilter.droppedContactIds.length,
+        budgetMin: hardConstraintFilter.constraints.budgetMin,
+      });
     }
 
     response = discloseChatRetrievalUnavailable(

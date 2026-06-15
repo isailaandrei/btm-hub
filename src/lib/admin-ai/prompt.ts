@@ -40,7 +40,7 @@ export function buildAdminAiSystemPrompt(
   const evidenceInstructions = includeEvidence
     ? [
         "Evidence ids appear inline in each card in square brackets (e.g. `[e12]`); supplemental conversation evidence items are listed in `evidence` with their ids.",
-        "Compact structured facts and tag lists may be uncited because admins can verify those predefined CRM fields directly; cite bracketed evidence ids for free-text answers, notes, conflicts, and conversation facts.",
+        "Structured facts, tag lists, free-text answers, notes, conflicts, and conversation facts are citeable through their bracketed evidence ids.",
         "Use only supplied evidenceIds inside citations.",
         "Every shortlist entry and every contact assessment must include at least one supplied citation.",
       ]

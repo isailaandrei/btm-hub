@@ -93,7 +93,8 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     vi.unstubAllEnvs();
   });
 
-  it("omits evidence by default when generating and returning an answer", async () => {
+  it("omits evidence when disabled while generating and returning an answer", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
     const cardDataMod = await import("@/lib/data/contact-cards");
@@ -162,7 +163,8 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     );
   });
 
-  it("enforces requested minimum budget as a hard global shortlist constraint", async () => {
+  it("enforces and discloses requested minimum budget as a hard global shortlist constraint", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
     const providerMod = await import("./provider");
     const dataMod = await import("@/lib/data/admin-ai");
     const cardDataMod = await import("@/lib/data/contact-cards");
@@ -225,7 +227,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     expect(cardText).not.toContain("No Budget");
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
-        queryPlan: expect.not.objectContaining({
+        queryPlan: expect.objectContaining({
           requestedLimit: 25,
         }),
       }),
@@ -235,6 +237,9 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     ]);
     expect(result.response?.uncertainty).toContain(
       "Some model-returned shortlist entries were dropped because they were outside deterministic hard filters.",
+    );
+    expect(result.response?.uncertainty).toContain(
+      "2 contacts were excluded by the deterministic budget filter ($6,000 minimum) before synthesis because the available CRM data did not satisfy the user's hard constraint.",
     );
     expect(result.modelMetadata?.hardConstraints).toEqual(
       expect.objectContaining({
@@ -347,6 +352,74 @@ describe("runAdminAiAnalysis (raw cards)", () => {
       ],
     });
     expect(result.status).toBe("complete");
+  });
+
+  it("allows global shortlist entries grounded only in structured field citations", async () => {
+    enableEvidence();
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
+
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID, {
+        budget: "All-In budget (>12,000 €/USD)",
+      }),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([]);
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["Budget meets the requested minimum."],
+            concerns: [],
+            citations: [
+              {
+                evidenceId: "e1",
+                claimKey: "shortlist.0.whyFit.0",
+              },
+            ],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "Find candidates with budget 6k or more",
+    });
+
+    const cardText = ((generate.mock.calls[0]?.[0].cards ?? []) as Array<{
+      text: string;
+    }>).map((card) => card.text).join("\n");
+    expect(cardText).toContain("Structured facts: Budget=All-In budget");
+    expect(cardText).toContain("[e1]");
+    expect(result.response?.shortlist?.map((entry) => entry.contactId)).toEqual([
+      CONTACT_ID,
+    ]);
+    expect(dataMod.createAdminAiCitations).toHaveBeenCalledWith({
+      messageId: "assistant-1",
+      citations: [
+        expect.objectContaining({
+          source_type: "application_structured_field",
+          source_label: "Budget",
+          snippet: "All-In budget (>12,000 €/USD)",
+        }),
+      ],
+    });
   });
 
   it("drops unsupported global shortlist entries after citation guardrails", async () => {
@@ -646,5 +719,60 @@ describe("runAdminAiAnalysis (raw cards)", () => {
       },
     ]);
     expect(result.modelMetadata?.droppedEvidenceIds).toEqual(["ghost"]);
+  });
+
+  it("returns visible insufficient evidence when a contact assessment has no resolved citations", async () => {
+    enableEvidence();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    const retrievalMod = await import("@/lib/conversations/retrieval");
+
+    vi.mocked(cardDataMod.loadContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(retrievalMod.retrieveConversationEvidence).mockResolvedValue([]);
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: vi.fn().mockResolvedValue({
+        response: {
+          uncertainty: [],
+          contactAssessment: {
+            inferredQualities: ["Ungrounded"],
+            concerns: [],
+            citations: [
+              {
+                evidenceId: "ghost",
+                claimKey: "contactAssessment.inferredQualities.0",
+              },
+            ],
+          },
+        } as AdminAiResponse,
+        modelMetadata: {},
+      }),
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+    vi.mocked(dataMod.createAdminAiCitations).mockResolvedValue();
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "contact",
+      threadId: "thread-1",
+      question: "What?",
+      contactId: CONTACT_ID,
+    });
+
+    expect(result.status).toBe("complete");
+    expect(result.response?.contactAssessment).toBeUndefined();
+    expect(result.response?.uncertainty).toContain(
+      "The model returned a contact assessment, but its citations could not be resolved to raw evidence, so no grounded assessment could be kept.",
+    );
+    expect(result.modelMetadata).toEqual({
+      source: "system",
+      reason: "ungrounded_raw_card_contact_assessment",
+    });
+    expect(dataMod.createAdminAiCitations).not.toHaveBeenCalled();
   });
 });

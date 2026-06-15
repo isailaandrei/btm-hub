@@ -237,6 +237,7 @@ describe("askAdminAiQuestion", () => {
   });
 
   it("omits local assistant citations from the returned answer when evidence is disabled", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
     mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
     mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
     mockRunAdminAiAnalysis.mockResolvedValue({
@@ -474,6 +475,7 @@ describe("loadAdminAiThread", () => {
   });
 
   it("omits persisted citations from loaded messages when evidence is disabled", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
     mockGetAdminAiThreadDetail.mockResolvedValue(makeThreadDetail());
 
     const { loadAdminAiThread } = await import("./actions");

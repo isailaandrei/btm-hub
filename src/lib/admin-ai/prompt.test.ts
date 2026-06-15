@@ -11,5 +11,6 @@ describe("buildAdminAiSystemPrompt", () => {
     expect(prompt).toContain("Do not include candidates who fail");
     expect(prompt).toContain("Return fewer results, or an empty shortlist");
     expect(prompt).not.toContain("Return `shortlist` populated");
+    expect(prompt).not.toContain("may be uncited");
   });
 });

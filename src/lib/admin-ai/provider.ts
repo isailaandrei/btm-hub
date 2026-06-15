@@ -6,6 +6,7 @@ import {
   type AdminAiSynthesisInput,
 } from "./prompt";
 import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
+import { parseOptionalBooleanEnv } from "./env";
 import type { AdminAiResponse } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
@@ -58,32 +59,12 @@ function getGlobalPromptCacheRetention(): string | null {
   return process.env.OPENAI_GLOBAL_PROMPT_CACHE_RETENTION?.trim() || null;
 }
 
-function parseBooleanEnv(value: string | undefined): boolean | null {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
-  ) {
-    return true;
-  }
-  if (
-    normalized === "0" ||
-    normalized === "false" ||
-    normalized === "no" ||
-    normalized === "off"
-  ) {
-    return false;
-  }
-  return null;
-}
-
 function shouldPrintOpenAiRequestPayload(): boolean {
-  const explicit = parseBooleanEnv(process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD);
+  const explicit = parseOptionalBooleanEnv(
+    process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD,
+  );
   if (explicit !== null) return explicit;
-  return process.env.NODE_ENV === "development";
+  return false;
 }
 
 function printOpenAiRequestPayload(input: {

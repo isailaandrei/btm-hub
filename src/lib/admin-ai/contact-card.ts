@@ -210,7 +210,7 @@ function appendApplication(
     const sourceId = `${application.id}:${key}`;
     const evidenceId = `${sourceType}:${application.id}:${key}`;
     if (sourceType === "application_structured_field") {
-      structuredFacts.push(`${label}=${value}`);
+      structuredFacts.push(`${label}=${value} [${registry.register(evidenceId)}]`);
     } else {
       evidenceLines.push(`- ${label}: ${value} [${registry.register(evidenceId)}]`);
     }
@@ -368,7 +368,12 @@ export function renderContactCard(
 
   if (record.contactTags.length > 0) {
     lines.push(
-      `Tags: ${record.contactTags.map((tag) => tag.tagName).join(", ")}`,
+      `Tags: ${record.contactTags
+        .map((tag) => {
+          const evidenceId = `contact_tag:${tag.tagId}`;
+          return `${tag.tagName} [${registry.register(evidenceId)}]`;
+        })
+        .join(", ")}`,
     );
     for (const tag of record.contactTags) {
       const evidenceId = `contact_tag:${tag.tagId}`;
