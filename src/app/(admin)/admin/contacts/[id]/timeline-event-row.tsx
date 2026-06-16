@@ -255,7 +255,7 @@ export function TimelineEventRow({
       </div>
 
       {!isEditing && !isDerivedTagAssignment && !isDerivedEmailEvent && (
-        <div className="flex flex-none items-start gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="flex flex-none items-start gap-0.5">
           {isConfirmingDelete ? (
             <div className="flex items-center gap-1">
               <span className="text-xs text-muted-foreground">Delete?</span>
@@ -263,13 +263,16 @@ export function TimelineEventRow({
                 type="button"
                 onClick={handleDelete}
                 disabled={isPending}
+                aria-label="Confirm delete event"
                 className="rounded px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
               >
-                Yes
+                {isPending ? "Deleting..." : "Yes"}
               </button>
               <button
                 type="button"
                 onClick={() => setIsConfirmingDelete(false)}
+                disabled={isPending}
+                aria-label="Cancel delete event"
                 className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
               >
                 No
@@ -280,6 +283,7 @@ export function TimelineEventRow({
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
+                aria-label="Edit event"
                 className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Edit"
               >
@@ -290,6 +294,7 @@ export function TimelineEventRow({
                   type="button"
                   onClick={handleReopen}
                   disabled={isPending}
+                  aria-label="Reopen event"
                   className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                   title="Reopen"
                 >
@@ -299,6 +304,8 @@ export function TimelineEventRow({
               <button
                 type="button"
                 onClick={() => setIsConfirmingDelete(true)}
+                disabled={isPending}
+                aria-label="Delete event"
                 className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                 title="Delete"
               >
