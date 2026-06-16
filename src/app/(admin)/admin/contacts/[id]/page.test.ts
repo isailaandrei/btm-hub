@@ -10,6 +10,7 @@ const mockGetTagCategories = vi.fn();
 const mockGetTags = vi.fn();
 const mockGetContactEvents = vi.fn();
 const mockGetPortfolioItemsByContactProfileId = vi.fn();
+const mockGetProfile = vi.fn();
 const mockListAdminAiThreadSummaries = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
 
@@ -27,6 +28,10 @@ vi.mock("@/lib/data/contact-events", () => ({
 
 vi.mock("@/lib/data/profile-portfolio", () => ({
   getPortfolioItemsByContactProfileId: mockGetPortfolioItemsByContactProfileId,
+}));
+
+vi.mock("@/lib/data/profiles", () => ({
+  getProfile: mockGetProfile,
 }));
 
 vi.mock("@/lib/data/admin-ai", () => ({
@@ -61,6 +66,17 @@ describe("ContactDetailPage", () => {
     mockGetTagCategories.mockResolvedValue([]);
     mockGetTags.mockResolvedValue([]);
     mockGetPortfolioItemsByContactProfileId.mockResolvedValue([]);
+    mockGetProfile.mockResolvedValue({
+      id: "admin-1",
+      email: "admin@example.com",
+      display_name: "Admin User",
+      role: "admin",
+      bio: null,
+      avatar_url: null,
+      preferences: {},
+      created_at: "2026-05-22T00:00:00Z",
+      updated_at: "2026-05-22T00:00:00Z",
+    });
 
     await ContactDetailPage({
       params: Promise.resolve({ id: CONTACT_ID }),

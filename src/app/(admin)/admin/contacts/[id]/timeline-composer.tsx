@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Clock } from "lucide-react";
-import type { ContactEventType } from "@/types/database";
+import type { ContactEvent, ContactEventType } from "@/types/database";
 import {
   EVENT_TYPE_META,
   EVENT_TYPE_ORDER,
@@ -10,6 +11,7 @@ import {
 } from "./event-types";
 import { EVENT_TYPE_DISPLAY } from "./event-type-display";
 import { createEvent } from "./event-actions";
+import type { EventAction } from "./timeline-optimistic";
 
 function nowIsoLocalInput(): string {
   const d = new Date();
@@ -36,15 +38,20 @@ function formatWhenLabel(isoLocal: string): string {
 
 interface TimelineComposerProps {
   contactId: string;
+  authorName: string;
+  applyOptimistic: (action: EventAction) => void;
   onDismiss?: () => void;
   onAdded?: () => void;
 }
 
 export function TimelineComposer({
   contactId,
+  authorName,
+  applyOptimistic,
   onDismiss,
   onAdded,
 }: TimelineComposerProps) {
+  const router = useRouter();
   const [type, setType] = useState<ContactEventType>("note");
   const [body, setBody] = useState("");
   const [customLabel, setCustomLabel] = useState("");
@@ -73,13 +80,33 @@ export function TimelineComposer({
 
     startTransition(async () => {
       try {
+        const happenedAtIso = new Date(happenedAt).toISOString();
+        const nowIso = new Date().toISOString();
+        const optimisticEvent: ContactEvent = {
+          id: `optimistic-${crypto.randomUUID()}`,
+          contact_id: contactId,
+          type,
+          custom_label: type === "custom" ? customLabel.trim() : null,
+          body,
+          happened_at: happenedAtIso,
+          created_at: nowIso,
+          updated_at: nowIso,
+          author_id: "optimistic",
+          author_name: authorName,
+          edited_at: null,
+          resolved_at: null,
+          resolved_by: null,
+          metadata: {},
+        };
+        applyOptimistic({ kind: "add", event: optimisticEvent });
         await createEvent({
           contactId,
           type,
           body,
           customLabel: type === "custom" ? customLabel.trim() : null,
-          happenedAt: new Date(happenedAt).toISOString(),
+          happenedAt: happenedAtIso,
         });
+        router.refresh();
         setBody("");
         setCustomLabel("");
         setHappenedAt(nowIsoLocalInput());

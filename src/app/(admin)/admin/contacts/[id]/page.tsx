@@ -11,6 +11,7 @@ import {
 } from "@/lib/data/contacts";
 import { getContactEvents } from "@/lib/data/contact-events";
 import { getPortfolioItemsByContactProfileId } from "@/lib/data/profile-portfolio";
+import { getProfile } from "@/lib/data/profiles";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
@@ -38,6 +39,7 @@ export default async function ContactDetailPage({
     categories,
     allTags,
     portfolioItems,
+    profile,
   ] = await Promise.all([
     getApplicationsByContactId(id),
     getContactTags(id),
@@ -47,7 +49,9 @@ export default async function ContactDetailPage({
     getPortfolioItemsByContactProfileId({
       profileId: contact.profile_id,
     }),
+    getProfile(),
   ]);
+  const authorName = profile?.display_name ?? profile?.email ?? "You";
 
   const latestApplication = applications[0] ?? null;
   const latestApplicationPhone =
@@ -110,7 +114,11 @@ export default async function ContactDetailPage({
             ))
           )}
 
-          <Timeline contactId={contact.id} events={events} />
+          <Timeline
+            contactId={contact.id}
+            events={events}
+            authorName={authorName}
+          />
         </div>
 
         <div className="flex flex-col gap-6">

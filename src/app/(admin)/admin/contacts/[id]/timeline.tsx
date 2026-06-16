@@ -1,18 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useOptimistic, useState } from "react";
 import type { ContactEvent } from "@/types/database";
 import { Card, CardContent } from "@/components/ui/card";
 import { TimelineComposer } from "./timeline-composer";
 import { TimelineEventRow } from "./timeline-event-row";
+import { eventsReducer } from "./timeline-optimistic";
 
 interface TimelineProps {
   contactId: string;
   events: ContactEvent[];
+  authorName: string;
 }
 
-export function Timeline({ contactId, events }: TimelineProps) {
+export function Timeline({ contactId, events, authorName }: TimelineProps) {
   const [composerOpen, setComposerOpen] = useState(false);
+  const [optimisticEvents, applyOptimistic] = useOptimistic(
+    events,
+    eventsReducer,
+  );
 
   return (
     <Card>
@@ -34,16 +40,22 @@ export function Timeline({ contactId, events }: TimelineProps) {
         {composerOpen && (
           <TimelineComposer
             contactId={contactId}
+            authorName={authorName}
+            applyOptimistic={applyOptimistic}
             onDismiss={() => setComposerOpen(false)}
             onAdded={() => setComposerOpen(false)}
           />
         )}
-        {events.length === 0 ? (
+        {optimisticEvents.length === 0 ? (
           <p className="text-sm text-muted-foreground">No activity yet.</p>
         ) : (
           <div className="flex flex-col divide-y divide-border">
-            {events.map((event) => (
-              <TimelineEventRow key={event.id} event={event} />
+            {optimisticEvents.map((event) => (
+              <TimelineEventRow
+                key={event.id}
+                event={event}
+                applyOptimistic={applyOptimistic}
+              />
             ))}
           </div>
         )}

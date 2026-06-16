@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ContactEvent } from "@/types/database";
 import { formatRelative } from "@/lib/format-relative";
 import { eventTypeLabel, isResolvable } from "./event-types";
@@ -17,6 +19,7 @@ import {
   resolveEvent,
   unresolveEvent,
 } from "./event-actions";
+import type { EventAction } from "./timeline-optimistic";
 
 function toDatetimeLocal(iso: string): string {
   const d = new Date(iso);
@@ -36,9 +39,14 @@ function formatAbsolute(iso: string): string {
 
 interface TimelineEventRowProps {
   event: ContactEvent;
+  applyOptimistic: (action: EventAction) => void;
 }
 
-export function TimelineEventRow({ event }: TimelineEventRowProps) {
+export function TimelineEventRow({
+  event,
+  applyOptimistic,
+}: TimelineEventRowProps) {
+  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [draftBody, setDraftBody] = useState(event.body);
   const [draftHappenedAt, setDraftHappenedAt] = useState(toDatetimeLocal(event.happened_at));
@@ -61,11 +69,27 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
     setError(null);
     startTransition(async () => {
       try {
+        const happenedAtIso = new Date(draftHappenedAt).toISOString();
+        const editedAtIso = new Date().toISOString();
+        applyOptimistic({
+          kind: "update",
+          id: event.id,
+          fields: {
+            body: draftBody,
+            happened_at: happenedAtIso,
+            edited_at: editedAtIso,
+            updated_at: editedAtIso,
+            ...(event.type === "custom"
+              ? { custom_label: draftCustomLabel || null }
+              : {}),
+          },
+        });
         await updateEvent(event.id, {
           body: draftBody,
-          happenedAt: new Date(draftHappenedAt).toISOString(),
+          happenedAt: happenedAtIso,
           ...(event.type === "custom" ? { customLabel: draftCustomLabel || null } : {}),
         });
+        router.refresh();
         setIsEditing(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save");
@@ -77,10 +101,14 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
     setError(null);
     startTransition(async () => {
       try {
+        applyOptimistic({ kind: "delete", id: event.id });
         await deleteEvent(event.id);
+        router.refresh();
       } catch (err) {
         setIsConfirmingDelete(false);
-        setError(err instanceof Error ? err.message : "Failed to delete");
+        const message = err instanceof Error ? err.message : "Failed to delete";
+        setError(message);
+        toast.error(message);
       }
     });
   }
@@ -89,7 +117,14 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
     setError(null);
     startTransition(async () => {
       try {
+        applyOptimistic({
+          kind: "resolve",
+          id: event.id,
+          resolvedAt: new Date().toISOString(),
+          resolvedBy: "optimistic",
+        });
         await resolveEvent(event.id);
+        router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to resolve");
       }
@@ -100,7 +135,9 @@ export function TimelineEventRow({ event }: TimelineEventRowProps) {
     setError(null);
     startTransition(async () => {
       try {
+        applyOptimistic({ kind: "unresolve", id: event.id });
         await unresolveEvent(event.id);
+        router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to reopen");
       }
