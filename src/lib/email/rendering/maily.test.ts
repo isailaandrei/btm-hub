@@ -12,8 +12,60 @@ describe("Maily rendering", () => {
     const document = createDefaultMailyDocument();
 
     expect(document.type).toBe("doc");
-    expect(document.content?.some((node) => node.type === "heading")).toBe(true);
+    // Body content is wrapped in a section so it keeps a gutter while the
+    // container has zero horizontal padding (for full-width banners).
+    const section = document.content?.find((node) => node.type === "section");
+    expect(section).toBeDefined();
+    expect(section?.content?.some((node) => node.type === "heading")).toBe(true);
     expect(JSON.stringify(document)).toContain("contact.name");
+  });
+
+  it("puts a full-width banner above the padded body section", () => {
+    const document = createDefaultMailyDocument({
+      imageUrl: "https://cdn.example.com/banner.png",
+    });
+
+    // Banner is the first node (outside the section), so it spans the full
+    // container width.
+    expect(document.content?.[0]?.type).toBe("image");
+    expect(document.content?.[1]?.type).toBe("section");
+  });
+
+  it("renders the email at the configured 680px width", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    expect(rendered.html).toContain("max-width:680px");
+  });
+
+  it("uses a system font stack and loads no web font", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    expect(rendered.html).toContain("-apple-system");
+    // The library default Inter web font must not be downloaded.
+    expect(rendered.html).not.toContain("rsms.me");
+  });
+
+  it("forces images to height:auto so they scale proportionally on mobile", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({
+        type: "doc",
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: "https://cdn.example.com/banner.png",
+              width: "600",
+              // A fixed pixel height (as the editor stores after a drag-resize)
+              // must be normalized away at render time.
+              height: "200",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(rendered.html).toContain("height:auto");
+    expect(rendered.html).not.toContain("height:200px");
   });
 
   it("renders Maily JSON to HTML and text without consuming variables", async () => {

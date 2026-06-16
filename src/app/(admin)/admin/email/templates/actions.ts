@@ -107,6 +107,26 @@ export async function getTemplateVersionForEditorAction(
   };
 }
 
+// Sample values so variable placeholders (e.g. {{ contact.name }}) render as
+// realistic text in the preview instead of falling back to their default.
+const PREVIEW_SAMPLE_VARIABLES = {
+  contact: { name: "Alex Rivera", email: "alex@example.com" },
+  owner: { name: "Behind The Mask", email: "hello@behind-the-mask.com" },
+};
+
+export async function renderTemplatePreviewAction(input: {
+  builderJson: unknown;
+  previewText?: string;
+}): Promise<{ html: string }> {
+  await requireAdmin();
+  const document = assertMailyDocument(input.builderJson);
+  const rendered = await renderMailyDocument(document, {
+    previewText: input.previewText?.trim() || undefined,
+    variables: PREVIEW_SAMPLE_VARIABLES,
+  });
+  return { html: rendered.html };
+}
+
 export async function deleteTemplateAction(
   templateId: string,
 ): Promise<{ ok: true }> {

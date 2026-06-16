@@ -8,7 +8,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { EmailTemplate } from "@/types/database";
 import {
@@ -20,6 +20,7 @@ import {
   createAndPublishTemplateAction,
   deleteTemplateAction,
   publishTemplateVersionAction,
+  renderTemplatePreviewAction,
 } from "./actions";
 import type {
   EmailTemplateVersionDocument,
@@ -29,6 +30,7 @@ import {
   EmailDesigner,
   type EmailDesignerHandle,
 } from "./email-designer";
+import { EmailPreview } from "./email-preview";
 import { prependTemplateOnce } from "./template-list-state";
 
 function readCachedTemplateDocument(
@@ -96,7 +98,34 @@ export function TemplateEditor({
   const [isLoadingVersion, startLoadTransition] = useTransition();
   const [isPublishing, startPublishTransition] = useTransition();
   const [isDeleting, startDeleteTransition] = useTransition();
+  const [view, setView] = useState<"design" | "preview">("design");
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isRenderingPreview, startPreviewTransition] = useTransition();
   const designerRef = useRef<EmailDesignerHandle>(null);
+
+  const renderPreview = useCallback(() => {
+    const builderJson =
+      designerRef.current?.getSnapshot().builderJson ?? document;
+    startPreviewTransition(async () => {
+      try {
+        const result = await renderTemplatePreviewAction({ builderJson });
+        setPreviewHtml(result.html);
+        setPreviewError(null);
+      } catch (error) {
+        setPreviewError(
+          error instanceof Error
+            ? error.message
+            : "Failed to render preview.",
+        );
+      }
+    });
+  }, [document]);
+
+  const showPreview = useCallback(() => {
+    setView("preview");
+    renderPreview();
+  }, [renderPreview]);
 
   const applyLocalTemplates = useCallback(
     (nextTemplates: EmailTemplate[]) => {
@@ -391,11 +420,52 @@ export function TemplateEditor({
               )}
             </div>
 
-            <EmailDesigner
-              ref={designerRef}
-              sourceDocument={document}
-              onDocumentChange={setDocument}
-            />
+            <div className="mb-3 inline-flex rounded-md border border-border p-0.5">
+              <button
+                type="button"
+                onClick={() => setView("design")}
+                aria-pressed={view === "design"}
+                className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                  view === "design"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Design
+              </button>
+              <button
+                type="button"
+                onClick={showPreview}
+                aria-pressed={view === "preview"}
+                className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                  view === "preview"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Preview
+              </button>
+            </div>
+
+            {/* Editor stays mounted (just hidden) so in-progress edits and
+                cursor state survive toggling to the preview and back. */}
+            <div className={view === "design" ? "" : "hidden"}>
+              <EmailDesigner
+                ref={designerRef}
+                sourceDocument={document}
+                onDocumentChange={setDocument}
+              />
+            </div>
+            {view === "preview" && (
+              <EmailPreview
+                html={previewHtml}
+                isLoading={isRenderingPreview}
+                error={previewError}
+                onRefresh={renderPreview}
+              />
+            )}
             {activeTemplateLoadError && (
               <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 This saved template version is invalid. Select another template
