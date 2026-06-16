@@ -49,6 +49,21 @@ import {
   reassembleProjectedApplications,
   type ContactListApplication,
 } from "@/lib/admin/contacts/application-projection";
+import {
+  addMissingContactTags,
+  patchCategoryById,
+  patchTagById,
+  pickPreviousFields,
+  removeCategoryById,
+  removeContactTagPairs,
+  removeExistingContactTags,
+  removeTagById,
+  restoreContactTags,
+  upsertCategoryById,
+  upsertContactTagByPair,
+  upsertTagById,
+  type RollbackHandle,
+} from "./admin-optimistic-mutations";
 
 type FetchState = "idle" | "loading" | "done";
 
@@ -69,6 +84,23 @@ interface AdminContactsContextValue {
   hasLoadedFullContacts: boolean;
   contactsError: string | null;
   ensureContacts: () => void;
+  addOptimisticContactTags: (
+    contactIds: string[],
+    tagId: string,
+  ) => RollbackHandle;
+  removeOptimisticContactTags: (
+    contactIds: string[],
+    tagId: string,
+  ) => RollbackHandle;
+  addOptimisticTag: (tag: Tag) => RollbackHandle;
+  updateOptimisticTag: (id: string, fields: Partial<Tag>) => RollbackHandle;
+  removeOptimisticTag: (id: string) => RollbackHandle;
+  addOptimisticCategory: (category: TagCategory) => RollbackHandle;
+  updateOptimisticCategory: (
+    id: string,
+    fields: Partial<TagCategory>,
+  ) => RollbackHandle;
+  removeOptimisticCategory: (id: string) => RollbackHandle;
 }
 
 interface AdminPreferencesContextValue {
@@ -394,6 +426,193 @@ export function AdminDataProvider({
     }
   }, [requestApplicationAnswerKeys, startApplicationsFetch]);
 
+  const addOptimisticContactTags = useCallback(
+    (contactIds: string[], tagId: string): RollbackHandle => {
+      const addedRows: ContactTag[] = [];
+      setContactTags((previous) => {
+        const result = addMissingContactTags(
+          previous,
+          contactIds,
+          tagId,
+          new Date().toISOString(),
+        );
+        addedRows.splice(0, addedRows.length, ...result.addedRows);
+        return result.next;
+      });
+
+      return {
+        rollback: () => {
+          if (addedRows.length === 0) return;
+          setContactTags((previous) =>
+            removeContactTagPairs(previous, addedRows),
+          );
+        },
+      };
+    },
+    [],
+  );
+
+  const removeOptimisticContactTags = useCallback(
+    (contactIds: string[], tagId: string): RollbackHandle => {
+      const removedRows: ContactTag[] = [];
+      setContactTags((previous) => {
+        const result = removeExistingContactTags(previous, contactIds, tagId);
+        removedRows.splice(0, removedRows.length, ...result.removedRows);
+        return result.next;
+      });
+
+      return {
+        rollback: () => {
+          if (removedRows.length === 0) return;
+          setContactTags((previous) =>
+            restoreContactTags(previous, removedRows),
+          );
+        },
+      };
+    },
+    [],
+  );
+
+  const addOptimisticTag = useCallback((tag: Tag): RollbackHandle => {
+    let previousTag: Tag | null = null;
+    setTags((previous) => {
+      previousTag = (previous ?? []).find((item) => item.id === tag.id) ?? null;
+      return upsertTagById(previous, tag);
+    });
+
+    return {
+      rollback: () => {
+        const tagToRestore = previousTag;
+        setTags((previous) =>
+          tagToRestore
+            ? upsertTagById(previous, tagToRestore)
+            : removeTagById(previous, tag.id),
+        );
+      },
+    };
+  }, []);
+
+  const updateOptimisticTag = useCallback(
+    (id: string, fields: Partial<Tag>): RollbackHandle => {
+      let previousFields: Partial<Tag> | null = null;
+      setTags((previous) => {
+        const current = (previous ?? []).find((item) => item.id === id);
+        if (!current) return previous ?? [];
+        previousFields = pickPreviousFields(current, fields);
+        return patchTagById(previous, id, fields);
+      });
+
+      return {
+        rollback: () => {
+          const rollbackFields = previousFields;
+          if (!rollbackFields) return;
+          setTags((previous) => patchTagById(previous, id, rollbackFields));
+        },
+      };
+    },
+    [],
+  );
+
+  const removeOptimisticTag = useCallback((id: string): RollbackHandle => {
+    let removedTag: Tag | null = null;
+    setTags((previous) => {
+      removedTag = (previous ?? []).find((item) => item.id === id) ?? null;
+      return removeTagById(previous, id);
+    });
+
+    return {
+      rollback: () => {
+        const tagToRestore = removedTag;
+        if (!tagToRestore) return;
+        setTags((previous) => upsertTagById(previous, tagToRestore));
+      },
+    };
+  }, []);
+
+  const addOptimisticCategory = useCallback(
+    (category: TagCategory): RollbackHandle => {
+      let previousCategory: TagCategory | null = null;
+      setTagCategories((previous) => {
+        previousCategory =
+          (previous ?? []).find((item) => item.id === category.id) ?? null;
+        return upsertCategoryById(previous, category);
+      });
+
+      return {
+        rollback: () => {
+          const categoryToRestore = previousCategory;
+          setTagCategories((previous) =>
+            categoryToRestore
+              ? upsertCategoryById(previous, categoryToRestore)
+              : removeCategoryById(previous, category.id),
+          );
+        },
+      };
+    },
+    [],
+  );
+
+  const updateOptimisticCategory = useCallback(
+    (id: string, fields: Partial<TagCategory>): RollbackHandle => {
+      let previousFields: Partial<TagCategory> | null = null;
+      setTagCategories((previous) => {
+        const current = (previous ?? []).find((item) => item.id === id);
+        if (!current) return previous ?? [];
+        previousFields = pickPreviousFields(current, fields);
+        return patchCategoryById(previous, id, fields);
+      });
+
+      return {
+        rollback: () => {
+          const rollbackFields = previousFields;
+          if (!rollbackFields) return;
+          setTagCategories((previous) =>
+            patchCategoryById(previous, id, rollbackFields),
+          );
+        },
+      };
+    },
+    [],
+  );
+
+  const removeOptimisticCategory = useCallback(
+    (id: string): RollbackHandle => {
+      let removedCategory: TagCategory | null = null;
+      let removedTags: Tag[] = [];
+      setTagCategories((previous) => {
+        removedCategory =
+          (previous ?? []).find((item) => item.id === id) ?? null;
+        return removeCategoryById(previous, id);
+      });
+      setTags((previous) => {
+        removedTags = (previous ?? []).filter(
+          (item) => item.category_id === id,
+        );
+        return (previous ?? []).filter((item) => item.category_id !== id);
+      });
+
+      return {
+        rollback: () => {
+          const categoryToRestore = removedCategory;
+          if (categoryToRestore) {
+            setTagCategories((previous) =>
+              upsertCategoryById(previous, categoryToRestore),
+            );
+          }
+          if (removedTags.length > 0) {
+            setTags((previous) =>
+              removedTags.reduce<Tag[]>(
+                (next, tag) => upsertTagById(next, tag),
+                previous ?? [],
+              ),
+            );
+          }
+        },
+      };
+    },
+    [],
+  );
+
   const ensureContacts = useCallback(() => {
     if (contactsFetchState.current !== "idle") return;
     contactsFetchState.current = "loading";
@@ -483,7 +702,9 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "contact_tags" },
           (payload) => {
-            setContactTags((prev) => [...(prev ?? []), payload.new as ContactTag]);
+            setContactTags((prev) =>
+              upsertContactTagByPair(prev, payload.new as ContactTag),
+            );
           },
         )
         .on(
@@ -615,6 +836,14 @@ export function AdminDataProvider({
       hasLoadedFullContacts,
       contactsError,
       ensureContacts,
+      addOptimisticContactTags,
+      removeOptimisticContactTags,
+      addOptimisticTag,
+      updateOptimisticTag,
+      removeOptimisticTag,
+      addOptimisticCategory,
+      updateOptimisticCategory,
+      removeOptimisticCategory,
     }),
     [
       contacts,
@@ -625,6 +854,14 @@ export function AdminDataProvider({
       hasLoadedFullContacts,
       contactsError,
       ensureContacts,
+      addOptimisticContactTags,
+      removeOptimisticContactTags,
+      addOptimisticTag,
+      updateOptimisticTag,
+      removeOptimisticTag,
+      addOptimisticCategory,
+      updateOptimisticCategory,
+      removeOptimisticCategory,
     ],
   );
 
