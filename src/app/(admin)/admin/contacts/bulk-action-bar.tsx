@@ -5,6 +5,7 @@ import { Mail } from "lucide-react";
 import { toast } from "sonner";
 import type { TagCategory, Tag } from "@/types/database";
 import { TAG_COLOR_CLASSES } from "../constants";
+import { useAdminContactsData } from "../admin-data-provider";
 import { bulkAssignTag, bulkUnassignTag } from "./actions";
 
 interface BulkActionBarProps {
@@ -31,6 +32,8 @@ export const BulkActionBar = memo(function BulkActionBar({
   const [isAssigning, startAssignTransition] = useTransition();
   const [isRemoving, startRemoveTransition] = useTransition();
   const isPending = isAssigning || isRemoving;
+  const { addOptimisticContactTags, removeOptimisticContactTags } =
+    useAdminContactsData();
 
   const categoryTags = categoryId
     ? tags.filter((t) => t.category_id === categoryId)
@@ -41,6 +44,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   function handleAssign() {
     if (!tagId) return;
     startAssignTransition(async () => {
+      const { rollback } = addOptimisticContactTags(selectedIds, tagId);
       try {
         const result = await bulkAssignTag(selectedIds, tagId);
         if (!result) return;
@@ -59,6 +63,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         setCategoryId("");
         setTagId("");
       } catch {
+        rollback();
         toast.error("Failed to assign tag. Please try again.");
       }
     });
@@ -67,12 +72,14 @@ export const BulkActionBar = memo(function BulkActionBar({
   function handleRemove() {
     if (!tagId) return;
     startRemoveTransition(async () => {
+      const { rollback } = removeOptimisticContactTags(selectedIds, tagId);
       try {
         await bulkUnassignTag(selectedIds, tagId);
         toast.success(`Tag removed from ${contactLabel}`);
         setCategoryId("");
         setTagId("");
       } catch {
+        rollback();
         toast.error("Failed to remove tag. Please try again.");
       }
     });

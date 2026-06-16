@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tag, TagCategory } from "@/types/database";
 
 const mockEnsureContacts = vi.fn();
+const mockRollback = vi.fn();
+const mockUpdateOptimisticTag = vi.fn(() => ({ rollback: mockRollback }));
+const mockRemoveOptimisticTag = vi.fn(() => ({ rollback: mockRollback }));
+const mockUpdateOptimisticCategory = vi.fn(() => ({ rollback: mockRollback }));
+const mockRemoveOptimisticCategory = vi.fn(() => ({ rollback: mockRollback }));
 let mockTagCategories: TagCategory[] | null = [];
 let mockTags: Tag[] | null = [];
 
@@ -17,6 +22,10 @@ vi.mock("../admin-data-provider", () => ({
     tags: mockTags,
     contactsError: null,
     ensureContacts: mockEnsureContacts,
+    updateOptimisticTag: mockUpdateOptimisticTag,
+    removeOptimisticTag: mockRemoveOptimisticTag,
+    updateOptimisticCategory: mockUpdateOptimisticCategory,
+    removeOptimisticCategory: mockRemoveOptimisticCategory,
   }),
 }));
 

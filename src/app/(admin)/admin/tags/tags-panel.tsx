@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TAG_COLOR_CLASSES } from "../constants";
 import type { Tag } from "@/types/database";
+import type { RollbackHandle } from "../admin-optimistic-mutations";
 
 const DOT_COLOR_CLASSES: Record<string, string> = {
   red: "bg-red-400",
@@ -35,9 +36,11 @@ function getMutationErrorMessage(
 function DeleteCategoryButton({
   categoryId,
   categoryName,
+  removeOptimisticCategory,
 }: {
   categoryId: string;
   categoryName: string;
+  removeOptimisticCategory: (id: string) => RollbackHandle;
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -51,10 +54,12 @@ function DeleteCategoryButton({
     }
 
     startTransition(async () => {
+      const { rollback } = removeOptimisticCategory(categoryId);
       try {
         await removeCategory(categoryId);
         toast.success(`Category "${categoryName}" deleted.`);
       } catch {
+        rollback();
         toast.error("Failed to delete category. Please try again.");
       }
     });
@@ -72,7 +77,13 @@ function DeleteCategoryButton({
   );
 }
 
-function EditTagButton({ tag }: { tag: Tag }) {
+function EditTagButton({
+  tag,
+  updateOptimisticTag,
+}: {
+  tag: Tag;
+  updateOptimisticTag: (id: string, fields: Partial<Tag>) => RollbackHandle;
+}) {
   const [isPending, startTransition] = useTransition();
 
   function handleEdit() {
@@ -84,12 +95,14 @@ function EditTagButton({ tag }: { tag: Tag }) {
     }
 
     startTransition(async () => {
+      const { rollback } = updateOptimisticTag(tag.id, { name: nextName });
       try {
         await editTag(tag.id, nextName, {
           expectedUpdatedAt: tag.updated_at,
         });
         toast.success(`Tag "${nextName}" updated.`);
       } catch (error) {
+        rollback();
         toast.error(
           getMutationErrorMessage(
             error,
@@ -115,9 +128,11 @@ function EditTagButton({ tag }: { tag: Tag }) {
 function DeleteTagButton({
   tagId,
   tagName,
+  removeOptimisticTag,
 }: {
   tagId: string;
   tagName: string;
+  removeOptimisticTag: (id: string) => RollbackHandle;
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -131,10 +146,12 @@ function DeleteTagButton({
     }
 
     startTransition(async () => {
+      const { rollback } = removeOptimisticTag(tagId);
       try {
         await removeTag(tagId);
         toast.success(`Tag "${tagName}" deleted.`);
       } catch {
+        rollback();
         toast.error("Failed to delete tag. Please try again.");
       }
     });
@@ -153,8 +170,16 @@ function DeleteTagButton({
 }
 
 export function TagsPanel() {
-  const { tagCategories, tags, contactsError, ensureContacts } =
-    useAdminContactsData();
+  const {
+    tagCategories,
+    tags,
+    contactsError,
+    ensureContacts,
+    updateOptimisticTag,
+    removeOptimisticTag,
+    updateOptimisticCategory,
+    removeOptimisticCategory,
+  } = useAdminContactsData();
   const tagsByCategoryId = useMemo(() => {
     const map = new Map<string, Tag[]>();
     for (const tag of tags ?? []) {
@@ -243,12 +268,16 @@ export function TagsPanel() {
                         ({categoryTags.length})
                       </span>
                     </CardTitle>
-                    <EditCategoryForm category={category} />
+                    <EditCategoryForm
+                      category={category}
+                      updateOptimisticCategory={updateOptimisticCategory}
+                    />
                   </div>
                   <div className="flex items-center gap-1">
                     <DeleteCategoryButton
                       categoryId={category.id}
                       categoryName={category.name}
+                      removeOptimisticCategory={removeOptimisticCategory}
                     />
                   </div>
                 </CardHeader>
@@ -263,8 +292,15 @@ export function TagsPanel() {
                           className={`flex items-center gap-1 ${TAG_COLOR_CLASSES[color] ?? ""}`}
                         >
                           {tag.name}
-                          <EditTagButton tag={tag} />
-                          <DeleteTagButton tagId={tag.id} tagName={tag.name} />
+                          <EditTagButton
+                            tag={tag}
+                            updateOptimisticTag={updateOptimisticTag}
+                          />
+                          <DeleteTagButton
+                            tagId={tag.id}
+                            tagName={tag.name}
+                            removeOptimisticTag={removeOptimisticTag}
+                          />
                         </Badge>
                       ))}
                     </div>

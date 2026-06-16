@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import { toast } from "sonner";
 import type { TagCategory } from "@/types/database";
 import { TAG_COLOR_PRESETS } from "../constants";
+import type { RollbackHandle } from "../admin-optimistic-mutations";
 import {
   submitCategoryEditForm,
   type TagFormState,
@@ -18,23 +19,44 @@ const initialState: TagFormState = {
 
 interface EditCategoryFormProps {
   category: TagCategory;
+  updateOptimisticCategory: (
+    id: string,
+    fields: Partial<TagCategory>,
+  ) => RollbackHandle;
 }
 
-export function EditCategoryForm({ category }: EditCategoryFormProps) {
+export function EditCategoryForm({
+  category,
+  updateOptimisticCategory,
+}: EditCategoryFormProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draftName, setDraftName] = useState(category.name);
   const [draftColor, setDraftColor] = useState(category.color ?? "");
-  const [state, formAction, isPending] = useActionState(
-    submitCategoryEditForm,
-    initialState,
-  );
-  const [prevResetKey, setPrevResetKey] = useState(0);
+  const [state, formAction, isPending] = useActionState(async (
+    prevState: TagFormState,
+    formData: FormData,
+  ) => {
+    const nextName = String(formData.get("name") ?? "").trim().slice(0, 100);
+    const rawColor = String(formData.get("color") ?? "");
+    const nextColor = rawColor === "" ? null : rawColor;
+    const optimistic = nextName
+      ? updateOptimisticCategory(category.id, {
+          name: nextName,
+          color: nextColor,
+        })
+      : null;
 
-  if (state.success && state.resetKey !== prevResetKey) {
-    setPrevResetKey(state.resetKey);
-    setIsEditing(false);
-    toast.success(state.message ?? `Category "${draftName}" updated.`);
-  }
+    const nextState = await submitCategoryEditForm(prevState, formData);
+    if (nextState.success) {
+      startTransition(() => {
+        setIsEditing(false);
+      });
+      toast.success(nextState.message ?? `Category "${nextName}" updated.`);
+    } else {
+      optimistic?.rollback();
+    }
+    return nextState;
+  }, initialState);
 
   if (!isEditing) {
     return (
