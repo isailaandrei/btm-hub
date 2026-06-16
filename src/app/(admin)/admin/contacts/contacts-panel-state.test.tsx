@@ -182,7 +182,7 @@ describe("useContactsPanelState", () => {
     expect(updatePreferences).not.toHaveBeenCalled();
   });
 
-  it("does not apply legacy localStorage filters after mount", () => {
+  it("restores localStorage filters after the first render", () => {
     localStorage.setItem(
       "btm-admin-contacts-filters",
       JSON.stringify({
@@ -216,13 +216,16 @@ describe("useContactsPanelState", () => {
     expect(renderStates[0].search).toBe("");
     expect(renderStates[0].page).toBe(1);
     expect(renderStates[0].columnWidths).toEqual({});
-    expect(latestState?.search).toBe("");
-    expect(latestState?.programFilter).toEqual([]);
-    expect(latestState?.selectedTagIds).toEqual([]);
-    expect(latestState?.pendingFilter).toEqual([]);
-    expect(latestState?.columnFilters).toEqual({});
-    expect(latestState?.page).toBe(1);
-    expect(latestState?.columnWidths).toEqual({});
+    expect(latestState?.search).toBe("zack");
+    expect(latestState?.programFilter).toEqual(["academy"]);
+    expect(latestState?.selectedTagIds).toEqual(["tag-1"]);
+    expect(latestState?.pendingFilter).toEqual(["awaiting_btm"]);
+    expect(latestState?.columnFilters).toEqual({ budget: ["1000"] });
+    expect(latestState?.page).toBe(3);
+    expect(latestState?.columnWidths).toEqual({
+      [BUILTIN_COLUMN.name]: 177,
+      [BUILTIN_COLUMN.submittedAt]: 209,
+    });
   });
 
   it("falls back to visible columns for previously selected columns", () => {
