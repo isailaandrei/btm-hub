@@ -9,7 +9,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import type {
   EmailManualRecipient,
@@ -26,8 +26,11 @@ import {
   type EmailDesignerHandle,
 } from "../templates/email-designer";
 import {
+  getComposeRecipientsAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
+  type ComposeRecipient,
+  type ComposeSkippedRecipient,
   type EmailTemplateVersionsById,
   type EmailTemplateVersionDocument,
 } from "../actions";
@@ -36,6 +39,7 @@ import {
   requiresBroadcastConfirmation,
 } from "./broadcast-confirmation";
 import { getRecipientSummary } from "./recipient-summary";
+import { RecipientList } from "./recipient-list";
 
 function readCachedTemplateDocument(
   versionId: string,
@@ -114,6 +118,12 @@ export function EmailComposer({
   const [manualRecipientName, setManualRecipientName] = useState("");
   const [manualRecipientEmail, setManualRecipientEmail] = useState("");
   const [isBroadcastConfirmOpen, setIsBroadcastConfirmOpen] = useState(false);
+  const [recipientDetails, setRecipientDetails] = useState<{
+    eligible: ComposeRecipient[];
+    skipped: ComposeSkippedRecipient[];
+  } | null>(null);
+  const [recipientsError, setRecipientsError] = useState<string | null>(null);
+  const [isLoadingRecipients, startRecipientsTransition] = useTransition();
   const [isLoadingTemplate, startLoadTransition] = useTransition();
   const [isSending, startSendTransition] = useTransition();
   const [isSavingManualRecipient, startSaveManualRecipientTransition] =
@@ -164,6 +174,41 @@ export function EmailComposer({
       isActive = false;
     };
   }, [ensureTemplateVersion, loadedTemplateVersionId, selectedTemplateVersionId]);
+
+  // Resolve the actual people an outreach send will reach (names + emails, plus
+  // who gets skipped and why) so the Recipients panel can list them instead of
+  // just a count. Broadcast targets everyone, so it is not itemized.
+  useEffect(() => {
+    if (
+      kind !== "outreach" ||
+      selectedContactIds.length + selectedManualRecipientIds.length === 0
+    ) {
+      return;
+    }
+
+    let isActive = true;
+    startRecipientsTransition(async () => {
+      try {
+        const result = await getComposeRecipientsAction({
+          kind: "outreach",
+          contactIds: selectedContactIds,
+          manualRecipientIds: selectedManualRecipientIds,
+        });
+        if (!isActive) return;
+        setRecipientDetails(result);
+        setRecipientsError(null);
+      } catch (error) {
+        if (!isActive) return;
+        setRecipientsError(
+          error instanceof Error ? error.message : "Failed to load recipients.",
+        );
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [kind, selectedContactIds, selectedManualRecipientIds]);
 
   const isTemplateReady =
     Boolean(selectedTemplateVersionId) &&
@@ -379,12 +424,34 @@ export function EmailComposer({
             <p className="text-xs font-medium text-muted-foreground">
               Recipients
             </p>
-            <p className="mt-1 text-sm text-foreground">
-              {recipientSummary.headline}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {recipientSummary.detail}
-            </p>
+            {kind === "broadcast" ? (
+              <>
+                <p className="mt-1 text-sm text-foreground">
+                  {recipientSummary.headline}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {recipientSummary.detail}
+                </p>
+              </>
+            ) : isOutreachWithoutRecipients ? (
+              <p className="mt-1 text-sm text-muted-foreground">
+                No recipients selected yet. Pick contacts from the Contacts tab,
+                or add saved recipients below.
+              </p>
+            ) : recipientsError ? (
+              <p className="mt-1 text-sm text-destructive">{recipientsError}</p>
+            ) : recipientDetails ? (
+              <RecipientList
+                eligible={recipientDetails.eligible}
+                skipped={recipientDetails.skipped}
+                isLoading={isLoadingRecipients}
+              />
+            ) : (
+              <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Resolving recipients...
+              </p>
+            )}
           </div>
           <button
             type="button"

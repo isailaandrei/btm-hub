@@ -9,6 +9,7 @@ import type { EmailManualRecipient, EmailTemplate } from "@/types/database";
 
 const mockSendEmailNowAction = vi.fn();
 const mockSaveEmailManualRecipientAction = vi.fn();
+const mockGetComposeRecipientsAction = vi.fn();
 const mockToastError = vi.fn();
 const mockToastSuccess = vi.fn();
 
@@ -22,6 +23,7 @@ vi.mock("sonner", () => ({
 vi.mock("../actions", () => ({
   sendEmailNowAction: mockSendEmailNowAction,
   saveEmailManualRecipientAction: mockSaveEmailManualRecipientAction,
+  getComposeRecipientsAction: mockGetComposeRecipientsAction,
 }));
 
 vi.mock("../templates/email-designer", async () => {
@@ -88,6 +90,16 @@ describe("EmailComposer manual recipients", () => {
     mockSaveEmailManualRecipientAction
       .mockReset()
       .mockResolvedValue({ manualRecipient: MANUAL_RECIPIENT });
+    mockGetComposeRecipientsAction.mockReset().mockResolvedValue({
+      eligible: [
+        {
+          name: MANUAL_RECIPIENT.name,
+          email: MANUAL_RECIPIENT.email,
+          source: "manual",
+        },
+      ],
+      skipped: [],
+    });
     mockToastError.mockReset();
     mockToastSuccess.mockReset();
   });
@@ -141,5 +153,42 @@ describe("EmailComposer manual recipients", () => {
         manualRecipientIds: [MANUAL_RECIPIENT.id],
       }),
     );
+  });
+
+  it("lists the resolved recipients by name once they are selected", async () => {
+    await act(async () => {
+      root.render(
+        <EmailComposer
+          templates={[template()]}
+          templateVersionsById={{
+            [TEMPLATE_VERSION_ID]: {
+              builderJson: { type: "doc", content: [] },
+            },
+          }}
+          ensureTemplateVersion={vi.fn()}
+          selectedContactIds={[]}
+          manualRecipients={[MANUAL_RECIPIENT]}
+          setManualRecipients={vi.fn()}
+        />,
+      );
+    });
+
+    const checkbox = container.querySelector<HTMLInputElement>(
+      `input[type="checkbox"][value="${MANUAL_RECIPIENT.id}"]`,
+    );
+    if (!checkbox) throw new Error("Missing manual recipient checkbox");
+    await act(async () => {
+      checkbox.click();
+    });
+    await flushAsyncWork();
+
+    expect(mockGetComposeRecipientsAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "outreach",
+        manualRecipientIds: [MANUAL_RECIPIENT.id],
+      }),
+    );
+    expect(container.textContent).toContain("1 recipient will receive this email");
+    expect(container.textContent).toContain(MANUAL_RECIPIENT.email);
   });
 });

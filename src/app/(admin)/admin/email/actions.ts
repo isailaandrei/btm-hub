@@ -351,6 +351,74 @@ export async function previewEmailAction(input: {
   };
 }
 
+const composeRecipientsSchema = z.object({
+  kind: emailKindSchema,
+  contactIds: z.array(z.string()).optional(),
+  manualRecipientIds: z.array(z.string()).optional(),
+});
+
+export interface ComposeRecipient {
+  name: string;
+  email: string;
+  source: "contact" | "manual";
+}
+
+export interface ComposeSkippedRecipient extends ComposeRecipient {
+  reason: string;
+}
+
+/**
+ * Resolve the actual people an outreach send will reach, so the composer can
+ * list them by name instead of showing only a count. Returns eligible
+ * recipients plus the ones that will be skipped (suppressed / unsubscribed) and
+ * why. Broadcast is intentionally not itemized — it targets every contact with
+ * an email, so the composer keeps a summary for it.
+ */
+export async function getComposeRecipientsAction(input: {
+  kind: EmailSendKind;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+}): Promise<{
+  eligible: ComposeRecipient[];
+  skipped: ComposeSkippedRecipient[];
+}> {
+  await requireAdmin();
+  const parsed = composeRecipientsSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid recipients");
+  }
+
+  if (parsed.data.kind !== "outreach") {
+    return { eligible: [], skipped: [] };
+  }
+
+  const hasSelection =
+    (parsed.data.contactIds?.length ?? 0) +
+      (parsed.data.manualRecipientIds?.length ?? 0) >
+    0;
+  if (!hasSelection) {
+    return { eligible: [], skipped: [] };
+  }
+
+  const preview = await resolvePreview(parsed.data);
+  const sourceOf = (contactId: string | null): "contact" | "manual" =>
+    contactId ? "contact" : "manual";
+
+  return {
+    eligible: preview.eligible.map((recipient) => ({
+      name: recipient.name,
+      email: recipient.email,
+      source: sourceOf(recipient.contactId),
+    })),
+    skipped: preview.skipped.map((recipient) => ({
+      name: recipient.name,
+      email: recipient.email,
+      source: sourceOf(recipient.contactId),
+      reason: recipient.reason,
+    })),
+  };
+}
+
 export async function createEmailDraftAction(input: {
   kind: EmailSendKind;
   name?: string;

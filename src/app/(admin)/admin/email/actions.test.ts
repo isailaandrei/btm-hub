@@ -91,6 +91,7 @@ const {
   loadEmailSendsAction,
   loadEmailStudioDataAction,
   loadEmailTemplatesAction,
+  getComposeRecipientsAction,
   previewEmailAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
@@ -281,6 +282,68 @@ describe("previewEmailAction", () => {
     expect(mockGetEmailManualRecipientsByIds).toHaveBeenCalledWith([
       MANUAL_RECIPIENT.id,
     ]);
+  });
+});
+
+describe("getComposeRecipientsAction", () => {
+  it("lists eligible and skipped outreach recipients by name", async () => {
+    mockListActiveEmailSuppressions.mockResolvedValue([
+      {
+        contact_id: CONTACT_TWO.id,
+        email: CONTACT_TWO.email,
+        lifted_at: null,
+      },
+    ]);
+
+    const result = await getComposeRecipientsAction({
+      kind: "outreach",
+      contactIds: [CONTACT_ONE.id, CONTACT_TWO.id],
+    });
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(result.eligible).toEqual([
+      { name: CONTACT_ONE.name, email: CONTACT_ONE.email, source: "contact" },
+    ]);
+    expect(result.skipped).toEqual([
+      {
+        name: CONTACT_TWO.name,
+        email: CONTACT_TWO.email,
+        source: "contact",
+        reason: "suppressed",
+      },
+    ]);
+  });
+
+  it("tags saved manual recipients with a manual source", async () => {
+    const result = await getComposeRecipientsAction({
+      kind: "outreach",
+      manualRecipientIds: [MANUAL_RECIPIENT.id],
+    });
+
+    expect(result.eligible).toEqual([
+      {
+        name: MANUAL_RECIPIENT.name,
+        email: MANUAL_RECIPIENT.email,
+        source: "manual",
+      },
+    ]);
+  });
+
+  it("does not itemize broadcast recipients", async () => {
+    const result = await getComposeRecipientsAction({ kind: "broadcast" });
+
+    expect(result).toEqual({ eligible: [], skipped: [] });
+    expect(mockGetContacts).not.toHaveBeenCalled();
+  });
+
+  it("returns nothing when no outreach recipients are selected", async () => {
+    const result = await getComposeRecipientsAction({
+      kind: "outreach",
+      contactIds: [],
+      manualRecipientIds: [],
+    });
+
+    expect(result).toEqual({ eligible: [], skipped: [] });
   });
 });
 
