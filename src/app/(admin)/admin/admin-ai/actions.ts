@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isAdminAiEvidenceEnabled } from "@/lib/admin-ai/feature-flags";
 import {
   adminAiAskInputSchema,
   adminAiThreadLoadSchema,
   adminAiThreadMutationSchema,
 } from "@/lib/admin-ai/schemas";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { adminAiDebugLog } from "@/lib/admin-ai/debug";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import {
@@ -20,7 +22,6 @@ import {
   listAdminAiThreadSummaries,
   renameAdminAiThread,
 } from "@/lib/data/admin-ai";
-import { requireAdmin } from "@/lib/auth/require-admin";
 import type {
   AdminAiCitationRow,
   AdminAiMessageSummary,
@@ -112,6 +113,7 @@ function buildLocalCitationRows(input: {
     snippet: string;
   }>;
 }): AdminAiCitationRow[] {
+  if (!isAdminAiEvidenceEnabled()) return [];
   return input.citations.map((citation, index) => ({
     id: `${input.messageId}-citation-${index}`,
     message_id: input.messageId,
@@ -127,6 +129,7 @@ function buildLocalCitationRows(input: {
 }
 
 function serializeThreadDetail(detail: Awaited<ReturnType<typeof getAdminAiThreadDetail>>) {
+  const includeEvidence = isAdminAiEvidenceEnabled();
   return {
     thread: {
       id: detail.thread.id,
@@ -145,7 +148,9 @@ function serializeThreadDetail(detail: Awaited<ReturnType<typeof getAdminAiThrea
       createdAt: message.created_at,
       queryPlan: message.query_plan,
       response: message.response_json,
-      citations: detail.citationsByMessageId.get(message.id) ?? [],
+      citations: includeEvidence
+        ? detail.citationsByMessageId.get(message.id) ?? []
+        : [],
     }) satisfies AdminAiMessageSummary),
   };
 }
@@ -330,16 +335,6 @@ export async function askAdminAiQuestion(
   }
 }
 
-export async function loadAdminAiThread(threadId: string) {
-  const parsed = adminAiThreadLoadSchema.safeParse({ threadId });
-  if (!parsed.success) {
-    throw new Error("Invalid admin AI thread.");
-  }
-
-  const detail = await getAdminAiThreadDetail({ threadId: parsed.data.threadId });
-  return serializeThreadDetail(detail);
-}
-
 export async function loadGlobalAdminAiPanelData(): Promise<AdminAiPanelData> {
   await requireAdmin();
   const [initialThreads, providerAvailability] = await Promise.all([
@@ -348,6 +343,16 @@ export async function loadGlobalAdminAiPanelData(): Promise<AdminAiPanelData> {
   ]);
 
   return { initialThreads, providerAvailability };
+}
+
+export async function loadAdminAiThread(threadId: string) {
+  const parsed = adminAiThreadLoadSchema.safeParse({ threadId });
+  if (!parsed.success) {
+    throw new Error("Invalid admin AI thread.");
+  }
+
+  const detail = await getAdminAiThreadDetail({ threadId: parsed.data.threadId });
+  return serializeThreadDetail(detail);
 }
 
 export async function renameAdminAiThreadAction(input: {

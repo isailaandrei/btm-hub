@@ -2,6 +2,7 @@ import {
   getAdminAiFieldLabel,
   getAdminAiFieldOptions,
 } from "./field-config";
+import type { EvidenceAliasRegistry } from "./evidence-alias";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
 import type { EvidenceItem, EvidenceSourceType } from "@/types/admin-ai";
 import type { AdminNote, Application, ContactNote } from "@/types/database";
@@ -150,6 +151,7 @@ function hasCrossSourceConflict(
 function appendCrossSourceSignals(
   lines: string[],
   record: ContactCardRecord,
+  registry: EvidenceAliasRegistry,
 ): void {
   const applicationsByField = collectApplicationAnswerSignals(record);
   const conversationFactsByField = collectConversationFactSignals(record);
@@ -167,11 +169,12 @@ function appendCrossSourceSignals(
     const label = fieldLabel(fieldKey);
     const applicationParts = applicationSignals.map((signal) => {
       const date = isoDate(signal.submittedAt) ?? "unknown";
-      return `application ${date} ${signal.value} [${signal.evidenceId}]`;
+      return `application ${date} ${signal.value} [${registry.register(signal.evidenceId)}]`;
     });
     const conversationParts = conversationSignals.map((fact) => {
       const date = isoDate(fact.observedAt) ?? "unknown";
-      return `${fact.source} ${date} ${fact.valueText} [conversation_fact:${fact.id}]`;
+      const evidenceId = `conversation_fact:${fact.id}`;
+      return `${fact.source} ${date} ${fact.valueText} [${registry.register(evidenceId)}]`;
     });
     rendered.push(
       `- ${label}: ${[...applicationParts, ...conversationParts].join(" / ")}`,
@@ -188,6 +191,7 @@ function appendApplication(
   evidence: EvidenceItem[],
   contactId: string,
   application: Application,
+  registry: EvidenceAliasRegistry,
 ): void {
   lines.push(
     `Application ${application.id} (${application.program}, ${application.status}, submitted ${isoDate(application.submitted_at) ?? "unknown"})`,
@@ -196,6 +200,8 @@ function appendApplication(
   const entries = Object.entries(application.answers ?? {}).sort(([a], [b]) =>
     a.localeCompare(b),
   );
+  const structuredFacts: string[] = [];
+  const evidenceLines: string[] = [];
   for (const [key, rawValue] of entries) {
     const value = formatValue(rawValue);
     if (!value) continue;
@@ -203,7 +209,11 @@ function appendApplication(
     const sourceType = answerSourceType(key, rawValue);
     const sourceId = `${application.id}:${key}`;
     const evidenceId = `${sourceType}:${application.id}:${key}`;
-    lines.push(`- ${label}: ${value} [${evidenceId}]`);
+    if (sourceType === "application_structured_field") {
+      structuredFacts.push(`${label}=${value} [${registry.register(evidenceId)}]`);
+    } else {
+      evidenceLines.push(`- ${label}: ${value} [${registry.register(evidenceId)}]`);
+    }
     evidence.push(
       evidenceItem({
         evidenceId,
@@ -219,8 +229,13 @@ function appendApplication(
     );
   }
 
+  if (structuredFacts.length > 0) {
+    lines.push(`- Structured facts: ${structuredFacts.join("; ")}`);
+  }
+  lines.push(...evidenceLines);
+
   application.admin_notes.forEach((note, index) => {
-    appendAdminNote(lines, evidence, contactId, application, note, index);
+    appendAdminNote(lines, evidence, contactId, application, note, index, registry);
   });
 }
 
@@ -231,12 +246,13 @@ function appendAdminNote(
   application: Application,
   note: AdminNote,
   index: number,
+  registry: EvidenceAliasRegistry,
 ): void {
   const text = formatValue(note.text);
   if (!text) return;
   const sourceId = `${application.id}:admin_note:${index}:${note.created_at}`;
   const evidenceId = `application_admin_note:${sourceId}`;
-  lines.push(`- Admin note: ${text} [${evidenceId}]`);
+  lines.push(`- Admin note: ${text} [${registry.register(evidenceId)}]`);
   evidence.push(
     evidenceItem({
       evidenceId,
@@ -257,11 +273,12 @@ function appendContactNote(
   evidence: EvidenceItem[],
   contactId: string,
   note: ContactNote,
+  registry: EvidenceAliasRegistry,
 ): void {
   const text = formatValue(note.text);
   if (!text) return;
   const evidenceId = `contact_note:${note.id}`;
-  lines.push(`- Contact note: ${text} [${evidenceId}]`);
+  lines.push(`- Contact note: ${text} [${registry.register(evidenceId)}]`);
   evidence.push(
     evidenceItem({
       evidenceId,
@@ -281,6 +298,7 @@ function appendConversationFacts(
   lines: string[],
   evidence: EvidenceItem[],
   record: ContactCardRecord,
+  registry: EvidenceAliasRegistry,
 ): void {
   const facts = record.conversationFacts ?? [];
   if (facts.length === 0) return;
@@ -299,7 +317,8 @@ function appendConversationFacts(
     const rendered = bucket
       .map((fact) => {
         const date = isoDate(fact.observedAt) ?? "unknown";
-        return `${fact.valueText} [${fact.source} ${date}]`;
+        const evidenceId = `conversation_fact:${fact.id}`;
+        return `${fact.valueText} [${registry.register(evidenceId)}] (${fact.source} ${date})`;
       })
       .join(" / ");
     lines.push(`- ${label}: ${rendered}`);
@@ -322,7 +341,10 @@ function appendConversationFacts(
   }
 }
 
-export function renderContactCard(record: ContactCardRecord): RenderedContactCard {
+export function renderContactCard(
+  record: ContactCardRecord,
+  registry: EvidenceAliasRegistry,
+): RenderedContactCard {
   const evidence: EvidenceItem[] = [];
   const lines = [
     `Contact: ${record.contact.name}`,
@@ -332,23 +354,29 @@ export function renderContactCard(record: ContactCardRecord): RenderedContactCar
   ];
 
   for (const application of record.applications) {
-    appendApplication(lines, evidence, record.contact.id, application);
+    appendApplication(lines, evidence, record.contact.id, application, registry);
   }
 
-  appendCrossSourceSignals(lines, record);
+  appendCrossSourceSignals(lines, record, registry);
 
   if (record.contactNotes.length > 0) {
     lines.push("Contact notes");
     for (const note of record.contactNotes) {
-      appendContactNote(lines, evidence, record.contact.id, note);
+      appendContactNote(lines, evidence, record.contact.id, note, registry);
     }
   }
 
   if (record.contactTags.length > 0) {
-    lines.push("Tags");
+    lines.push(
+      `Tags: ${record.contactTags
+        .map((tag) => {
+          const evidenceId = `contact_tag:${tag.tagId}`;
+          return `${tag.tagName} [${registry.register(evidenceId)}]`;
+        })
+        .join(", ")}`,
+    );
     for (const tag of record.contactTags) {
       const evidenceId = `contact_tag:${tag.tagId}`;
-      lines.push(`- Tag: ${tag.tagName} [${evidenceId}]`);
       evidence.push(
         evidenceItem({
           evidenceId,
@@ -374,7 +402,7 @@ export function renderContactCard(record: ContactCardRecord): RenderedContactCar
     }
   }
 
-  appendConversationFacts(lines, evidence, record);
+  appendConversationFacts(lines, evidence, record, registry);
 
   return {
     contactId: record.contact.id,

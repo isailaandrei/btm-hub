@@ -1,16 +1,20 @@
 import {
-  ADMIN_AI_RESPONSE_JSON_SCHEMA,
+  buildAdminAiResponseJsonSchema,
   buildAdminAiSystemPrompt,
   buildAdminAiUserPrompt,
   normalizeProviderResponse,
   type AdminAiSynthesisInput,
 } from "./prompt";
 import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
+import { parseOptionalBooleanEnv } from "./env";
 import type { AdminAiResponse } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
-const OPENAI_REQUEST_TIMEOUT_MS = 60_000;
+const DEFAULT_OPENAI_MODEL = "gpt-5.4";
+// Global-scope prompts run to hundreds of thousands of tokens; prefill alone
+// can take well over a minute on the large-context model, and an aborted
+// request is still billed — so keep this generous.
+const OPENAI_REQUEST_TIMEOUT_MS = 180_000;
 const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 
 export interface AdminAiProvider {
@@ -53,6 +57,29 @@ function getSynthesisModel(): string {
 
 function getGlobalPromptCacheRetention(): string | null {
   return process.env.OPENAI_GLOBAL_PROMPT_CACHE_RETENTION?.trim() || null;
+}
+
+function shouldPrintOpenAiRequestPayload(): boolean {
+  const explicit = parseOptionalBooleanEnv(
+    process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD,
+  );
+  if (explicit !== null) return explicit;
+  return false;
+}
+
+function printOpenAiRequestPayload(input: {
+  model: string;
+  schemaName: string;
+  requestBodyJson: string;
+}): void {
+  if (!shouldPrintOpenAiRequestPayload()) return;
+  console.info("[admin-ai][openai-request-payload] begin", {
+    model: input.model,
+    schemaName: input.schemaName,
+    chars: input.requestBodyJson.length,
+  });
+  console.info(input.requestBodyJson);
+  console.info("[admin-ai][openai-request-payload] end");
 }
 
 function extractResponseText(payload: OpenAiResponsesPayload): string {
@@ -112,31 +139,38 @@ async function callOpenAi(input: {
   });
   let response: Response;
   try {
+    const requestBody = {
+      model: input.model,
+      ...(input.promptCacheKey ? { prompt_cache_key: input.promptCacheKey } : {}),
+      ...(input.promptCacheRetention
+        ? { prompt_cache_retention: input.promptCacheRetention }
+        : {}),
+      input: [
+        { role: "system", content: input.systemPrompt },
+        { role: "user", content: input.userPrompt },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: input.schemaName,
+          strict: true,
+          schema: input.schema,
+        },
+      },
+    };
+    const requestBodyJson = JSON.stringify(requestBody);
+    printOpenAiRequestPayload({
+      model: input.model,
+      schemaName: input.schemaName,
+      requestBodyJson,
+    });
     response = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${input.apiKey}`,
       },
-      body: JSON.stringify({
-        model: input.model,
-        ...(input.promptCacheKey ? { prompt_cache_key: input.promptCacheKey } : {}),
-        ...(input.promptCacheRetention
-          ? { prompt_cache_retention: input.promptCacheRetention }
-          : {}),
-        input: [
-          { role: "system", content: input.systemPrompt },
-          { role: "user", content: input.userPrompt },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: input.schemaName,
-            strict: true,
-            schema: input.schema,
-          },
-        },
-      }),
+      body: requestBodyJson,
       signal: AbortSignal.timeout(OPENAI_REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
@@ -194,10 +228,14 @@ const openAiAdminAiProvider: AdminAiProvider = {
     const { payload, rawText } = await callOpenAi({
       apiKey,
       model,
-      systemPrompt: buildAdminAiSystemPrompt(input.scope),
+      systemPrompt: buildAdminAiSystemPrompt(input.scope, {
+        includeEvidence: input.includeEvidence ?? true,
+      }),
       userPrompt: buildAdminAiUserPrompt(input),
       schemaName: "admin_ai_response",
-      schema: ADMIN_AI_RESPONSE_JSON_SCHEMA,
+      schema: buildAdminAiResponseJsonSchema({
+        includeEvidence: input.includeEvidence ?? true,
+      }),
       promptCacheKey: input.promptCacheKey ?? null,
       promptCacheRetention:
         input.scope === "global" ? getGlobalPromptCacheRetention() : null,

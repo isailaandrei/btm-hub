@@ -182,6 +182,46 @@ function setupClient(overrides: SetupClientOverrides = {}) {
   return { client, queries };
 }
 
+function makeContactId(index: number) {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}
+
+type InCall = { table: string; column: string; values: string[] };
+
+/**
+ * Unlike the shared-query mock above, this client creates a fresh query per
+ * `from()` call and resolves only rows matching the captured `.in()` filter —
+ * required to test chunked loads, where each chunk must get its own rows.
+ */
+function setupFilteringClient(tables: Record<string, Array<Record<string, unknown>>>) {
+  const inCalls: InCall[] = [];
+  const client = {
+    from: vi.fn((table: string) => {
+      let filter: { column: string; values: string[] } | null = null;
+      const query: Record<string, unknown> = {};
+      for (const method of ["select", "not", "eq", "neq", "is", "order", "limit"]) {
+        query[method] = vi.fn().mockReturnValue(query);
+      }
+      query.in = vi.fn((column: string, values: string[]) => {
+        filter = { column, values };
+        inCalls.push({ table, column, values });
+        return query;
+      });
+      query.then = (
+        resolve: (value: { data: unknown[]; error: null }) => unknown,
+      ) => {
+        const rows = tables[table] ?? [];
+        const data = filter
+          ? rows.filter((row) => filter!.values.includes(String(row[filter!.column])))
+          : rows;
+        return resolve({ data, error: null });
+      };
+      return query;
+    }),
+  };
+  return { client, inCalls };
+}
+
 describe("contact card data loader", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -234,6 +274,71 @@ describe("contact card data loader", () => {
       OTHER_CONTACT_ID,
     ]);
     expect(client.from).toHaveBeenCalledTimes(6);
+  });
+
+  it("chunks contact id filters so request URLs stay under the gateway limit", async () => {
+    const { createClient } = await import("@/lib/supabase/server");
+    const total = 250;
+    const ids = Array.from({ length: total }, (_, index) => makeContactId(index));
+    // created_at descends as input index ascends, so a naive chunk concat
+    // (chunks follow input order) would NOT be globally created_at-sorted.
+    const contacts = ids.map((id, index) => ({
+      id,
+      name: `Contact ${index}`,
+      email: `contact-${index}@example.com`,
+      phone: null,
+      profile_id: null,
+      created_at: new Date(
+        Date.parse("2026-03-01T00:00:00Z") - index * 60_000,
+      ).toISOString(),
+      updated_at: "2026-03-01T00:00:00Z",
+    }));
+    const lastContactId = ids[total - 1];
+    const { client, inCalls } = setupFilteringClient({
+      contacts,
+      applications: [
+        {
+          id: APP_ID,
+          user_id: null,
+          contact_id: lastContactId,
+          program: "filmmaking",
+          status: "reviewing",
+          answers: {},
+          tags: [],
+          admin_notes: [],
+          submitted_at: "2026-03-02T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+      ],
+      contact_events: [],
+      contact_tags: [],
+      conversation_digests: [],
+      conversation_facts: [],
+    });
+    vi.mocked(createClient).mockResolvedValue(client as never);
+
+    const { loadContactCardRecords, CONTACT_CARD_ID_CHUNK_SIZE } = await import(
+      "./contact-cards"
+    );
+    const records = await loadContactCardRecords({ contactIds: ids });
+
+    for (const call of inCalls) {
+      expect(call.values.length).toBeLessThanOrEqual(CONTACT_CARD_ID_CHUNK_SIZE);
+    }
+    const contactInCalls = inCalls.filter((call) => call.table === "contacts");
+    expect(contactInCalls.length).toBe(
+      Math.ceil(total / CONTACT_CARD_ID_CHUNK_SIZE),
+    );
+    expect(new Set(contactInCalls.flatMap((call) => call.values)).size).toBe(total);
+
+    expect(records).toHaveLength(total);
+    // Merged output must keep the cache-stable global order (created_at asc,
+    // id asc), not per-chunk order.
+    const createdAts = records.map((record) => record.contact.created_at);
+    expect(createdAts).toEqual([...createdAts].sort());
+    expect(records[0].contact.id).toBe(lastContactId);
+    // Per-contact rows still attach after the chunked merge.
+    expect(records[0].applications).toHaveLength(1);
   });
 
   it("caps conversation digests and facts per contact instead of using global query limits", async () => {

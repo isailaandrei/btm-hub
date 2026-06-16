@@ -48,6 +48,19 @@ type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 const CONVERSATION_DIGESTS_PER_CONTACT_LIMIT = 200;
 const CONVERSATION_FACTS_PER_CONTACT_LIMIT = 400;
 
+// PostgREST encodes `.in()` filters in the request URL; ~37 chars per UUID
+// against the API gateway's ~8KB URI limit means unbounded id lists 414.
+// 100 ids ≈ 3.8KB, leaving room for the rest of the query string.
+export const CONTACT_CARD_ID_CHUNK_SIZE = 100;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 type ContactTagJoinRow = {
   contact_id: string;
   tag_id: string;
@@ -76,16 +89,23 @@ function groupByContactId<T extends { contact_id: string | null }>(
   return grouped;
 }
 
-async function loadRecordsForContactIds(
-  supabase: SupabaseClient,
-  contactIds: string[],
-  applicationRows?: Application[],
-): Promise<ContactCardRecord[]> {
-  if (contactIds.length === 0) return [];
+type ContactCardChunkRows = {
+  contactData: unknown[];
+  applicationData: unknown[];
+  noteData: unknown[];
+  tagData: unknown[];
+  digestData: unknown[];
+  factData: unknown[];
+};
 
+async function loadChunkRows(
+  supabase: SupabaseClient,
+  chunkIds: string[],
+  skipApplications: boolean,
+): Promise<ContactCardChunkRows> {
   const [
     { data: contactData, error: contactError },
-    applicationResult,
+    { data: applicationData, error: applicationError },
     { data: noteData, error: noteError },
     { data: tagData, error: tagError },
     { data: digestData, error: digestError },
@@ -94,37 +114,34 @@ async function loadRecordsForContactIds(
     supabase
       .from("contacts")
       .select("*")
-      // Oldest-first + id tiebreaker: a stable, append-only order so new
-      // contacts land at the tail and preserve the cached prompt prefix
-      // (and volatile recent contacts sit at the end, minimizing invalidation).
-      .in("id", contactIds)
+      .in("id", chunkIds)
       .order("created_at", { ascending: true })
       .order("id", { ascending: true }),
-    applicationRows
-      ? Promise.resolve({ data: applicationRows, error: null })
+    skipApplications
+      ? Promise.resolve({ data: [], error: null })
       : supabase
           .from("applications")
           .select("*")
-          .in("contact_id", contactIds)
+          .in("contact_id", chunkIds)
           .order("submitted_at", { ascending: false }),
     supabase
       .from("contact_events")
       .select("id, contact_id, author_id, author_name, body, created_at")
-      .in("contact_id", contactIds)
+      .in("contact_id", chunkIds)
       .eq("type", "note")
       .neq("body", "")
       .order("created_at", { ascending: true }),
     supabase
       .from("contact_tags")
       .select("contact_id, tag_id, assigned_at, tags(id, name)")
-      .in("contact_id", contactIds)
+      .in("contact_id", chunkIds)
       .order("assigned_at", { ascending: true }),
     supabase
       .from("conversation_digests")
       .select(
         "id, contact_id, source, window_start, window_end, summary, source_message_count",
       )
-      .in("contact_id", contactIds)
+      .in("contact_id", chunkIds)
       .order("window_end", { ascending: false }),
     // Intentionally read the append-only ledger instead of a current-facts view:
     // raw contact cards must surface conflicts, not collapse them away.
@@ -133,7 +150,7 @@ async function loadRecordsForContactIds(
       .select(
         "id, contact_id, source, field_key, value_text, confidence, observed_at, conflict_group",
       )
-      .in("contact_id", contactIds)
+      .in("contact_id", chunkIds)
       .is("invalidated_at", null)
       .order("observed_at", { ascending: false }),
   ]);
@@ -141,9 +158,9 @@ async function loadRecordsForContactIds(
   if (contactError) {
     throw new Error(`Failed to load contacts for cards: ${contactError.message}`);
   }
-  if (applicationResult.error) {
+  if (applicationError) {
     throw new Error(
-      `Failed to load applications for cards: ${applicationResult.error.message}`,
+      `Failed to load applications for cards: ${applicationError.message}`,
     );
   }
   if (noteError) {
@@ -163,11 +180,54 @@ async function loadRecordsForContactIds(
     );
   }
 
-  const requestedIds = new Set(contactIds);
-  const contacts = ((contactData ?? []) as Contact[]).filter((contact) =>
-    requestedIds.has(contact.id),
+  return {
+    contactData: contactData ?? [],
+    applicationData: applicationData ?? [],
+    noteData: noteData ?? [],
+    tagData: tagData ?? [],
+    digestData: digestData ?? [],
+    factData: factData ?? [],
+  };
+}
+
+async function loadRecordsForContactIds(
+  supabase: SupabaseClient,
+  contactIds: string[],
+  applicationRows?: Application[],
+): Promise<ContactCardRecord[]> {
+  const uniqueIds = Array.from(new Set(contactIds));
+  if (uniqueIds.length === 0) return [];
+
+  // PostgREST `.in()` filters live in the request URL, so the id list must be
+  // chunked or large cohorts blow the gateway's URI limit (HTTP 414). All rows
+  // for a contact land in its own chunk, so per-contact groupings are intact.
+  const chunkResults = await Promise.all(
+    chunkArray(uniqueIds, CONTACT_CARD_ID_CHUNK_SIZE).map((chunkIds) =>
+      loadChunkRows(supabase, chunkIds, Boolean(applicationRows)),
+    ),
   );
-  const applications = (applicationResult.data ?? []) as Application[];
+
+  const contactData = chunkResults.flatMap((chunk) => chunk.contactData);
+  const noteData = chunkResults.flatMap((chunk) => chunk.noteData);
+  const tagData = chunkResults.flatMap((chunk) => chunk.tagData);
+  const digestData = chunkResults.flatMap((chunk) => chunk.digestData);
+  const factData = chunkResults.flatMap((chunk) => chunk.factData);
+
+  const requestedIds = new Set(uniqueIds);
+  const contacts = (contactData as Contact[])
+    .filter((contact) => requestedIds.has(contact.id))
+    // Oldest-first + id tiebreaker: a stable, append-only order so new
+    // contacts land at the tail and preserve the cached prompt prefix
+    // (and volatile recent contacts sit at the end, minimizing invalidation).
+    // Chunked queries only order within a chunk, so re-sort globally here.
+    .sort(
+      (a, b) =>
+        Date.parse(a.created_at) - Date.parse(b.created_at) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+  const applications =
+    applicationRows ??
+    (chunkResults.flatMap((chunk) => chunk.applicationData) as Application[]);
   const notes = ((noteData ?? []) as Array<{
     id: string;
     contact_id: string;

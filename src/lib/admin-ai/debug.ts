@@ -1,18 +1,9 @@
+import { parseOptionalBooleanEnv } from "./env";
+
 type DebugPayload = Record<string, unknown> | undefined;
 
-function parseBooleanEnv(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
-  );
-}
-
 export function isAdminAiDebugEnabled(): boolean {
-  return parseBooleanEnv(process.env.DEBUG_ADMIN_AI);
+  return parseOptionalBooleanEnv(process.env.DEBUG_ADMIN_AI) ?? false;
 }
 
 export function adminAiDebugLog(event: string, payload?: DebugPayload): void {

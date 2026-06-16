@@ -36,7 +36,7 @@ export type AdminAiQueryPlan = {
   contactId?: string;
   structuredFilters: AdminAiStructuredFilter[];
   textFocus: string[];
-  requestedLimit: number;
+  requestedLimit?: number;
 };
 
 // ---------------------------------------------------------------------------

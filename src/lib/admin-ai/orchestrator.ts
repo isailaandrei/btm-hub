@@ -9,6 +9,13 @@
 
 import { renderContactCard, type RenderedContactCard } from "./contact-card";
 import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
+import { EvidenceAliasRegistry } from "./evidence-alias";
+import { isAdminAiEvidenceEnabled } from "./feature-flags";
+import {
+  applyHardConstraintsToResponse,
+  extractHardConstraints,
+  filterRecordsByHardConstraints,
+} from "./hard-constraints";
 import { getAdminAiProvider } from "./provider";
 import { adminAiResponseSchema } from "./schemas";
 import { retrieveConversationEvidence } from "@/lib/conversations/retrieval";
@@ -42,6 +49,14 @@ export type RunAdminAiAnalysisResult = {
 const CHAT_RETRIEVAL_UNAVAILABLE_NOTE =
   "Conversation evidence retrieval was unavailable for this answer.";
 
+function formatMoney(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+}
+
 function appendUncertainty(
   response: AdminAiResponse,
   note: string,
@@ -74,6 +89,24 @@ function discloseChatRetrievalUnavailable(
     : response;
 }
 
+function discloseHardConstraintPrefilter(input: {
+  response: AdminAiResponse;
+  droppedContactCount: number;
+  budgetMin?: number;
+}): AdminAiResponse {
+  if (input.droppedContactCount === 0) return input.response;
+  const budgetText =
+    input.budgetMin === undefined
+      ? "the deterministic hard filters"
+      : `the deterministic budget filter (${formatMoney(input.budgetMin)} minimum)`;
+  const contactLabel =
+    input.droppedContactCount === 1 ? "contact was" : "contacts were";
+  return appendUncertainty(
+    input.response,
+    `${input.droppedContactCount} ${contactLabel} excluded by ${budgetText} before synthesis because the available CRM data did not satisfy the user's hard constraint.`,
+  );
+}
+
 export function describeAssistantResponse(response: AdminAiResponse): string {
   if (response.shortlist && response.shortlist.length > 0) {
     const names = response.shortlist.map((entry) => entry.contactName);
@@ -93,13 +126,15 @@ function buildCardQueryPlan(input: {
   question: string;
   contactId?: string;
 }): AdminAiQueryPlan {
-  return {
+  const plan: AdminAiQueryPlan = {
     mode: input.scope === "contact" ? "contact_synthesis" : "global_search",
     contactId: input.scope === "contact" ? input.contactId : undefined,
     structuredFilters: [],
     textFocus: input.question.trim() ? [input.question.trim()] : [],
     requestedLimit: input.scope === "contact" ? 1 : 25,
   };
+
+  return plan;
 }
 
 // Stable per-scope prompt-cache key. OpenAI prompt caching matches on the
@@ -222,6 +257,52 @@ function applyDroppedEvidenceIdsToResponse(
   };
 }
 
+function translateCitationAliases(
+  response: AdminAiResponse,
+  registry: EvidenceAliasRegistry,
+): AdminAiResponse {
+  return {
+    ...response,
+    shortlist: response.shortlist?.map((entry) => ({
+      ...entry,
+      citations: entry.citations.map((citation) => ({
+        ...citation,
+        evidenceId: registry.toRealId(citation.evidenceId) ?? citation.evidenceId,
+      })),
+    })),
+    contactAssessment: response.contactAssessment
+      ? {
+          ...response.contactAssessment,
+          citations: response.contactAssessment.citations.map((citation) => ({
+            ...citation,
+            evidenceId:
+              registry.toRealId(citation.evidenceId) ?? citation.evidenceId,
+          })),
+        }
+      : undefined,
+  };
+}
+
+function stripResponseCitations(response: AdminAiResponse): AdminAiResponse {
+  return {
+    ...response,
+    shortlist: response.shortlist?.map((entry) => ({
+      ...entry,
+      citations: [],
+    })),
+    contactAssessment: response.contactAssessment
+      ? {
+          ...response.contactAssessment,
+          citations: [],
+        }
+      : undefined,
+  };
+}
+
+function stripEvidenceAnchors(text: string): string {
+  return text.replace(/\s+\[e\d+\]/g, "");
+}
+
 async function persistFailedAssistantMessage(input: {
   threadId: string;
   content: string;
@@ -267,14 +348,33 @@ async function persistInsufficientResponse(input: {
   };
 }
 
-function renderRecords(records: ContactCardRecord[]): {
+function renderRecords(
+  records: ContactCardRecord[],
+  options: { includeEvidence: boolean },
+): {
   cards: RenderedContactCard[];
   evidence: EvidenceItem[];
+  evidenceAliases: EvidenceAliasRegistry;
 } {
-  const cards = records.map(renderContactCard);
+  const evidenceAliases = new EvidenceAliasRegistry();
+  const cards = records.map((record) =>
+    renderContactCard(record, evidenceAliases),
+  );
+  if (!options.includeEvidence) {
+    return {
+      cards: cards.map((card) => ({
+        ...card,
+        text: stripEvidenceAnchors(card.text),
+        evidence: [],
+      })),
+      evidence: [],
+      evidenceAliases,
+    };
+  }
   return {
     cards,
     evidence: cards.flatMap((card) => card.evidence),
+    evidenceAliases,
   };
 }
 
@@ -285,7 +385,26 @@ async function runCardSynthesis(input: {
   threadId: string;
   records: ContactCardRecord[];
 }): Promise<RunAdminAiAnalysisResult> {
-  const { cards, evidence } = renderRecords(input.records);
+  const includeEvidence = isAdminAiEvidenceEnabled();
+  const hardConstraintFilter =
+    input.scope === "global"
+      ? filterRecordsByHardConstraints(
+          input.records,
+          extractHardConstraints(input.question),
+        )
+      : {
+          constraints: {},
+          records: input.records,
+          droppedContactIds: [],
+        };
+  const hasHardConstraints =
+    hardConstraintFilter.constraints.budgetMin !== undefined;
+  const allowedHardConstraintContactIds = new Set(
+    hardConstraintFilter.records.map((record) => record.contact.id),
+  );
+  const { cards, evidence, evidenceAliases } = renderRecords(hardConstraintFilter.records, {
+    includeEvidence,
+  });
   const provider = getAdminAiProvider();
   if (!provider.isConfigured()) {
     const reason = provider.getUnavailableReason() ?? "Admin AI is unavailable.";
@@ -308,41 +427,48 @@ async function runCardSynthesis(input: {
 
   let chatEvidence: EvidenceItem[] = [];
   let chatRetrievalUnavailable = false;
-  try {
-    chatEvidence = await retrieveConversationEvidence({
-      question: input.question,
-      contactId:
-        input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
-      limit: 40,
-    });
-  } catch (error) {
-    chatRetrievalUnavailable = true;
-    const message = error instanceof Error ? error.message : String(error);
-    adminAiDebugLog("conversation-retrieval-unavailable", {
-      scope: input.scope,
-      contactId: input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
-      error: message,
-    });
-    console.warn("[admin-ai] conversation evidence retrieval unavailable", {
-      error: message,
-    });
+  if (includeEvidence) {
+    try {
+      chatEvidence = await retrieveConversationEvidence({
+        question: input.question,
+        contactId:
+          input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+        limit: 40,
+      });
+    } catch (error) {
+      chatRetrievalUnavailable = true;
+      const message = error instanceof Error ? error.message : String(error);
+      adminAiDebugLog("conversation-retrieval-unavailable", {
+        scope: input.scope,
+        contactId: input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+        error: message,
+      });
+      console.warn("[admin-ai] conversation evidence retrieval unavailable", {
+        error: message,
+      });
+    }
   }
-  const allowedEvidence = [...evidence, ...chatEvidence];
+  const allowedEvidence = includeEvidence ? [...evidence, ...chatEvidence] : [];
 
   adminAiDebugLog("raw-cards-assembled", {
     scope: input.scope,
     cardCount: cards.length,
     evidenceCount: allowedEvidence.length,
+    evidenceEnabled: includeEvidence,
+    hardConstraints: hardConstraintFilter.constraints,
+    hardConstraintDroppedCount: hardConstraintFilter.droppedContactIds.length,
     chatEvidenceCount: chatEvidence.length,
     chatRetrievalUnavailable,
     promptCacheKey: input.scope === "global" ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY : null,
   });
 
-  if (cards.length === 0 || allowedEvidence.length === 0) {
+  if (cards.length === 0 || (includeEvidence && allowedEvidence.length === 0)) {
     const response = discloseChatRetrievalUnavailable(
       buildInsufficientEvidenceResponse(input.scope, {
         extra:
-          input.scope === "contact"
+          hasHardConstraints
+            ? "No contacts matched the deterministic hard filters for this question."
+            : input.scope === "contact"
             ? "No raw application, note, tag, or conversation evidence is available for this contact."
             : "No eligible contacts with raw application, note, tag, or conversation evidence are available.",
       }),
@@ -364,27 +490,73 @@ async function runCardSynthesis(input: {
     });
     const promptCacheKey =
       input.scope === "global" ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY : null;
+    const aliasedChatEvidence = chatEvidence.map((item) => ({
+      ...item,
+      evidenceId: evidenceAliases.register(item.evidenceId),
+    }));
     const { response: rawResponse, modelMetadata } = await provider.generate({
       question: input.question,
       scope: input.scope,
       queryPlan: input.queryPlan,
       cards,
-      evidence: allowedEvidence,
+      // Send only conversation-retrieval evidence to the model. Card-derived
+      // evidence ids are already inline in the card text, and duplicating the
+      // full items here once made global prompts exceed provider size limits
+      // (~74% of a 10.6MB payload). `allowedEvidence` still validates
+      // citations server-side below.
+      evidence: includeEvidence ? aliasedChatEvidence : [],
+      includeEvidence,
       promptCacheKey,
     });
 
-    let response = adminAiResponseSchema.parse(rawResponse);
-    const { drafts: citations, droppedEvidenceIds } = resolveCitationDrafts(
-      response,
-      allowedEvidence,
+    let response = translateCitationAliases(
+      adminAiResponseSchema.parse(rawResponse),
+      evidenceAliases,
     );
-    response = applyDroppedEvidenceIdsToResponse(
-      response,
-      new Set(droppedEvidenceIds),
-    );
+    let citations: AdminAiCitationDraft[] = [];
+    let droppedEvidenceIds: string[] = [];
+
+    if (includeEvidence) {
+      const resolved = resolveCitationDrafts(response, allowedEvidence);
+      citations = resolved.drafts;
+      droppedEvidenceIds = resolved.droppedEvidenceIds;
+      response = applyDroppedEvidenceIdsToResponse(
+        response,
+        new Set(droppedEvidenceIds),
+      );
+    } else {
+      response = stripResponseCitations(response);
+    }
+
+    if (
+      includeEvidence &&
+      input.scope === "contact" &&
+      response.contactAssessment &&
+      response.contactAssessment.citations.length === 0
+    ) {
+      const insufficient = discloseChatRetrievalUnavailable(
+        buildInsufficientEvidenceResponse("contact", {
+          extra:
+            droppedEvidenceIds.length > 0
+              ? "The model returned a contact assessment, but its citations could not be resolved to raw evidence, so no grounded assessment could be kept."
+              : "The model did not return a grounded contact assessment for this question.",
+        }),
+        chatRetrievalUnavailable,
+      );
+      timer.end({
+        status: "insufficient_after_evidence_cleanup",
+        droppedEvidenceCount: droppedEvidenceIds.length,
+      });
+      return persistInsufficientResponse({
+        threadId: input.threadId,
+        queryPlan: input.queryPlan,
+        response: insufficient,
+        reason: "ungrounded_raw_card_contact_assessment",
+      });
+    }
 
     let droppedContactIds: string[] = [];
-    if (input.scope === "global") {
+    if (includeEvidence && input.scope === "global") {
       const cleaned = pruneUncitedGlobalShortlistEntries({
         response,
         droppedEvidenceIds,
@@ -415,6 +587,25 @@ async function runCardSynthesis(input: {
       }
     }
 
+    let hardConstraintDroppedShortlistContactIds: string[] = [];
+    if (hasHardConstraints && input.scope === "global") {
+      const constrained = applyHardConstraintsToResponse({
+        response,
+        allowedContactIds: allowedHardConstraintContactIds,
+        constraints: hardConstraintFilter.constraints,
+      });
+      response = constrained.response;
+      hardConstraintDroppedShortlistContactIds = constrained.droppedContactIds;
+    }
+
+    if (hasHardConstraints && input.scope === "global") {
+      response = discloseHardConstraintPrefilter({
+        response,
+        droppedContactCount: hardConstraintFilter.droppedContactIds.length,
+        budgetMin: hardConstraintFilter.constraints.budgetMin,
+      });
+    }
+
     response = discloseChatRetrievalUnavailable(
       response,
       chatRetrievalUnavailable,
@@ -425,12 +616,25 @@ async function runCardSynthesis(input: {
       rawCards: {
         cardCount: cards.length,
         evidenceCount: allowedEvidence.length,
+        evidenceEnabled: includeEvidence,
         chatEvidenceCount: chatEvidence.length,
         chatRetrievalUnavailable,
         promptCacheKey,
         droppedEvidenceIds,
         droppedShortlistContactIds: droppedContactIds,
       },
+      ...(hasHardConstraints
+        ? {
+            hardConstraints: {
+              ...hardConstraintFilter.constraints,
+              prefilteredContactCount:
+                hardConstraintFilter.droppedContactIds.length,
+              droppedContactIds: hardConstraintFilter.droppedContactIds,
+              droppedShortlistContactIds:
+                hardConstraintDroppedShortlistContactIds,
+            },
+          }
+        : {}),
       ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
     };
 
@@ -444,7 +648,9 @@ async function runCardSynthesis(input: {
       modelMetadata: mergedMetadata,
     });
 
-    await createAdminAiCitations({ messageId: id, citations });
+    if (includeEvidence && citations.length > 0) {
+      await createAdminAiCitations({ messageId: id, citations });
+    }
     timer.end({
       status: "complete",
       citationCount: citations.length,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderContactCard } from "./contact-card";
+import { EvidenceAliasRegistry } from "./evidence-alias";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
 
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
@@ -87,14 +88,27 @@ function makeRecord(): ContactCardRecord {
 
 describe("renderContactCard", () => {
   it("renders raw CRM data verbatim with registry labels, humanized fallbacks, and stable anchors", () => {
-    const card = renderContactCard(makeRecord());
+    const card = renderContactCard(makeRecord(), new EvidenceAliasRegistry());
 
     expect(card.text).toContain("Contact: Marina Costa");
-    expect(card.text).toContain("Ultimate Vision: I want to film ocean conservation stories.");
-    expect(card.text).toContain("Non registry goal: Build a traveling youth workshop.");
-    expect(card.text).toContain("Admin note: Strong reel, needs scholarship follow-up.");
-    expect(card.text).toContain("Contact note: Prefers WhatsApp.");
-    expect(card.text).toContain("Tag: Scholarship");
+    expect(card.text).toContain("Structured facts: Budget=$3,000 - $5,000 [e1]");
+    expect(card.text).not.toContain("Budget: $3,000 - $5,000 [");
+    expect(card.text).toContain(
+      "Ultimate Vision: I want to film ocean conservation stories. [e3]",
+    );
+    expect(card.text).toContain(
+      "Non registry goal: Build a traveling youth workshop. [e2]",
+    );
+    expect(card.text).toContain(
+      "Admin note: Strong reel, needs scholarship follow-up. [e4]",
+    );
+    expect(card.text).toContain("Contact note: Prefers WhatsApp. [e7]");
+    expect(card.text).toContain("Tags: Scholarship [e8]");
+    expect(card.text).not.toContain("Tag: Scholarship [");
+    expect(card.text).not.toContain("[application_answer:");
+    expect(card.text).not.toContain("[application_structured_field:");
+    expect(card.text).not.toContain("[contact_note:");
+    expect(card.text).not.toContain("[contact_tag:");
 
     expect(card.evidence).toEqual(
       expect.arrayContaining([
@@ -110,21 +124,17 @@ describe("renderContactCard", () => {
           sourceLabel: "Non registry goal",
           text: "Build a traveling youth workshop.",
         }),
-        expect.objectContaining({
-          evidenceId: `contact_tag:${TAG_ID}`,
-          sourceType: "contact_tag",
-          sourceId: TAG_ID,
-          text: "Scholarship",
-        }),
       ]),
     );
   });
 
   it("surfaces conflicting conversation facts instead of resolving them", () => {
-    const card = renderContactCard(makeRecord());
+    const card = renderContactCard(makeRecord(), new EvidenceAliasRegistry());
 
     expect(card.text).toContain("Conversation facts");
-    expect(card.text).toContain("Budget: $3-5k [whatsapp 2026-05-01] / ~$8k [whatsapp 2026-05-12]");
+    expect(card.text).toContain(
+      "Budget: $3-5k [e5] (whatsapp 2026-05-01) / ~$8k [e6] (whatsapp 2026-05-12)",
+    );
     expect(card.evidence).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -144,11 +154,11 @@ describe("renderContactCard", () => {
   });
 
   it("co-locates conflicting application answers and conversation facts", () => {
-    const card = renderContactCard(makeRecord());
+    const card = renderContactCard(makeRecord(), new EvidenceAliasRegistry());
 
     expect(card.text).toContain("Cross-source signals");
     expect(card.text).toContain(
-      `Budget: application 2026-03-04 $3,000 - $5,000 [application_structured_field:${APPLICATION_ID}:budget] / whatsapp 2026-05-01 $3-5k [conversation_fact:fact-1] / whatsapp 2026-05-12 ~$8k [conversation_fact:fact-2]`,
+      "Budget: application 2026-03-04 $3,000 - $5,000 [e1] / whatsapp 2026-05-01 $3-5k [e5] / whatsapp 2026-05-12 ~$8k [e6]",
     );
     expect(card.evidence).toEqual(
       expect.arrayContaining([

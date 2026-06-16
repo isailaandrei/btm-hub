@@ -123,7 +123,7 @@ export function AdminAiPanel({
       />
 
       {selectedThread && (
-        <section className="space-y-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+        <section className="space-y-4 rounded-xl border border-primary/20 bg-white p-4 shadow-sm ring-1 ring-primary/10">
           <header className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -140,7 +140,7 @@ export function AdminAiPanel({
               type="button"
               onClick={handleDeselectThread}
               aria-label="Close past question"
-              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+              className="rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted"
             >
               Close
             </button>

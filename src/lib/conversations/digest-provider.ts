@@ -1,7 +1,7 @@
 import type { ExtractedConversationFact } from "./facts";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_MODEL = "gpt-5-mini";
+const DEFAULT_MODEL = "gpt-5.4";
 const REQUEST_TIMEOUT_MS = 60_000;
 
 export type ConversationDigestExtraction = {
