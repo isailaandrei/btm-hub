@@ -125,4 +125,49 @@ describe("TimelineEventRow", () => {
       container.querySelector('button[aria-label="Delete event"]'),
     ).toBeNull();
   });
+
+  it("shows a delete action for tag assignment events", async () => {
+    const applyOptimistic = vi.fn();
+
+    act(() => {
+      root.render(
+        <TimelineEventRow
+          event={event({
+            type: "tag_assigned",
+            body: "Assigned tag: Academy",
+            metadata: { source: "contact_tags", tag_id: "tag-1" },
+          })}
+          applyOptimistic={applyOptimistic}
+        />,
+      );
+    });
+
+    const deleteButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Delete event"]',
+    );
+    expect(deleteButton).not.toBeNull();
+
+    act(() => {
+      deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const confirmButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Confirm delete event"]',
+    );
+    expect(confirmButton).not.toBeNull();
+
+    await act(async () => {
+      confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(applyOptimistic).toHaveBeenCalledWith({
+      kind: "delete",
+      id: "550e8400-e29b-41d4-a716-446655440002",
+    });
+    expect(mockDeleteEvent).toHaveBeenCalledWith(
+      "550e8400-e29b-41d4-a716-446655440002",
+    );
+    expect(mockRefresh).toHaveBeenCalled();
+  });
 });
