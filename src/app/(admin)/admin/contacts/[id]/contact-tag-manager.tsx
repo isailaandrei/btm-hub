@@ -62,11 +62,14 @@ export function ContactTagManager({
   categories,
   allTags,
 }: ContactTagManagerProps) {
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Per-category dropdown open state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [pendingTagIds, setPendingTagIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [optimisticRows, applyOptimistic] = useOptimistic(
     contactTagRows,
     (state, action: TagAction) => {
@@ -99,7 +102,21 @@ export function ContactTagManager({
 
   const assignedTagIds = new Set(optimisticRows.map((r) => r.tag_id));
 
+  function markTagPending(tagId: string) {
+    setPendingTagIds((previous) => new Set(previous).add(tagId));
+  }
+
+  function clearTagPending(tagId: string) {
+    setPendingTagIds((previous) => {
+      const next = new Set(previous);
+      next.delete(tagId);
+      return next;
+    });
+  }
+
   function handleUnassign(tagId: string) {
+    if (pendingTagIds.has(tagId)) return;
+    markTagPending(tagId);
     startTransition(async () => {
       try {
         applyOptimistic({ kind: "remove", tagId });
@@ -107,11 +124,14 @@ export function ContactTagManager({
         router.refresh();
       } catch {
         toast.error("Failed to remove tag. Please try again.");
+      } finally {
+        clearTagPending(tagId);
       }
     });
   }
 
   function handleAssign(tagId: string, categoryId: string) {
+    if (pendingTagIds.has(tagId)) return;
     const tag = allTags.find((item) => item.id === tagId);
     const category = categories.find((item) => item.id === categoryId);
     if (!tag || !category) {
@@ -137,6 +157,7 @@ export function ContactTagManager({
       },
     };
 
+    markTagPending(tagId);
     startTransition(async () => {
       try {
         applyOptimistic({ kind: "add", row: optimisticRow });
@@ -149,6 +170,8 @@ export function ContactTagManager({
         if (remaining.length === 0) setOpenDropdown(null);
       } catch {
         toast.error("Failed to assign tag. Please try again.");
+      } finally {
+        clearTagPending(tagId);
       }
     });
   }
@@ -192,7 +215,7 @@ export function ContactTagManager({
                   <button
                     type="button"
                     onClick={() => handleUnassign(tag.id)}
-                    disabled={isPending}
+                    disabled={pendingTagIds.has(tag.id)}
                     className="ml-0.5 transition-colors hover:text-red-400 disabled:opacity-50"
                     aria-label={`Remove tag ${tag.name}`}
                   >
@@ -206,7 +229,6 @@ export function ContactTagManager({
                 <button
                   type="button"
                   onClick={() => setOpenDropdown(isOpen ? null : category.id)}
-                  disabled={isPending}
                   className="flex h-5 w-5 items-center justify-center rounded border border-border text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                   aria-label={`Add tag to ${category.name}`}
                 >
@@ -222,7 +244,7 @@ export function ContactTagManager({
                             key={tag.id}
                             type="button"
                             onClick={() => handleAssign(tag.id, category.id)}
-                            disabled={isPending}
+                            disabled={pendingTagIds.has(tag.id)}
                             className="w-full px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted disabled:opacity-50"
                           >
                             {tag.name}
