@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useOptimistic,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -22,13 +28,19 @@ interface TagRow {
   };
 }
 
+type ContactTagRow = {
+  tag_id: string;
+  assigned_at: string;
+  tags: TagRow | TagRow[];
+};
+
+type TagAction =
+  | { kind: "add"; row: ContactTagRow }
+  | { kind: "remove"; tagId: string };
+
 interface ContactTagManagerProps {
   contactId: string;
-  contactTagRows: Array<{
-    tag_id: string;
-    assigned_at: string;
-    tags: TagRow | TagRow[];
-  }>;
+  contactTagRows: ContactTagRow[];
   categories: Array<{
     id: string;
     name: string;
@@ -55,6 +67,18 @@ export function ContactTagManager({
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Per-category dropdown open state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [optimisticRows, applyOptimistic] = useOptimistic(
+    contactTagRows,
+    (state, action: TagAction) => {
+      if (action.kind === "add") {
+        return [
+          ...state.filter((row) => row.tag_id !== action.row.tag_id),
+          action.row,
+        ];
+      }
+      return state.filter((row) => row.tag_id !== action.tagId);
+    },
+  );
 
   useEffect(() => {
     if (!openDropdown) return;
@@ -73,11 +97,12 @@ export function ContactTagManager({
     return t;
   }
 
-  const assignedTagIds = new Set(contactTagRows.map((r) => r.tag_id));
+  const assignedTagIds = new Set(optimisticRows.map((r) => r.tag_id));
 
   function handleUnassign(tagId: string) {
     startTransition(async () => {
       try {
+        applyOptimistic({ kind: "remove", tagId });
         await unassignContactTag(contactId, tagId);
         router.refresh();
       } catch {
@@ -87,8 +112,34 @@ export function ContactTagManager({
   }
 
   function handleAssign(tagId: string, categoryId: string) {
+    const tag = allTags.find((item) => item.id === tagId);
+    const category = categories.find((item) => item.id === categoryId);
+    if (!tag || !category) {
+      toast.error("Tag data is stale. Refresh and try again.");
+      return;
+    }
+
+    const optimisticRow: ContactTagRow = {
+      tag_id: tagId,
+      assigned_at: new Date().toISOString(),
+      tags: {
+        id: tag.id,
+        name: tag.name,
+        category_id: tag.category_id,
+        sort_order: tag.sort_order,
+        tag_categories: {
+          id: category.id,
+          name: category.name,
+          color: category.color,
+          sort_order: category.sort_order,
+          created_at: category.created_at,
+        },
+      },
+    };
+
     startTransition(async () => {
       try {
+        applyOptimistic({ kind: "add", row: optimisticRow });
         await assignContactTag(contactId, tagId);
         router.refresh();
         // Close dropdown if no more available tags in this category after assignment
@@ -115,7 +166,7 @@ export function ContactTagManager({
       {categories.map((category) => {
         const color = category.color ?? "blue";
         const colorClass = TAG_COLOR_CLASSES[color] ?? "";
-        const assignedInCategory = contactTagRows
+        const assignedInCategory = optimisticRows
           .map((r) => resolveTag(r))
           .filter((tag): tag is TagRow => tag !== null && tag.category_id === category.id);
         const availableTags = allTags.filter(
