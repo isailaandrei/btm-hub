@@ -28,6 +28,7 @@ import { resolveEmailEligibility } from "@/lib/email/eligibility";
 import {
   assertMailyDocument,
   renderMailyDocument,
+  renderMailyEmail,
 } from "@/lib/email/rendering/maily";
 import {
   getEmailFromEmail,
@@ -349,6 +350,46 @@ export async function previewEmailAction(input: {
     eligibleCount: preview.eligible.length,
     skipped: preview.skipped,
   };
+}
+
+// Sample values so variable placeholders render as realistic text in the
+// compose preview (the real send substitutes each recipient's own values).
+const COMPOSE_PREVIEW_VARIABLES = {
+  contact: { name: "Alex Rivera", email: "alex@example.com" },
+  owner: { name: "Behind The Mask", email: "hello@behind-the-mask.com" },
+};
+
+const composePreviewSchema = z.object({
+  builderJson: z.unknown(),
+  subject: z.string().optional(),
+  previewText: z.string().optional(),
+});
+
+/**
+ * Render the current compose document to the exact HTML the recipient will
+ * receive (same renderer + theme as the send pipeline), so the composer can
+ * preview the final email. Variables use sample values; the broadcast
+ * unsubscribe footer is added by the send pipeline, not here.
+ */
+export async function renderComposePreviewAction(input: {
+  builderJson: unknown;
+  subject?: string;
+  previewText?: string;
+}): Promise<{ subject: string; html: string }> {
+  await requireAdmin();
+  const parsed = composePreviewSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid email preview");
+  }
+
+  const document = assertMailyDocument(parsed.data.builderJson);
+  const rendered = await renderMailyEmail({
+    subject: parsed.data.subject?.trim() || "(no subject)",
+    previewText: parsed.data.previewText?.trim() || undefined,
+    document,
+    variables: COMPOSE_PREVIEW_VARIABLES,
+  });
+  return { subject: rendered.subject, html: rendered.html };
 }
 
 const composeRecipientsSchema = z.object({

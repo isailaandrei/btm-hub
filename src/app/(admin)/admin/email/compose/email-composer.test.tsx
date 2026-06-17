@@ -10,6 +10,7 @@ import type { EmailManualRecipient, EmailTemplate } from "@/types/database";
 const mockSendEmailNowAction = vi.fn();
 const mockSaveEmailManualRecipientAction = vi.fn();
 const mockGetComposeRecipientsAction = vi.fn();
+const mockRenderComposePreviewAction = vi.fn();
 const mockToastError = vi.fn();
 const mockToastSuccess = vi.fn();
 
@@ -24,6 +25,7 @@ vi.mock("../actions", () => ({
   sendEmailNowAction: mockSendEmailNowAction,
   saveEmailManualRecipientAction: mockSaveEmailManualRecipientAction,
   getComposeRecipientsAction: mockGetComposeRecipientsAction,
+  renderComposePreviewAction: mockRenderComposePreviewAction,
 }));
 
 vi.mock("../templates/email-designer", async () => {
@@ -99,6 +101,10 @@ describe("EmailComposer manual recipients", () => {
         },
       ],
       skipped: [],
+    });
+    mockRenderComposePreviewAction.mockReset().mockResolvedValue({
+      subject: "Hello Alex Rivera",
+      html: "<html><body><h1>Preview body</h1></body></html>",
     });
     mockToastError.mockReset();
     mockToastSuccess.mockReset();
@@ -190,5 +196,41 @@ describe("EmailComposer manual recipients", () => {
     );
     expect(container.textContent).toContain("1 recipient will receive this email");
     expect(container.textContent).toContain(MANUAL_RECIPIENT.email);
+  });
+
+  it("renders a final-email preview when the Preview tab is opened", async () => {
+    await act(async () => {
+      root.render(
+        <EmailComposer
+          templates={[template()]}
+          templateVersionsById={{
+            [TEMPLATE_VERSION_ID]: {
+              builderJson: { type: "doc", content: [] },
+            },
+          }}
+          ensureTemplateVersion={vi.fn()}
+          selectedContactIds={[]}
+          manualRecipients={[MANUAL_RECIPIENT]}
+          setManualRecipients={vi.fn()}
+        />,
+      );
+    });
+
+    const previewTab = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Preview",
+    );
+    if (!previewTab) throw new Error("Missing Preview tab");
+    await act(async () => {
+      previewTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
+    expect(mockRenderComposePreviewAction).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "Hello {{contact.name}}" }),
+    );
+    const iframe = container.querySelector("iframe");
+    if (!iframe) throw new Error("Missing preview iframe");
+    expect(iframe.getAttribute("srcdoc")).toContain("Preview body");
+    expect(container.textContent).toContain("Subject: Hello Alex Rivera");
   });
 });

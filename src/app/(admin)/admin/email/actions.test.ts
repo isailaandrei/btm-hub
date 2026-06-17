@@ -15,6 +15,7 @@ const mockQueueEmailSend = vi.fn();
 const mockGetEmailTemplateVersion = vi.fn();
 const mockListEmailTemplates = vi.fn();
 const mockRenderMailyDocument = vi.fn();
+const mockRenderMailyEmail = vi.fn();
 const mockAssertMailyDocument = vi.fn((document: unknown) => document);
 const mockGetEmailProvider = vi.fn();
 const mockGetEmailWorkerSecret = vi.fn();
@@ -53,6 +54,7 @@ vi.mock("@/lib/data/email-templates", () => ({
 vi.mock("@/lib/email/rendering/maily", () => ({
   assertMailyDocument: mockAssertMailyDocument,
   renderMailyDocument: mockRenderMailyDocument,
+  renderMailyEmail: mockRenderMailyEmail,
 }));
 
 vi.mock("@/lib/email/provider", () => ({
@@ -93,6 +95,7 @@ const {
   loadEmailTemplatesAction,
   getComposeRecipientsAction,
   previewEmailAction,
+  renderComposePreviewAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
 } = await import("./actions");
@@ -143,6 +146,11 @@ beforeEach(() => {
   mockRenderMailyDocument.mockReset().mockResolvedValue({
     html: "<p>Hello {{contact.name}}</p>",
     text: "Hello {{contact.name}}",
+  });
+  mockRenderMailyEmail.mockReset().mockResolvedValue({
+    subject: "Hello Alex Rivera",
+    html: "<html><body><p>Hello Alex Rivera</p></body></html>",
+    text: "Hello Alex Rivera",
   });
   mockCreateEmailSendWithRecipients.mockReset().mockResolvedValue({
     id: "send-1",
@@ -282,6 +290,32 @@ describe("previewEmailAction", () => {
     expect(mockGetEmailManualRecipientsByIds).toHaveBeenCalledWith([
       MANUAL_RECIPIENT.id,
     ]);
+  });
+});
+
+describe("renderComposePreviewAction", () => {
+  it("renders the final email HTML and subject with sample variables", async () => {
+    mockAssertMailyDocument.mockReturnValue({ type: "doc", content: [] });
+
+    const result = await renderComposePreviewAction({
+      builderJson: { type: "doc", content: [] },
+      subject: "Hello {{contact.name}}",
+      previewText: "A note",
+    });
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockRenderMailyEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: "Hello {{contact.name}}",
+        variables: expect.objectContaining({
+          contact: expect.objectContaining({ name: "Alex Rivera" }),
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      subject: "Hello Alex Rivera",
+      html: "<html><body><p>Hello Alex Rivera</p></body></html>",
+    });
   });
 });
 

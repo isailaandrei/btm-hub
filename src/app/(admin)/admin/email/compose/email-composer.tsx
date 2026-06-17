@@ -9,7 +9,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { Eye, Loader2, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import type {
   EmailManualRecipient,
@@ -27,6 +27,7 @@ import {
 } from "../templates/email-designer";
 import {
   getComposeRecipientsAction,
+  renderComposePreviewAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
   type ComposeRecipient,
@@ -40,6 +41,7 @@ import {
 } from "./broadcast-confirmation";
 import { getRecipientSummary } from "./recipient-summary";
 import { RecipientList } from "./recipient-list";
+import { EmailPreview } from "../templates/email-preview";
 
 function readCachedTemplateDocument(
   versionId: string,
@@ -118,6 +120,11 @@ export function EmailComposer({
   const [manualRecipientName, setManualRecipientName] = useState("");
   const [manualRecipientEmail, setManualRecipientEmail] = useState("");
   const [isBroadcastConfirmOpen, setIsBroadcastConfirmOpen] = useState(false);
+  const [view, setView] = useState<"design" | "preview">("design");
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [previewSubject, setPreviewSubject] = useState("");
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isRenderingPreview, startPreviewTransition] = useTransition();
   const [recipientDetails, setRecipientDetails] = useState<{
     eligible: ComposeRecipient[];
     skipped: ComposeSkippedRecipient[];
@@ -226,6 +233,32 @@ export function EmailComposer({
         ? current.filter((id) => id !== recipientId)
         : [...current, recipientId],
     );
+  }
+
+  function renderPreview() {
+    const builderJson =
+      designerRef.current?.getSnapshot().builderJson ?? document;
+    startPreviewTransition(async () => {
+      try {
+        const result = await renderComposePreviewAction({
+          builderJson,
+          subject,
+          previewText,
+        });
+        setPreviewHtml(result.html);
+        setPreviewSubject(result.subject);
+        setPreviewError(null);
+      } catch (error) {
+        setPreviewError(
+          error instanceof Error ? error.message : "Failed to render preview.",
+        );
+      }
+    });
+  }
+
+  function showPreview() {
+    setView("preview");
+    renderPreview();
   }
 
   function handleSaveManualRecipient() {
@@ -406,11 +439,65 @@ export function EmailComposer({
         </div>
       </div>
 
-      <EmailDesigner
-        ref={designerRef}
-        sourceDocument={document}
-        onDocumentChange={setDocument}
-      />
+      <div className="flex flex-col gap-3">
+        <div className="inline-flex w-fit rounded-md border border-border p-0.5">
+          <button
+            type="button"
+            onClick={() => setView("design")}
+            aria-pressed={view === "design"}
+            className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              view === "design"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Design
+          </button>
+          <button
+            type="button"
+            onClick={showPreview}
+            aria-pressed={view === "preview"}
+            className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              view === "preview"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            Preview
+          </button>
+        </div>
+
+        {/* Editor stays mounted (hidden) so edits and cursor survive toggling. */}
+        <div className={view === "design" ? "" : "hidden"}>
+          <EmailDesigner
+            ref={designerRef}
+            sourceDocument={document}
+            onDocumentChange={setDocument}
+          />
+        </div>
+        {view === "preview" && (
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-foreground">
+              <span className="text-muted-foreground">Subject: </span>
+              {previewSubject || subject}
+            </p>
+            <EmailPreview
+              html={previewHtml}
+              isLoading={isRenderingPreview}
+              error={previewError}
+              onRefresh={renderPreview}
+            />
+            <p className="text-xs text-muted-foreground">
+              Variables show sample values; each recipient sees their own.
+              {kind === "broadcast"
+                ? " Broadcasts also append an unsubscribe footer when sent."
+                : ""}
+            </p>
+          </div>
+        )}
+      </div>
       {activeTemplateLoadError && (
         <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           This template could not be loaded. Select another template or open it
