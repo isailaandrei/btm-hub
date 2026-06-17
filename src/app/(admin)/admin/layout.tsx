@@ -7,6 +7,7 @@ import { AdminDataProvider } from "./admin-data-provider";
 import { AdminSidebar } from "./admin-sidebar";
 import { AdminWorkspaceFrame } from "./admin-workspace-frame";
 import { AdminEmailDataProvider } from "./email/admin-email-data-provider";
+import { TaskDataProvider } from "./tasks/task-data-provider";
 
 export default async function AdminLayout({
   children,
@@ -23,29 +24,31 @@ export default async function AdminLayout({
     <div className="theme-admin min-h-svh bg-sidebar text-foreground">
       <AdminDataProvider initialPreferences={profile.preferences}>
         <AdminEmailDataProvider>
-          <SidebarProvider>
-            <Suspense fallback={null}>
-              <AdminSidebar
-                user={{
-                  avatarUrl: profile.avatar_url,
-                  displayName: profile.display_name,
-                  email: profile.email,
-                }}
-              />
-            </Suspense>
-            <SidebarInset className="min-w-0">
-              <Suspense
-                fallback={
-                  <header className="h-14 shrink-0 border-b border-border/60" />
-                }
-              >
-                <AdminShellHeader />
+          <TaskDataProvider>
+            <SidebarProvider>
+              <Suspense fallback={null}>
+                <AdminSidebar
+                  user={{
+                    avatarUrl: profile.avatar_url,
+                    displayName: profile.display_name,
+                    email: profile.email,
+                  }}
+                />
               </Suspense>
-              <div className="min-w-0 flex-1 overflow-auto p-3 md:p-5 lg:p-6">
-                <AdminWorkspaceFrame>{children}</AdminWorkspaceFrame>
-              </div>
-            </SidebarInset>
-          </SidebarProvider>
+              <SidebarInset className="min-w-0">
+                <Suspense
+                  fallback={
+                    <header className="h-14 shrink-0 border-b border-border/60" />
+                  }
+                >
+                  <AdminShellHeader />
+                </Suspense>
+                <div className="min-w-0 flex-1 overflow-auto p-3 md:p-5 lg:p-6">
+                  <AdminWorkspaceFrame>{children}</AdminWorkspaceFrame>
+                </div>
+              </SidebarInset>
+            </SidebarProvider>
+          </TaskDataProvider>
         </AdminEmailDataProvider>
       </AdminDataProvider>
     </div>
