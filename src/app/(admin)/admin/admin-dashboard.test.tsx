@@ -77,10 +77,11 @@ vi.mock("next/navigation", () => ({
   ),
 }));
 
-vi.mock("./contacts/contacts-panel", () => ({
-  ContactsPanel: ({
+vi.mock("./contacts/deferred-contacts-panel", () => ({
+  DeferredContactsPanel: ({
     onSendEmail,
   }: {
+    initialContactsData?: Promise<unknown>;
     onSendEmail?: (contactIds: string[]) => void;
   }) => {
     useEffect(() => {
