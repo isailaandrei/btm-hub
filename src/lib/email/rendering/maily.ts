@@ -8,7 +8,32 @@ import {
 export type MailyDocument = JSONContent & {
   type: "doc";
   content: JSONContent[];
+  /**
+   * Optional per-template email width (the container's max-width, in px). Stored
+   * alongside the document in builder_json so it travels through preview, save,
+   * and send. Falls back to DEFAULT_EMAIL_WIDTH when absent.
+   */
+  maxWidth?: number;
 };
+
+export const DEFAULT_EMAIL_WIDTH = 680;
+export const MIN_EMAIL_WIDTH = 320;
+export const MAX_EMAIL_WIDTH = 900;
+
+/** Clamp an arbitrary width input to the allowed email-container range. */
+export function clampEmailWidth(value: unknown): number {
+  const numeric =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(numeric)) return DEFAULT_EMAIL_WIDTH;
+  return Math.min(MAX_EMAIL_WIDTH, Math.max(MIN_EMAIL_WIDTH, Math.round(numeric)));
+}
+
+/** Resolve the effective container width for a document (clamped, with default). */
+export function getMailyDocumentWidth(document: MailyDocument): number {
+  return document.maxWidth == null
+    ? DEFAULT_EMAIL_WIDTH
+    : clampEmailWidth(document.maxWidth);
+}
 
 export interface RenderedEmailBody {
   html: string;
@@ -207,8 +232,15 @@ export async function renderMailyDocument(
     variables?: EmailRenderVariables;
   } = {},
 ): Promise<RenderedEmailBody> {
-  const renderer = new Maily(withResponsiveImages(assertMailyDocument(document)));
-  renderer.setTheme(DEFAULT_EMAIL_RENDER_THEME);
+  const normalized = withResponsiveImages(assertMailyDocument(document));
+  const renderer = new Maily(normalized);
+  renderer.setTheme({
+    ...DEFAULT_EMAIL_RENDER_THEME,
+    container: {
+      ...DEFAULT_EMAIL_RENDER_THEME.container,
+      maxWidth: `${getMailyDocumentWidth(normalized)}px`,
+    },
+  });
   if (input.previewText) {
     renderer.setPreviewText(input.previewText);
   }

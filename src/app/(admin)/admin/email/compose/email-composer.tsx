@@ -19,6 +19,7 @@ import type {
 import {
   assertMailyDocument,
   createDefaultMailyDocument,
+  getMailyDocumentWidth,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import {
@@ -97,6 +98,9 @@ export function EmailComposer({
       return createDefaultMailyDocument();
     }
   });
+  const [maxWidth, setMaxWidth] = useState<number>(() =>
+    getMailyDocumentWidth(document),
+  );
   const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState(() => {
     if (!initialTemplateVersionId) return "";
     try {
@@ -160,6 +164,7 @@ export function EmailComposer({
         if (!isActive || !version) return;
         const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
+        setMaxWidth(getMailyDocumentWidth(nextDocument));
         setLoadedTemplateVersionId(selectedTemplateVersionId);
         setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
@@ -475,6 +480,7 @@ export function EmailComposer({
             ref={designerRef}
             sourceDocument={document}
             onDocumentChange={setDocument}
+            maxWidth={maxWidth}
           />
         </div>
         {view === "preview" && (

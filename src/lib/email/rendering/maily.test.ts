@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   assertMailyDocument,
+  clampEmailWidth,
   createDefaultMailyDocument,
+  DEFAULT_EMAIL_WIDTH,
   getAssetIdsForMailyDocument,
+  getMailyDocumentWidth,
+  MAX_EMAIL_WIDTH,
+  MIN_EMAIL_WIDTH,
   renderMailyDocument,
   renderMailyEmail,
 } from "./maily";
@@ -26,12 +31,40 @@ describe("Maily rendering", () => {
     expect(document.content?.[1]?.type).toBe("heading");
   });
 
-  it("renders the email at the configured 680px width with a padded container", async () => {
+  it("renders the email at the default 680px width with a padded container", async () => {
     const rendered = await renderMailyDocument(createDefaultMailyDocument());
 
     expect(rendered.html).toContain("max-width:680px");
     // Container keeps horizontal padding so content is not full-bleed.
     expect(rendered.html).toContain("padding-left:32px");
+  });
+
+  it("clamps a custom email width to the allowed range", () => {
+    expect(clampEmailWidth(720)).toBe(720);
+    expect(clampEmailWidth(100)).toBe(MIN_EMAIL_WIDTH);
+    expect(clampEmailWidth(5000)).toBe(MAX_EMAIL_WIDTH);
+    expect(clampEmailWidth("not a number")).toBe(DEFAULT_EMAIL_WIDTH);
+    expect(clampEmailWidth("740px")).toBe(740);
+  });
+
+  it("resolves a document's width, defaulting and clamping as needed", () => {
+    expect(getMailyDocumentWidth(createDefaultMailyDocument())).toBe(
+      DEFAULT_EMAIL_WIDTH,
+    );
+    expect(
+      getMailyDocumentWidth({ type: "doc", content: [], maxWidth: 600 }),
+    ).toBe(600);
+    expect(
+      getMailyDocumentWidth({ type: "doc", content: [], maxWidth: 99999 }),
+    ).toBe(MAX_EMAIL_WIDTH);
+  });
+
+  it("renders at a custom per-document width when set", async () => {
+    const document = { ...createDefaultMailyDocument(), maxWidth: 720 };
+    const rendered = await renderMailyDocument(document);
+
+    expect(rendered.html).toContain("max-width:720px");
+    expect(rendered.html).not.toContain("max-width:680px");
   });
 
   it("uses a system font stack and loads no web font", async () => {

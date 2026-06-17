@@ -5,7 +5,14 @@ import { Loader2, Monitor, RefreshCw, Smartphone } from "lucide-react";
 
 type Viewport = "desktop" | "mobile";
 
-const MOBILE_WIDTH = 390;
+// Common device widths so a too-narrow preview can be widened to a real phone.
+const MOBILE_WIDTH_PRESETS = [
+  { label: "Small (320)", value: 320 },
+  { label: "iPhone (390)", value: 390 },
+  { label: "Large (430)", value: 430 },
+  { label: "Tablet (600)", value: 600 },
+];
+const DEFAULT_MOBILE_WIDTH = 390;
 const DESKTOP_MAX_WIDTH = 760;
 
 interface EmailPreviewProps {
@@ -22,6 +29,7 @@ export function EmailPreview({
   onRefresh,
 }: EmailPreviewProps) {
   const [viewport, setViewport] = useState<Viewport>("desktop");
+  const [mobileWidth, setMobileWidth] = useState<number>(DEFAULT_MOBILE_WIDTH);
   const isMobile = viewport === "mobile";
 
   return (
@@ -55,6 +63,22 @@ export function EmailPreview({
             Mobile
           </button>
         </div>
+        {isMobile && (
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            Device width
+            <select
+              value={mobileWidth}
+              onChange={(event) => setMobileWidth(Number(event.target.value))}
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+            >
+              {MOBILE_WIDTH_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <button
           type="button"
           onClick={onRefresh}
@@ -85,7 +109,7 @@ export function EmailPreview({
             sandbox=""
             className="h-[720px] w-full rounded-sm bg-white shadow-sm"
             style={{
-              maxWidth: isMobile ? MOBILE_WIDTH : DESKTOP_MAX_WIDTH,
+              maxWidth: isMobile ? mobileWidth : DESKTOP_MAX_WIDTH,
             }}
           />
         ) : (

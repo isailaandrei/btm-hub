@@ -13,7 +13,11 @@ import { toast } from "sonner";
 import type { EmailTemplate } from "@/types/database";
 import {
   assertMailyDocument,
+  clampEmailWidth,
   createDefaultMailyDocument,
+  getMailyDocumentWidth,
+  MAX_EMAIL_WIDTH,
+  MIN_EMAIL_WIDTH,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import {
@@ -95,6 +99,9 @@ export function TemplateEditor({
     versionId: string;
     message: string;
   } | null>(null);
+  const [maxWidth, setMaxWidth] = useState<number>(() =>
+    getMailyDocumentWidth(document),
+  );
   const [isLoadingVersion, startLoadTransition] = useTransition();
   const [isPublishing, startPublishTransition] = useTransition();
   const [isDeleting, startDeleteTransition] = useTransition();
@@ -106,7 +113,7 @@ export function TemplateEditor({
 
   const renderPreview = useCallback(() => {
     const builderJson =
-      designerRef.current?.getSnapshot().builderJson ?? document;
+      designerRef.current?.getSnapshot().builderJson ?? { ...document, maxWidth };
     startPreviewTransition(async () => {
       try {
         const result = await renderTemplatePreviewAction({ builderJson });
@@ -120,7 +127,7 @@ export function TemplateEditor({
         );
       }
     });
-  }, [document]);
+  }, [document, maxWidth]);
 
   const showPreview = useCallback(() => {
     setView("preview");
@@ -163,6 +170,7 @@ export function TemplateEditor({
         if (!isActive || !version) return;
         const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
+        setMaxWidth(getMailyDocumentWidth(nextDocument));
         setLoadedTemplateVersionId(selectedTemplateVersionId);
         setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
@@ -193,6 +201,7 @@ export function TemplateEditor({
   const resetEditor = useCallback(() => {
     const fresh = createDefaultMailyDocument();
     setDocument(fresh);
+    setMaxWidth(getMailyDocumentWidth(fresh));
     setLoadedTemplateVersionId("");
     designerRef.current?.loadDocument(fresh);
   }, []);
@@ -219,7 +228,7 @@ export function TemplateEditor({
     startPublishTransition(async () => {
       try {
         const snapshot = designerRef.current?.getSnapshot();
-        const builderJson = snapshot?.builderJson ?? document;
+        const builderJson = snapshot?.builderJson ?? { ...document, maxWidth };
 
         if (isCreatingTemplate) {
           const result = await createAndPublishTemplateAction({
@@ -420,33 +429,54 @@ export function TemplateEditor({
               )}
             </div>
 
-            <div className="mb-3 inline-flex rounded-md border border-border p-0.5">
-              <button
-                type="button"
-                onClick={() => setView("design")}
-                aria-pressed={view === "design"}
-                className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                  view === "design"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Design
-              </button>
-              <button
-                type="button"
-                onClick={showPreview}
-                aria-pressed={view === "preview"}
-                className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                  view === "preview"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                <Eye className="h-3.5 w-3.5" />
-                Preview
-              </button>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex rounded-md border border-border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setView("design")}
+                  aria-pressed={view === "design"}
+                  className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                    view === "design"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Design
+                </button>
+                <button
+                  type="button"
+                  onClick={showPreview}
+                  aria-pressed={view === "preview"}
+                  className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                    view === "preview"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Preview
+                </button>
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                Email width
+                <input
+                  type="number"
+                  min={MIN_EMAIL_WIDTH}
+                  max={MAX_EMAIL_WIDTH}
+                  step={10}
+                  value={maxWidth}
+                  onChange={(event) =>
+                    setMaxWidth(Number(event.target.value) || MIN_EMAIL_WIDTH)
+                  }
+                  onBlur={(event) =>
+                    setMaxWidth(clampEmailWidth(event.target.value))
+                  }
+                  className="w-20 rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground"
+                />
+                px
+              </label>
             </div>
 
             {/* Editor stays mounted (just hidden) so in-progress edits and
@@ -456,6 +486,7 @@ export function TemplateEditor({
                 ref={designerRef}
                 sourceDocument={document}
                 onDocumentChange={setDocument}
+                maxWidth={maxWidth}
               />
             </div>
             {view === "preview" && (

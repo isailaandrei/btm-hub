@@ -50,10 +50,16 @@ export interface EmailDesignerHandle {
 interface EmailDesignerProps {
   sourceDocument: MailyDocument;
   onDocumentChange: (document: MailyDocument) => void;
+  /**
+   * Per-template email width. The Maily editor strips unknown top-level keys
+   * from its JSON, so the width is tracked outside the editor and re-merged into
+   * the snapshot here — that way save, preview, and send all keep it.
+   */
+  maxWidth?: number;
 }
 
 export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>(
-  function EmailDesigner({ sourceDocument, onDocumentChange }, ref) {
+  function EmailDesigner({ sourceDocument, onDocumentChange, maxWidth }, ref) {
     const editorRef = useRef<TiptapEditor | null>(null);
 
     const extensions = useMemo(
@@ -97,9 +103,11 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
           const document = assertMailyDocument(
             editorRef.current?.getJSON() ?? sourceDocument,
           );
+          const withWidth: MailyDocument =
+            maxWidth == null ? document : { ...document, maxWidth };
           return {
-            document,
-            builderJson: document as Record<string, unknown>,
+            document: withWidth,
+            builderJson: withWidth as Record<string, unknown>,
           };
         },
         loadDocument(document) {
@@ -108,7 +116,7 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
           onDocumentChange(normalized);
         },
       }),
-      [onDocumentChange, sourceDocument],
+      [maxWidth, onDocumentChange, sourceDocument],
     );
 
     return (
