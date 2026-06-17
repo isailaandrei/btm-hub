@@ -34,6 +34,11 @@ export function EmailPreview({
 
   return (
     <div className="flex min-h-[760px] flex-col gap-3">
+      <p className="text-xs text-muted-foreground">
+        Final rendered email with sample variable values. Use this to check how
+        variables fill in and how it looks at different device sizes — the Design
+        tab is for editing.
+      </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-md border border-border p-0.5">
           <button

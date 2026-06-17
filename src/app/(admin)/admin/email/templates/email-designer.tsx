@@ -6,6 +6,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  type CSSProperties,
 } from "react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { EditorProps } from "@maily-to/core";
@@ -120,7 +121,16 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
     );
 
     return (
-      <div className="flex min-h-[760px] min-w-0 flex-col">
+      <div
+        className="flex min-h-[760px] min-w-0 flex-col"
+        // Drives the canvas card width so Design matches the per-template email
+        // width (see .email-maily-canvas in globals.css).
+        style={
+          maxWidth
+            ? ({ "--email-canvas-width": `${maxWidth}px` } as CSSProperties)
+            : undefined
+        }
+      >
         <div className="min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-[#f3f4f6]">
           <MailyEditor
             contentJson={sourceDocument}
