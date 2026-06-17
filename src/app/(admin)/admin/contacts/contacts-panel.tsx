@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -142,6 +143,7 @@ export function ContactsPanel({
   initialData?: AdminContactsInitialData;
   onSendEmail?: (contactIds: string[]) => void;
 }) {
+  const router = useRouter();
   const {
     contacts,
     tagCategories,
@@ -259,6 +261,7 @@ export function ContactsPanel({
     [state.selectedIds],
   );
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const prefetchedContactIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     return () => {
@@ -312,6 +315,12 @@ export function ContactsPanel({
       else next.add(contactId);
       return next;
     });
+  }
+
+  function prefetchContactDetail(contactId: string) {
+    if (prefetchedContactIdsRef.current.has(contactId)) return;
+    prefetchedContactIdsRef.current.add(contactId);
+    router.prefetch(`/admin/contacts/${contactId}`);
   }
 
   const tableMinWidth = useMemo(() => {
@@ -675,6 +684,8 @@ export function ContactsPanel({
                       <TableCell className="overflow-hidden whitespace-normal break-words">
                         <Link
                           href={`/admin/contacts/${contact.id}`}
+                          onFocus={() => prefetchContactDetail(contact.id)}
+                          onMouseEnter={() => prefetchContactDetail(contact.id)}
                           className="font-medium text-foreground hover:text-primary"
                         >
                           {contact.name}

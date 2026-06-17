@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { PROFILE_PORTFOLIO_BUCKET } from "@/lib/storage/profile-portfolio";
@@ -92,6 +93,7 @@ export const getPortfolioItemsByProfileId = cache(
   async function getPortfolioItemsByProfileId(
     profileId: string,
   ): Promise<ProfilePortfolioItemWithUrl[]> {
+    const startedAt = startAdminTiming();
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("profile_portfolio_items")
@@ -104,7 +106,16 @@ export const getPortfolioItemsByProfileId = cache(
       throw new Error(`Failed to load portfolio items: ${error.message}`);
     }
 
-    return attachSignedUrls((data ?? []) as ProfilePortfolioItem[]);
+    const items = await attachSignedUrls((data ?? []) as ProfilePortfolioItem[]);
+
+    logAdminTiming("profile.portfolio.items.server", startedAt, {
+      items: items.length,
+      profileId,
+      signedItems: items.filter((item) => item.signedUrl).length,
+      thumbnails: items.filter((item) => item.thumbnailUrl).length,
+    });
+
+    return items;
   },
 );
 

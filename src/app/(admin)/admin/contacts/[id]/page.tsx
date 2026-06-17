@@ -1,21 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PortfolioGallery } from "@/components/profile/portfolio-gallery";
+import { Suspense } from "react";
 import { validateUUID } from "@/lib/validation-helpers";
-import {
-  getContactById,
-  getApplicationsByContactId,
-  getContactTags,
-  getTagCategories,
-  getTags,
-} from "@/lib/data/contacts";
-import { getContactEvents } from "@/lib/data/contact-events";
-import { getPortfolioItemsByContactProfileId } from "@/lib/data/profile-portfolio";
+import { getContactDetailBootstrap } from "@/lib/data/contact-detail";
 import { getProfile } from "@/lib/data/profiles";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
-import { ContactTagManager } from "./contact-tag-manager";
+import { ContactTagsSection } from "./contact-tags-section";
 import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh";
+import {
+  PortfolioSection,
+  PortfolioSectionSkeleton,
+} from "./portfolio-section";
 import { Timeline } from "./timeline";
 
 export default async function ContactDetailPage({
@@ -29,28 +24,15 @@ export default async function ContactDetailPage({
   } catch {
     return notFound();
   }
-  const contact = await getContactById(id);
-  if (!contact) return notFound();
 
-  const [
-    applications,
-    contactTagRows,
-    events,
-    categories,
-    allTags,
-    portfolioItems,
-    profile,
-  ] = await Promise.all([
-    getApplicationsByContactId(id),
-    getContactTags(id),
-    getContactEvents(id),
-    getTagCategories(),
-    getTags(),
-    getPortfolioItemsByContactProfileId({
-      profileId: contact.profile_id,
-    }),
+  const [detail, profile] = await Promise.all([
+    getContactDetailBootstrap(id),
     getProfile(),
   ]);
+
+  if (!detail) return notFound();
+
+  const { applications, contact, events, hasMore, nextCursor } = detail;
   const authorName = profile?.display_name ?? profile?.email ?? "You";
 
   const latestApplication = applications[0] ?? null;
@@ -104,8 +86,8 @@ export default async function ContactDetailPage({
       </div>
 
       {/* Two-column: applications + timeline left, tags right */}
-      <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
-        <div className="flex flex-col gap-6">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 flex flex-col gap-6">
           {applications.length === 0 ? (
             <p className="text-sm text-muted-foreground">No applications yet.</p>
           ) : (
@@ -115,43 +97,21 @@ export default async function ContactDetailPage({
           )}
 
           <Timeline
+            key={`${contact.id}:${events.map((event) => event.id).join(",")}:${nextCursor ?? "end"}`}
             contactId={contact.id}
             events={events}
+            hasMore={hasMore}
+            nextCursor={nextCursor}
             authorName={authorName}
           />
         </div>
 
-        <div className="flex flex-col gap-6">
-          <Card className="overflow-visible">
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Tags</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ContactTagManager
-                contactId={contact.id}
-                contactTagRows={contactTagRows}
-                categories={categories}
-                allTags={allTags}
-              />
-            </CardContent>
-          </Card>
+        <div className="min-w-0 flex flex-col gap-6">
+          <ContactTagsSection contactId={contact.id} />
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">
-                Portfolio
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {contact.profile_id && portfolioItems.length > 0 ? (
-                <PortfolioGallery items={portfolioItems} compact />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No portfolio images linked to this contact.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+          <Suspense fallback={<PortfolioSectionSkeleton />}>
+            <PortfolioSection profileId={contact.profile_id} />
+          </Suspense>
         </div>
       </div>
     </div>

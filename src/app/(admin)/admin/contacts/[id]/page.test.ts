@@ -3,31 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const CONTACT_ID = "550e8400-e29b-41d4-a716-446655440001";
 
-const mockGetContactById = vi.fn();
-const mockGetApplicationsByContactId = vi.fn();
-const mockGetContactTags = vi.fn();
-const mockGetTagCategories = vi.fn();
-const mockGetTags = vi.fn();
-const mockGetContactEvents = vi.fn();
-const mockGetPortfolioItemsByContactProfileId = vi.fn();
+const mockGetContactDetailBootstrap = vi.fn();
 const mockGetProfile = vi.fn();
 const mockListAdminAiThreadSummaries = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
 
-vi.mock("@/lib/data/contacts", () => ({
-  getContactById: mockGetContactById,
-  getApplicationsByContactId: mockGetApplicationsByContactId,
-  getContactTags: mockGetContactTags,
-  getTagCategories: mockGetTagCategories,
-  getTags: mockGetTags,
-}));
-
-vi.mock("@/lib/data/contact-events", () => ({
-  getContactEvents: mockGetContactEvents,
-}));
-
-vi.mock("@/lib/data/profile-portfolio", () => ({
-  getPortfolioItemsByContactProfileId: mockGetPortfolioItemsByContactProfileId,
+vi.mock("@/lib/data/contact-detail", () => ({
+  getContactDetailBootstrap: mockGetContactDetailBootstrap,
 }));
 
 vi.mock("@/lib/data/profiles", () => ({
@@ -52,20 +34,20 @@ vi.mock("next/navigation", async (importOriginal) => ({
 const { default: ContactDetailPage } = await import("./page");
 
 describe("ContactDetailPage", () => {
-  it("does not fetch hidden contact AI data while the panel is paused", async () => {
-    mockGetContactById.mockResolvedValue({
-      id: CONTACT_ID,
-      name: "Jane Contact",
-      email: "jane@example.com",
-      phone: null,
-      profile_id: "profile-1",
+  it("loads the contact detail bootstrap without fetching hidden AI data", async () => {
+    mockGetContactDetailBootstrap.mockResolvedValue({
+      applications: [],
+      contact: {
+        id: CONTACT_ID,
+        name: "Jane Contact",
+        email: "jane@example.com",
+        phone: null,
+        profile_id: "profile-1",
+      },
+      events: [],
+      hasMore: false,
+      nextCursor: null,
     });
-    mockGetApplicationsByContactId.mockResolvedValue([]);
-    mockGetContactTags.mockResolvedValue([]);
-    mockGetContactEvents.mockResolvedValue([]);
-    mockGetTagCategories.mockResolvedValue([]);
-    mockGetTags.mockResolvedValue([]);
-    mockGetPortfolioItemsByContactProfileId.mockResolvedValue([]);
     mockGetProfile.mockResolvedValue({
       id: "admin-1",
       email: "admin@example.com",
@@ -82,10 +64,7 @@ describe("ContactDetailPage", () => {
       params: Promise.resolve({ id: CONTACT_ID }),
     });
 
-    expect(mockGetContactById).toHaveBeenCalledWith(CONTACT_ID);
-    expect(mockGetPortfolioItemsByContactProfileId).toHaveBeenCalledWith({
-      profileId: "profile-1",
-    });
+    expect(mockGetContactDetailBootstrap).toHaveBeenCalledWith(CONTACT_ID);
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
   });
@@ -98,6 +77,8 @@ describe("ContactDetailPage", () => {
     ).rejects.toThrow("NEXT_NOT_FOUND");
 
     expect(notFound).toHaveBeenCalled();
-    expect(mockGetContactById).not.toHaveBeenCalledWith("not-a-uuid");
+    expect(mockGetContactDetailBootstrap).not.toHaveBeenCalledWith(
+      "not-a-uuid",
+    );
   });
 });
