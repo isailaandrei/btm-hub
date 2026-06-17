@@ -2,11 +2,15 @@
 
 import dynamic from "next/dynamic";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ContactsPanelSkeleton } from "./contacts/contacts-panel-skeleton";
 import { DeferredContactsPanel } from "./contacts/deferred-contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
-import { resolveAdminPanelTab, type AdminPanelTab } from "./admin-navigation";
+import {
+  getAdminPanelHref,
+  resolveAdminPanelTab,
+  type AdminPanelTab,
+} from "./admin-navigation";
 import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
 import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 
@@ -56,16 +60,15 @@ export function AdminDashboard({
 }: {
   initialContactsData?: Promise<AdminContactsInitialData>;
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const aiEnabled = isLocalAdminAiEnabled();
   const { tab: activeTab, invalidValue } = resolveAdminPanelTab(
     searchParams.get("tab"),
     { aiEnabled },
   );
-  const [visitedTabs, setVisitedTabs] = useState<VisitedTabs>({
-    contacts: true,
-  });
+  const [visitedTabs, setVisitedTabs] = useState<VisitedTabs>(() => ({
+    [activeTab]: true,
+  }));
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
   const previousActiveTabRef = useRef<AdminPanelTab>(activeTab);
   const warnedInvalidTabsRef = useRef<Set<string>>(new Set());
@@ -118,18 +121,20 @@ export function AdminDashboard({
 
   function handleSendEmail(contactIds: string[]) {
     setEmailContactIds(contactIds);
-    router.push("/admin?tab=email");
+    window.history.pushState(null, "", getAdminPanelHref("email"));
   }
 
   return (
     <div>
-      {activeTab === "contacts" && (
-        <Suspense fallback={<ContactsPanelSkeleton />}>
-          <DeferredContactsPanel
-            initialContactsData={initialContactsData}
-            onSendEmail={handleSendEmail}
-          />
-        </Suspense>
+      {(activeTab === "contacts" || visitedTabs.contacts) && (
+        <div hidden={activeTab !== "contacts"}>
+          <Suspense fallback={<ContactsPanelSkeleton />}>
+            <DeferredContactsPanel
+              initialContactsData={initialContactsData}
+              onSendEmail={handleSendEmail}
+            />
+          </Suspense>
+        </div>
       )}
 
       {activeTab === "tags" && <TagsPanel />}

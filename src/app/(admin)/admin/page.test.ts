@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockListAdminAiThreadSummaries = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
@@ -42,6 +42,10 @@ vi.mock("./admin-dashboard", () => ({
 const { default: AdminPage } = await import("./page");
 
 describe("AdminPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("starts contacts data without blocking the default contacts tab shell", async () => {
     const initialContactsDataPromise = new Promise(() => {
       // Keep unresolved to prove AdminPage does not await contact data.
@@ -56,7 +60,7 @@ describe("AdminPage", () => {
     mockGetAdminContactsInitialData.mockReturnValue(initialContactsDataPromise);
 
     const result = await Promise.race([
-      AdminPage(),
+      AdminPage({ searchParams: Promise.resolve({}) }),
       new Promise((resolve) => setTimeout(() => resolve("blocked"), 0)),
     ]);
 
@@ -93,7 +97,7 @@ describe("AdminPage", () => {
     });
     mockGetAdminContactsInitialData.mockReturnValue(initialContactsDataPromise);
 
-    const result = await AdminPage();
+    const result = await AdminPage({ searchParams: Promise.resolve({}) });
 
     expect(result.type).toBe(mockAdminDashboard);
     expect(result.props).toEqual({
@@ -104,5 +108,25 @@ describe("AdminPage", () => {
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
     expect(mockListEmailTemplates).not.toHaveBeenCalled();
     expect(mockListEmailSends).not.toHaveBeenCalled();
+  });
+
+  it("does not start contacts data for a direct email tab render", async () => {
+    const preferences = { contacts_table: { page_size: 25 } };
+
+    mockGetProfile.mockResolvedValue({
+      id: "profile-1",
+      role: "admin",
+      preferences,
+    });
+
+    const result = await AdminPage({
+      searchParams: Promise.resolve({ tab: "email" }),
+    });
+
+    expect(result.type).toBe(mockAdminDashboard);
+    expect(result.props).toEqual({
+      initialContactsData: undefined,
+    });
+    expect(mockGetAdminContactsInitialData).not.toHaveBeenCalled();
   });
 });

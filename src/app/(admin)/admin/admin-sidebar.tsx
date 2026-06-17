@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import type { ComponentType } from "react";
+import {
+  forwardRef,
+  type ComponentPropsWithoutRef,
+  type ComponentType,
+  type MouseEvent,
+} from "react";
 import {
   Bot,
   CheckSquare,
@@ -52,6 +57,48 @@ const workspaceItems: Array<{
   { item: "ai", label: "AI Agent", icon: Bot },
 ];
 
+type AdminPanelLinkProps = Omit<ComponentPropsWithoutRef<typeof Link>, "href"> & {
+  shallow: boolean;
+  tab: AdminPanelTab;
+};
+
+const AdminPanelLink = forwardRef<HTMLAnchorElement, AdminPanelLinkProps>(
+function AdminPanelLink({ children, onClick, shallow, tab, ...props }, ref) {
+  const href = getAdminPanelHref(tab);
+
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    onClick?.(event);
+
+    if (
+      !shallow ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.currentTarget.target
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    window.history.pushState(null, "", href);
+  }
+
+  return (
+    <Link
+      ref={ref}
+      {...props}
+      href={href}
+      prefetch={shallow ? false : undefined}
+      onClick={handleClick}
+    >
+      {children}
+    </Link>
+  );
+});
+
 function AdminSidebarCollapseButton() {
   const { isMobile, state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -98,6 +145,7 @@ export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
   function isActive(item: AdminNavigationItem) {
     return getAdminItemActiveState({ item, pathname, tab });
   }
+  const canShallowSwitchPanel = pathname === "/admin";
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -140,10 +188,13 @@ export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
                         isActive={isActive(entry.item)}
                         tooltip={entry.label}
                       >
-                        <Link href={getAdminPanelHref(entry.item)}>
+                        <AdminPanelLink
+                          shallow={canShallowSwitchPanel}
+                          tab={entry.item}
+                        >
                           <Icon className="size-4" />
                           <span>{entry.label}</span>
-                        </Link>
+                        </AdminPanelLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );

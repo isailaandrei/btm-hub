@@ -36,6 +36,7 @@ describe("AdminSidebar", () => {
       onchange: null,
       removeEventListener: vi.fn(),
     }));
+    vi.spyOn(window.history, "pushState").mockImplementation(() => undefined);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -43,6 +44,7 @@ describe("AdminSidebar", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    vi.restoreAllMocks();
     container.remove();
   });
 
@@ -86,5 +88,26 @@ describe("AdminSidebar", () => {
     expect(
       container.querySelector('button[aria-label="Expand sidebar"]'),
     ).not.toBeNull();
+  });
+
+  it("uses shallow history updates for workspace tab links on the admin root", () => {
+    renderSidebar();
+
+    const emailLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/admin?tab=email"]',
+    );
+    expect(emailLink).not.toBeNull();
+
+    act(() => {
+      emailLink?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(window.history.pushState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/admin?tab=email",
+    );
   });
 });

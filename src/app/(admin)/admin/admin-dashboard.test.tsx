@@ -8,11 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockEmailStudioMount = vi.fn();
 const mockEmailStudioUnmount = vi.fn();
+const mockContactsMount = vi.fn();
+const mockContactsUnmount = vi.fn();
 const mockTasksPanelMount = vi.fn();
 const mockTasksPanelUnmount = vi.fn();
 const mockAdminAiMount = vi.fn();
 const mockAdminAiUnmount = vi.fn();
-const mockRouterPush = vi.fn();
 let dynamicCallIndex = 0;
 let currentTabParam: string | null = null;
 
@@ -71,7 +72,6 @@ vi.mock("next/dynamic", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockRouterPush }),
   useSearchParams: () => new URLSearchParams(
     currentTabParam ? { tab: currentTabParam } : undefined,
   ),
@@ -82,17 +82,26 @@ vi.mock("./contacts/contacts-panel", () => ({
     onSendEmail,
   }: {
     onSendEmail?: (contactIds: string[]) => void;
-  }) => (
-    <section>
-      Contacts
-      <button
-        type="button"
-        onClick={() => onSendEmail?.(["contact-1", "contact-2"])}
-      >
-        Send selected email
-      </button>
-    </section>
-  ),
+  }) => {
+    useEffect(() => {
+      mockContactsMount();
+      return () => {
+        mockContactsUnmount();
+      };
+    }, []);
+
+    return (
+      <section>
+        Contacts
+        <button
+          type="button"
+          onClick={() => onSendEmail?.(["contact-1", "contact-2"])}
+        >
+          Send selected email
+        </button>
+      </section>
+    );
+  },
 }));
 
 vi.mock("./tags/tags-panel", () => ({
@@ -113,14 +122,16 @@ describe("AdminDashboard", () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true;
     currentTabParam = null;
+    mockContactsMount.mockClear();
+    mockContactsUnmount.mockClear();
     mockEmailStudioMount.mockClear();
     mockEmailStudioUnmount.mockClear();
     mockTasksPanelMount.mockClear();
     mockTasksPanelUnmount.mockClear();
     mockAdminAiMount.mockClear();
     mockAdminAiUnmount.mockClear();
-    mockRouterPush.mockClear();
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(window.history, "pushState").mockImplementation(() => undefined);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -172,6 +183,18 @@ describe("AdminDashboard", () => {
     expect(mockEmailStudioUnmount).not.toHaveBeenCalled();
   });
 
+  it("keeps the contacts panel mounted after switching to email", async () => {
+    await renderDashboard();
+
+    expect(mockContactsMount).toHaveBeenCalledTimes(1);
+
+    await renderDashboard("email");
+
+    expect(mockContactsMount).toHaveBeenCalledTimes(1);
+    expect(mockContactsUnmount).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Contacts");
+  });
+
   it("renders the tasks tab without mounting email first", async () => {
     await renderDashboard();
     await renderDashboard("tasks");
@@ -205,7 +228,11 @@ describe("AdminDashboard", () => {
     clickButton("Send selected email");
     await renderDashboard("email");
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/admin?tab=email");
+    expect(window.history.pushState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/admin?tab=email",
+    );
     expect(
       container.querySelector("[data-testid='email-panel']")?.textContent,
     ).toContain("contact-1,contact-2");
