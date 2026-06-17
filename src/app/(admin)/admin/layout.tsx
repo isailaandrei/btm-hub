@@ -5,6 +5,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AdminShellHeader } from "./admin-shell-header";
 import { AdminDataProvider } from "./admin-data-provider";
 import { AdminSidebar } from "./admin-sidebar";
+import { AdminWorkspaceFrame } from "./admin-workspace-frame";
 
 export default async function AdminLayout({
   children,
@@ -39,7 +40,7 @@ export default async function AdminLayout({
               <AdminShellHeader />
             </Suspense>
             <div className="min-w-0 flex-1 overflow-auto p-3 md:p-5 lg:p-6">
-              {children}
+              <AdminWorkspaceFrame>{children}</AdminWorkspaceFrame>
             </div>
           </SidebarInset>
         </SidebarProvider>

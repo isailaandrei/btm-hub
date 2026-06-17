@@ -137,7 +137,11 @@ export function AdminDashboard({
         </div>
       )}
 
-      {activeTab === "tags" && <TagsPanel />}
+      {(activeTab === "tags" || visitedTabs.tags) && (
+        <div hidden={activeTab !== "tags"}>
+          <TagsPanel />
+        </div>
+      )}
 
       {(activeTab === "tasks" || visitedTabs.tasks) && (
         <div hidden={activeTab !== "tasks"}>
