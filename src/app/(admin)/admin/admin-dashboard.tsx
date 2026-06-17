@@ -54,6 +54,15 @@ const AdminAiDashboardPanel = dynamic(
 );
 
 type VisitedTabs = Partial<Record<AdminPanelTab, true>>;
+type WindowWithIdleCallback = Window & {
+  requestIdleCallback?: (
+    callback: IdleRequestCallback,
+    options?: IdleRequestOptions,
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+const IDLE_PREWARM_TABS: AdminPanelTab[] = ["email", "tasks", "tags"];
 
 export function AdminDashboard({
   initialContactsData,
@@ -71,6 +80,7 @@ export function AdminDashboard({
   }));
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
   const previousActiveTabRef = useRef<AdminPanelTab>(activeTab);
+  const prewarmedTabsRef = useRef(false);
   const warnedInvalidTabsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -118,6 +128,47 @@ export function AdminDashboard({
     warnedInvalidTabsRef.current.add(invalidValue);
     console.warn(`Invalid admin dashboard tab: ${invalidValue}`);
   }, [invalidValue]);
+
+  useEffect(() => {
+    if (prewarmedTabsRef.current) return;
+    prewarmedTabsRef.current = true;
+
+    let canceled = false;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+    const idleWindow = window as WindowWithIdleCallback;
+
+    function prewarmTabs() {
+      if (canceled) return;
+      setVisitedTabs((current) => {
+        const next = { ...current };
+        let changed = false;
+        for (const tab of IDLE_PREWARM_TABS) {
+          if (!next[tab]) {
+            next[tab] = true;
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    }
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      idleId = idleWindow.requestIdleCallback(prewarmTabs, { timeout: 5000 });
+    } else {
+      timeoutId = window.setTimeout(prewarmTabs, 2500);
+    }
+
+    return () => {
+      canceled = true;
+      if (idleId !== null && typeof idleWindow.cancelIdleCallback === "function") {
+        idleWindow.cancelIdleCallback(idleId);
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
 
   function handleSendEmail(contactIds: string[]) {
     setEmailContactIds(contactIds);

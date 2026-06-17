@@ -91,7 +91,7 @@ function AdminPanelLink({ children, onClick, shallow, tab, ...props }, ref) {
       ref={ref}
       {...props}
       href={href}
-      prefetch={shallow ? false : undefined}
+      prefetch={false}
       onClick={handleClick}
     >
       {children}
@@ -145,7 +145,8 @@ export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
   function isActive(item: AdminNavigationItem) {
     return getAdminItemActiveState({ item, pathname, tab });
   }
-  const canShallowSwitchPanel = pathname === "/admin";
+  const canShallowSwitchPanel =
+    pathname === "/admin" || pathname.startsWith("/admin/contacts/");
 
   return (
     <Sidebar collapsible="icon" variant="inset">
