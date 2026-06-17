@@ -12,29 +12,26 @@ describe("Maily rendering", () => {
     const document = createDefaultMailyDocument();
 
     expect(document.type).toBe("doc");
-    // Body content is wrapped in a section so it keeps a gutter while the
-    // container has zero horizontal padding (for full-width banners).
-    const section = document.content?.find((node) => node.type === "section");
-    expect(section).toBeDefined();
-    expect(section?.content?.some((node) => node.type === "heading")).toBe(true);
+    // Content flows directly inside the padded container (no full-width section).
+    expect(document.content?.some((node) => node.type === "heading")).toBe(true);
     expect(JSON.stringify(document)).toContain("contact.name");
   });
 
-  it("puts a full-width banner above the padded body section", () => {
+  it("places a banner image above the body content", () => {
     const document = createDefaultMailyDocument({
       imageUrl: "https://cdn.example.com/banner.png",
     });
 
-    // Banner is the first node (outside the section), so it spans the full
-    // container width.
     expect(document.content?.[0]?.type).toBe("image");
-    expect(document.content?.[1]?.type).toBe("section");
+    expect(document.content?.[1]?.type).toBe("heading");
   });
 
-  it("renders the email at the configured 680px width", async () => {
+  it("renders the email at the configured 680px width with a padded container", async () => {
     const rendered = await renderMailyDocument(createDefaultMailyDocument());
 
     expect(rendered.html).toContain("max-width:680px");
+    // Container keeps horizontal padding so content is not full-bleed.
+    expect(rendered.html).toContain("padding-left:32px");
   });
 
   it("uses a system font stack and loads no web font", async () => {

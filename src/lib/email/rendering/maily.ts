@@ -44,22 +44,15 @@ const DEFAULT_EMAIL_RENDER_THEME = {
     backgroundColor: "#ffffff",
     maxWidth: "680px",
     minWidth: "300px",
-    // All container padding is 0 so a top banner image spans the full width AND
-    // reaches the top edge. Body content gets its own spacing by being wrapped in
-    // a `section` block with padding (see createDefaultMailyDocument).
-    paddingTop: "0px",
-    paddingRight: "0px",
-    paddingBottom: "0px",
-    paddingLeft: "0px",
+    paddingTop: "32px",
+    paddingRight: "32px",
+    paddingBottom: "32px",
+    paddingLeft: "32px",
     borderRadius: "12px",
     borderWidth: "0px",
     borderColor: "transparent",
   },
 };
-
-// Horizontal padding applied to the body `section` so text doesn't touch the
-// container edges now that the container itself has no horizontal padding.
-const BODY_SECTION_PADDING = 32;
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -80,83 +73,10 @@ export function createDefaultMailyDocument(input: {
   imageUrl?: string;
   imageAssetId?: string;
 } = {}): MailyDocument {
-  // Body content lives inside a padded `section` so it keeps a comfortable
-  // gutter even though the container has zero horizontal padding (which lets the
-  // banner go full-width). The section is transparent and borderless — its
-  // library defaults are a white background and a 1px black border, so both must
-  // be overridden explicitly.
-  const bodySection: JSONContent = {
-    type: "section",
-    attrs: {
-      backgroundColor: "transparent",
-      borderWidth: 0,
-      borderColor: "transparent",
-      borderRadius: 0,
-      align: "left",
-      marginTop: 0,
-      marginRight: 0,
-      marginBottom: 0,
-      marginLeft: 0,
-      paddingTop: BODY_SECTION_PADDING,
-      paddingRight: BODY_SECTION_PADDING,
-      paddingBottom: BODY_SECTION_PADDING,
-      paddingLeft: BODY_SECTION_PADDING,
-    },
-    content: [
-      {
-        type: "heading",
-        attrs: {
-          level: 1,
-          textAlign: "left",
-          textDirection: "ltr",
-        },
-        content: [{ type: "text", text: "Hello " }, contactNameVariable()],
-      },
-      {
-        type: "paragraph",
-        attrs: {
-          textAlign: "left",
-          textDirection: "ltr",
-        },
-        content: [
-          {
-            type: "text",
-            text: "Write your message here. You can keep this as a simple note or use Maily blocks to add images, buttons, columns, and visual sections.",
-          },
-        ],
-      },
-      {
-        type: "button",
-        attrs: {
-          text: "Learn more",
-          url: "https://behind-the-mask.com",
-          variant: "filled",
-          buttonColor: "#111827",
-          textColor: "#ffffff",
-          borderRadius: "smooth",
-          alignment: "left",
-          paddingTop: 10,
-          paddingRight: 32,
-          paddingBottom: 10,
-          paddingLeft: 32,
-        },
-      },
-      {
-        type: "footer",
-        attrs: {
-          textAlign: "left",
-          textDirection: "ltr",
-        },
-        content: [
-          {
-            type: "text",
-            text: "Behind The Mask",
-          },
-        ],
-      },
-    ],
-  };
-
+  // Content flows inside the container's padding (full-width banners are not the
+  // global default — they'd require zeroing that padding, which strips the gutter
+  // from every other template). height "auto" keeps an inserted banner image
+  // proportional on mobile.
   const content: JSONContent[] = [
     ...(input.imageUrl
       ? [
@@ -167,17 +87,64 @@ export function createDefaultMailyDocument(input: {
               assetId: input.imageAssetId,
               alt: "Behind The Mask",
               alignment: "center",
-              // Full-width banner: a large source image fills the container
-              // (maxWidth:100%), and height "auto" keeps it proportional on
-              // mobile. borderRadius 0 so the banner reaches the edges cleanly.
               width: "auto",
               height: "auto",
-              borderRadius: 0,
+              borderRadius: 8,
             },
           },
         ]
       : []),
-    bodySection,
+    {
+      type: "heading",
+      attrs: {
+        level: 1,
+        textAlign: "left",
+        textDirection: "ltr",
+      },
+      content: [{ type: "text", text: "Hello " }, contactNameVariable()],
+    },
+    {
+      type: "paragraph",
+      attrs: {
+        textAlign: "left",
+        textDirection: "ltr",
+      },
+      content: [
+        {
+          type: "text",
+          text: "Write your message here. You can keep this as a simple note or use Maily blocks to add images, buttons, columns, and visual sections.",
+        },
+      ],
+    },
+    {
+      type: "button",
+      attrs: {
+        text: "Learn more",
+        url: "https://behind-the-mask.com",
+        variant: "filled",
+        buttonColor: "#111827",
+        textColor: "#ffffff",
+        borderRadius: "smooth",
+        alignment: "left",
+        paddingTop: 10,
+        paddingRight: 32,
+        paddingBottom: 10,
+        paddingLeft: 32,
+      },
+    },
+    {
+      type: "footer",
+      attrs: {
+        textAlign: "left",
+        textDirection: "ltr",
+      },
+      content: [
+        {
+          type: "text",
+          text: "Behind The Mask",
+        },
+      ],
+    },
   ];
 
   return { type: "doc", content };
