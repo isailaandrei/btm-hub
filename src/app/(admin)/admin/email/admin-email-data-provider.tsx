@@ -12,6 +12,7 @@ import {
   type SetStateAction,
 } from "react";
 import { toast } from "sonner";
+import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import type {
   EmailManualRecipient,
   EmailSend,
@@ -108,15 +109,20 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
       }
 
       templateFetchStateRef.current = "loading";
+      const startedAt = startAdminTiming();
+      let status = "ok";
+      let templatesCount = 0;
 
       const pendingLoad = (async () => {
         try {
           const data = await loadEmailTemplatesAction();
+          templatesCount = data.templates.length;
           mergeTemplateVersions(data.templateVersionsById);
           setEmailTemplates(data.templates);
           setEmailError(null);
           templateFetchStateRef.current = "done";
         } catch (error) {
+          status = "error";
           const message =
             error instanceof Error ? error.message : "Failed to load email data.";
           templateFetchStateRef.current = "idle";
@@ -126,6 +132,10 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
           }
         } finally {
           pendingTemplateLoadRef.current = null;
+          logAdminTiming("admin.email.templates.client", startedAt, {
+            status,
+            templates: templatesCount,
+          });
         }
       })();
 
@@ -159,14 +169,19 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
       }
 
       sendsFetchStateRef.current = "loading";
+      const startedAt = startAdminTiming();
+      let sendsCount = 0;
+      let status = "ok";
 
       const pendingLoad = (async () => {
         try {
           const data = await loadEmailSendsAction();
+          sendsCount = data.sends.length;
           setEmailSends(data.sends);
           setEmailError(null);
           sendsFetchStateRef.current = "done";
         } catch (error) {
+          status = "error";
           const message =
             error instanceof Error ? error.message : "Failed to load sent emails.";
           sendsFetchStateRef.current = "idle";
@@ -176,6 +191,10 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
           }
         } finally {
           pendingSendsLoadRef.current = null;
+          logAdminTiming("admin.email.sends.client", startedAt, {
+            sends: sendsCount,
+            status,
+          });
         }
       })();
 
@@ -209,14 +228,19 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
       }
 
       manualRecipientsFetchStateRef.current = "loading";
+      const startedAt = startAdminTiming();
+      let manualRecipientsCount = 0;
+      let status = "ok";
 
       const pendingLoad = (async () => {
         try {
           const data = await loadEmailManualRecipientsAction();
+          manualRecipientsCount = data.manualRecipients.length;
           setManualRecipients(data.manualRecipients);
           setEmailError(null);
           manualRecipientsFetchStateRef.current = "done";
         } catch (error) {
+          status = "error";
           const message =
             error instanceof Error
               ? error.message
@@ -228,6 +252,10 @@ export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
           }
         } finally {
           pendingManualRecipientsLoadRef.current = null;
+          logAdminTiming("admin.email.manual-recipients.client", startedAt, {
+            manualRecipients: manualRecipientsCount,
+            status,
+          });
         }
       })();
 

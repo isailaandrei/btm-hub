@@ -675,7 +675,6 @@ export function ContactsPanel({
                       <TableCell className="overflow-hidden whitespace-normal break-words">
                         <Link
                           href={`/admin/contacts/${contact.id}`}
-                          prefetch={false}
                           className="font-medium text-foreground hover:text-primary"
                         >
                           {contact.name}

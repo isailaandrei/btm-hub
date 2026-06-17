@@ -31,6 +31,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 import type {
   Application,
@@ -282,9 +283,15 @@ export function AdminDataProvider({
     const supabase = getSupabase();
 
     async function fetchApplications() {
+      const startedAt = startAdminTiming();
+      let answerKeys = 0;
+      let rows = 0;
+      let status = "ok";
+
       const projection = buildApplicationProjectionSelect(
         requestedApplicationAnswerKeysRef.current,
       );
+      answerKeys = projection.answerKeys.length;
       const { data, error, count } = await supabase
         .from("applications")
         .select(projection.select, { count: mode === "replace" ? "exact" : undefined })
@@ -293,9 +300,16 @@ export function AdminDataProvider({
 
       if (error) {
         // Reset to idle so the next ensure call retries the fetch.
+        status = "error";
         appsFetchState.current = "idle";
         setAppsError("Failed to load applications.");
         toast.error("Failed to load applications. Please try again.");
+        logAdminTiming("admin.applications.full.client", startedAt, {
+          answerKeys,
+          mode,
+          rows,
+          status,
+        });
         return;
       }
 
@@ -303,6 +317,7 @@ export function AdminDataProvider({
         (data ?? []) as unknown as Array<Record<string, unknown>>,
         projection.answerKeys,
       );
+      rows = projectedApplications.length;
 
       setAppsError(null);
       setApplications((previous) =>
@@ -331,6 +346,13 @@ export function AdminDataProvider({
           (key) => !loadedApplicationAnswerKeysRef.current.has(key),
         );
         if (missingKeys.length > 0) startApplicationsFetch("merge");
+        logAdminTiming("admin.applications.full.client", startedAt, {
+          answerKeys,
+          count: count ?? null,
+          mode,
+          rows,
+          status,
+        });
         return;
       }
       applicationsChannelStartedRef.current = true;
@@ -401,6 +423,14 @@ export function AdminDataProvider({
         (key) => !loadedApplicationAnswerKeysRef.current.has(key),
       );
       if (missingKeys.length > 0) startApplicationsFetch("merge");
+
+      logAdminTiming("admin.applications.full.client", startedAt, {
+        answerKeys,
+        count: count ?? null,
+        mode,
+        rows,
+        status,
+      });
     }
 
     fetchApplications();
@@ -620,6 +650,12 @@ export function AdminDataProvider({
     const supabase = getSupabase();
 
     async function fetchContacts() {
+      const startedAt = startAdminTiming();
+      let contactsCount = 0;
+      let contactTagsCount = 0;
+      let activitySummariesCount = 0;
+      let status = "ok";
+
       const [
         { data: contactsData, error: contactsErr },
         { data: tagCategoriesData, error: tagCategoriesErr },
@@ -642,12 +678,22 @@ export function AdminDataProvider({
       const fetchError =
         contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr ?? contactActivitySummariesErr;
       if (fetchError) {
+        status = "error";
         contactsFetchState.current = "idle";
         setContactsError("Failed to load contacts.");
         toast.error("Failed to load contacts. Please try again.");
+        logAdminTiming("admin.contacts.full.client", startedAt, {
+          activitySummaries: activitySummariesCount,
+          contactTags: contactTagsCount,
+          contacts: contactsCount,
+          status,
+        });
         return;
       }
 
+      contactsCount = contactsData?.length ?? 0;
+      contactTagsCount = contactTagsData?.length ?? 0;
+      activitySummariesCount = contactActivitySummariesData?.length ?? 0;
       setContactsError(null);
       setContacts(contactsData ?? []);
       setTagCategories(tagCategoriesData ?? []);
@@ -789,6 +835,13 @@ export function AdminDataProvider({
         .subscribe();
 
       channelsRef.current.push(contactsChannel, contactTagsChannel, tagCategoriesChannel, tagsChannel, contactEventsChannel);
+
+      logAdminTiming("admin.contacts.full.client", startedAt, {
+        activitySummaries: activitySummariesCount,
+        contactTags: contactTagsCount,
+        contacts: contactsCount,
+        status,
+      });
     }
 
     fetchContacts();
