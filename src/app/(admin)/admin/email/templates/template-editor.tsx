@@ -134,6 +134,18 @@ export function TemplateEditor({
     renderPreview();
   }, [renderPreview]);
 
+  // Re-render the (on-demand) preview when the width changes while it is open,
+  // so a width edit reflects immediately instead of only after the next action.
+  const refreshPreviewOnWidthChange = useRef<() => void>(() => {});
+  useEffect(() => {
+    refreshPreviewOnWidthChange.current = () => {
+      if (view === "preview") renderPreview();
+    };
+  });
+  useEffect(() => {
+    refreshPreviewOnWidthChange.current();
+  }, [maxWidth]);
+
   const applyLocalTemplates = useCallback(
     (nextTemplates: EmailTemplate[]) => {
       if (onTemplatesChange) {

@@ -3,6 +3,8 @@
 import dynamic from "next/dynamic";
 import {
   forwardRef,
+  memo,
+  useCallback,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -23,19 +25,24 @@ import {
 import { uploadEmailAssetAction } from "../assets/actions";
 import { mailyBlockGroups } from "./maily-blocks";
 
-const MailyEditor = dynamic<EditorProps>(
-  () => import("@maily-to/core").then((module) => module.Editor),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="email-maily-editor min-h-[760px] rounded-md border border-border">
-        <div className="email-maily-canvas flex items-center justify-center text-sm text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Loading editor...
+// memo so unrelated parent re-renders (e.g. changing the email width, which only
+// touches a CSS variable on the wrapper) don't re-render the editor and drop its
+// node views (logo image, variable chips). Only genuine prop changes re-render.
+const MailyEditor = memo(
+  dynamic<EditorProps>(
+    () => import("@maily-to/core").then((module) => module.Editor),
+    {
+      ssr: false,
+      loading: () => (
+        <div className="email-maily-editor min-h-[760px] rounded-md border border-border">
+          <div className="email-maily-canvas flex items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading editor...
+          </div>
         </div>
-      </div>
-    ),
-  },
+      ),
+    },
+  ),
 );
 
 export interface EmailDesignerSnapshot {
@@ -97,6 +104,29 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
       [],
     );
 
+    const handleCreate = useCallback((editor: TiptapEditor) => {
+      editorRef.current = editor;
+    }, []);
+
+    const handleUpdate = useCallback(
+      (editor: TiptapEditor) => {
+        onDocumentChange(assertMailyDocument(editor.getJSON()));
+      },
+      [onDocumentChange],
+    );
+
+    // Stable so the memoized MailyEditor only re-renders on real content
+    // changes — not when the email width changes (that only updates a CSS var).
+    const editorConfig = useMemo(
+      () => ({
+        autofocus: "end" as const,
+        contentClassName: "min-h-[620px] max-w-none",
+        bodyClassName: "email-maily-canvas min-h-[680px]",
+        wrapClassName: "email-maily-editor",
+      }),
+      [],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -134,20 +164,11 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
         <div className="min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-[#f3f4f6]">
           <MailyEditor
             contentJson={sourceDocument}
-            onCreate={(editor) => {
-              editorRef.current = editor;
-            }}
-            onUpdate={(editor) => {
-              onDocumentChange(assertMailyDocument(editor.getJSON()));
-            }}
+            onCreate={handleCreate}
+            onUpdate={handleUpdate}
             extensions={extensions}
             blocks={mailyBlockGroups}
-            config={{
-              autofocus: "end",
-              contentClassName: "min-h-[620px] max-w-none",
-              bodyClassName: "email-maily-canvas min-h-[680px]",
-              wrapClassName: "email-maily-editor",
-            }}
+            config={editorConfig}
           />
         </div>
       </div>
