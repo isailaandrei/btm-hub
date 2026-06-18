@@ -20,6 +20,7 @@ import {
 import { Loader2 } from "lucide-react";
 import {
   assertMailyDocument,
+  wrapLooseContentInSections,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import { uploadEmailAssetAction } from "../assets/actions";
@@ -69,6 +70,14 @@ interface EmailDesignerProps {
 export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>(
   function EmailDesigner({ sourceDocument, onDocumentChange, maxWidth }, ref) {
     const editorRef = useRef<TiptapEditor | null>(null);
+
+    // Normalize to the section structure so the editor canvas matches the render
+    // (loose content guttered, sections full-width). Idempotent + memoized so it
+    // doesn't churn the memoized editor on unrelated re-renders.
+    const editorContent = useMemo(
+      () => wrapLooseContentInSections(assertMailyDocument(sourceDocument)),
+      [sourceDocument],
+    );
 
     const extensions = useMemo(
       () => [
@@ -142,7 +151,9 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
           };
         },
         loadDocument(document) {
-          const normalized = assertMailyDocument(document);
+          const normalized = wrapLooseContentInSections(
+            assertMailyDocument(document),
+          );
           editorRef.current?.commands.setContent(normalized);
           onDocumentChange(normalized);
         },
@@ -163,7 +174,7 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
       >
         <div className="min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-[#f3f4f6]">
           <MailyEditor
-            contentJson={sourceDocument}
+            contentJson={editorContent}
             onCreate={handleCreate}
             onUpdate={handleUpdate}
             extensions={extensions}

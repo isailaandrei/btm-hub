@@ -10,6 +10,7 @@ import {
   MIN_EMAIL_WIDTH,
   renderMailyDocument,
   renderMailyEmail,
+  wrapLooseContentInSections,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -65,6 +66,46 @@ describe("Maily rendering", () => {
 
     expect(rendered.html).toContain("max-width:720px");
     expect(rendered.html).not.toContain("max-width:680px");
+  });
+
+  it("wraps loose top-level content in a padded section, leaving sections full-width", () => {
+    const banner = { type: "section", attrs: {}, content: [] };
+    const doc = assertMailyDocument({
+      type: "doc",
+      content: [
+        banner,
+        { type: "heading", content: [{ type: "text", text: "Hi" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Body" }] },
+      ],
+    });
+
+    const wrapped = wrapLooseContentInSections(doc);
+
+    // banner section stays full-width (untouched); the heading + paragraph get
+    // grouped into one padded section.
+    expect(wrapped.content.map((n) => n.type)).toEqual(["section", "section"]);
+    expect(wrapped.content[0]).toEqual(banner);
+    expect(wrapped.content[1]?.attrs?.paddingLeft).toBe(32);
+    expect(wrapped.content[1]?.content?.map((n) => n.type)).toEqual([
+      "heading",
+      "paragraph",
+    ]);
+  });
+
+  it("is idempotent — an already-sectioned document is unchanged", () => {
+    const once = wrapLooseContentInSections(createDefaultMailyDocument());
+    const twice = wrapLooseContentInSections(once);
+    expect(twice).toEqual(once);
+  });
+
+  it("keeps normal content inset via a padded section gutter", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    // The 32px gutter now comes from the wrapping section (so sections without
+    // padding can be full-width), and the container keeps its vertical padding.
+    expect(rendered.html).toContain("padding-left:32px");
+    expect(rendered.html).toContain("padding-top:32px");
+    expect(rendered.html).toContain("max-width:680px");
   });
 
   it("resets the body margin so the email is not inset on mobile", async () => {

@@ -222,7 +222,9 @@ button,
 .email-maily-editor .email-maily-canvas {
   /* Mirror the rendered email so Design is WYSIWYG. Width tracks the per-template
      setting via --email-canvas-width (set by EmailDesigner); font matches the
-     render theme's system stack. */
+     render theme's system stack. No horizontal padding here — the gutter comes
+     from the wrapping `section` (so full-width sections reach the card edges),
+     matching the render. */
   max-width: var(--email-canvas-width, 680px);
   min-height: 680px;
   margin-right: auto;
@@ -230,7 +232,7 @@ button,
   border: 0;
   border-radius: 12px;
   background: #ffffff;
-  padding: 32px;
+  padding: 32px 0;
   box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif;
@@ -243,7 +245,7 @@ button,
   }
 
   .email-maily-editor .email-maily-canvas {
-    padding: 20px;
+    padding: 20px 0;
   }
 }
 

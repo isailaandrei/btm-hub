@@ -74,14 +74,21 @@ const DEFAULT_EMAIL_RENDER_THEME = {
     maxWidth: "680px",
     minWidth: "300px",
     paddingTop: "32px",
-    paddingRight: "32px",
+    // No horizontal padding on the container itself — that lets `section` blocks
+    // reach the card edges (full-width bands). Normal content keeps its gutter by
+    // being wrapped in a padded section (see wrapLooseContentInSections).
+    paddingRight: "0px",
     paddingBottom: "32px",
-    paddingLeft: "32px",
+    paddingLeft: "0px",
     borderRadius: "12px",
     borderWidth: "0px",
     borderColor: "transparent",
   },
 };
+
+// Horizontal gutter applied to "loose" (non-section) content so it stays inset
+// from the card edges now that the container has no side padding.
+const CONTENT_GUTTER = 32;
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -221,6 +228,65 @@ function withResponsiveImages(document: MailyDocument): MailyDocument {
   return clone;
 }
 
+/** A transparent, borderless section with a horizontal gutter — wraps "loose"
+ *  (non-section) content so it stays inset from the card edges. */
+function paddedContentSection(content: JSONContent[]): JSONContent {
+  return {
+    type: "section",
+    attrs: {
+      backgroundColor: "transparent",
+      borderWidth: 0,
+      borderColor: "transparent",
+      borderRadius: 0,
+      align: "left",
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      marginLeft: 0,
+      paddingTop: 0,
+      paddingRight: CONTENT_GUTTER,
+      paddingBottom: 0,
+      paddingLeft: CONTENT_GUTTER,
+    },
+    content,
+  };
+}
+
+/**
+ * Wrap runs of top-level non-`section` blocks in a padded section so normal
+ * content keeps a gutter, while leaving `section` blocks untouched so they span
+ * the full card width (the container has no side padding). Idempotent — a
+ * document whose top level is already all sections passes through unchanged — so
+ * it is safe to apply on both editor load and render, and on already-migrated
+ * documents.
+ *
+ * This is what makes full-width work: an admin puts content in a Section to make
+ * it edge-to-edge; everything else is auto-guttered.
+ */
+export function wrapLooseContentInSections(
+  document: MailyDocument,
+): MailyDocument {
+  const content = document.content ?? [];
+  const out: JSONContent[] = [];
+  let run: JSONContent[] = [];
+  const flush = () => {
+    if (run.length) {
+      out.push(paddedContentSection(run));
+      run = [];
+    }
+  };
+  for (const node of content) {
+    if (isRecord(node) && node.type === "section") {
+      flush();
+      out.push(node);
+    } else {
+      run.push(node);
+    }
+  }
+  flush();
+  return { ...document, content: out };
+}
+
 export function parseMailyDocumentOrDefault(value: unknown): MailyDocument {
   try {
     return assertMailyDocument(value);
@@ -258,7 +324,9 @@ export async function renderMailyDocument(
     variables?: EmailRenderVariables;
   } = {},
 ): Promise<RenderedEmailBody> {
-  const normalized = withResponsiveImages(assertMailyDocument(document));
+  const normalized = wrapLooseContentInSections(
+    withResponsiveImages(assertMailyDocument(document)),
+  );
   const renderer = new Maily(normalized);
   renderer.setTheme({
     ...DEFAULT_EMAIL_RENDER_THEME,
