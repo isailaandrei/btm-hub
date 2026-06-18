@@ -65,6 +65,7 @@ import {
   upsertTagById,
   type RollbackHandle,
 } from "./admin-optimistic-mutations";
+import { contactDetailCacheStore } from "./contacts/contact-detail-cache";
 
 type FetchState = "idle" | "loading" | "done";
 
@@ -235,6 +236,17 @@ export function AdminDataProvider({
     return supabaseRef.current;
   }
 
+  // Flag a cached contact-detail entry stale when a realtime change touches
+  // data the detail bootstrap covers (contact / applications / events). The
+  // panel reloads stale-while-revalidate on next open. Tag changes are excluded
+  // because the detail panel reads tags from this provider, not the bootstrap.
+  const markContactDetailStale = useCallback(
+    (contactId: string | null | undefined) => {
+      if (contactId) contactDetailCacheStore.markStale(contactId);
+    },
+    [],
+  );
+
   const scheduleContactActivitySummaryRefetch = useCallback((contactId: string | null | undefined) => {
     if (!contactId) return;
     pendingActivitySummaryContactIdsRef.current.add(contactId);
@@ -365,6 +377,7 @@ export function AdminDataProvider({
           (payload) => {
             const next = payload.new as Application;
             scheduleContactActivitySummaryRefetch(next.contact_id);
+            markContactDetailStale(next.contact_id);
             setApplications((prev) => [
               {
                 id: next.id,
@@ -387,6 +400,7 @@ export function AdminDataProvider({
             // like `answers` from our in-memory copy.
             const next = payload.new as Partial<Application> & { id: string };
             scheduleContactActivitySummaryRefetch(next.contact_id);
+            markContactDetailStale(next.contact_id);
             setApplications((prev) =>
               (prev ?? []).map((a) =>
                 a.id === next.id
@@ -407,9 +421,9 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "applications" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.old as Partial<Application>).contact_id,
-            );
+            const contactId = (payload.old as Partial<Application>).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
             setApplications((prev) =>
               (prev ?? []).filter((a) => a.id !== (payload.old as Application).id)
             );
@@ -434,7 +448,7 @@ export function AdminDataProvider({
     }
 
     fetchApplications();
-  }, [scheduleContactActivitySummaryRefetch]);
+  }, [markContactDetailStale, scheduleContactActivitySummaryRefetch]);
 
   const ensureAnswerKeys = useCallback((answerKeys: Iterable<string>) => {
     requestApplicationAnswerKeys(answerKeys);
@@ -712,9 +726,9 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "contacts" },
           (payload) => {
-            setContacts((prev) =>
-              upsertSortedContact(prev, payload.new as Contact),
-            );
+            const next = payload.new as Contact;
+            markContactDetailStale(next.id);
+            setContacts((prev) => upsertSortedContact(prev, next));
           },
         )
         .on(
@@ -724,6 +738,7 @@ export function AdminDataProvider({
             // Merge into the existing contact rather than overwriting; see
             // the applications handler above for the rationale.
             const next = payload.new as Partial<Contact> & { id: string };
+            markContactDetailStale(next.id);
             setContacts((prev) => {
               const existing = (prev ?? []).find((c) => c.id === next.id);
               const merged = existing ? { ...existing, ...next } : (next as Contact);
@@ -735,6 +750,7 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "contacts" },
           (payload) => {
+            markContactDetailStale((payload.old as Contact).id);
             setContacts((prev) =>
               (prev ?? []).filter((c) => c.id !== (payload.old as Contact).id)
             );
@@ -809,27 +825,27 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "contact_events" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.new as ContactEvent).contact_id,
-            );
+            const contactId = (payload.new as ContactEvent).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
           },
         )
         .on(
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "contact_events" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.new as Partial<ContactEvent>).contact_id,
-            );
+            const contactId = (payload.new as Partial<ContactEvent>).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
           },
         )
         .on(
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "contact_events" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.old as Partial<ContactEvent>).contact_id,
-            );
+            const contactId = (payload.old as Partial<ContactEvent>).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
           },
         )
         .subscribe();
@@ -845,7 +861,7 @@ export function AdminDataProvider({
     }
 
     fetchContacts();
-  }, [scheduleContactActivitySummaryRefetch]);
+  }, [markContactDetailStale, scheduleContactActivitySummaryRefetch]);
 
   // Cleanup only the channels that were actually created
   useEffect(() => {

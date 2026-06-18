@@ -10,8 +10,21 @@ const mockDashboardMount = vi.fn();
 const mockDashboardUnmount = vi.fn();
 let currentPathname = "/admin";
 
+const CONTACT_ID = "a0000000-0000-0000-0000-000000000000";
+
 vi.mock("next/navigation", () => ({
   usePathname: () => currentPathname,
+}));
+
+// Replace the lazily-imported panel with a synchronous stub so we can assert
+// it renders without pulling in server-action modules.
+vi.mock("next/dynamic", () => ({
+  default: () =>
+    function ContactDetailPanelStub({ contactId }: { contactId: string }) {
+      return (
+        <section data-testid="contact-detail-panel">Panel {contactId}</section>
+      );
+    },
 }));
 
 vi.mock("./admin-dashboard", () => ({
@@ -52,38 +65,70 @@ describe("AdminWorkspaceFrame", () => {
   function renderFrame() {
     act(() => {
       root.render(
-        <AdminWorkspaceFrame>
+        <AdminWorkspaceFrame authorName="Admin">
           <section data-testid="route-child">Route child</section>
         </AdminWorkspaceFrame>,
       );
     });
   }
 
-  it("keeps the dashboard mounted while showing child routes", () => {
+  function hiddenOf(testId: string) {
+    return container
+      .querySelector<HTMLElement>(`[data-testid='${testId}']`)
+      ?.closest("div")?.hidden;
+  }
+
+  it("shows the dashboard at /admin and hides children", () => {
     renderFrame();
 
     expect(mockDashboardMount).toHaveBeenCalledTimes(1);
+    expect(hiddenOf("admin-dashboard")).toBe(false);
+    expect(hiddenOf("route-child")).toBe(true);
     expect(
-      container.querySelector<HTMLDivElement>(
-        "[data-testid='admin-dashboard']",
-      )?.closest("div")?.hidden,
-    ).toBe(false);
+      container.querySelector("[data-testid='contact-detail-panel']"),
+    ).toBeNull();
+  });
 
-    currentPathname = "/admin/contacts/contact-1";
+  it("keeps the dashboard mounted while showing other subroutes", () => {
+    renderFrame();
+    expect(mockDashboardMount).toHaveBeenCalledTimes(1);
+
+    currentPathname = "/admin/users";
     renderFrame();
 
     expect(mockDashboardMount).toHaveBeenCalledTimes(1);
     expect(mockDashboardUnmount).not.toHaveBeenCalled();
+    expect(hiddenOf("admin-dashboard")).toBe(true);
+    expect(hiddenOf("route-child")).toBe(false);
+  });
+
+  it("renders the contact detail panel for a contact id path", () => {
+    renderFrame();
+
+    currentPathname = `/admin/contacts/${CONTACT_ID}`;
+    renderFrame();
+
+    expect(mockDashboardMount).toHaveBeenCalledTimes(1);
+    expect(mockDashboardUnmount).not.toHaveBeenCalled();
+    expect(hiddenOf("admin-dashboard")).toBe(true);
+    expect(hiddenOf("route-child")).toBe(true);
+
+    const panel = container.querySelector(
+      "[data-testid='contact-detail-panel']",
+    );
+    expect(panel?.textContent).toContain(CONTACT_ID);
+  });
+
+  it("falls through to children for a non-UUID contacts path", () => {
+    renderFrame();
+
+    currentPathname = "/admin/contacts/not-a-uuid";
+    renderFrame();
+
+    expect(hiddenOf("admin-dashboard")).toBe(true);
+    expect(hiddenOf("route-child")).toBe(false);
     expect(
-      container.querySelector<HTMLDivElement>(
-        "[data-testid='admin-dashboard']",
-      )?.closest("div")?.hidden,
-    ).toBe(true);
-    expect(
-      container.querySelector<HTMLDivElement>(
-        "[data-testid='route-child']",
-      )?.closest("div")?.hidden,
-    ).toBe(false);
+      container.querySelector("[data-testid='contact-detail-panel']"),
+    ).toBeNull();
   });
 });
-

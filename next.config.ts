@@ -22,6 +22,11 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '6mb',
     },
     staleTimes: {
+      // Keep prefetched/visited dynamic routes (e.g. real-route opens of
+      // /admin/contacts/[id] via cmd-click, deep links, browser back) briefly
+      // in the client Router Cache. In-app navigation uses the explicit
+      // session cache instead, which is the source of truth.
+      dynamic: 30,
       static: 300,
     },
   },

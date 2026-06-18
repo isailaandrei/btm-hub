@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getAdminItemActiveState, getAdminPanelHref } from "./admin-navigation";
 import type { AdminPanelTab, AdminNavigationItem } from "./admin-navigation";
+import { shouldSoftNavigate, softNavigate } from "./admin-soft-nav";
 import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
 
 type AdminSidebarUser = {
@@ -69,21 +70,10 @@ function AdminPanelLink({ children, onClick, shallow, tab, ...props }, ref) {
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     onClick?.(event);
 
-    if (
-      !shallow ||
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.metaKey ||
-      event.altKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.currentTarget.target
-    ) {
-      return;
-    }
+    if (!shallow || !shouldSoftNavigate(event)) return;
 
     event.preventDefault();
-    window.history.pushState(null, "", href);
+    softNavigate(href);
   }
 
   return (

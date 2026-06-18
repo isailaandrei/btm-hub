@@ -20,6 +20,8 @@ export default async function AdminLayout({
     redirect("/");
   }
 
+  const authorName = profile.display_name ?? profile.email ?? "You";
+
   return (
     <div className="theme-admin min-h-svh bg-sidebar text-foreground">
       <AdminDataProvider initialPreferences={profile.preferences}>
@@ -44,7 +46,9 @@ export default async function AdminLayout({
                   <AdminShellHeader />
                 </Suspense>
                 <div className="min-w-0 flex-1 overflow-auto p-3 md:p-5 lg:p-6">
-                  <AdminWorkspaceFrame>{children}</AdminWorkspaceFrame>
+                  <AdminWorkspaceFrame authorName={authorName}>
+                    {children}
+                  </AdminWorkspaceFrame>
                 </div>
               </SidebarInset>
             </SidebarProvider>

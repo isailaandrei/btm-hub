@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -43,6 +42,8 @@ import { useContactsPanelViewModel } from "./contacts-panel-view-model";
 import { useDebouncedValue } from "./use-debounced-value";
 import { LastActivityCell } from "./last-activity-cell";
 import { parseSocialLinkText } from "./social-links";
+import { warmContactDetail } from "./[id]/contact-detail-loader";
+import { shouldSoftNavigate, softNavigate } from "../admin-soft-nav";
 import {
   AcademyImportSyncButton,
   AcademyImportSyncPanel,
@@ -143,7 +144,6 @@ export function ContactsPanel({
   initialData?: AdminContactsInitialData;
   onSendEmail?: (contactIds: string[]) => void;
 }) {
-  const router = useRouter();
   const {
     contacts,
     tagCategories,
@@ -320,7 +320,12 @@ export function ContactsPanel({
   function prefetchContactDetail(contactId: string) {
     if (prefetchedContactIdsRef.current.has(contactId)) return;
     prefetchedContactIdsRef.current.add(contactId);
-    router.prefetch(`/admin/contacts/${contactId}`);
+    // Warm the session cache so opening the contact is instant. Best-effort:
+    // on failure, allow a retry on the next hover/focus and let the panel
+    // surface the error when actually opened.
+    void warmContactDetail(contactId).catch(() => {
+      prefetchedContactIdsRef.current.delete(contactId);
+    });
   }
 
   const tableMinWidth = useMemo(() => {
@@ -685,6 +690,12 @@ export function ContactsPanel({
                         <Link
                           href={`/admin/contacts/${contact.id}`}
                           prefetch={false}
+                          onClick={(event) => {
+                            if (!shouldSoftNavigate(event)) return;
+                            event.preventDefault();
+                            prefetchContactDetail(contact.id);
+                            softNavigate(`/admin/contacts/${contact.id}`);
+                          }}
                           onFocus={() => prefetchContactDetail(contact.id)}
                           onMouseEnter={() => prefetchContactDetail(contact.id)}
                           className="font-medium text-foreground hover:text-primary"
