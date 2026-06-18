@@ -226,7 +226,8 @@ button,
      from the wrapping `section` (so full-width sections reach the card edges),
      matching the render. */
   max-width: var(--email-canvas-width, 680px);
-  min-height: 680px;
+  /* No min-height: the card is content-height like the rendered email (a fixed
+     680px floor left a big empty white gap below short content). */
   margin-right: auto;
   margin-left: auto;
   border: 0;

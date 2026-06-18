@@ -256,8 +256,11 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
     const editorConfig = useMemo(
       () => ({
         autofocus: "end" as const,
-        contentClassName: "min-h-[620px] max-w-none",
-        bodyClassName: "email-maily-canvas min-h-[680px]",
+        // Small min-height keeps an empty editor clickable, but content-height
+        // otherwise — so Design has no big empty gap below short content (it
+        // matches the content-height rendered email).
+        contentClassName: "min-h-[160px] max-w-none",
+        bodyClassName: "email-maily-canvas",
         wrapClassName: "email-maily-editor",
       }),
       [],
