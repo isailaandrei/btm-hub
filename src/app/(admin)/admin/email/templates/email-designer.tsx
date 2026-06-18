@@ -25,6 +25,8 @@ import {
   applyLayoutToDocument,
   arrangeEmailRows,
   assertMailyDocument,
+  CONTENT_GUTTER,
+  DEFAULT_EMAIL_WIDTH,
   type EmailLayout,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
@@ -193,18 +195,23 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
       if (!editor) return;
       const target = activeFullWidthTarget(editor);
       if (!target) return;
-      editor
-        .chain()
-        .focus()
-        .updateAttributes(target.type, {
-          fullwidth: target.fullWidth ? "false" : "true",
-        })
-        .run();
+      const makingFullWidth = !target.fullWidth;
+      const attrs: Record<string, unknown> = {
+        fullwidth: makingFullWidth ? "true" : "false",
+      };
+      // A row going full-width doesn't stretch the image inside it — the image
+      // keeps its own width. So also resize the image to fill its container:
+      // the whole card when full-width, or the gutter content column when inset.
+      if (target.type === "image") {
+        const cardWidth = layout?.maxWidth ?? DEFAULT_EMAIL_WIDTH;
+        attrs.width = makingFullWidth ? cardWidth : cardWidth - 2 * CONTENT_GUTTER;
+      }
+      editor.chain().focus().updateAttributes(target.type, attrs).run();
       const arranged = arrangeEmailRows(assertMailyDocument(editor.getJSON()));
       editor.commands.setContent(arranged);
       onDocumentChange(arranged);
       setFullWidthTarget(activeFullWidthTarget(editor));
-    }, [onDocumentChange]);
+    }, [layout, onDocumentChange]);
 
     const handleUpdate = useCallback(
       (editor: TiptapEditor) => {

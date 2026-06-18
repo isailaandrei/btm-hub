@@ -149,7 +149,7 @@ const DEFAULT_EMAIL_RENDER_THEME = {
 
 // Horizontal gutter applied to "loose" (non-section) content so it stays inset
 // from the card edges now that the container has no side padding.
-const CONTENT_GUTTER = 32;
+export const CONTENT_GUTTER = 32;
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
