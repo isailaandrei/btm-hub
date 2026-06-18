@@ -26,6 +26,19 @@ import {
   type EmailExclusionRow,
 } from "@/lib/data/email-suppressions";
 import {
+  addEmailListMembers,
+  createEmailList,
+  deleteEmailList,
+  getEmailListNames,
+  getEmailListWithMembers,
+  listEmailLists,
+  removeEmailListMember,
+  resolveEmailListRecipientIds,
+  updateEmailList,
+  type EmailListMemberRow,
+  type EmailListSummary,
+} from "@/lib/data/email-lists";
+import {
   getEmailTemplateVersion,
   listEmailTemplates,
 } from "@/lib/data/email-templates";
@@ -48,6 +61,7 @@ import { triggerEmailWorker } from "@/lib/email/worker-trigger";
 import { validateUUID } from "@/lib/validation-helpers";
 import type {
   EmailEvent,
+  EmailList,
   EmailManualRecipient,
   EmailSendKind,
   EmailSuppression,
@@ -60,6 +74,7 @@ const previewEmailSchema = z.object({
   kind: emailKindSchema,
   contactIds: z.array(z.string()).optional(),
   manualRecipientIds: z.array(z.string()).optional(),
+  listIds: z.array(z.string()).optional(),
   subject: z.string().trim().min(1, "Subject is required"),
 });
 
@@ -206,14 +221,37 @@ export async function loadEmailStudioDataAction() {
   };
 }
 
+// Expand any selected mailing lists into the contact / manual recipient ids
+// their members point at, merged with the ad-hoc selection. Lists target
+// specific people, so they only apply to outreach.
+async function expandListSelection(input: {
+  kind: EmailSendKind;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+  listIds?: string[];
+}): Promise<{ contactIds: string[]; manualRecipientIds: string[] }> {
+  const contactIds = input.contactIds ?? [];
+  const manualRecipientIds = input.manualRecipientIds ?? [];
+  if (input.kind !== "outreach" || !input.listIds?.length) {
+    return { contactIds, manualRecipientIds };
+  }
+  const fromLists = await resolveEmailListRecipientIds(input.listIds);
+  return {
+    contactIds: [...contactIds, ...fromLists.contactIds],
+    manualRecipientIds: [...manualRecipientIds, ...fromLists.manualRecipientIds],
+  };
+}
+
 async function resolvePreview(input: {
   kind: EmailSendKind;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  listIds?: string[];
 }) {
-  const selectedContactIds = Array.from(new Set(input.contactIds ?? []));
+  const expanded = await expandListSelection(input);
+  const selectedContactIds = Array.from(new Set(expanded.contactIds));
   const selectedManualRecipientIds = Array.from(
-    new Set(input.manualRecipientIds ?? []),
+    new Set(expanded.manualRecipientIds),
   );
   if (input.kind === "outreach") {
     if (
@@ -414,6 +452,7 @@ const composeRecipientsSchema = z.object({
   kind: emailKindSchema,
   contactIds: z.array(z.string()).optional(),
   manualRecipientIds: z.array(z.string()).optional(),
+  listIds: z.array(z.string()).optional(),
 });
 
 export interface ComposeRecipient {
@@ -437,6 +476,7 @@ export async function getComposeRecipientsAction(input: {
   kind: EmailSendKind;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  listIds?: string[];
 }): Promise<{
   eligible: ComposeRecipient[];
   skipped: ComposeSkippedRecipient[];
@@ -453,7 +493,8 @@ export async function getComposeRecipientsAction(input: {
 
   const hasSelection =
     (parsed.data.contactIds?.length ?? 0) +
-      (parsed.data.manualRecipientIds?.length ?? 0) >
+      (parsed.data.manualRecipientIds?.length ?? 0) +
+      (parsed.data.listIds?.length ?? 0) >
     0;
   if (!hasSelection) {
     return { eligible: [], skipped: [] };
@@ -486,6 +527,7 @@ export async function createEmailDraftAction(input: {
   previewText?: string;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  listIds?: string[];
   audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
@@ -500,19 +542,28 @@ export async function createEmailDraftAction(input: {
 }
 
 // Record which audience source produced a send so the Sent tab can label it.
-// Counts come from the admin's selection; list/segment ids/labels are passed
-// through for later phases. Broadcast targets everyone, so counts are omitted.
-function buildSendMetadata(input: ParsedEmailSendInput): Record<string, unknown> {
+// Counts come from the admin's selection; selected mailing lists contribute
+// their name as the label. Broadcast targets everyone, so counts are omitted.
+async function buildSendMetadata(
+  input: ParsedEmailSendInput,
+): Promise<Record<string, unknown>> {
   const audience: Record<string, unknown> = { kind: input.kind };
   if (input.kind === "outreach") {
     audience.contactCount = new Set(input.contactIds ?? []).size;
     audience.manualCount = new Set(input.manualRecipientIds ?? []).size;
   }
-  if (input.audience?.listIds?.length) audience.listIds = input.audience.listIds;
+  const listIds = input.listIds ?? [];
+  if (listIds.length > 0) {
+    audience.listIds = listIds;
+    const names = await getEmailListNames(listIds);
+    if (names.length > 0) audience.label = names.join(", ");
+  }
   if (input.audience?.segmentIds?.length) {
     audience.segmentIds = input.audience.segmentIds;
   }
-  if (input.audience?.label) audience.label = input.audience.label;
+  if (!audience.label && input.audience?.label) {
+    audience.label = input.audience.label;
+  }
   return { editor: "maily", audience };
 }
 
@@ -579,7 +630,7 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     builderJsonSnapshot: document as Record<string, unknown>,
     htmlPreviewSnapshot: rendered.html,
     textPreviewSnapshot: rendered.text,
-    metadata: buildSendMetadata(input),
+    metadata: await buildSendMetadata(input),
     recipients,
   });
 }
@@ -614,6 +665,7 @@ export async function sendEmailNowAction(input: {
   previewText?: string;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  listIds?: string[];
   audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
@@ -654,6 +706,108 @@ export async function liftEmailExclusionAction(
   await requireAdmin();
   validateUUID(suppressionId, "exclusion");
   await liftEmailExclusion(suppressionId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+const emailListInputSchema = z.object({
+  name: z.string().trim().min(1, "List name is required").max(120),
+  description: z.string().trim().max(500).optional(),
+  contactIds: z.array(z.string()).optional(),
+  manualRecipientIds: z.array(z.string()).optional(),
+});
+
+export async function loadEmailListsAction(): Promise<{
+  lists: EmailListSummary[];
+}> {
+  await requireAdmin();
+  const lists = await listEmailLists();
+  return { lists };
+}
+
+export async function getEmailListAction(listId: string): Promise<{
+  list: EmailList;
+  members: EmailListMemberRow[];
+} | null> {
+  await requireAdmin();
+  validateUUID(listId, "list");
+  return getEmailListWithMembers(listId);
+}
+
+export async function createEmailListAction(input: {
+  name: string;
+  description?: string;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+}): Promise<{ list: EmailList }> {
+  await requireAdmin();
+  const parsed = emailListInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid mailing list");
+  }
+  for (const id of parsed.data.contactIds ?? []) validateUUID(id, "contact");
+  for (const id of parsed.data.manualRecipientIds ?? []) {
+    validateUUID(id, "saved recipient");
+  }
+  const list = await createEmailList(parsed.data);
+  revalidatePath("/admin");
+  return { list };
+}
+
+export async function updateEmailListAction(input: {
+  id: string;
+  name: string;
+  description?: string;
+}): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(input.id, "list");
+  const parsed = emailListInputSchema
+    .pick({ name: true, description: true })
+    .safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid mailing list");
+  }
+  await updateEmailList({
+    id: input.id,
+    name: parsed.data.name,
+    description: parsed.data.description,
+  });
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function deleteEmailListAction(
+  listId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(listId, "list");
+  await deleteEmailList(listId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function addEmailListMembersAction(input: {
+  listId: string;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+}): Promise<{ added: number }> {
+  await requireAdmin();
+  validateUUID(input.listId, "list");
+  for (const id of input.contactIds ?? []) validateUUID(id, "contact");
+  for (const id of input.manualRecipientIds ?? []) {
+    validateUUID(id, "saved recipient");
+  }
+  const result = await addEmailListMembers(input);
+  revalidatePath("/admin");
+  return result;
+}
+
+export async function removeEmailListMemberAction(
+  memberId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(memberId, "list member");
+  await removeEmailListMember(memberId);
   revalidatePath("/admin");
   return { ok: true };
 }

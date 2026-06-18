@@ -317,6 +317,25 @@ export interface EmailManualRecipient {
   updated_at: string;
 }
 
+export interface EmailList {
+  id: string;
+  name: string;
+  description: string;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailListMember {
+  id: string;
+  list_id: string;
+  contact_id: string | null;
+  manual_recipient_id: string | null;
+  email: string;
+  added_at: string;
+}
+
 export interface ContactEmailPreference {
   contact_id: string;
   newsletter_unsubscribed_at: string | null;

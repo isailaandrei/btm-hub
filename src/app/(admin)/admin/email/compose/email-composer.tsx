@@ -29,7 +29,9 @@ import {
   type EmailDesignerHandle,
 } from "../templates/email-designer";
 import {
+  createEmailListAction,
   getComposeRecipientsAction,
+  loadEmailListsAction,
   renderComposePreviewAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
@@ -37,6 +39,7 @@ import {
   type ComposeSkippedRecipient,
   type EmailTemplateVersionDocument,
 } from "../actions";
+import type { EmailListSummary } from "@/lib/data/email-lists";
 import { deleteTemplateAction } from "../templates/actions";
 import {
   BROADCAST_CONFIRMATION_MESSAGE,
@@ -94,6 +97,11 @@ export function EmailComposer({
   >([]);
   const [manualRecipientName, setManualRecipientName] = useState("");
   const [manualRecipientEmail, setManualRecipientEmail] = useState("");
+  const [lists, setLists] = useState<EmailListSummary[] | null>(null);
+  const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
+  const [isListSaveOpen, setIsListSaveOpen] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [isSavingList, startSaveListTransition] = useTransition();
   const [isBroadcastConfirmOpen, setIsBroadcastConfirmOpen] = useState(false);
   const [view, setView] = useState<"design" | "preview">("design");
   const [previewHtml, setPreviewHtml] = useState("");
@@ -158,13 +166,32 @@ export function EmailComposer({
     };
   }, [ensureTemplateVersion, loadedTemplateVersionId, selectedTemplateVersionId]);
 
+  // Load saved mailing lists once so they can be picked as a recipient source.
+  useEffect(() => {
+    let isActive = true;
+    void (async () => {
+      try {
+        const result = await loadEmailListsAction();
+        if (isActive) setLists(result.lists);
+      } catch {
+        if (isActive) setLists([]);
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   // Resolve the actual people an outreach send will reach (names + emails, plus
   // who gets skipped and why) so the Recipients panel can list them instead of
   // just a count. Broadcast targets everyone, so it is not itemized.
   useEffect(() => {
     if (
       kind !== "outreach" ||
-      selectedContactIds.length + selectedManualRecipientIds.length === 0
+      selectedContactIds.length +
+        selectedManualRecipientIds.length +
+        selectedListIds.length ===
+        0
     ) {
       return;
     }
@@ -176,6 +203,7 @@ export function EmailComposer({
           kind: "outreach",
           contactIds: selectedContactIds,
           manualRecipientIds: selectedManualRecipientIds,
+          listIds: selectedListIds,
         });
         if (!isActive) return;
         setRecipientDetails(result);
@@ -191,7 +219,7 @@ export function EmailComposer({
     return () => {
       isActive = false;
     };
-  }, [kind, selectedContactIds, selectedManualRecipientIds]);
+  }, [kind, selectedContactIds, selectedManualRecipientIds, selectedListIds]);
 
   // While a chosen template is loading we hold off sending so we never send a
   // stale/empty document. A blank starting point is always ready.
@@ -207,7 +235,10 @@ export function EmailComposer({
     kind === "outreach" ? selectedManualRecipientIds.length : 0;
   const isOutreachWithoutRecipients =
     kind === "outreach" &&
-    selectedContactIds.length + selectedManualRecipientCount === 0;
+    selectedContactIds.length +
+      selectedManualRecipientCount +
+      selectedListIds.length ===
+      0;
 
   function toggleManualRecipient(recipientId: string) {
     setSelectedManualRecipientIds((current) =>
@@ -215,6 +246,42 @@ export function EmailComposer({
         ? current.filter((id) => id !== recipientId)
         : [...current, recipientId],
     );
+  }
+
+  function toggleList(listId: string) {
+    setSelectedListIds((current) =>
+      current.includes(listId)
+        ? current.filter((id) => id !== listId)
+        : [...current, listId],
+    );
+  }
+
+  // Save the current ad-hoc selection (contacts + saved recipients) as a new,
+  // reusable list. Already-selected lists are persisted, so they aren't included.
+  function handleSaveSelectionAsList() {
+    const name = newListName.trim();
+    if (!name) return;
+    startSaveListTransition(async () => {
+      try {
+        const { list } = await createEmailListAction({
+          name,
+          contactIds: selectedContactIds,
+          manualRecipientIds: selectedManualRecipientIds,
+        });
+        const refreshed = await loadEmailListsAction();
+        setLists(refreshed.lists);
+        setSelectedListIds((current) =>
+          current.includes(list.id) ? current : [...current, list.id],
+        );
+        setNewListName("");
+        setIsListSaveOpen(false);
+        toast.success("Saved as a list.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to save list.",
+        );
+      }
+    });
   }
 
   function handleSelectBlank() {
@@ -343,6 +410,7 @@ export function EmailComposer({
           contactIds: selectedContactIds,
           manualRecipientIds:
             kind === "outreach" ? selectedManualRecipientIds : [],
+          listIds: kind === "outreach" ? selectedListIds : [],
         });
         if (onSendStarted) {
           onSendStarted();
@@ -560,6 +628,91 @@ export function EmailComposer({
             {isSending ? "Sending..." : "Send now"}
           </button>
         </div>
+
+        {kind === "outreach" && (
+          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground">Lists</p>
+              {selectedContactIds.length + selectedManualRecipientIds.length >
+                0 &&
+                (isListSaveOpen ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={newListName}
+                      onChange={(event) => setNewListName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleSaveSelectionAsList();
+                        if (event.key === "Escape") setIsListSaveOpen(false);
+                      }}
+                      placeholder="New list name"
+                      className="h-8 rounded-md border border-border bg-background px-3 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveSelectionAsList}
+                      disabled={isSavingList || !newListName.trim()}
+                      className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                    >
+                      {isSavingList ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsListSaveOpen(false)}
+                      className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsListSaveOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Save selection as a list
+                  </button>
+                ))}
+            </div>
+            {lists === null ? (
+              <p className="text-sm text-muted-foreground">Loading lists...</p>
+            ) : lists.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No saved lists yet. Select recipients and save them as a list to
+                reuse later.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {lists.map((list) => {
+                  const checked = selectedListIds.includes(list.id);
+                  return (
+                    <button
+                      key={list.id}
+                      type="button"
+                      onClick={() => toggleList(list.id)}
+                      aria-pressed={checked}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                        checked
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {list.name}
+                      <span
+                        className={
+                          checked ? "text-primary/70" : "text-muted-foreground"
+                        }
+                      >
+                        {list.memberCount}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {kind === "outreach" && (
           <div className="mt-4 grid gap-4 border-t border-border pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">
