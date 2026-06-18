@@ -320,11 +320,12 @@ function paddedContentSection(content: JSONContent[]): JSONContent {
  * is what the admin's "Full width" toggle sets.
  */
 export function isFullWidthNode(node: JSONContent): boolean {
-  // Stored under a lowercase key (`fullwidth`) so it can ride along on Maily's
-  // attr-spreading node views without tripping React's camelCase DOM warning.
+  // Stored under a lowercase key with a string value (`fullwidth: "true"|"false"`)
+  // so it can ride along on Maily's attr-spreading node views without tripping a
+  // React DOM warning. Booleans are accepted too for resilience.
   const fullWidth = isRecord(node.attrs) ? node.attrs.fullwidth : undefined;
-  if (fullWidth === true) return true;
-  if (fullWidth === false) return false;
+  if (fullWidth === true || fullWidth === "true") return true;
+  if (fullWidth === false || fullWidth === "false") return false;
   return node.type === "section";
 }
 

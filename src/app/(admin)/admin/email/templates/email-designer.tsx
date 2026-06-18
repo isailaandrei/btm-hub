@@ -37,16 +37,16 @@ import { mailyBlockGroups } from "./maily-blocks";
 const FullWidthExtension = Extension.create({
   name: "fullWidthAttribute",
   addGlobalAttributes() {
-    // Lowercase key on purpose: Maily's node views spread raw attrs onto DOM
-    // elements (e.g. the <img>), and React only warns about camelCase custom
-    // attributes — `fullwidth` is passed through silently. `rendered: false`
-    // additionally keeps it out of Tiptap's own HTML serialization.
-    const attribute = (defaultValue: boolean) => ({
+    // Maily's node views spread raw attrs onto DOM elements (e.g. the <img>),
+    // ignoring `rendered: false`. So the flag is a lowercase STRING ("true"/
+    // "false"): React writes lowercase string custom attributes to the DOM
+    // silently (a camelCase key or a boolean value would trigger a warning).
+    const attribute = (defaultValue: "true" | "false") => ({
       fullwidth: { default: defaultValue, rendered: false },
     });
     return [
-      { types: ["section"], attributes: attribute(true) },
-      { types: ["image"], attributes: attribute(false) },
+      { types: ["section"], attributes: attribute("true") },
+      { types: ["image"], attributes: attribute("false") },
     ];
   },
 });
@@ -79,13 +79,13 @@ function activeFullWidthTarget(editor: TiptapEditor): FullWidthTarget | null {
   const { selection } = editor.state;
   const selectedNode = (selection as { node?: { type: { name: string }; attrs: Record<string, unknown> } }).node;
   if (selectedNode?.type.name === "image") {
-    return { type: "image", fullWidth: selectedNode.attrs.fullwidth === true };
+    return { type: "image", fullWidth: selectedNode.attrs.fullwidth === "true" };
   }
   const { $from } = selection;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
     if (node.type.name === "section") {
-      return { type: "section", fullWidth: node.attrs.fullwidth !== false };
+      return { type: "section", fullWidth: node.attrs.fullwidth !== "false" };
     }
   }
   return null;
@@ -182,7 +182,9 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
       editor
         .chain()
         .focus()
-        .updateAttributes(target.type, { fullwidth: !target.fullWidth })
+        .updateAttributes(target.type, {
+          fullwidth: target.fullWidth ? "false" : "true",
+        })
         .run();
       const arranged = arrangeEmailRows(assertMailyDocument(editor.getJSON()));
       editor.commands.setContent(arranged);
