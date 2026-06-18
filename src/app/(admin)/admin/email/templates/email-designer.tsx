@@ -73,20 +73,34 @@ const MailyEditor = memo(
 
 type FullWidthTarget = { type: "section" | "image"; fullWidth: boolean };
 
-/** Identify the section/image the current selection acts on, and its full-width
- *  state — so we can show and drive the "Full width" toggle. */
+/** The transparent 32px-gutter wrappers the renderer injects are "sections" too,
+ *  but they're internal — never the thing an admin means to toggle. */
+function isGutterSectionAttrs(attrs: Record<string, unknown>): boolean {
+  return (
+    attrs.backgroundColor === "transparent" &&
+    attrs.paddingLeft === 32 &&
+    attrs.paddingRight === 32
+  );
+}
+
+/**
+ * Identify the section/image the current selection acts on, and its full-width
+ * state. Prefers the nearest *real* section (so clicking a banner's logo targets
+ * the band, not the image — you don't have to hit the thin padding strip); falls
+ * back to a standalone selected image. Internal gutter wrappers are ignored.
+ */
 function activeFullWidthTarget(editor: TiptapEditor): FullWidthTarget | null {
   const { selection } = editor.state;
-  const selectedNode = (selection as { node?: { type: { name: string }; attrs: Record<string, unknown> } }).node;
-  if (selectedNode?.type.name === "image") {
-    return { type: "image", fullWidth: selectedNode.attrs.fullwidth === "true" };
-  }
   const { $from } = selection;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
-    if (node.type.name === "section") {
+    if (node.type.name === "section" && !isGutterSectionAttrs(node.attrs)) {
       return { type: "section", fullWidth: node.attrs.fullwidth !== "false" };
     }
+  }
+  const selectedNode = (selection as { node?: { type: { name: string }; attrs: Record<string, unknown> } }).node;
+  if (selectedNode?.type.name === "image") {
+    return { type: "image", fullWidth: selectedNode.attrs.fullwidth === "true" };
   }
   return null;
 }
