@@ -263,7 +263,8 @@ export type EmailSuppressionReason =
   | "spam_complaint"
   | "invalid_address"
   | "manual"
-  | "do_not_contact";
+  | "do_not_contact"
+  | "unsubscribe";
 
 export interface EmailTemplate {
   id: string;

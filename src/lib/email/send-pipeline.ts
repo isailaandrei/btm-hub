@@ -88,12 +88,14 @@ function appendBroadcastUnsubscribe(input: {
   unsubscribeUrl: string | null;
 }) {
   if (!input.unsubscribeUrl) return input;
-  const footerHtml = `<p style="font-size:12px;line-height:18px;color:#64748b;margin:24px 0 0">You are receiving this newsletter from Behind The Mask. <a href="${escapeHtmlAttribute(input.unsubscribeUrl)}">Unsubscribe from newsletters</a>.</p>`;
+  // Flat exclusion: unsubscribing stops ALL email, so say that plainly rather
+  // than implying it only affects newsletters.
+  const footerHtml = `<p style="font-size:12px;line-height:18px;color:#64748b;margin:24px 0 0">You are receiving this email from Behind The Mask. <a href="${escapeHtmlAttribute(input.unsubscribeUrl)}">Unsubscribe</a> to stop receiving all emails from us.</p>`;
   return {
     html: insertBeforeBodyEnd(input.html, footerHtml),
     text: `${input.text}
 
-Unsubscribe from newsletters: ${input.unsubscribeUrl}`,
+Unsubscribe to stop receiving all emails from Behind The Mask: ${input.unsubscribeUrl}`,
   };
 }
 
@@ -191,6 +193,11 @@ async function processRecipient(input: {
     const unsubscribeUrl = unsubscribe
       ? `${getPublicSiteUrl()}/email/unsubscribe/${unsubscribe.token}`
       : null;
+    // RFC-8058 one-click target: a POST endpoint that unsubscribes without any
+    // further interaction (Gmail/Yahoo bulk-sender requirement).
+    const oneClickUnsubscribeUrl = unsubscribe
+      ? `${getPublicSiteUrl()}/api/email/unsubscribe/${unsubscribe.token}`
+      : null;
     const rendered = await renderRecipient({
       send: input.send,
       recipient: input.recipient,
@@ -223,6 +230,12 @@ async function processRecipient(input: {
         recipientId: input.recipient.id,
         contactId: input.recipient.contact_id ?? "",
       },
+      headers: oneClickUnsubscribeUrl
+        ? {
+            "List-Unsubscribe": `<${oneClickUnsubscribeUrl}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          }
+        : undefined,
     });
     acceptedResult = result;
     const providerMetadata = {

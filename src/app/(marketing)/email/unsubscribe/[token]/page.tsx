@@ -17,17 +17,17 @@ export default async function NewsletterUnsubscribePage({
     <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col justify-center px-6 py-16">
       <h1 className="text-2xl font-semibold text-foreground">
         {confirmed
-          ? "Newsletter unsubscribe confirmed"
+          ? "You've been unsubscribed"
           : notFound
             ? "Unsubscribe link not found"
-            : "Unsubscribe from newsletters"}
+            : "Unsubscribe from all emails"}
       </h1>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">
         {confirmed
-          ? "This contact will no longer receive broadcast newsletters. Direct outreach can still be sent when appropriate."
+          ? "You will no longer receive any emails from Behind The Mask."
           : notFound
             ? "This link may have already been used or may not belong to a valid email."
-            : "Confirm that this contact should stop receiving broadcast newsletters from Behind The Mask."}
+            : "Confirm that you want to stop receiving all emails from Behind The Mask."}
       </p>
       {!confirmed && !notFound ? (
         <form action={confirmNewsletterUnsubscribeAction} className="mt-6">

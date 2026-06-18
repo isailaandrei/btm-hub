@@ -402,9 +402,15 @@ describe("processEmailSendChunks", () => {
     });
 
     const html = sentInputs[0]?.html ?? "";
-    expect(html).toContain("Unsubscribe from newsletters");
-    expect(html.indexOf("Unsubscribe from newsletters")).toBeLessThan(
+    expect(html).toContain("stop receiving all emails");
+    expect(html.indexOf("stop receiving all emails")).toBeLessThan(
       html.toLowerCase().lastIndexOf("</body>"),
     );
+    // RFC-8058 one-click headers accompany broadcasts.
+    const headers = sentInputs[0]?.headers ?? {};
+    expect(headers["List-Unsubscribe"]).toMatch(
+      /^<http.*\/api\/email\/unsubscribe\/.+>$/,
+    );
+    expect(headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
   });
 });

@@ -542,6 +542,34 @@ export async function recordProviderNewsletterUnsubscribe(input: {
   }
 }
 
+/**
+ * Land an unsubscribed address on the single exclusion list. Flat exclusion:
+ * once suppressed, the person receives no email of any kind. Safe to call when
+ * an active suppression already exists (the unique partial index raises 23505,
+ * which we ignore — they are already excluded). Uses the admin client because
+ * it runs from the public unsubscribe route and the provider webhook.
+ */
+export async function suppressUnsubscribedEmail(input: {
+  contactId: string | null;
+  email: string;
+  source: string;
+}): Promise<void> {
+  const supabase = await createAdminClient();
+  const { error } = await supabase.from("email_suppressions").insert({
+    contact_id: input.contactId,
+    email: input.email.trim().toLowerCase(),
+    reason: "unsubscribe",
+    detail: `Unsubscribed via ${input.source}`,
+    provider: null,
+    provider_event_id: null,
+    created_by: null,
+  });
+
+  if (error && error.code !== "23505") {
+    throw new Error(`Failed to suppress unsubscribed email: ${error.message}`);
+  }
+}
+
 export const listContactEmailPreferences = cache(
   async function listContactEmailPreferences(): Promise<ContactEmailPreference[]> {
     const supabase = await createClient();
@@ -629,6 +657,13 @@ export async function unsubscribeNewsletterByToken(
       );
     }
   }
+
+  // Flat exclusion: an unsubscribe stops all email, not just newsletters.
+  await suppressUnsubscribedEmail({
+    contactId: row.contact_id,
+    email: row.email,
+    source: "email_link",
+  });
 
   const now = new Date().toISOString();
   const { error: recipientError } = await supabase
