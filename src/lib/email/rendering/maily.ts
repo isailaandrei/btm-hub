@@ -315,12 +315,14 @@ function paddedContentSection(content: JSONContent[]): JSONContent {
 
 /**
  * Whether a top-level node renders edge-to-edge (full width) vs inset with a
- * gutter. An explicit `attrs.fullWidth` boolean wins; otherwise sections default
+ * gutter. An explicit `attrs.fullwidth` boolean wins; otherwise sections default
  * to full-width and everything else (text, images) defaults to inset. This flag
  * is what the admin's "Full width" toggle sets.
  */
 export function isFullWidthNode(node: JSONContent): boolean {
-  const fullWidth = isRecord(node.attrs) ? node.attrs.fullWidth : undefined;
+  // Stored under a lowercase key (`fullwidth`) so it can ride along on Maily's
+  // attr-spreading node views without tripping React's camelCase DOM warning.
+  const fullWidth = isRecord(node.attrs) ? node.attrs.fullwidth : undefined;
   if (fullWidth === true) return true;
   if (fullWidth === false) return false;
   return node.type === "section";
@@ -357,7 +359,7 @@ export function flattenEmailRows(document: MailyDocument): MailyDocument {
 
 /**
  * Render layout: full-width nodes (sections by default, or anything flagged
- * `fullWidth: true`) become edge-to-edge rows; runs of inset nodes are wrapped in
+ * `fullwidth: true`) become edge-to-edge rows; runs of inset nodes are wrapped in
  * a padded gutter section so they keep the 32px gutter (the container itself has
  * no side padding). Reliable across clients — nested 100% tables, no negative
  * margins. Flattens first so it's idempotent on already-arranged documents.

@@ -37,11 +37,12 @@ import { mailyBlockGroups } from "./maily-blocks";
 const FullWidthExtension = Extension.create({
   name: "fullWidthAttribute",
   addGlobalAttributes() {
-    // `rendered: false` keeps the flag in the document model (so getJSON/render
-    // see it) without emitting it to the DOM — Maily's node views spread raw
-    // attrs onto elements, which would otherwise trigger React DOM warnings.
+    // Lowercase key on purpose: Maily's node views spread raw attrs onto DOM
+    // elements (e.g. the <img>), and React only warns about camelCase custom
+    // attributes — `fullwidth` is passed through silently. `rendered: false`
+    // additionally keeps it out of Tiptap's own HTML serialization.
     const attribute = (defaultValue: boolean) => ({
-      fullWidth: { default: defaultValue, rendered: false },
+      fullwidth: { default: defaultValue, rendered: false },
     });
     return [
       { types: ["section"], attributes: attribute(true) },
@@ -78,13 +79,13 @@ function activeFullWidthTarget(editor: TiptapEditor): FullWidthTarget | null {
   const { selection } = editor.state;
   const selectedNode = (selection as { node?: { type: { name: string }; attrs: Record<string, unknown> } }).node;
   if (selectedNode?.type.name === "image") {
-    return { type: "image", fullWidth: selectedNode.attrs.fullWidth === true };
+    return { type: "image", fullWidth: selectedNode.attrs.fullwidth === true };
   }
   const { $from } = selection;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
     if (node.type.name === "section") {
-      return { type: "section", fullWidth: node.attrs.fullWidth !== false };
+      return { type: "section", fullWidth: node.attrs.fullwidth !== false };
     }
   }
   return null;
@@ -181,7 +182,7 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
       editor
         .chain()
         .focus()
-        .updateAttributes(target.type, { fullWidth: !target.fullWidth })
+        .updateAttributes(target.type, { fullwidth: !target.fullWidth })
         .run();
       const arranged = arrangeEmailRows(assertMailyDocument(editor.getJSON()));
       editor.commands.setContent(arranged);

@@ -108,8 +108,8 @@ describe("Maily rendering", () => {
     const doc = assertMailyDocument({
       type: "doc",
       content: [
-        { type: "image", attrs: { src: "x", fullWidth: true } },
-        { type: "section", attrs: { fullWidth: false }, content: [] },
+        { type: "image", attrs: { src: "x", fullwidth: true } },
+        { type: "section", attrs: { fullwidth: false }, content: [] },
       ],
     });
 
