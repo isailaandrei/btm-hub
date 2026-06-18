@@ -232,7 +232,9 @@ button,
   border: 0;
   border-radius: 12px;
   background: #ffffff;
-  padding: 32px 0;
+  /* Vertical padding tracks the per-template setting; horizontal is 0 (gutter
+     comes from the wrapping section, so full-width sections reach the edges). */
+  padding: var(--email-canvas-pt, 32px) 0 var(--email-canvas-pb, 32px);
   box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif;

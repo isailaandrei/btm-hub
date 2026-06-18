@@ -17,9 +17,11 @@ import type {
   EmailTemplate,
 } from "@/types/database";
 import {
+  applyLayoutToDocument,
   assertMailyDocument,
   createDefaultMailyDocument,
-  getMailyDocumentWidth,
+  getMailyDocumentLayout,
+  type EmailLayout,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import {
@@ -43,6 +45,7 @@ import {
 import { getRecipientSummary } from "./recipient-summary";
 import { RecipientList } from "./recipient-list";
 import { EmailPreview } from "../templates/email-preview";
+import { EmailLayoutControls } from "../templates/email-layout-controls";
 
 function readCachedTemplateDocument(
   versionId: string,
@@ -98,8 +101,8 @@ export function EmailComposer({
       return createDefaultMailyDocument();
     }
   });
-  const [maxWidth, setMaxWidth] = useState<number>(() =>
-    getMailyDocumentWidth(document),
+  const [layout, setLayout] = useState<EmailLayout>(() =>
+    getMailyDocumentLayout(document),
   );
   const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState(() => {
     if (!initialTemplateVersionId) return "";
@@ -164,7 +167,7 @@ export function EmailComposer({
         if (!isActive || !version) return;
         const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
-        setMaxWidth(getMailyDocumentWidth(nextDocument));
+        setLayout(getMailyDocumentLayout(nextDocument));
         setLoadedTemplateVersionId(selectedTemplateVersionId);
         setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
@@ -242,7 +245,8 @@ export function EmailComposer({
 
   function renderPreview() {
     const builderJson =
-      designerRef.current?.getSnapshot().builderJson ?? document;
+      designerRef.current?.getSnapshot().builderJson ??
+      applyLayoutToDocument(document, layout);
     startPreviewTransition(async () => {
       try {
         const result = await renderComposePreviewAction({
@@ -265,6 +269,17 @@ export function EmailComposer({
     setView("preview");
     renderPreview();
   }
+
+  // Re-render the on-demand preview when the width changes while it is open.
+  const refreshPreviewOnWidthChange = useRef<() => void>(() => {});
+  useEffect(() => {
+    refreshPreviewOnWidthChange.current = () => {
+      if (view === "preview") renderPreview();
+    };
+  });
+  useEffect(() => {
+    refreshPreviewOnWidthChange.current();
+  }, [layout]);
 
   function handleSaveManualRecipient() {
     startSaveManualRecipientTransition(async () => {
@@ -445,33 +460,36 @@ export function EmailComposer({
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="inline-flex w-fit rounded-md border border-border p-0.5">
-          <button
-            type="button"
-            onClick={() => setView("design")}
-            aria-pressed={view === "design"}
-            className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-              view === "design"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Design
-          </button>
-          <button
-            type="button"
-            onClick={showPreview}
-            aria-pressed={view === "preview"}
-            className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-              view === "preview"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            Preview
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-md border border-border p-0.5">
+            <button
+              type="button"
+              onClick={() => setView("design")}
+              aria-pressed={view === "design"}
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                view === "design"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Design
+            </button>
+            <button
+              type="button"
+              onClick={showPreview}
+              aria-pressed={view === "preview"}
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                view === "preview"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Preview
+            </button>
+          </div>
+          <EmailLayoutControls value={layout} onChange={setLayout} />
         </div>
 
         {/* Editor stays mounted (hidden) so edits and cursor survive toggling. */}
@@ -480,7 +498,7 @@ export function EmailComposer({
             ref={designerRef}
             sourceDocument={document}
             onDocumentChange={setDocument}
-            maxWidth={maxWidth}
+            layout={layout}
           />
         </div>
         {view === "preview" && (

@@ -93,3 +93,4 @@ supabase/seed.*.local.sql
 supabase/snippets/
 # Playwright MCP debug artifacts
 .playwright-mcp/
+dev-server.log

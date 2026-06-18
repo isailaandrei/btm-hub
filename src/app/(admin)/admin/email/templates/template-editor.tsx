@@ -12,12 +12,11 @@ import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { EmailTemplate } from "@/types/database";
 import {
+  applyLayoutToDocument,
   assertMailyDocument,
-  clampEmailWidth,
   createDefaultMailyDocument,
-  getMailyDocumentWidth,
-  MAX_EMAIL_WIDTH,
-  MIN_EMAIL_WIDTH,
+  getMailyDocumentLayout,
+  type EmailLayout,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import {
@@ -35,6 +34,7 @@ import {
   type EmailDesignerHandle,
 } from "./email-designer";
 import { EmailPreview } from "./email-preview";
+import { EmailLayoutControls } from "./email-layout-controls";
 import { prependTemplateOnce } from "./template-list-state";
 
 function readCachedTemplateDocument(
@@ -99,8 +99,8 @@ export function TemplateEditor({
     versionId: string;
     message: string;
   } | null>(null);
-  const [maxWidth, setMaxWidth] = useState<number>(() =>
-    getMailyDocumentWidth(document),
+  const [layout, setLayout] = useState<EmailLayout>(() =>
+    getMailyDocumentLayout(document),
   );
   const [isLoadingVersion, startLoadTransition] = useTransition();
   const [isPublishing, startPublishTransition] = useTransition();
@@ -113,7 +113,8 @@ export function TemplateEditor({
 
   const renderPreview = useCallback(() => {
     const builderJson =
-      designerRef.current?.getSnapshot().builderJson ?? { ...document, maxWidth };
+      designerRef.current?.getSnapshot().builderJson ??
+      applyLayoutToDocument(document, layout);
     startPreviewTransition(async () => {
       try {
         const result = await renderTemplatePreviewAction({ builderJson });
@@ -127,7 +128,7 @@ export function TemplateEditor({
         );
       }
     });
-  }, [document, maxWidth]);
+  }, [document, layout]);
 
   const showPreview = useCallback(() => {
     setView("preview");
@@ -144,7 +145,7 @@ export function TemplateEditor({
   });
   useEffect(() => {
     refreshPreviewOnWidthChange.current();
-  }, [maxWidth]);
+  }, [layout]);
 
   const applyLocalTemplates = useCallback(
     (nextTemplates: EmailTemplate[]) => {
@@ -182,7 +183,7 @@ export function TemplateEditor({
         if (!isActive || !version) return;
         const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
-        setMaxWidth(getMailyDocumentWidth(nextDocument));
+        setLayout(getMailyDocumentLayout(nextDocument));
         setLoadedTemplateVersionId(selectedTemplateVersionId);
         setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
@@ -213,7 +214,7 @@ export function TemplateEditor({
   const resetEditor = useCallback(() => {
     const fresh = createDefaultMailyDocument();
     setDocument(fresh);
-    setMaxWidth(getMailyDocumentWidth(fresh));
+    setLayout(getMailyDocumentLayout(fresh));
     setLoadedTemplateVersionId("");
     designerRef.current?.loadDocument(fresh);
   }, []);
@@ -240,7 +241,8 @@ export function TemplateEditor({
     startPublishTransition(async () => {
       try {
         const snapshot = designerRef.current?.getSnapshot();
-        const builderJson = snapshot?.builderJson ?? { ...document, maxWidth };
+        const builderJson =
+          snapshot?.builderJson ?? applyLayoutToDocument(document, layout);
 
         if (isCreatingTemplate) {
           const result = await createAndPublishTemplateAction({
@@ -471,24 +473,7 @@ export function TemplateEditor({
                 </button>
               </div>
 
-              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                Email width
-                <input
-                  type="number"
-                  min={MIN_EMAIL_WIDTH}
-                  max={MAX_EMAIL_WIDTH}
-                  step={10}
-                  value={maxWidth}
-                  onChange={(event) =>
-                    setMaxWidth(Number(event.target.value) || MIN_EMAIL_WIDTH)
-                  }
-                  onBlur={(event) =>
-                    setMaxWidth(clampEmailWidth(event.target.value))
-                  }
-                  className="w-20 rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground"
-                />
-                px
-              </label>
+              <EmailLayoutControls value={layout} onChange={setLayout} />
             </div>
 
             {/* Editor stays mounted (just hidden) so in-progress edits and
@@ -498,7 +483,7 @@ export function TemplateEditor({
                 ref={designerRef}
                 sourceDocument={document}
                 onDocumentChange={setDocument}
-                maxWidth={maxWidth}
+                layout={layout}
               />
             </div>
             {view === "preview" && (

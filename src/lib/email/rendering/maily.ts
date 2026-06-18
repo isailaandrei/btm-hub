@@ -9,16 +9,24 @@ export type MailyDocument = JSONContent & {
   type: "doc";
   content: JSONContent[];
   /**
-   * Optional per-template email width (the container's max-width, in px). Stored
-   * alongside the document in builder_json so it travels through preview, save,
-   * and send. Falls back to DEFAULT_EMAIL_WIDTH when absent.
+   * Optional per-template layout, stored alongside the document in builder_json
+   * so it travels through preview, save, and send. All fall back to defaults.
+   * - maxWidth: the container max-width (px).
+   * - paddingTop / paddingBottom: the container's vertical padding (px). Set
+   *   paddingTop to 0 for a banner flush to the top of the card.
    */
   maxWidth?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
 };
 
 export const DEFAULT_EMAIL_WIDTH = 680;
 export const MIN_EMAIL_WIDTH = 320;
 export const MAX_EMAIL_WIDTH = 900;
+
+export const DEFAULT_EMAIL_PADDING = 32;
+export const MIN_EMAIL_PADDING = 0;
+export const MAX_EMAIL_PADDING = 96;
 
 /** Clamp an arbitrary width input to the allowed email-container range. */
 export function clampEmailWidth(value: unknown): number {
@@ -28,11 +36,64 @@ export function clampEmailWidth(value: unknown): number {
   return Math.min(MAX_EMAIL_WIDTH, Math.max(MIN_EMAIL_WIDTH, Math.round(numeric)));
 }
 
+/** Clamp an arbitrary vertical-padding input to the allowed range. */
+export function clampEmailPadding(value: unknown): number {
+  const numeric =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(numeric)) return DEFAULT_EMAIL_PADDING;
+  return Math.min(
+    MAX_EMAIL_PADDING,
+    Math.max(MIN_EMAIL_PADDING, Math.round(numeric)),
+  );
+}
+
 /** Resolve the effective container width for a document (clamped, with default). */
 export function getMailyDocumentWidth(document: MailyDocument): number {
   return document.maxWidth == null
     ? DEFAULT_EMAIL_WIDTH
     : clampEmailWidth(document.maxWidth);
+}
+
+export function getMailyDocumentPaddingTop(document: MailyDocument): number {
+  return document.paddingTop == null
+    ? DEFAULT_EMAIL_PADDING
+    : clampEmailPadding(document.paddingTop);
+}
+
+export function getMailyDocumentPaddingBottom(document: MailyDocument): number {
+  return document.paddingBottom == null
+    ? DEFAULT_EMAIL_PADDING
+    : clampEmailPadding(document.paddingBottom);
+}
+
+/** Per-template layout settings (the editor tracks these and merges them into
+ *  the document snapshot so they persist through save/preview/send). */
+export interface EmailLayout {
+  maxWidth: number;
+  paddingTop: number;
+  paddingBottom: number;
+}
+
+/** Resolve a document's layout (clamped, with defaults). */
+export function getMailyDocumentLayout(document: MailyDocument): EmailLayout {
+  return {
+    maxWidth: getMailyDocumentWidth(document),
+    paddingTop: getMailyDocumentPaddingTop(document),
+    paddingBottom: getMailyDocumentPaddingBottom(document),
+  };
+}
+
+/** Merge layout settings onto a document (for the editor snapshot). */
+export function applyLayoutToDocument(
+  document: MailyDocument,
+  layout: EmailLayout,
+): MailyDocument {
+  return {
+    ...document,
+    maxWidth: layout.maxWidth,
+    paddingTop: layout.paddingTop,
+    paddingBottom: layout.paddingBottom,
+  };
 }
 
 export interface RenderedEmailBody {
@@ -333,6 +394,8 @@ export async function renderMailyDocument(
     container: {
       ...DEFAULT_EMAIL_RENDER_THEME.container,
       maxWidth: `${getMailyDocumentWidth(normalized)}px`,
+      paddingTop: `${getMailyDocumentPaddingTop(normalized)}px`,
+      paddingBottom: `${getMailyDocumentPaddingBottom(normalized)}px`,
     },
   });
   if (input.previewText) {

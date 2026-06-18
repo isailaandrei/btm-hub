@@ -19,8 +19,10 @@ import {
 } from "@maily-to/core/extensions";
 import { Loader2 } from "lucide-react";
 import {
+  applyLayoutToDocument,
   assertMailyDocument,
   wrapLooseContentInSections,
+  type EmailLayout,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import { uploadEmailAssetAction } from "../assets/actions";
@@ -60,15 +62,15 @@ interface EmailDesignerProps {
   sourceDocument: MailyDocument;
   onDocumentChange: (document: MailyDocument) => void;
   /**
-   * Per-template email width. The Maily editor strips unknown top-level keys
-   * from its JSON, so the width is tracked outside the editor and re-merged into
-   * the snapshot here — that way save, preview, and send all keep it.
+   * Per-template layout (width + vertical padding). The Maily editor strips
+   * unknown top-level keys from its JSON, so layout is tracked outside the editor
+   * and re-merged into the snapshot here — so save, preview, and send all keep it.
    */
-  maxWidth?: number;
+  layout?: EmailLayout;
 }
 
 export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>(
-  function EmailDesigner({ sourceDocument, onDocumentChange, maxWidth }, ref) {
+  function EmailDesigner({ sourceDocument, onDocumentChange, layout }, ref) {
     const editorRef = useRef<TiptapEditor | null>(null);
 
     // Normalize to the section structure so the editor canvas matches the render
@@ -143,11 +145,12 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
           const document = assertMailyDocument(
             editorRef.current?.getJSON() ?? sourceDocument,
           );
-          const withWidth: MailyDocument =
-            maxWidth == null ? document : { ...document, maxWidth };
+          const withLayout: MailyDocument = layout
+            ? applyLayoutToDocument(document, layout)
+            : document;
           return {
-            document: withWidth,
-            builderJson: withWidth as Record<string, unknown>,
+            document: withLayout,
+            builderJson: withLayout as Record<string, unknown>,
           };
         },
         loadDocument(document) {
@@ -158,17 +161,21 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
           onDocumentChange(normalized);
         },
       }),
-      [maxWidth, onDocumentChange, sourceDocument],
+      [layout, onDocumentChange, sourceDocument],
     );
 
     return (
       <div
         className="flex min-h-[760px] min-w-0 flex-col"
-        // Drives the canvas card width so Design matches the per-template email
-        // width (see .email-maily-canvas in globals.css).
+        // Drives the canvas card so Design matches the per-template layout
+        // (width + vertical padding); see .email-maily-canvas in globals.css.
         style={
-          maxWidth
-            ? ({ "--email-canvas-width": `${maxWidth}px` } as CSSProperties)
+          layout
+            ? ({
+                "--email-canvas-width": `${layout.maxWidth}px`,
+                "--email-canvas-pt": `${layout.paddingTop}px`,
+                "--email-canvas-pb": `${layout.paddingBottom}px`,
+              } as CSSProperties)
             : undefined
         }
       >

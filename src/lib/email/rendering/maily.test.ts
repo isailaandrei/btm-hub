@@ -60,6 +60,18 @@ describe("Maily rendering", () => {
     ).toBe(MAX_EMAIL_WIDTH);
   });
 
+  it("renders with custom container vertical padding (e.g. flush-top banner)", async () => {
+    const document = {
+      ...createDefaultMailyDocument(),
+      paddingTop: 0,
+      paddingBottom: 48,
+    };
+    const rendered = await renderMailyDocument(document);
+
+    expect(rendered.html).toContain("padding-top:0px");
+    expect(rendered.html).toContain("padding-bottom:48px");
+  });
+
   it("renders at a custom per-document width when set", async () => {
     const document = { ...createDefaultMailyDocument(), maxWidth: 720 };
     const rendered = await renderMailyDocument(document);
