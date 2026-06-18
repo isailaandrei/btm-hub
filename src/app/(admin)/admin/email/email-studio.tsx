@@ -16,6 +16,7 @@ import {
   PenLine,
   RefreshCw,
   Trash2,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +32,7 @@ import {
   useAdminEmailData,
 } from "./admin-email-data-provider";
 import { EmailComposer } from "./compose/email-composer";
+import { AudiencesPanel } from "./audiences/audiences-panel";
 import {
   buildEmailSendMetrics,
   type EmailSendMetricTone,
@@ -38,7 +40,7 @@ import {
 import { formatEmailSendTiming } from "./sent-date";
 import { buildSentRowSummary } from "./sent-summary";
 
-type EmailTab = "compose" | "sent";
+type EmailTab = "compose" | "sent" | "audiences";
 type DiagnosticsBySendId = Record<string, EmailSendDiagnostics>;
 
 const EMAIL_TABS: Array<{
@@ -48,6 +50,7 @@ const EMAIL_TABS: Array<{
 }> = [
   { key: "compose", label: "Compose", icon: PenLine },
   { key: "sent", label: "Sent emails", icon: MailCheck },
+  { key: "audiences", label: "Audiences", icon: Users },
 ];
 
 function isActiveSend(send: EmailSend) {
@@ -544,6 +547,8 @@ function EmailStudioContent({
           )}
         </div>
       )}
+
+      {activeTab === "audiences" && <AudiencesPanel />}
     </div>
   );
 }

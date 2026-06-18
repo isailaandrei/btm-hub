@@ -118,8 +118,9 @@ describe("EmailStudio", () => {
     expect(buttons.map((button) => button.textContent)).toEqual([
       "Compose",
       "Sent emails",
+      "Audiences",
     ]);
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(3);
     expect(buttons[0].getAttribute("data-state")).toBe("active");
     expect(buttons[0].getAttribute("aria-pressed")).toBe("true");
     expect(buttons[0].querySelector("svg")).not.toBeNull();

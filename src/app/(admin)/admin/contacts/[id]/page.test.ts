@@ -13,6 +13,7 @@ const mockGetPortfolioItemsByContactProfileId = vi.fn();
 const mockGetProfile = vi.fn();
 const mockListAdminAiThreadSummaries = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
+const mockGetActiveSuppressionForContact = vi.fn().mockResolvedValue(null);
 
 vi.mock("@/lib/data/contacts", () => ({
   getContactById: mockGetContactById,
@@ -20,6 +21,10 @@ vi.mock("@/lib/data/contacts", () => ({
   getContactTags: mockGetContactTags,
   getTagCategories: mockGetTagCategories,
   getTags: mockGetTags,
+}));
+
+vi.mock("@/lib/data/email-suppressions", () => ({
+  getActiveSuppressionForContact: mockGetActiveSuppressionForContact,
 }));
 
 vi.mock("@/lib/data/contact-events", () => ({

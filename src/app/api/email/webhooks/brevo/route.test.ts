@@ -5,6 +5,7 @@ const mockAttachProviderMessageToRecipient = vi.fn();
 const mockGetEmailRecipientByProviderMessage = vi.fn();
 const mockRecordProviderNewsletterUnsubscribe = vi.fn();
 const mockSuppressEmailFromProvider = vi.fn();
+const mockSuppressUnsubscribedEmail = vi.fn();
 const mockUpdateEmailSendCounts = vi.fn();
 const mockUpdateRecipientForProviderEvent = vi.fn();
 const mockUpdateEmailSentContactEventDeliveryStatus = vi.fn();
@@ -18,6 +19,7 @@ vi.mock("@/lib/data/email-sends", () => ({
   getEmailRecipientByProviderMessage: mockGetEmailRecipientByProviderMessage,
   recordProviderNewsletterUnsubscribe: mockRecordProviderNewsletterUnsubscribe,
   suppressEmailFromProvider: mockSuppressEmailFromProvider,
+  suppressUnsubscribedEmail: mockSuppressUnsubscribedEmail,
   updateEmailSendCounts: mockUpdateEmailSendCounts,
   updateRecipientForProviderEvent: mockUpdateRecipientForProviderEvent,
 }));
@@ -43,6 +45,7 @@ describe("Brevo webhook route", () => {
     mockGetEmailRecipientByProviderMessage.mockReset();
     mockRecordProviderNewsletterUnsubscribe.mockReset();
     mockSuppressEmailFromProvider.mockReset();
+    mockSuppressUnsubscribedEmail.mockReset();
     mockUpdateEmailSendCounts.mockReset();
     mockUpdateRecipientForProviderEvent.mockReset();
     mockUpdateEmailSentContactEventDeliveryStatus.mockReset();
@@ -85,6 +88,12 @@ describe("Brevo webhook route", () => {
     expect(response.status).toBe(200);
     expect(mockRecordProviderNewsletterUnsubscribe).toHaveBeenCalledWith({
       contactId: "contact-1",
+      source: "provider:brevo",
+    });
+    // Flat exclusion: the unsubscribe also lands on the suppression list.
+    expect(mockSuppressUnsubscribedEmail).toHaveBeenCalledWith({
+      contactId: "contact-1",
+      email: "maya@example.com",
       source: "provider:brevo",
     });
   });

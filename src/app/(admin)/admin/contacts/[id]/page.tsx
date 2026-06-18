@@ -12,9 +12,11 @@ import {
 import { getContactEvents } from "@/lib/data/contact-events";
 import { getPortfolioItemsByContactProfileId } from "@/lib/data/profile-portfolio";
 import { getProfile } from "@/lib/data/profiles";
+import { getActiveSuppressionForContact } from "@/lib/data/email-suppressions";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ApplicationCard } from "./application-card";
 import { ContactTagManager } from "./contact-tag-manager";
+import { ContactEmailExclusion } from "./contact-email-exclusion";
 import { ContactDetailRealtimeRefresh } from "./contact-detail-realtime-refresh";
 import { Timeline } from "./timeline";
 
@@ -40,6 +42,7 @@ export default async function ContactDetailPage({
     allTags,
     portfolioItems,
     profile,
+    emailSuppression,
   ] = await Promise.all([
     getApplicationsByContactId(id),
     getContactTags(id),
@@ -50,6 +53,7 @@ export default async function ContactDetailPage({
       profileId: contact.profile_id,
     }),
     getProfile(),
+    getActiveSuppressionForContact({ contactId: id, email: contact.email }),
   ]);
   const authorName = profile?.display_name ?? profile?.email ?? "You";
 
@@ -132,6 +136,19 @@ export default async function ContactDetailPage({
                 contactTagRows={contactTagRows}
                 categories={categories}
                 allTags={allTags}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">Email</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ContactEmailExclusion
+                contactId={contact.id}
+                excluded={Boolean(emailSuppression)}
+                reason={emailSuppression?.reason ?? null}
               />
             </CardContent>
           </Card>

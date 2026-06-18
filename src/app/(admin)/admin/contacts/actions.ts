@@ -11,7 +11,12 @@ import {
   bulkAssignTags,
   bulkUnassignTags,
   deleteApplication as deleteApplicationData,
+  getContactById,
 } from "@/lib/data/contacts";
+import {
+  excludeContactEmail,
+  liftContactExclusion,
+} from "@/lib/data/email-suppressions";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 import {
   contactsPreferencesPatchSchema,
@@ -55,6 +60,28 @@ export async function unassignContactTag(contactId: string, tagId: string) {
   validateUUID(contactId);
   validateUUID(tagId);
   await unassignTag(contactId, tagId);
+  revalidatePath(`/admin/contacts/${contactId}`);
+  revalidatePath("/admin");
+}
+
+// Resolve the contact's email server-side rather than trusting the client.
+async function requireContactEmail(contactId: string): Promise<string> {
+  validateUUID(contactId);
+  const contact = await getContactById(contactId);
+  if (!contact) throw new Error("Contact not found");
+  return contact.email;
+}
+
+export async function excludeContactFromEmail(contactId: string) {
+  const email = await requireContactEmail(contactId);
+  await excludeContactEmail({ contactId, email });
+  revalidatePath(`/admin/contacts/${contactId}`);
+  revalidatePath("/admin");
+}
+
+export async function allowContactEmail(contactId: string) {
+  const email = await requireContactEmail(contactId);
+  await liftContactExclusion({ contactId, email });
   revalidatePath(`/admin/contacts/${contactId}`);
   revalidatePath("/admin");
 }

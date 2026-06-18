@@ -21,6 +21,11 @@ import {
   upsertEmailManualRecipient,
 } from "@/lib/data/email-manual-recipients";
 import {
+  listEmailExclusions,
+  liftEmailExclusion,
+  type EmailExclusionRow,
+} from "@/lib/data/email-suppressions";
+import {
   getEmailTemplateVersion,
   listEmailTemplates,
 } from "@/lib/data/email-templates";
@@ -633,6 +638,24 @@ export async function sendEmailNowAction(input: {
 
   revalidatePath("/admin");
   return { sendId: queuedSend.id };
+}
+
+export async function loadEmailExclusionsAction(): Promise<{
+  exclusions: EmailExclusionRow[];
+}> {
+  await requireAdmin();
+  const exclusions = await listEmailExclusions();
+  return { exclusions };
+}
+
+export async function liftEmailExclusionAction(
+  suppressionId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(suppressionId, "exclusion");
+  await liftEmailExclusion(suppressionId);
+  revalidatePath("/admin");
+  return { ok: true };
 }
 
 export async function deleteEmailSendAction(
