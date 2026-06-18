@@ -61,9 +61,13 @@ const DEFAULT_EMAIL_RENDER_THEME = {
   body: {
     backgroundColor: "#f3f4f6",
     paddingTop: "32px",
-    paddingRight: "16px",
+    // No horizontal gutter: on desktop the container is already centered at its
+    // max-width (gray fills the sides), so side padding only matters on mobile —
+    // where it would inset the card. Zeroing it lets the email fill the phone
+    // width edge-to-edge while leaving the desktop framed look unchanged.
+    paddingRight: "0px",
     paddingBottom: "32px",
-    paddingLeft: "16px",
+    paddingLeft: "0px",
   },
   container: {
     backgroundColor: "#ffffff",
@@ -225,6 +229,28 @@ export function parseMailyDocumentOrDefault(value: unknown): MailyDocument {
   }
 }
 
+// Injected into <head>:
+// - reset the default ~8px <body> margin Maily leaves in place, so the email is
+//   not inset on narrow screens.
+// - on phones, square off the white card's corners — rounded corners look odd
+//   once the card is full-bleed at the screen edge. Targets the container by its
+//   `border-radius:12px` (buttons/images use other radii); degrades gracefully
+//   in clients that ignore the media query (corners just stay rounded).
+const EMAIL_BASE_CSS = [
+  "<style>",
+  "body{margin:0 !important;padding:0 !important;}",
+  "@media only screen and (max-width:600px){",
+  '[style*="border-radius:12px"]{border-radius:0 !important;}',
+  "}",
+  "</style>",
+].join("");
+
+function injectBaseEmailCss(html: string): string {
+  const headClose = html.toLowerCase().indexOf("</head>");
+  if (headClose === -1) return `${EMAIL_BASE_CSS}${html}`;
+  return `${html.slice(0, headClose)}${EMAIL_BASE_CSS}${html.slice(headClose)}`;
+}
+
 export async function renderMailyDocument(
   document: MailyDocument,
   input: {
@@ -252,7 +278,7 @@ export async function renderMailyDocument(
     renderer.render({ pretty: true }),
     renderer.render({ plainText: true }),
   ]);
-  return { html, text };
+  return { html: injectBaseEmailCss(html), text };
 }
 
 export async function renderMailyEmail(input: {

@@ -67,6 +67,12 @@ describe("Maily rendering", () => {
     expect(rendered.html).not.toContain("max-width:680px");
   });
 
+  it("resets the body margin so the email is not inset on mobile", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    expect(rendered.html).toContain("body{margin:0 !important");
+  });
+
   it("uses a system font stack and loads no web font", async () => {
     const rendered = await renderMailyDocument(createDefaultMailyDocument());
 
