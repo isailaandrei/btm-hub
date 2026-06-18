@@ -14,6 +14,7 @@ import {
   listEmailEventsForSend,
   listEmailSendRecipients,
   queueEmailSend,
+  setEmailSendTemplateVersion,
 } from "@/lib/data/email-sends";
 import {
   getEmailManualRecipientsByIds,
@@ -289,6 +290,15 @@ async function resolvePreview(input: {
   }
   if (input.kind === "broadcast" && selectedManualRecipientIds.length > 0) {
     throw new Error("Manual recipients can only be used for outreach");
+  }
+  // The UI sends [] for these on broadcast, but the action is the trust boundary:
+  // a broadcast carrying a list/segment would mail everyone yet be labelled as a
+  // scoped send. Reject loudly instead of silently dropping the audience.
+  if (
+    input.kind === "broadcast" &&
+    ((input.listIds?.length ?? 0) > 0 || (input.segmentIds?.length ?? 0) > 0)
+  ) {
+    throw new Error("Lists and segments can only be used for outreach");
   }
 
   const [contacts, preferences, suppressions, manualRecipients] =
@@ -574,10 +584,14 @@ async function buildSendMetadata(
   input: ParsedEmailSendInput,
 ): Promise<Record<string, unknown>> {
   const audience: Record<string, unknown> = { kind: input.kind };
-  if (input.kind === "outreach") {
-    audience.contactCount = new Set(input.contactIds ?? []).size;
-    audience.manualCount = new Set(input.manualRecipientIds ?? []).size;
+  // Lists/segments only scope outreach; never let them label a broadcast (which
+  // reaches everyone). resolvePreview already rejects the combination — this is
+  // defence in depth so a mislabel can't slip through.
+  if (input.kind !== "outreach") {
+    return { editor: "maily", audience };
   }
+  audience.contactCount = new Set(input.contactIds ?? []).size;
+  audience.manualCount = new Set(input.manualRecipientIds ?? []).size;
   const labels: string[] = [];
   const listIds = input.listIds ?? [];
   if (listIds.length > 0) {
@@ -610,14 +624,6 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     previewText,
   });
 
-  // Auto-save the design as a reusable template, deduplicated by content. The
-  // send references the resolved version for provenance; identical content
-  // reuses an existing template instead of creating a duplicate.
-  const { templateVersionId } = await findOrCreateTemplateForDocument({
-    builderJson: document,
-    subject: input.subject,
-  });
-
   const name = input.name ?? input.subject;
   const recipients = [
     ...preview.eligible.map((recipient) => ({
@@ -647,7 +653,7 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     })),
   ];
 
-  return createEmailSendWithRecipients({
+  const send = await createEmailSendWithRecipients({
     kind: input.kind,
     name,
     subjectTemplate: input.subject,
@@ -655,13 +661,33 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     fromEmail: getEmailFromEmail(),
     fromName: getEmailFromName(),
     replyToEmail: getEmailReplyToEmail(),
-    templateVersionId,
+    templateVersionId: null,
     builderJsonSnapshot: document as Record<string, unknown>,
     htmlPreviewSnapshot: rendered.html,
     textPreviewSnapshot: rendered.text,
     metadata: await buildSendMetadata(input),
     recipients,
   });
+
+  // Auto-save the design as a reusable template, deduped by content, and link it
+  // back for provenance. Done AFTER the send so a failed send never leaves an
+  // orphaned published template in the Start-from picker. Best-effort: the send
+  // is already recorded and will go out even if this bookkeeping fails.
+  try {
+    const { templateVersionId } = await findOrCreateTemplateForDocument({
+      builderJson: document,
+      subject: input.subject,
+    });
+    await setEmailSendTemplateVersion(send.id, templateVersionId);
+    send.template_version_id = templateVersionId;
+  } catch (error) {
+    console.error(
+      `Auto-save template failed for send ${send.id}; the email still sends.`,
+      error,
+    );
+  }
+
+  return send;
 }
 
 export async function confirmEmailSendAction(

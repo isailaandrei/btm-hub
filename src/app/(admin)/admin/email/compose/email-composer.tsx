@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -100,8 +101,10 @@ export function EmailComposer({
   const [manualRecipientName, setManualRecipientName] = useState("");
   const [manualRecipientEmail, setManualRecipientEmail] = useState("");
   const [lists, setLists] = useState<EmailListSummary[] | null>(null);
+  const [listsError, setListsError] = useState<string | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
   const [segments, setSegments] = useState<EmailSegmentSummary[] | null>(null);
+  const [segmentsError, setSegmentsError] = useState<string | null>(null);
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
   const [isListSaveOpen, setIsListSaveOpen] = useState(false);
   const [newListName, setNewListName] = useState("");
@@ -170,29 +173,39 @@ export function EmailComposer({
     };
   }, [ensureTemplateVersion, loadedTemplateVersionId, selectedTemplateVersionId]);
 
-  // Load saved lists + segments once so they can be picked as recipient sources.
-  useEffect(() => {
-    let isActive = true;
+  // Load saved lists + segments so they can be picked as recipient sources. On
+  // failure we surface an error (and a retry) rather than rendering an empty
+  // picker, which would silently hide saved audiences — see "Fail Loud".
+  const loadRecipientSources = useCallback(() => {
     void (async () => {
       try {
         const result = await loadEmailListsAction();
-        if (isActive) setLists(result.lists);
-      } catch {
-        if (isActive) setLists([]);
+        setLists(result.lists);
+        setListsError(null);
+      } catch (error) {
+        setListsError(
+          error instanceof Error ? error.message : "Failed to load lists.",
+        );
+        setLists((current) => current ?? []);
       }
     })();
     void (async () => {
       try {
         const result = await loadEmailSegmentsAction();
-        if (isActive) setSegments(result.segments);
-      } catch {
-        if (isActive) setSegments([]);
+        setSegments(result.segments);
+        setSegmentsError(null);
+      } catch (error) {
+        setSegmentsError(
+          error instanceof Error ? error.message : "Failed to load segments.",
+        );
+        setSegments((current) => current ?? []);
       }
     })();
-    return () => {
-      isActive = false;
-    };
   }, []);
+
+  useEffect(() => {
+    loadRecipientSources();
+  }, [loadRecipientSources]);
 
   // Resolve the actual people an outreach send will reach (names + emails, plus
   // who gets skipped and why) so the Recipients panel can list them instead of
@@ -705,7 +718,18 @@ export function EmailComposer({
                   </button>
                 ))}
             </div>
-            {lists === null ? (
+            {listsError ? (
+              <p className="text-sm text-destructive">
+                Couldn&apos;t load lists.{" "}
+                <button
+                  type="button"
+                  onClick={loadRecipientSources}
+                  className="font-medium underline underline-offset-2"
+                >
+                  Retry
+                </button>
+              </p>
+            ) : lists === null ? (
               <p className="text-sm text-muted-foreground">Loading lists...</p>
             ) : lists.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -744,38 +768,56 @@ export function EmailComposer({
           </div>
         )}
 
-        {kind === "outreach" && segments && segments.length > 0 && (
-          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
-            <p className="text-xs font-medium text-muted-foreground">Segments</p>
-            <div className="flex flex-wrap gap-2">
-              {segments.map((segment) => {
-                const checked = selectedSegmentIds.includes(segment.id);
-                return (
+        {kind === "outreach" &&
+          (segmentsError || (segments && segments.length > 0)) && (
+            <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
+              <p className="text-xs font-medium text-muted-foreground">
+                Segments
+              </p>
+              {segmentsError ? (
+                <p className="text-sm text-destructive">
+                  Couldn&apos;t load segments.{" "}
                   <button
-                    key={segment.id}
                     type="button"
-                    onClick={() => toggleSegment(segment.id)}
-                    aria-pressed={checked}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
-                      checked
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-foreground hover:bg-muted"
-                    }`}
+                    onClick={loadRecipientSources}
+                    className="font-medium underline underline-offset-2"
                   >
-                    {segment.name}
-                    <span
-                      className={
-                        checked ? "text-primary/70" : "text-muted-foreground"
-                      }
-                    >
-                      ~{segment.matchCount}
-                    </span>
+                    Retry
                   </button>
-                );
-              })}
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {(segments ?? []).map((segment) => {
+                    const checked = selectedSegmentIds.includes(segment.id);
+                    return (
+                      <button
+                        key={segment.id}
+                        type="button"
+                        onClick={() => toggleSegment(segment.id)}
+                        aria-pressed={checked}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                          checked
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {segment.name}
+                        <span
+                          className={
+                            checked
+                              ? "text-primary/70"
+                              : "text-muted-foreground"
+                          }
+                        >
+                          ~{segment.matchCount}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )}
 
         {kind === "outreach" && (
           <div className="mt-4 grid gap-4 border-t border-border pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">

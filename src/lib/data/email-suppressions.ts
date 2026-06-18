@@ -69,6 +69,10 @@ export async function getActiveSuppressionForContact(input: {
   await requireAdmin();
   const supabase = await createClient();
   const email = normalizeEmail(input.email);
+  // Invariant for the interpolated .or() filter: contactId is always a
+  // validateUUID-checked id and email is resolved server-side from a DB row
+  // (getContactById), never raw client input — so this can't be used for
+  // PostgREST filter injection. Keep it that way if you add callers.
   const { data, error } = await supabase
     .from("email_suppressions")
     .select("*")

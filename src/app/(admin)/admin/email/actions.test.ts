@@ -12,6 +12,7 @@ const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
 const mockDeleteRemovableEmailSend = vi.fn();
 const mockQueueEmailSend = vi.fn();
+const mockSetEmailSendTemplateVersion = vi.fn();
 const mockGetEmailTemplateVersion = vi.fn();
 const mockListEmailTemplates = vi.fn();
 const mockFindOrCreateTemplateForDocument = vi.fn();
@@ -39,6 +40,7 @@ vi.mock("@/lib/data/email-sends", () => ({
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
   queueEmailSend: mockQueueEmailSend,
+  setEmailSendTemplateVersion: mockSetEmailSendTemplateVersion,
 }));
 
 vi.mock("@/lib/data/email-manual-recipients", () => ({
@@ -170,6 +172,7 @@ beforeEach(() => {
   mockUpsertEmailManualRecipient.mockReset().mockResolvedValue(MANUAL_RECIPIENT);
   mockDeleteRemovableEmailSend.mockReset().mockResolvedValue(true);
   mockQueueEmailSend.mockReset().mockResolvedValue({ id: "send-1" });
+  mockSetEmailSendTemplateVersion.mockReset().mockResolvedValue(undefined);
   mockListEmailTemplates.mockReset().mockResolvedValue([{ id: "template-1" }]);
   mockFindOrCreateTemplateForDocument
     .mockReset()
@@ -537,6 +540,19 @@ describe("sendEmailNowAction", () => {
     expect(mockCreateEmailSendWithRecipients).not.toHaveBeenCalled();
   });
 
+  it("rejects lists and segments for broadcasts", async () => {
+    await expect(
+      sendEmailNowAction({
+        kind: "broadcast",
+        subject: "Hello {{contact.name}}",
+        builderJson: { type: "doc", content: [] },
+        listIds: ["550e8400-e29b-41d4-a716-446655440099"],
+      }),
+    ).rejects.toThrow("Lists and segments can only be used for outreach");
+
+    expect(mockCreateEmailSendWithRecipients).not.toHaveBeenCalled();
+  });
+
   it("auto-saves the design as a template and records the audience source", async () => {
     mockFindOrCreateTemplateForDocument.mockResolvedValue({
       templateVersionId: TEMPLATE_VERSION_ID,
@@ -550,12 +566,11 @@ describe("sendEmailNowAction", () => {
       contactIds: [CONTACT_ONE.id],
     });
 
-    expect(mockFindOrCreateTemplateForDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ subject: "Hello {{contact.name}}" }),
-    );
+    // The send is created first (no template yet), so a failed send can't leave
+    // an orphaned template; the template is found/created and linked afterwards.
     expect(mockCreateEmailSendWithRecipients).toHaveBeenCalledWith(
       expect.objectContaining({
-        templateVersionId: TEMPLATE_VERSION_ID,
+        templateVersionId: null,
         metadata: expect.objectContaining({
           editor: "maily",
           audience: expect.objectContaining({
@@ -565,6 +580,13 @@ describe("sendEmailNowAction", () => {
           }),
         }),
       }),
+    );
+    expect(mockFindOrCreateTemplateForDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "Hello {{contact.name}}" }),
+    );
+    expect(mockSetEmailSendTemplateVersion).toHaveBeenCalledWith(
+      "send-1",
+      TEMPLATE_VERSION_ID,
     );
   });
 

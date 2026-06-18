@@ -155,6 +155,27 @@ export async function queueEmailSend(sendId: string): Promise<EmailSend> {
   return data as EmailSend;
 }
 
+/**
+ * Link a send to the template version that captured its design. Done after the
+ * send is created so a failed send never leaves an orphaned published template.
+ */
+export async function setEmailSendTemplateVersion(
+  sendId: string,
+  templateVersionId: string,
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("email_sends")
+    .update({
+      template_version_id: templateVersionId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sendId);
+  if (error) {
+    throw new Error(`Failed to link template to send: ${error.message}`);
+  }
+}
+
 export async function deleteRemovableEmailSend(sendId: string): Promise<boolean> {
   await requireAdmin();
   const supabase = await createClient();

@@ -254,7 +254,11 @@ export async function addEmailListMembers(input: {
   const rows = await buildMemberRows(input.listId, newContactIds, newManualIds);
   if (rows.length > 0) {
     const { error } = await supabase.from("email_list_members").insert(rows);
-    if (error) throw new Error(`Failed to add list members: ${error.message}`);
+    // 23505 = a concurrent add already inserted one of these members; the
+    // unique indexes guarantee no duplicate, so treat it as a no-op.
+    if (error && error.code !== "23505") {
+      throw new Error(`Failed to add list members: ${error.message}`);
+    }
     await supabase
       .from("email_lists")
       .update({ updated_by: profile.id, updated_at: new Date().toISOString() })
