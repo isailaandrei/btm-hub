@@ -249,6 +249,13 @@ button,
   }
 }
 
+/* Tailwind Typography's `prose` caps the editor content at ~65ch, which made
+   full-width sections stop ~25px short of the right edge in Design while the
+   render filled the card (Design != Preview). Let content fill the canvas. */
+.email-maily-editor .tiptap {
+  max-width: none !important;
+}
+
 /* Maily floating toolbars: the number fields (image width/height, padding, etc.)
    are pinned to a tight max-width (max-w-20 / 80px), which clips values like
    "220px". Give them more room so the toolbar reads clearly instead of cramped. */
