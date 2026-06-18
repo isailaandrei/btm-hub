@@ -73,7 +73,12 @@ const MailyEditor = memo(
   ),
 );
 
-type FullWidthTarget = { type: "section" | "image"; fullWidth: boolean };
+type FullWidthTarget = {
+  type: "section" | "image";
+  fullWidth: boolean;
+  /** Image position, so toggleFullWidth can node-select it before updating. */
+  pos?: number;
+};
 
 /** The transparent 32px-gutter wrappers the renderer injects are "sections" too,
  *  but they're internal — never the thing an admin means to toggle. */
@@ -94,17 +99,29 @@ function isGutterSectionAttrs(attrs: Record<string, unknown>): boolean {
 function activeFullWidthTarget(editor: TiptapEditor): FullWidthTarget | null {
   const { selection } = editor.state;
   const { $from } = selection;
+  // 1. A real (non-gutter) section the selection sits in → toggle the band.
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
     if (node.type.name === "section" && !isGutterSectionAttrs(node.attrs)) {
       return { type: "section", fullWidth: node.attrs.fullwidth !== "false" };
     }
   }
-  const selectedNode = (selection as { node?: { type: { name: string }; attrs: Record<string, unknown> } }).node;
-  if (selectedNode?.type.name === "image") {
-    return { type: "image", fullWidth: selectedNode.attrs.fullwidth === "true" };
-  }
-  return null;
+  // 2. Otherwise an image — node-selected OR sitting right at the cursor (a
+  //    loose image in the gutter often gives a cursor next to it, not a node
+  //    selection).
+  const asImage = (
+    node: { type: { name: string }; attrs: Record<string, unknown> } | null | undefined,
+    pos: number,
+  ): FullWidthTarget | null =>
+    node?.type.name === "image"
+      ? { type: "image", fullWidth: node.attrs.fullwidth === "true", pos }
+      : null;
+  const selectedNode = (selection as { node?: { type: { name: string }; attrs: Record<string, unknown> }; from: number }).node;
+  return (
+    asImage(selectedNode, selection.from) ??
+    asImage($from.nodeAfter, $from.pos) ??
+    asImage($from.nodeBefore, $from.pos - ($from.nodeBefore?.nodeSize ?? 0))
+  );
 }
 
 export interface EmailDesignerSnapshot {
@@ -181,9 +198,17 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
 
     const handleCreate = useCallback((editor: TiptapEditor) => {
       editorRef.current = editor;
-      const sync = () => setFullWidthTarget(activeFullWidthTarget(editor));
+      // Defer the setState to a microtask: this fires during ProseMirror's
+      // synchronous dispatch (while Tiptap is flushing its React node views), and
+      // calling setState there triggers "flushSync inside a lifecycle" errors.
+      const sync = () => {
+        queueMicrotask(() => {
+          if (editorRef.current) {
+            setFullWidthTarget(activeFullWidthTarget(editorRef.current));
+          }
+        });
+      };
       editor.on("selectionUpdate", sync);
-      editor.on("transaction", sync);
       sync();
     }, []);
 
@@ -206,7 +231,13 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
         const cardWidth = layout?.maxWidth ?? DEFAULT_EMAIL_WIDTH;
         attrs.width = makingFullWidth ? cardWidth : cardWidth - 2 * CONTENT_GUTTER;
       }
-      editor.chain().focus().updateAttributes(target.type, attrs).run();
+      const chain = editor.chain().focus();
+      // For an image, select the node first so updateAttributes lands on it even
+      // when the selection was just a cursor sitting beside it.
+      if (target.type === "image" && target.pos != null) {
+        chain.setNodeSelection(target.pos);
+      }
+      chain.updateAttributes(target.type, attrs).run();
       const arranged = arrangeEmailRows(assertMailyDocument(editor.getJSON()));
       editor.commands.setContent(arranged);
       onDocumentChange(arranged);
