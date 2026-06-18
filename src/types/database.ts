@@ -336,6 +336,23 @@ export interface EmailListMember {
   added_at: string;
 }
 
+export interface EmailSegmentRule {
+  match: "all" | "any";
+  includeTagIds: string[];
+  excludeTagIds: string[];
+}
+
+export interface EmailSegment {
+  id: string;
+  name: string;
+  description: string;
+  rule: EmailSegmentRule;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContactEmailPreference {
   contact_id: string;
   newsletter_unsubscribed_at: string | null;

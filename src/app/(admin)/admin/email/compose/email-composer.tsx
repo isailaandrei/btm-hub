@@ -32,6 +32,7 @@ import {
   createEmailListAction,
   getComposeRecipientsAction,
   loadEmailListsAction,
+  loadEmailSegmentsAction,
   renderComposePreviewAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
@@ -40,6 +41,7 @@ import {
   type EmailTemplateVersionDocument,
 } from "../actions";
 import type { EmailListSummary } from "@/lib/data/email-lists";
+import type { EmailSegmentSummary } from "@/lib/data/email-segments";
 import { deleteTemplateAction } from "../templates/actions";
 import {
   BROADCAST_CONFIRMATION_MESSAGE,
@@ -99,6 +101,8 @@ export function EmailComposer({
   const [manualRecipientEmail, setManualRecipientEmail] = useState("");
   const [lists, setLists] = useState<EmailListSummary[] | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
+  const [segments, setSegments] = useState<EmailSegmentSummary[] | null>(null);
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
   const [isListSaveOpen, setIsListSaveOpen] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [isSavingList, startSaveListTransition] = useTransition();
@@ -166,7 +170,7 @@ export function EmailComposer({
     };
   }, [ensureTemplateVersion, loadedTemplateVersionId, selectedTemplateVersionId]);
 
-  // Load saved mailing lists once so they can be picked as a recipient source.
+  // Load saved lists + segments once so they can be picked as recipient sources.
   useEffect(() => {
     let isActive = true;
     void (async () => {
@@ -175,6 +179,14 @@ export function EmailComposer({
         if (isActive) setLists(result.lists);
       } catch {
         if (isActive) setLists([]);
+      }
+    })();
+    void (async () => {
+      try {
+        const result = await loadEmailSegmentsAction();
+        if (isActive) setSegments(result.segments);
+      } catch {
+        if (isActive) setSegments([]);
       }
     })();
     return () => {
@@ -190,7 +202,8 @@ export function EmailComposer({
       kind !== "outreach" ||
       selectedContactIds.length +
         selectedManualRecipientIds.length +
-        selectedListIds.length ===
+        selectedListIds.length +
+        selectedSegmentIds.length ===
         0
     ) {
       return;
@@ -204,6 +217,7 @@ export function EmailComposer({
           contactIds: selectedContactIds,
           manualRecipientIds: selectedManualRecipientIds,
           listIds: selectedListIds,
+          segmentIds: selectedSegmentIds,
         });
         if (!isActive) return;
         setRecipientDetails(result);
@@ -219,7 +233,13 @@ export function EmailComposer({
     return () => {
       isActive = false;
     };
-  }, [kind, selectedContactIds, selectedManualRecipientIds, selectedListIds]);
+  }, [
+    kind,
+    selectedContactIds,
+    selectedManualRecipientIds,
+    selectedListIds,
+    selectedSegmentIds,
+  ]);
 
   // While a chosen template is loading we hold off sending so we never send a
   // stale/empty document. A blank starting point is always ready.
@@ -237,7 +257,8 @@ export function EmailComposer({
     kind === "outreach" &&
     selectedContactIds.length +
       selectedManualRecipientCount +
-      selectedListIds.length ===
+      selectedListIds.length +
+      selectedSegmentIds.length ===
       0;
 
   function toggleManualRecipient(recipientId: string) {
@@ -253,6 +274,14 @@ export function EmailComposer({
       current.includes(listId)
         ? current.filter((id) => id !== listId)
         : [...current, listId],
+    );
+  }
+
+  function toggleSegment(segmentId: string) {
+    setSelectedSegmentIds((current) =>
+      current.includes(segmentId)
+        ? current.filter((id) => id !== segmentId)
+        : [...current, segmentId],
     );
   }
 
@@ -411,6 +440,7 @@ export function EmailComposer({
           manualRecipientIds:
             kind === "outreach" ? selectedManualRecipientIds : [],
           listIds: kind === "outreach" ? selectedListIds : [],
+          segmentIds: kind === "outreach" ? selectedSegmentIds : [],
         });
         if (onSendStarted) {
           onSendStarted();
@@ -711,6 +741,39 @@ export function EmailComposer({
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {kind === "outreach" && segments && segments.length > 0 && (
+          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
+            <p className="text-xs font-medium text-muted-foreground">Segments</p>
+            <div className="flex flex-wrap gap-2">
+              {segments.map((segment) => {
+                const checked = selectedSegmentIds.includes(segment.id);
+                return (
+                  <button
+                    key={segment.id}
+                    type="button"
+                    onClick={() => toggleSegment(segment.id)}
+                    aria-pressed={checked}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                      checked
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {segment.name}
+                    <span
+                      className={
+                        checked ? "text-primary/70" : "text-muted-foreground"
+                      }
+                    >
+                      ~{segment.matchCount}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 

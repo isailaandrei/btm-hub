@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { getContacts } from "@/lib/data/contacts";
+import { getContacts, getTagCategories, getTags } from "@/lib/data/contacts";
 import {
   createEmailSendWithRecipients,
   deleteRemovableEmailSend,
@@ -39,6 +39,16 @@ import {
   type EmailListSummary,
 } from "@/lib/data/email-lists";
 import {
+  countSegmentMatches,
+  createEmailSegment,
+  deleteEmailSegment,
+  getEmailSegmentNames,
+  listEmailSegments,
+  resolveSegmentsContactIds,
+  updateEmailSegment,
+  type EmailSegmentSummary,
+} from "@/lib/data/email-segments";
+import {
   getEmailTemplateVersion,
   listEmailTemplates,
 } from "@/lib/data/email-templates";
@@ -63,8 +73,12 @@ import type {
   EmailEvent,
   EmailList,
   EmailManualRecipient,
+  EmailSegment,
+  EmailSegmentRule,
   EmailSendKind,
   EmailSuppression,
+  Tag,
+  TagCategory,
 } from "@/types/database";
 
 const emailKindSchema = z.enum(["broadcast", "outreach"]);
@@ -75,6 +89,7 @@ const previewEmailSchema = z.object({
   contactIds: z.array(z.string()).optional(),
   manualRecipientIds: z.array(z.string()).optional(),
   listIds: z.array(z.string()).optional(),
+  segmentIds: z.array(z.string()).optional(),
   subject: z.string().trim().min(1, "Subject is required"),
 });
 
@@ -221,25 +236,31 @@ export async function loadEmailStudioDataAction() {
   };
 }
 
-// Expand any selected mailing lists into the contact / manual recipient ids
-// their members point at, merged with the ad-hoc selection. Lists target
-// specific people, so they only apply to outreach.
-async function expandListSelection(input: {
+// Expand any selected lists + segments into the contact / manual recipient ids
+// they resolve to, merged with the ad-hoc selection. Lists are frozen members;
+// segments are re-evaluated now. Both target specific people, so outreach only.
+async function expandRecipientSelection(input: {
   kind: EmailSendKind;
   contactIds?: string[];
   manualRecipientIds?: string[];
   listIds?: string[];
+  segmentIds?: string[];
 }): Promise<{ contactIds: string[]; manualRecipientIds: string[] }> {
-  const contactIds = input.contactIds ?? [];
-  const manualRecipientIds = input.manualRecipientIds ?? [];
-  if (input.kind !== "outreach" || !input.listIds?.length) {
+  const contactIds = [...(input.contactIds ?? [])];
+  const manualRecipientIds = [...(input.manualRecipientIds ?? [])];
+  if (input.kind !== "outreach") {
     return { contactIds, manualRecipientIds };
   }
-  const fromLists = await resolveEmailListRecipientIds(input.listIds);
-  return {
-    contactIds: [...contactIds, ...fromLists.contactIds],
-    manualRecipientIds: [...manualRecipientIds, ...fromLists.manualRecipientIds],
-  };
+  if (input.listIds?.length) {
+    const fromLists = await resolveEmailListRecipientIds(input.listIds);
+    contactIds.push(...fromLists.contactIds);
+    manualRecipientIds.push(...fromLists.manualRecipientIds);
+  }
+  if (input.segmentIds?.length) {
+    const fromSegments = await resolveSegmentsContactIds(input.segmentIds);
+    contactIds.push(...fromSegments);
+  }
+  return { contactIds, manualRecipientIds };
 }
 
 async function resolvePreview(input: {
@@ -247,8 +268,9 @@ async function resolvePreview(input: {
   contactIds?: string[];
   manualRecipientIds?: string[];
   listIds?: string[];
+  segmentIds?: string[];
 }) {
-  const expanded = await expandListSelection(input);
+  const expanded = await expandRecipientSelection(input);
   const selectedContactIds = Array.from(new Set(expanded.contactIds));
   const selectedManualRecipientIds = Array.from(
     new Set(expanded.manualRecipientIds),
@@ -453,6 +475,7 @@ const composeRecipientsSchema = z.object({
   contactIds: z.array(z.string()).optional(),
   manualRecipientIds: z.array(z.string()).optional(),
   listIds: z.array(z.string()).optional(),
+  segmentIds: z.array(z.string()).optional(),
 });
 
 export interface ComposeRecipient {
@@ -477,6 +500,7 @@ export async function getComposeRecipientsAction(input: {
   contactIds?: string[];
   manualRecipientIds?: string[];
   listIds?: string[];
+  segmentIds?: string[];
 }): Promise<{
   eligible: ComposeRecipient[];
   skipped: ComposeSkippedRecipient[];
@@ -494,7 +518,8 @@ export async function getComposeRecipientsAction(input: {
   const hasSelection =
     (parsed.data.contactIds?.length ?? 0) +
       (parsed.data.manualRecipientIds?.length ?? 0) +
-      (parsed.data.listIds?.length ?? 0) >
+      (parsed.data.listIds?.length ?? 0) +
+      (parsed.data.segmentIds?.length ?? 0) >
     0;
   if (!hasSelection) {
     return { eligible: [], skipped: [] };
@@ -528,6 +553,7 @@ export async function createEmailDraftAction(input: {
   contactIds?: string[];
   manualRecipientIds?: string[];
   listIds?: string[];
+  segmentIds?: string[];
   audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
@@ -552,15 +578,18 @@ async function buildSendMetadata(
     audience.contactCount = new Set(input.contactIds ?? []).size;
     audience.manualCount = new Set(input.manualRecipientIds ?? []).size;
   }
+  const labels: string[] = [];
   const listIds = input.listIds ?? [];
   if (listIds.length > 0) {
     audience.listIds = listIds;
-    const names = await getEmailListNames(listIds);
-    if (names.length > 0) audience.label = names.join(", ");
+    labels.push(...(await getEmailListNames(listIds)));
   }
-  if (input.audience?.segmentIds?.length) {
-    audience.segmentIds = input.audience.segmentIds;
+  const segmentIds = input.segmentIds ?? [];
+  if (segmentIds.length > 0) {
+    audience.segmentIds = segmentIds;
+    labels.push(...(await getEmailSegmentNames(segmentIds)));
   }
+  if (labels.length > 0) audience.label = labels.join(", ");
   if (!audience.label && input.audience?.label) {
     audience.label = input.audience.label;
   }
@@ -666,6 +695,7 @@ export async function sendEmailNowAction(input: {
   contactIds?: string[];
   manualRecipientIds?: string[];
   listIds?: string[];
+  segmentIds?: string[];
   audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
@@ -808,6 +838,95 @@ export async function removeEmailListMemberAction(
   await requireAdmin();
   validateUUID(memberId, "list member");
   await removeEmailListMember(memberId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+const segmentRuleSchema = z.object({
+  match: z.enum(["all", "any"]),
+  includeTagIds: z.array(z.string()),
+  excludeTagIds: z.array(z.string()),
+});
+
+const emailSegmentInputSchema = z.object({
+  name: z.string().trim().min(1, "Segment name is required").max(120),
+  description: z.string().trim().max(500).optional(),
+  rule: segmentRuleSchema,
+});
+
+function validateSegmentTagIds(rule: EmailSegmentRule) {
+  for (const id of rule.includeTagIds) validateUUID(id, "tag");
+  for (const id of rule.excludeTagIds) validateUUID(id, "tag");
+}
+
+export async function loadEmailSegmentsAction(): Promise<{
+  segments: EmailSegmentSummary[];
+}> {
+  await requireAdmin();
+  const segments = await listEmailSegments();
+  return { segments };
+}
+
+export async function loadAudienceTagsAction(): Promise<{
+  categories: TagCategory[];
+  tags: Tag[];
+}> {
+  await requireAdmin();
+  const [categories, tags] = await Promise.all([getTagCategories(), getTags()]);
+  return { categories, tags };
+}
+
+export async function previewSegmentCountAction(
+  rule: EmailSegmentRule,
+): Promise<{ count: number }> {
+  await requireAdmin();
+  const parsed = segmentRuleSchema.safeParse(rule);
+  if (!parsed.success) throw new Error("Invalid segment rule");
+  validateSegmentTagIds(parsed.data);
+  const count = await countSegmentMatches(parsed.data);
+  return { count };
+}
+
+export async function createEmailSegmentAction(input: {
+  name: string;
+  description?: string;
+  rule: EmailSegmentRule;
+}): Promise<{ segment: EmailSegment }> {
+  await requireAdmin();
+  const parsed = emailSegmentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid segment");
+  }
+  validateSegmentTagIds(parsed.data.rule);
+  const segment = await createEmailSegment(parsed.data);
+  revalidatePath("/admin");
+  return { segment };
+}
+
+export async function updateEmailSegmentAction(input: {
+  id: string;
+  name: string;
+  description?: string;
+  rule: EmailSegmentRule;
+}): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(input.id, "segment");
+  const parsed = emailSegmentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid segment");
+  }
+  validateSegmentTagIds(parsed.data.rule);
+  await updateEmailSegment({ id: input.id, ...parsed.data });
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function deleteEmailSegmentAction(
+  segmentId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(segmentId, "segment");
+  await deleteEmailSegment(segmentId);
   revalidatePath("/admin");
   return { ok: true };
 }

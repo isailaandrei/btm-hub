@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldOff, Users } from "lucide-react";
+import { Filter, ShieldOff, Users } from "lucide-react";
 import { ExcludedSection } from "./excluded-section";
 import { ListsSection } from "./lists-section";
+import { SegmentsSection } from "./segments-section";
 
-type AudienceSection = "lists" | "excluded";
+type AudienceSection = "lists" | "segments" | "excluded";
 
 const SECTIONS: Array<{
   key: AudienceSection;
@@ -13,6 +14,7 @@ const SECTIONS: Array<{
   icon: typeof Users;
 }> = [
   { key: "lists", label: "Lists", icon: Users },
+  { key: "segments", label: "Segments", icon: Filter },
   { key: "excluded", label: "Excluded", icon: ShieldOff },
 ];
 
@@ -43,7 +45,13 @@ export function AudiencesPanel() {
         })}
       </div>
 
-      {section === "lists" ? <ListsSection /> : <ExcludedSection />}
+      {section === "lists" ? (
+        <ListsSection />
+      ) : section === "segments" ? (
+        <SegmentsSection />
+      ) : (
+        <ExcludedSection />
+      )}
     </div>
   );
 }
