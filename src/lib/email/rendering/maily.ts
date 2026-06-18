@@ -314,20 +314,56 @@ function paddedContentSection(content: JSONContent[]): JSONContent {
 }
 
 /**
- * Wrap runs of top-level non-`section` blocks in a padded section so normal
- * content keeps a gutter, while leaving `section` blocks untouched so they span
- * the full card width (the container has no side padding). Idempotent — a
- * document whose top level is already all sections passes through unchanged — so
- * it is safe to apply on both editor load and render, and on already-migrated
- * documents.
- *
- * This is what makes full-width work: an admin puts content in a Section to make
- * it edge-to-edge; everything else is auto-guttered.
+ * Whether a top-level node renders edge-to-edge (full width) vs inset with a
+ * gutter. An explicit `attrs.fullWidth` boolean wins; otherwise sections default
+ * to full-width and everything else (text, images) defaults to inset. This flag
+ * is what the admin's "Full width" toggle sets.
  */
-export function wrapLooseContentInSections(
-  document: MailyDocument,
-): MailyDocument {
-  const content = document.content ?? [];
+export function isFullWidthNode(node: JSONContent): boolean {
+  const fullWidth = isRecord(node.attrs) ? node.attrs.fullWidth : undefined;
+  if (fullWidth === true) return true;
+  if (fullWidth === false) return false;
+  return node.type === "section";
+}
+
+/** True for the transparent gutter wrappers `paddedContentSection` creates. */
+function isGutterSection(node: JSONContent): boolean {
+  if (node.type !== "section" || !isRecord(node.attrs)) return false;
+  const attrs = node.attrs;
+  return (
+    attrs.backgroundColor === "transparent" &&
+    attrs.borderWidth === 0 &&
+    attrs.paddingLeft === CONTENT_GUTTER &&
+    attrs.paddingRight === CONTENT_GUTTER
+  );
+}
+
+/**
+ * Editor layout: unwrap the gutter sections back to a flat list of blocks, so
+ * the editor shows the real content and toggling full-width is a live CSS change
+ * (no structural rewrite). Idempotent on an already-flat document.
+ */
+export function flattenEmailRows(document: MailyDocument): MailyDocument {
+  const out: JSONContent[] = [];
+  for (const node of document.content ?? []) {
+    if (isRecord(node) && isGutterSection(node) && Array.isArray(node.content)) {
+      out.push(...node.content);
+    } else {
+      out.push(node);
+    }
+  }
+  return { ...document, content: out };
+}
+
+/**
+ * Render layout: full-width nodes (sections by default, or anything flagged
+ * `fullWidth: true`) become edge-to-edge rows; runs of inset nodes are wrapped in
+ * a padded gutter section so they keep the 32px gutter (the container itself has
+ * no side padding). Reliable across clients — nested 100% tables, no negative
+ * margins. Flattens first so it's idempotent on already-arranged documents.
+ */
+export function arrangeEmailRows(document: MailyDocument): MailyDocument {
+  const flat = flattenEmailRows(document);
   const out: JSONContent[] = [];
   let run: JSONContent[] = [];
   const flush = () => {
@@ -336,8 +372,8 @@ export function wrapLooseContentInSections(
       run = [];
     }
   };
-  for (const node of content) {
-    if (isRecord(node) && node.type === "section") {
+  for (const node of flat.content ?? []) {
+    if (isFullWidthNode(node)) {
       flush();
       out.push(node);
     } else {
@@ -385,7 +421,7 @@ export async function renderMailyDocument(
     variables?: EmailRenderVariables;
   } = {},
 ): Promise<RenderedEmailBody> {
-  const normalized = wrapLooseContentInSections(
+  const normalized = arrangeEmailRows(
     withResponsiveImages(assertMailyDocument(document)),
   );
   const renderer = new Maily(normalized);

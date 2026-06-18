@@ -8,9 +8,11 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
 } from "react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
+import { Maximize2, Minimize2 } from "lucide-react";
 import type { EditorProps } from "@maily-to/core";
 import {
   ImageUploadExtension,
@@ -18,15 +20,35 @@ import {
   getVariableSuggestions,
 } from "@maily-to/core/extensions";
 import { Loader2 } from "lucide-react";
+import { Extension } from "@tiptap/core";
 import {
   applyLayoutToDocument,
+  arrangeEmailRows,
   assertMailyDocument,
-  wrapLooseContentInSections,
   type EmailLayout,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
 import { uploadEmailAssetAction } from "../assets/actions";
 import { mailyBlockGroups } from "./maily-blocks";
+
+// Adds a `fullWidth` attribute to section + image nodes so the editor preserves
+// it (and so updateAttributes can toggle it). Sections default to full-width,
+// images to inset — matching isFullWidthNode in the renderer.
+const FullWidthExtension = Extension.create({
+  name: "fullWidthAttribute",
+  addGlobalAttributes() {
+    // `rendered: false` keeps the flag in the document model (so getJSON/render
+    // see it) without emitting it to the DOM — Maily's node views spread raw
+    // attrs onto elements, which would otherwise trigger React DOM warnings.
+    const attribute = (defaultValue: boolean) => ({
+      fullWidth: { default: defaultValue, rendered: false },
+    });
+    return [
+      { types: ["section"], attributes: attribute(true) },
+      { types: ["image"], attributes: attribute(false) },
+    ];
+  },
+});
 
 // memo so unrelated parent re-renders (e.g. changing the email width, which only
 // touches a CSS variable on the wrapper) don't re-render the editor and drop its
@@ -47,6 +69,26 @@ const MailyEditor = memo(
     },
   ),
 );
+
+type FullWidthTarget = { type: "section" | "image"; fullWidth: boolean };
+
+/** Identify the section/image the current selection acts on, and its full-width
+ *  state — so we can show and drive the "Full width" toggle. */
+function activeFullWidthTarget(editor: TiptapEditor): FullWidthTarget | null {
+  const { selection } = editor.state;
+  const selectedNode = (selection as { node?: { type: { name: string }; attrs: Record<string, unknown> } }).node;
+  if (selectedNode?.type.name === "image") {
+    return { type: "image", fullWidth: selectedNode.attrs.fullWidth === true };
+  }
+  const { $from } = selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (node.type.name === "section") {
+      return { type: "section", fullWidth: node.attrs.fullWidth !== false };
+    }
+  }
+  return null;
+}
 
 export interface EmailDesignerSnapshot {
   document: MailyDocument;
@@ -73,16 +115,17 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
   function EmailDesigner({ sourceDocument, onDocumentChange, layout }, ref) {
     const editorRef = useRef<TiptapEditor | null>(null);
 
-    // Normalize to the section structure so the editor canvas matches the render
-    // (loose content guttered, sections full-width). Idempotent + memoized so it
-    // doesn't churn the memoized editor on unrelated re-renders.
+    // Arrange into rows so the editor canvas matches the render exactly
+    // (full-width nodes edge-to-edge, inset content guttered). Idempotent +
+    // memoized so it doesn't churn the memoized editor on unrelated re-renders.
     const editorContent = useMemo(
-      () => wrapLooseContentInSections(assertMailyDocument(sourceDocument)),
+      () => arrangeEmailRows(assertMailyDocument(sourceDocument)),
       [sourceDocument],
     );
 
     const extensions = useMemo(
       () => [
+        FullWidthExtension,
         VariableExtension.configure({
           suggestion: getVariableSuggestions("@"),
           variables: [
@@ -115,9 +158,36 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
       [],
     );
 
+    const [fullWidthTarget, setFullWidthTarget] = useState<FullWidthTarget | null>(
+      null,
+    );
+
     const handleCreate = useCallback((editor: TiptapEditor) => {
       editorRef.current = editor;
+      const sync = () => setFullWidthTarget(activeFullWidthTarget(editor));
+      editor.on("selectionUpdate", sync);
+      editor.on("transaction", sync);
+      sync();
     }, []);
+
+    // Toggle the selected section/image between full-width and inset, then
+    // re-arrange so it moves between an edge-to-edge row and the gutter — keeping
+    // the editor structure identical to what the renderer produces.
+    const toggleFullWidth = useCallback(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const target = activeFullWidthTarget(editor);
+      if (!target) return;
+      editor
+        .chain()
+        .focus()
+        .updateAttributes(target.type, { fullWidth: !target.fullWidth })
+        .run();
+      const arranged = arrangeEmailRows(assertMailyDocument(editor.getJSON()));
+      editor.commands.setContent(arranged);
+      onDocumentChange(arranged);
+      setFullWidthTarget(activeFullWidthTarget(editor));
+    }, [onDocumentChange]);
 
     const handleUpdate = useCallback(
       (editor: TiptapEditor) => {
@@ -154,9 +224,7 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
           };
         },
         loadDocument(document) {
-          const normalized = wrapLooseContentInSections(
-            assertMailyDocument(document),
-          );
+          const normalized = arrangeEmailRows(assertMailyDocument(document));
           editorRef.current?.commands.setContent(normalized);
           onDocumentChange(normalized);
         },
@@ -179,6 +247,27 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
             : undefined
         }
       >
+        {fullWidthTarget && (
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleFullWidth}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+            >
+              {fullWidthTarget.fullWidth ? (
+                <>
+                  <Minimize2 className="h-3.5 w-3.5" />
+                  Inset {fullWidthTarget.type}
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  Make {fullWidthTarget.type} full width
+                </>
+              )}
+            </button>
+          </div>
+        )}
         <div className="min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-[#f3f4f6]">
           <MailyEditor
             contentJson={editorContent}

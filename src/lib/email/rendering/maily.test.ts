@@ -10,7 +10,7 @@ import {
   MIN_EMAIL_WIDTH,
   renderMailyDocument,
   renderMailyEmail,
-  wrapLooseContentInSections,
+  arrangeEmailRows,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -80,7 +80,7 @@ describe("Maily rendering", () => {
     expect(rendered.html).not.toContain("max-width:680px");
   });
 
-  it("wraps loose top-level content in a padded section, leaving sections full-width", () => {
+  it("lays out rows: sections full-width, loose content guttered", () => {
     const banner = { type: "section", attrs: {}, content: [] };
     const doc = assertMailyDocument({
       type: "doc",
@@ -91,22 +91,41 @@ describe("Maily rendering", () => {
       ],
     });
 
-    const wrapped = wrapLooseContentInSections(doc);
+    const arranged = arrangeEmailRows(doc);
 
-    // banner section stays full-width (untouched); the heading + paragraph get
-    // grouped into one padded section.
-    expect(wrapped.content.map((n) => n.type)).toEqual(["section", "section"]);
-    expect(wrapped.content[0]).toEqual(banner);
-    expect(wrapped.content[1]?.attrs?.paddingLeft).toBe(32);
-    expect(wrapped.content[1]?.content?.map((n) => n.type)).toEqual([
+    // banner section stays full-width (a row); the heading + paragraph get
+    // grouped into one padded gutter section.
+    expect(arranged.content.map((n) => n.type)).toEqual(["section", "section"]);
+    expect(arranged.content[0]).toEqual(banner);
+    expect(arranged.content[1]?.attrs?.paddingLeft).toBe(32);
+    expect(arranged.content[1]?.content?.map((n) => n.type)).toEqual([
       "heading",
       "paragraph",
     ]);
   });
 
-  it("is idempotent — an already-sectioned document is unchanged", () => {
-    const once = wrapLooseContentInSections(createDefaultMailyDocument());
-    const twice = wrapLooseContentInSections(once);
+  it("honors the fullWidth flag: full-width image, inset section", () => {
+    const doc = assertMailyDocument({
+      type: "doc",
+      content: [
+        { type: "image", attrs: { src: "x", fullWidth: true } },
+        { type: "section", attrs: { fullWidth: false }, content: [] },
+      ],
+    });
+
+    const arranged = arrangeEmailRows(doc);
+
+    // flagged image becomes a top-level full-width row; the inset section is
+    // wrapped in a padded gutter section.
+    expect(arranged.content[0]?.type).toBe("image");
+    expect(arranged.content[1]?.type).toBe("section"); // gutter wrapper
+    expect(arranged.content[1]?.attrs?.paddingLeft).toBe(32);
+    expect(arranged.content[1]?.content?.[0]?.type).toBe("section"); // the inset section, nested
+  });
+
+  it("arrangeEmailRows is idempotent", () => {
+    const once = arrangeEmailRows(createDefaultMailyDocument());
+    const twice = arrangeEmailRows(once);
     expect(twice).toEqual(once);
   });
 
