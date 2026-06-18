@@ -5,12 +5,14 @@ import { Loader2, Monitor, RefreshCw, Smartphone } from "lucide-react";
 
 type Viewport = "desktop" | "mobile";
 
-// Common device widths so a too-narrow preview can be widened to a real phone.
+// Named device presets (values are CSS/viewport widths in px — what actually
+// drives the email's responsive rendering) so admins pick a real phone.
 const MOBILE_WIDTH_PRESETS = [
-  { label: "Small (320)", value: 320 },
-  { label: "iPhone (390)", value: 390 },
-  { label: "Large (430)", value: 430 },
-  { label: "Tablet (600)", value: 600 },
+  { label: "iPhone 14 (390px)", value: 390 },
+  { label: "iPhone 15 (393px)", value: 393 },
+  { label: "iPhone 15 Pro Max (430px)", value: 430 },
+  { label: "Galaxy S24 (360px)", value: 360 },
+  { label: "Galaxy S24 Ultra (412px)", value: 412 },
 ];
 const DEFAULT_MOBILE_WIDTH = 390;
 const DESKTOP_MAX_WIDTH = 760;
