@@ -246,3 +246,11 @@ button,
     padding: 20px;
   }
 }
+
+/* Maily floating toolbars: the number fields (image width/height, padding, etc.)
+   are pinned to a tight max-width (max-w-20 / 80px), which clips values like
+   "220px". Give them more room so the toolbar reads clearly instead of cramped. */
+.hide-number-controls {
+  max-width: 7rem !important;
+  min-width: 4.5rem;
+}
