@@ -122,15 +122,11 @@ describe("EmailComposer manual recipients", () => {
       root.render(
         <EmailComposer
           templates={[template()]}
-          templateVersionsById={{
-            [TEMPLATE_VERSION_ID]: {
-              builderJson: { type: "doc", content: [] },
-            },
-          }}
           ensureTemplateVersion={vi.fn()}
           selectedContactIds={[]}
           manualRecipients={[MANUAL_RECIPIENT]}
           setManualRecipients={vi.fn()}
+          setTemplates={vi.fn()}
         />,
       );
     });
@@ -166,15 +162,11 @@ describe("EmailComposer manual recipients", () => {
       root.render(
         <EmailComposer
           templates={[template()]}
-          templateVersionsById={{
-            [TEMPLATE_VERSION_ID]: {
-              builderJson: { type: "doc", content: [] },
-            },
-          }}
           ensureTemplateVersion={vi.fn()}
           selectedContactIds={[]}
           manualRecipients={[MANUAL_RECIPIENT]}
           setManualRecipients={vi.fn()}
+          setTemplates={vi.fn()}
         />,
       );
     });
@@ -203,15 +195,11 @@ describe("EmailComposer manual recipients", () => {
       root.render(
         <EmailComposer
           templates={[template()]}
-          templateVersionsById={{
-            [TEMPLATE_VERSION_ID]: {
-              builderJson: { type: "doc", content: [] },
-            },
-          }}
           ensureTemplateVersion={vi.fn()}
           selectedContactIds={[]}
           manualRecipients={[MANUAL_RECIPIENT]}
           setManualRecipients={vi.fn()}
+          setTemplates={vi.fn()}
         />,
       );
     });

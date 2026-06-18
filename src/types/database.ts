@@ -287,6 +287,7 @@ export interface EmailTemplateVersion {
   html: string;
   text: string;
   asset_ids: string[];
+  content_hash: string | null;
   created_by: string;
   created_at: string;
 }

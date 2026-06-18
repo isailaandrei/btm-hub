@@ -33,6 +33,8 @@ export async function createEmailTemplateVersion(input: {
   html: string;
   text: string;
   assetIds: string[];
+  /** Stable hash of the document, used to deduplicate auto-saved templates. */
+  contentHash?: string;
 }): Promise<EmailTemplateVersion> {
   const profile = await requireAdmin();
   const supabase = await createClient();
@@ -48,7 +50,51 @@ export async function createEmailTemplateVersion(input: {
   if (error) {
     throw new Error(`Failed to create email template version: ${error.message}`);
   }
-  return data as EmailTemplateVersion;
+  const version = data as EmailTemplateVersion;
+
+  // The RPC predates content_hash; set it in a follow-up update so we don't have
+  // to churn the function signature. A failure here must be loud — a version
+  // without its hash would silently never deduplicate.
+  if (input.contentHash) {
+    const { error: hashError } = await supabase
+      .from("email_template_versions")
+      .update({ content_hash: input.contentHash })
+      .eq("id", version.id);
+    if (hashError) {
+      throw new Error(
+        `Failed to record template content hash: ${hashError.message}`,
+      );
+    }
+    version.content_hash = input.contentHash;
+  }
+
+  return version;
+}
+
+/**
+ * Find an existing, non-archived template version whose content matches the
+ * given hash, so a send can reuse it instead of creating a duplicate template.
+ * Returns the most recent match, or null when none exists.
+ */
+export async function findTemplateVersionIdByContentHash(
+  contentHash: string,
+): Promise<string | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_template_versions")
+    .select("id, created_at, email_templates!inner(status)")
+    .eq("content_hash", contentHash)
+    .neq("email_templates.status", "archived")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Failed to look up template by content hash: ${error.message}`,
+    );
+  }
+  return (data?.id as string | undefined) ?? null;
 }
 
 export async function archiveEmailTemplate(templateId: string): Promise<void> {

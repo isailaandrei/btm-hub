@@ -3,19 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { listEmailAssetIdsByPublicUrls } from "@/lib/data/email-assets";
 import {
   archiveEmailTemplate,
   createEmailTemplate,
-  createEmailTemplateVersion,
   getEmailTemplateVersion,
 } from "@/lib/data/email-templates";
 import {
   assertMailyDocument,
-  getAssetIdsForMailyDocument,
-  getAssetPublicUrlsForMailyDocument,
   renderMailyDocument,
 } from "@/lib/email/rendering/maily";
+import { createTemplateVersionFromDocument } from "@/lib/email/template-authoring";
 import { validateUUID } from "@/lib/validation-helpers";
 import type { EmailTemplate } from "@/types/database";
 
@@ -142,22 +139,5 @@ async function createVisualTemplateVersion(
   templateId: string,
   builderJson: unknown,
 ) {
-  validateUUID(templateId, "template");
-  const document = assertMailyDocument(builderJson);
-  const explicitAssetIds = getAssetIdsForMailyDocument(document);
-  const uploadedAssetIds = await listEmailAssetIdsByPublicUrls(
-    getAssetPublicUrlsForMailyDocument(document),
-  );
-  const assetIds = [...new Set([...explicitAssetIds, ...uploadedAssetIds])];
-  for (const assetId of assetIds) validateUUID(assetId, "asset");
-
-  const rendered = await renderMailyDocument(document);
-
-  return createEmailTemplateVersion({
-    templateId,
-    builderJson: document as Record<string, unknown>,
-    html: rendered.html,
-    text: rendered.text,
-    assetIds,
-  });
+  return createTemplateVersionFromDocument({ templateId, builderJson });
 }

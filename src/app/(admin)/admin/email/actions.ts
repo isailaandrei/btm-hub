@@ -30,6 +30,7 @@ import {
   renderMailyDocument,
   renderMailyEmail,
 } from "@/lib/email/rendering/maily";
+import { findOrCreateTemplateForDocument } from "@/lib/email/template-authoring";
 import {
   getEmailFromEmail,
   getEmailFromName,
@@ -55,8 +56,18 @@ const previewEmailSchema = z.object({
   contactIds: z.array(z.string()).optional(),
   manualRecipientIds: z.array(z.string()).optional(),
   subject: z.string().trim().min(1, "Subject is required"),
-  templateVersionId: z.string().min(1, "Template is required"),
 });
+
+// The audience *source* an admin chose, persisted on the send so the Sent tab
+// can name it (e.g. "Beginners segment") instead of showing only a count.
+// Lists/segments arrive in later phases; the shape is forward-compatible.
+const audienceSourceSchema = z
+  .object({
+    listIds: z.array(z.string()).optional(),
+    segmentIds: z.array(z.string()).optional(),
+    label: z.string().trim().max(200).optional(),
+  })
+  .optional();
 
 const draftEmailSchema = previewEmailSchema.extend({
   name: z
@@ -71,9 +82,13 @@ const draftEmailSchema = previewEmailSchema.extend({
     .trim()
     .max(200, "Preview text must be 200 characters or fewer")
     .optional(),
+  audience: audienceSourceSchema,
 });
 
 type ParsedEmailSendInput = z.infer<typeof draftEmailSchema>;
+export type AudienceSourceInput = NonNullable<
+  z.infer<typeof audienceSourceSchema>
+>;
 
 const manualRecipientSchema = z.object({
   email: z
@@ -328,7 +343,6 @@ export async function previewEmailAction(input: {
   contactIds?: string[];
   manualRecipientIds?: string[];
   subject: string;
-  templateVersionId: string;
 }): Promise<{
   eligibleCount: number;
   skipped: Array<{
@@ -343,7 +357,6 @@ export async function previewEmailAction(input: {
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid email preview");
   }
-  validateUUID(parsed.data.templateVersionId, "template version");
 
   const preview = await resolvePreview(parsed.data);
   return {
@@ -464,30 +477,42 @@ export async function createEmailDraftAction(input: {
   kind: EmailSendKind;
   name?: string;
   subject: string;
-  templateVersionId: string;
   builderJson: unknown;
   previewText?: string;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
   const parsed = draftEmailSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid email draft");
   }
-  validateUUID(parsed.data.templateVersionId, "template version");
 
   const send = await createEmailSend(parsed.data);
   revalidatePath("/admin");
   return { sendId: send.id };
 }
 
+// Record which audience source produced a send so the Sent tab can label it.
+// Counts come from the admin's selection; list/segment ids/labels are passed
+// through for later phases. Broadcast targets everyone, so counts are omitted.
+function buildSendMetadata(input: ParsedEmailSendInput): Record<string, unknown> {
+  const audience: Record<string, unknown> = { kind: input.kind };
+  if (input.kind === "outreach") {
+    audience.contactCount = new Set(input.contactIds ?? []).size;
+    audience.manualCount = new Set(input.manualRecipientIds ?? []).size;
+  }
+  if (input.audience?.listIds?.length) audience.listIds = input.audience.listIds;
+  if (input.audience?.segmentIds?.length) {
+    audience.segmentIds = input.audience.segmentIds;
+  }
+  if (input.audience?.label) audience.label = input.audience.label;
+  return { editor: "maily", audience };
+}
+
 async function createEmailSend(input: ParsedEmailSendInput) {
-  const [templateVersion, preview] = await Promise.all([
-    getEmailTemplateVersion(input.templateVersionId),
-    resolvePreview(input),
-  ]);
-  if (!templateVersion) throw new Error("Template version not found");
+  const preview = await resolvePreview(input);
   if (preview.eligible.length > INLINE_SEND_CAPACITY && !getEmailWorkerSecret()) {
     throw new Error(
       "EMAIL_WORKER_SECRET must be set before sending more than 500 recipients.",
@@ -499,6 +524,15 @@ async function createEmailSend(input: ParsedEmailSendInput) {
   const rendered = await renderMailyDocument(document, {
     previewText,
   });
+
+  // Auto-save the design as a reusable template, deduplicated by content. The
+  // send references the resolved version for provenance; identical content
+  // reuses an existing template instead of creating a duplicate.
+  const { templateVersionId } = await findOrCreateTemplateForDocument({
+    builderJson: document,
+    subject: input.subject,
+  });
+
   const name = input.name ?? input.subject;
   const recipients = [
     ...preview.eligible.map((recipient) => ({
@@ -536,13 +570,11 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     fromEmail: getEmailFromEmail(),
     fromName: getEmailFromName(),
     replyToEmail: getEmailReplyToEmail(),
-    templateVersionId: templateVersion.id,
+    templateVersionId,
     builderJsonSnapshot: document as Record<string, unknown>,
     htmlPreviewSnapshot: rendered.html,
     textPreviewSnapshot: rendered.text,
-    metadata: {
-      editor: "maily",
-    },
+    metadata: buildSendMetadata(input),
     recipients,
   });
 }
@@ -573,18 +605,17 @@ export async function sendEmailNowAction(input: {
   kind: EmailSendKind;
   name?: string;
   subject: string;
-  templateVersionId: string;
   builderJson: unknown;
   previewText?: string;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
   const parsed = draftEmailSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid email send");
   }
-  validateUUID(parsed.data.templateVersionId, "template version");
 
   const provider = getEmailProvider();
   const send = await createEmailSend(parsed.data);

@@ -35,38 +35,29 @@ import {
   sendEmailNowAction,
   type ComposeRecipient,
   type ComposeSkippedRecipient,
-  type EmailTemplateVersionsById,
   type EmailTemplateVersionDocument,
 } from "../actions";
+import { deleteTemplateAction } from "../templates/actions";
 import {
   BROADCAST_CONFIRMATION_MESSAGE,
   requiresBroadcastConfirmation,
 } from "./broadcast-confirmation";
 import { getRecipientSummary } from "./recipient-summary";
 import { RecipientList } from "./recipient-list";
+import { StartFromPicker } from "./start-from-picker";
 import { EmailPreview } from "../templates/email-preview";
 import { EmailLayoutControls } from "../templates/email-layout-controls";
 
-function readCachedTemplateDocument(
-  versionId: string,
-  templateVersionsById: EmailTemplateVersionsById,
-) {
-  const cachedVersion = templateVersionsById[versionId];
-  if (!cachedVersion) return null;
-  return assertMailyDocument(cachedVersion.builderJson);
-}
-
 export function EmailComposer({
   templates,
-  templateVersionsById,
   ensureTemplateVersion,
   selectedContactIds,
   manualRecipients,
   setManualRecipients,
+  setTemplates,
   onSendStarted,
 }: {
   templates: EmailTemplate[];
-  templateVersionsById: EmailTemplateVersionsById;
   ensureTemplateVersion: (
     versionId: string,
     options?: { quiet?: boolean },
@@ -74,6 +65,7 @@ export function EmailComposer({
   selectedContactIds: string[];
   manualRecipients: EmailManualRecipient[];
   setManualRecipients: Dispatch<SetStateAction<EmailManualRecipient[] | null>>;
+  setTemplates: Dispatch<SetStateAction<EmailTemplate[] | null>>;
   onSendStarted?: () => void;
 }) {
   const publishedTemplates = useMemo(
@@ -81,42 +73,18 @@ export function EmailComposer({
     [templates],
   );
   const [kind, setKind] = useState<EmailSendKind>("outreach");
-  const [selectedTemplateId, setSelectedTemplateId] = useState(
-    publishedTemplates[0]?.id ?? "",
-  );
-  const initialTemplateVersionId =
-    publishedTemplates[0]?.current_version_id ?? "";
+  // "" = a blank starting point. Compose defaults to blank; admins choose a
+  // saved template from the "Start from…" picker when they want to reuse one.
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [subject, setSubject] = useState("Hello {{contact.name}}");
   const [previewText, setPreviewText] = useState("");
-  const [document, setDocument] = useState<MailyDocument>(() => {
-    if (!initialTemplateVersionId) return createDefaultMailyDocument();
-    try {
-      return (
-        readCachedTemplateDocument(
-          initialTemplateVersionId,
-          templateVersionsById,
-        ) ?? createDefaultMailyDocument()
-      );
-    } catch {
-      return createDefaultMailyDocument();
-    }
-  });
+  const [document, setDocument] = useState<MailyDocument>(() =>
+    createDefaultMailyDocument(),
+  );
   const [layout, setLayout] = useState<EmailLayout>(() =>
     getMailyDocumentLayout(document),
   );
-  const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState(() => {
-    if (!initialTemplateVersionId) return "";
-    try {
-      return readCachedTemplateDocument(
-        initialTemplateVersionId,
-        templateVersionsById,
-      )
-        ? initialTemplateVersionId
-        : "";
-    } catch {
-      return "";
-    }
-  });
+  const [loadedTemplateVersionId, setLoadedTemplateVersionId] = useState("");
   const [templateLoadError, setTemplateLoadError] = useState<{
     versionId: string;
     message: string;
@@ -225,10 +193,16 @@ export function EmailComposer({
     };
   }, [kind, selectedContactIds, selectedManualRecipientIds]);
 
-  const isTemplateReady =
+  // While a chosen template is loading we hold off sending so we never send a
+  // stale/empty document. A blank starting point is always ready.
+  const isLoadingSelectedTemplate =
     Boolean(selectedTemplateVersionId) &&
-    loadedTemplateVersionId === selectedTemplateVersionId &&
+    loadedTemplateVersionId !== selectedTemplateVersionId &&
     !activeTemplateLoadError;
+  const isStartingPointReady =
+    !selectedTemplateId ||
+    (loadedTemplateVersionId === selectedTemplateVersionId &&
+      !activeTemplateLoadError);
   const selectedManualRecipientCount =
     kind === "outreach" ? selectedManualRecipientIds.length : 0;
   const isOutreachWithoutRecipients =
@@ -241,6 +215,38 @@ export function EmailComposer({
         ? current.filter((id) => id !== recipientId)
         : [...current, recipientId],
     );
+  }
+
+  function handleSelectBlank() {
+    setSelectedTemplateId("");
+    setLoadedTemplateVersionId("");
+    setTemplateLoadError(null);
+    const blank = createDefaultMailyDocument();
+    setDocument(blank);
+    setLayout(getMailyDocumentLayout(blank));
+    designerRef.current?.loadDocument(blank);
+  }
+
+  function handleSelectTemplate(templateId: string) {
+    // The load effect picks up the new selection and loads its document.
+    setSelectedTemplateId(templateId);
+  }
+
+  function handleDeleteTemplate(templateId: string) {
+    void (async () => {
+      try {
+        await deleteTemplateAction(templateId);
+        setTemplates((current) =>
+          (current ?? []).filter((template) => template.id !== templateId),
+        );
+        if (selectedTemplateId === templateId) handleSelectBlank();
+        toast.success("Template removed.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to remove template.",
+        );
+      }
+    })();
   }
 
   function renderPreview() {
@@ -316,11 +322,7 @@ export function EmailComposer({
   }
 
   function startSendNow() {
-    if (!selectedTemplateVersionId) {
-      toast.error("Select a published template first.");
-      return;
-    }
-    if (!isTemplateReady) {
+    if (!isStartingPointReady) {
       toast.error(
         activeTemplateLoadError ?? "Wait for the selected template to load.",
       );
@@ -336,7 +338,6 @@ export function EmailComposer({
         await sendEmailNowAction({
           kind,
           subject,
-          templateVersionId: selectedTemplateVersionId,
           builderJson: snapshot?.builderJson ?? document,
           previewText,
           contactIds: selectedContactIds,
@@ -357,11 +358,7 @@ export function EmailComposer({
   }
 
   function handleSendNow() {
-    if (!selectedTemplateVersionId) {
-      toast.error("Select a published template first.");
-      return;
-    }
-    if (!isTemplateReady) {
+    if (!isStartingPointReady) {
       toast.error(
         activeTemplateLoadError ?? "Wait for the selected template to load.",
       );
@@ -388,18 +385,6 @@ export function EmailComposer({
     selectedContactCount: selectedContactIds.length,
     selectedManualRecipientCount,
   });
-
-  if (publishedTemplates.length === 0) {
-    return (
-      <div className="rounded-md border border-border bg-card p-6">
-        <h2 className="text-base font-medium text-foreground">Compose</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Create and publish a template first, then use it as the starting point
-          for an email.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -442,19 +427,15 @@ export function EmailComposer({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-muted-foreground">
-              Template
+              Start from
             </span>
-            <select
-              value={selectedTemplateId}
-              onChange={(event) => setSelectedTemplateId(event.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-            >
-              {publishedTemplates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
+            <StartFromPicker
+              templates={publishedTemplates}
+              selectedTemplateId={selectedTemplateId}
+              onSelectBlank={handleSelectBlank}
+              onSelectTemplate={handleSelectTemplate}
+              onDeleteTemplate={handleDeleteTemplate}
+            />
           </label>
         </div>
       </div>
@@ -570,7 +551,8 @@ export function EmailComposer({
             disabled={
               isSending ||
               isLoadingTemplate ||
-              !isTemplateReady ||
+              isLoadingSelectedTemplate ||
+              !isStartingPointReady ||
               isOutreachWithoutRecipients
             }
             className="h-[50px] w-[200px] justify-self-start rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 md:justify-self-end"
