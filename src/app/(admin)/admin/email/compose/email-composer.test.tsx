@@ -131,6 +131,15 @@ describe("EmailComposer manual recipients", () => {
       );
     });
 
+    // Saved recipients live under the "Saved" audience source tab.
+    const savedTab = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Saved",
+    );
+    if (!savedTab) throw new Error("Missing Saved source tab");
+    await act(async () => {
+      savedTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
     const checkbox = container.querySelector<HTMLInputElement>(
       `input[type="checkbox"][value="${MANUAL_RECIPIENT.id}"]`,
     );
@@ -169,6 +178,15 @@ describe("EmailComposer manual recipients", () => {
           setTemplates={vi.fn()}
         />,
       );
+    });
+
+    // Saved recipients live under the "Saved" audience source tab.
+    const savedTab = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Saved",
+    );
+    if (!savedTab) throw new Error("Missing Saved source tab");
+    await act(async () => {
+      savedTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const checkbox = container.querySelector<HTMLInputElement>(

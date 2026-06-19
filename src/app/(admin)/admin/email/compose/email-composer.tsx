@@ -10,7 +10,18 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { Eye, Loader2, Pencil, Plus, Search, X } from "lucide-react";
+import {
+  AtSign,
+  Eye,
+  Filter,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import type {
   EmailManualRecipient,
@@ -116,6 +127,9 @@ export function EmailComposer({
   const [segments, setSegments] = useState<EmailSegmentSummary[] | null>(null);
   const [segmentsError, setSegmentsError] = useState<string | null>(null);
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [activeAudienceSource, setActiveAudienceSource] = useState<
+    "lists" | "segments" | "contacts" | "saved"
+  >("contacts");
   // Individual contacts: seeded from the Contacts-tab selection, then managed
   // here so admins can add/remove specific people without leaving Compose.
   const [contactIds, setContactIds] = useState<string[]>(
@@ -540,6 +554,36 @@ export function EmailComposer({
     selectedManualRecipientCount,
   });
 
+  // Segments only appear as a source when some exist (or failed to load), so
+  // admins with no segments see exactly the three sources they expect.
+  const hasSegmentsSource =
+    Boolean(segmentsError) || (segments?.length ?? 0) > 0;
+  const audienceSources = [
+    { key: "lists" as const, label: "Lists", icon: Users, count: selectedListIds.length },
+    ...(hasSegmentsSource
+      ? [
+          {
+            key: "segments" as const,
+            label: "Segments",
+            icon: Filter,
+            count: selectedSegmentIds.length,
+          },
+        ]
+      : []),
+    {
+      key: "contacts" as const,
+      label: "Contacts",
+      icon: UserPlus,
+      count: contactIds.length,
+    },
+    {
+      key: "saved" as const,
+      label: "Saved",
+      icon: AtSign,
+      count: selectedManualRecipientIds.length,
+    },
+  ];
+
   const contactById = useMemo(() => {
     const map = new Map<string, PickerContact>();
     for (const contact of contacts ?? []) map.set(contact.id, contact);
@@ -696,327 +740,373 @@ export function EmailComposer({
 
       <div className="rounded-md border border-border bg-card p-4">
         {kind === "outreach" && (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             <div>
-              <p className="text-sm font-medium text-foreground">
-                Build your audience
-              </p>
+              <p className="text-sm font-medium text-foreground">Audience</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Combine any of these — duplicates and excluded people are removed
+                Pick from any source — duplicates and excluded people are removed
                 automatically.
               </p>
             </div>
 
-            {/* Lists */}
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-medium text-muted-foreground">Lists</p>
-                {contactIds.length + selectedManualRecipientIds.length > 0 &&
-                  (isListSaveOpen ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        autoFocus
-                        value={newListName}
-                        onChange={(event) => setNewListName(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") handleSaveSelectionAsList();
-                          if (event.key === "Escape") setIsListSaveOpen(false);
-                        }}
-                        placeholder="New list name"
-                        className="h-8 rounded-md border border-border bg-background px-3 text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSaveSelectionAsList}
-                        disabled={isSavingList || !newListName.trim()}
-                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
-                      >
-                        {isSavingList ? "Saving..." : "Save"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsListSaveOpen(false)}
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setIsListSaveOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Save selection as a list
-                    </button>
-                  ))}
-              </div>
-              {listsError ? (
-                <p className="text-sm text-destructive">
-                  Couldn&apos;t load lists.{" "}
+            {/* Source selector: one panel at a time, with per-source counts. */}
+            <div className="flex gap-1 rounded-lg border border-border bg-muted/50 p-1">
+              {audienceSources.map(({ key, label, icon: Icon, count }) => {
+                const active = activeAudienceSource === key;
+                return (
                   <button
+                    key={key}
                     type="button"
-                    onClick={loadRecipientSources}
-                    className="font-medium underline underline-offset-2"
+                    onClick={() => setActiveAudienceSource(key)}
+                    aria-pressed={active}
+                    className={`inline-flex flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-xs font-medium transition-colors sm:text-sm ${
+                      active
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
                   >
-                    Retry
+                    <Icon className="size-4 shrink-0" />
+                    <span className="hidden sm:inline">{label}</span>
+                    {count > 0 && (
+                      <span className="inline-flex min-w-[1.125rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
+                        {count}
+                      </span>
+                    )}
                   </button>
-                </p>
-              ) : lists === null ? (
-                <p className="text-sm text-muted-foreground">Loading lists...</p>
-              ) : lists.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No saved lists yet. Pick people below and save them as a list to
-                  reuse.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {lists.map((list) => {
-                    const checked = selectedListIds.includes(list.id);
-                    return (
-                      <button
-                        key={list.id}
-                        type="button"
-                        onClick={() => toggleList(list.id)}
-                        aria-pressed={checked}
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
-                          checked
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border text-foreground hover:bg-muted"
-                        }`}
-                      >
-                        {list.name}
-                        <span
-                          className={
-                            checked ? "text-primary/70" : "text-muted-foreground"
-                          }
-                        >
-                          {list.memberCount}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                );
+              })}
             </div>
 
-            {/* Segments */}
-            {(segmentsError || (segments && segments.length > 0)) && (
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Segments
-                </p>
-                {segmentsError ? (
-                  <p className="text-sm text-destructive">
-                    Couldn&apos;t load segments.{" "}
-                    <button
-                      type="button"
-                      onClick={loadRecipientSources}
-                      className="font-medium underline underline-offset-2"
-                    >
-                      Retry
-                    </button>
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {(segments ?? []).map((segment) => {
-                      const checked = selectedSegmentIds.includes(segment.id);
-                      return (
-                        <button
-                          key={segment.id}
-                          type="button"
-                          onClick={() => toggleSegment(segment.id)}
-                          aria-pressed={checked}
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
-                            checked
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border text-foreground hover:bg-muted"
-                          }`}
-                        >
-                          {segment.name}
-                          <span
-                            className={
-                              checked
-                                ? "text-primary/70"
-                                : "text-muted-foreground"
-                            }
-                          >
-                            ~{segment.matchCount}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Individual contacts */}
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-medium text-muted-foreground">
-                Contacts
-              </p>
-              {contactsError ? (
-                <p className="text-sm text-destructive">
-                  Couldn&apos;t load contacts.{" "}
-                  <button
-                    type="button"
-                    onClick={loadRecipientSources}
-                    className="font-medium underline underline-offset-2"
-                  >
-                    Retry
-                  </button>
-                </p>
-              ) : (
-                <>
-                  <div className="relative max-w-md">
-                    <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5">
-                      <Search className="size-3.5 shrink-0 text-muted-foreground" />
-                      <input
-                        value={contactQuery}
-                        onChange={(event) => setContactQuery(event.target.value)}
-                        placeholder="Search contacts by name or email..."
-                        className="h-9 flex-1 bg-transparent text-sm outline-none"
-                      />
-                    </div>
-                    {contactQuery.trim() && (
-                      <div className="absolute z-10 mt-1 max-h-[220px] w-full overflow-auto rounded-md border border-border bg-popover shadow-md">
-                        {contacts === null ? (
-                          <p className="px-3 py-2 text-sm text-muted-foreground">
-                            Loading contacts...
-                          </p>
-                        ) : contactResults.length === 0 ? (
-                          <p className="px-3 py-2 text-sm text-muted-foreground">
-                            No matching contacts.
-                          </p>
-                        ) : (
-                          contactResults.map((contact) => (
-                            <button
-                              key={contact.id}
-                              type="button"
-                              onClick={() => addContact(contact.id)}
-                              className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted"
-                            >
-                              <span className="truncate font-medium text-foreground">
-                                {contact.name}
-                              </span>
-                              <span className="truncate text-xs text-muted-foreground">
-                                {contact.email}
-                              </span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {selectedContacts.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No individual contacts added.
+            {/* Active source panel */}
+            <div className="min-h-[148px] rounded-md border border-border bg-background/40 p-3">
+              {activeAudienceSource === "lists" && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Reusable saved lists
                     </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedContacts.map((contact) => (
-                        <span
-                          key={contact.id}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 py-1 pl-3 pr-1.5 text-xs font-medium text-foreground"
-                        >
-                          {contact.name}
+                    {contactIds.length + selectedManualRecipientIds.length > 0 &&
+                      (isListSaveOpen ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            autoFocus
+                            value={newListName}
+                            onChange={(event) =>
+                              setNewListName(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter")
+                                handleSaveSelectionAsList();
+                              if (event.key === "Escape")
+                                setIsListSaveOpen(false);
+                            }}
+                            placeholder="New list name"
+                            className="h-8 rounded-md border border-border bg-background px-3 text-xs"
+                          />
                           <button
                             type="button"
-                            aria-label={`Remove ${contact.name}`}
-                            onClick={() => removeContact(contact.id)}
-                            className="rounded-full p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            onClick={handleSaveSelectionAsList}
+                            disabled={isSavingList || !newListName.trim()}
+                            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
                           >
-                            <X className="size-3" />
+                            {isSavingList ? "Saving..." : "Save"}
                           </button>
-                        </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsListSaveOpen(false)}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setIsListSaveOpen(true)}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Save selection as a list
+                        </button>
                       ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Saved one-off recipients (not contacts) */}
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Saved recipients
-                </p>
-                <p className="mb-2 mt-0.5 text-xs text-muted-foreground/80">
-                  One-off email addresses that aren&apos;t contacts.
-                </p>
-                <div className="flex max-h-[180px] flex-col gap-2 overflow-auto pr-1">
-                  {manualRecipients.length === 0 ? (
+                  </div>
+                  {listsError ? (
+                    <p className="text-sm text-destructive">
+                      Couldn&apos;t load lists.{" "}
+                      <button
+                        type="button"
+                        onClick={loadRecipientSources}
+                        className="font-medium underline underline-offset-2"
+                      >
+                        Retry
+                      </button>
+                    </p>
+                  ) : lists === null ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Loading lists...
+                    </p>
+                  ) : lists.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      None saved yet. Add one on the right.
+                      No saved lists yet. Pick people under Contacts, then save
+                      them as a list to reuse.
                     </p>
                   ) : (
-                    manualRecipients.map((recipient) => (
-                      <label
-                        key={recipient.id}
-                        className="flex min-h-10 items-center gap-3 text-sm text-foreground"
-                      >
-                        <input
-                          type="checkbox"
-                          value={recipient.id}
-                          checked={selectedManualRecipientIds.includes(
-                            recipient.id,
-                          )}
-                          onChange={() => toggleManualRecipient(recipient.id)}
-                          className="h-4 w-4 rounded border-border"
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">
-                            {recipient.name}
-                          </span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {recipient.email}
-                          </span>
-                        </span>
-                      </label>
-                    ))
+                    <div className="flex flex-wrap gap-2">
+                      {lists.map((list) => {
+                        const checked = selectedListIds.includes(list.id);
+                        return (
+                          <button
+                            key={list.id}
+                            type="button"
+                            onClick={() => toggleList(list.id)}
+                            aria-pressed={checked}
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                              checked
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border bg-background text-foreground hover:bg-muted"
+                            }`}
+                          >
+                            <Users className="size-3.5 opacity-70" />
+                            {list.name}
+                            <span
+                              className={
+                                checked
+                                  ? "text-primary/70"
+                                  : "text-muted-foreground"
+                              }
+                            >
+                              {list.memberCount}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
 
-              <div className="grid gap-3">
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Recipient name
-                  </span>
-                  <input
-                    value={manualRecipientName}
-                    onChange={(event) =>
-                      setManualRecipientName(event.target.value)
-                    }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Recipient email
-                  </span>
-                  <input
-                    value={manualRecipientEmail}
-                    onChange={(event) =>
-                      setManualRecipientEmail(event.target.value)
-                    }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                    type="email"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={handleSaveManualRecipient}
-                  disabled={isSavingManualRecipient}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-foreground disabled:opacity-50"
-                >
-                  <Plus className="h-4 w-4" />
-                  {isSavingManualRecipient ? "Saving..." : "Save recipient"}
-                </button>
-              </div>
+              {activeAudienceSource === "segments" && (
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Tag rules, re-evaluated at send
+                  </p>
+                  {segmentsError ? (
+                    <p className="text-sm text-destructive">
+                      Couldn&apos;t load segments.{" "}
+                      <button
+                        type="button"
+                        onClick={loadRecipientSources}
+                        className="font-medium underline underline-offset-2"
+                      >
+                        Retry
+                      </button>
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {(segments ?? []).map((segment) => {
+                        const checked = selectedSegmentIds.includes(segment.id);
+                        return (
+                          <button
+                            key={segment.id}
+                            type="button"
+                            onClick={() => toggleSegment(segment.id)}
+                            aria-pressed={checked}
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                              checked
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border bg-background text-foreground hover:bg-muted"
+                            }`}
+                          >
+                            <Filter className="size-3.5 opacity-70" />
+                            {segment.name}
+                            <span
+                              className={
+                                checked
+                                  ? "text-primary/70"
+                                  : "text-muted-foreground"
+                              }
+                            >
+                              ~{segment.matchCount}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeAudienceSource === "contacts" && (
+                <div className="flex flex-col gap-3">
+                  {contactsError ? (
+                    <p className="text-sm text-destructive">
+                      Couldn&apos;t load contacts.{" "}
+                      <button
+                        type="button"
+                        onClick={loadRecipientSources}
+                        className="font-medium underline underline-offset-2"
+                      >
+                        Retry
+                      </button>
+                    </p>
+                  ) : (
+                    <>
+                      <div className="relative max-w-md">
+                        <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30">
+                          <Search className="size-4 shrink-0 text-muted-foreground" />
+                          <input
+                            value={contactQuery}
+                            onChange={(event) =>
+                              setContactQuery(event.target.value)
+                            }
+                            placeholder="Search contacts by name or email..."
+                            className="h-9 flex-1 bg-transparent text-sm outline-none"
+                          />
+                        </div>
+                        {contactQuery.trim() && (
+                          <div className="absolute z-10 mt-1 max-h-[220px] w-full overflow-auto rounded-md border border-border bg-popover shadow-lg">
+                            {contacts === null ? (
+                              <p className="px-3 py-2 text-sm text-muted-foreground">
+                                Loading contacts...
+                              </p>
+                            ) : contactResults.length === 0 ? (
+                              <p className="px-3 py-2 text-sm text-muted-foreground">
+                                No matching contacts.
+                              </p>
+                            ) : (
+                              contactResults.map((contact) => (
+                                <button
+                                  key={contact.id}
+                                  type="button"
+                                  onClick={() => addContact(contact.id)}
+                                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block truncate font-medium text-foreground">
+                                      {contact.name}
+                                    </span>
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {contact.email}
+                                    </span>
+                                  </span>
+                                  <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {selectedContacts.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          Search above to add specific people.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedContacts.map((contact) => (
+                            <span
+                              key={contact.id}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background py-1 pl-3 pr-1.5 text-xs font-medium text-foreground"
+                            >
+                              {contact.name}
+                              <button
+                                type="button"
+                                aria-label={`Remove ${contact.name}`}
+                                onClick={() => removeContact(contact.id)}
+                                className="rounded-full p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {activeAudienceSource === "saved" && (
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    One-off addresses that aren&apos;t contacts
+                  </p>
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,300px)]">
+                    <div className="min-w-0">
+                      <div className="flex max-h-[160px] flex-col gap-1 overflow-auto pr-1">
+                        {manualRecipients.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            None saved yet. Add one on the right.
+                          </p>
+                        ) : (
+                          manualRecipients.map((recipient) => {
+                            const checked =
+                              selectedManualRecipientIds.includes(recipient.id);
+                            return (
+                              <label
+                                key={recipient.id}
+                                className={`flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2 text-sm ${
+                                  checked ? "bg-primary/5" : "hover:bg-muted"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  value={recipient.id}
+                                  checked={checked}
+                                  onChange={() =>
+                                    toggleManualRecipient(recipient.id)
+                                  }
+                                  className="h-4 w-4 rounded border-border"
+                                />
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-foreground">
+                                    {recipient.name}
+                                  </span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {recipient.email}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Add a new address
+                      </p>
+                      <input
+                        value={manualRecipientName}
+                        onChange={(event) =>
+                          setManualRecipientName(event.target.value)
+                        }
+                        placeholder="Name"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      />
+                      <input
+                        value={manualRecipientEmail}
+                        onChange={(event) =>
+                          setManualRecipientEmail(event.target.value)
+                        }
+                        placeholder="Email"
+                        type="email"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveManualRecipient}
+                        disabled={isSavingManualRecipient}
+                        className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                      >
+                        <Plus className="h-4 w-4" />
+                        {isSavingManualRecipient ? "Saving..." : "Save recipient"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
