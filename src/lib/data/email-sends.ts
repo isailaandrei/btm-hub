@@ -50,6 +50,54 @@ export const getEmailSend = cache(
   },
 );
 
+export interface EmailSendTemplateInfo {
+  templateName: string;
+  versionNumber: number;
+}
+
+/**
+ * Resolve which saved template version a send was rendered from, so the Sent
+ * emails view can label a campaign with its template name + version. Returns
+ * null when the send wasn't linked to a template (e.g. a one-off design whose
+ * auto-save didn't run).
+ */
+export async function getEmailSendTemplateInfo(
+  sendId: string,
+): Promise<EmailSendTemplateInfo | null> {
+  const supabase = await createClient();
+  const { data: send, error } = await supabase
+    .from("email_sends")
+    .select("template_version_id")
+    .eq("id", sendId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load email send: ${error.message}`);
+
+  const versionId = (send?.template_version_id as string | null) ?? null;
+  if (!versionId) return null;
+
+  const { data: version, error: versionError } = await supabase
+    .from("email_template_versions")
+    .select("version_number, email_templates(name)")
+    .eq("id", versionId)
+    .maybeSingle();
+  if (versionError) {
+    throw new Error(`Failed to load template version: ${versionError.message}`);
+  }
+  if (!version) return null;
+
+  const templateRecord = Array.isArray(version.email_templates)
+    ? version.email_templates[0]
+    : version.email_templates;
+  const templateName =
+    (templateRecord as { name?: string } | null)?.name?.trim() ||
+    "Untitled template";
+
+  return {
+    templateName,
+    versionNumber: version.version_number as number,
+  };
+}
+
 export async function getEmailSendForWorker(
   id: string,
 ): Promise<EmailSend | null> {

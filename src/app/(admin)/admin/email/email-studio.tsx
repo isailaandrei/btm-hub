@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  Eye,
   Loader2,
   MailCheck,
   PenLine,
@@ -33,6 +34,7 @@ import {
 } from "./admin-email-data-provider";
 import { EmailComposer } from "./compose/email-composer";
 import { AudiencesPanel } from "./audiences/audiences-panel";
+import { SentEmailPreview } from "./sent-email-preview";
 import {
   buildEmailSendMetrics,
   type EmailSendMetricTone,
@@ -137,6 +139,7 @@ function EmailStudioContent({
     setManualRecipients,
   } = useAdminEmailData();
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
+  const [previewSend, setPreviewSend] = useState<EmailSend | null>(null);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
   const [isLoadingData, startLoadDataTransition] = useTransition();
   const [isLoadingSends, startLoadSendsTransition] = useTransition();
@@ -415,6 +418,14 @@ function EmailStudioContent({
                       <div className="flex flex-wrap justify-start gap-2 md:justify-end">
                         <button
                           type="button"
+                          onClick={() => setPreviewSend(send)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Preview
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleToggleDiagnostics(send.id)}
                           className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium ${
                             send.status === "failed"
@@ -550,6 +561,16 @@ function EmailStudioContent({
       )}
 
       {activeTab === "audiences" && <AudiencesPanel />}
+
+      {previewSend && (
+        <SentEmailPreview
+          key={previewSend.id}
+          send={previewSend}
+          kindLabel={buildSentRowSummary(previewSend).kindLabel}
+          sentOn={formatEmailSendTiming(previewSend)}
+          onClose={() => setPreviewSend(null)}
+        />
+      )}
     </div>
   );
 }
