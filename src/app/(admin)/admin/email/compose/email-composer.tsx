@@ -14,10 +14,12 @@ import {
   AtSign,
   Eye,
   Filter,
+  Inbox,
   Loader2,
   Pencil,
   Plus,
   Search,
+  SlidersHorizontal,
   UserPlus,
   Users,
   X,
@@ -61,7 +63,8 @@ interface PickerContact {
 }
 import type { EmailListSummary } from "@/lib/data/email-lists";
 import type { EmailSegmentSummary } from "@/lib/data/email-segments";
-import { deleteTemplateAction } from "../templates/actions";
+import { deleteTemplateAction, renameTemplateAction } from "../templates/actions";
+import { SaveAsTemplate } from "./save-as-template";
 import {
   BROADCAST_CONFIRMATION_MESSAGE,
   requiresBroadcastConfirmation,
@@ -416,10 +419,49 @@ export function EmailComposer({
     })();
   }
 
-  function renderPreview() {
-    const builderJson =
+  function getCurrentBuilderJson() {
+    return (
       designerRef.current?.getSnapshot().builderJson ??
-      applyLayoutToDocument(document, layout);
+      applyLayoutToDocument(document, layout)
+    );
+  }
+
+  // The just-saved template becomes the active starting point. We mark its
+  // version as already loaded so the load effect doesn't re-fetch and reset the
+  // editor — the document on screen is exactly what we saved.
+  function handleSavedAsTemplate(template: EmailTemplate, versionId: string) {
+    setTemplates((current) => [
+      template,
+      ...(current ?? []).filter((existing) => existing.id !== template.id),
+    ]);
+    setSelectedTemplateId(template.id);
+    setLoadedTemplateVersionId(versionId);
+    setTemplateLoadError(null);
+  }
+
+  function handleRenameTemplate(templateId: string, name: string) {
+    const previous = templates;
+    // Optimistically reflect the new name; revert if the server rejects it.
+    setTemplates((current) =>
+      (current ?? []).map((template) =>
+        template.id === templateId ? { ...template, name } : template,
+      ),
+    );
+    void (async () => {
+      try {
+        await renameTemplateAction({ templateId, name });
+        toast.success("Template renamed.");
+      } catch (error) {
+        setTemplates(previous);
+        toast.error(
+          error instanceof Error ? error.message : "Failed to rename template.",
+        );
+      }
+    })();
+  }
+
+  function renderPreview() {
+    const builderJson = getCurrentBuilderJson();
     startPreviewTransition(async () => {
       try {
         const result = await renderComposePreviewAction({
@@ -555,6 +597,13 @@ export function EmailComposer({
     selectedManualRecipientCount,
   });
 
+  // Suggest a template name from the subject, stripped of variable
+  // placeholders (e.g. "Hello {{contact.name}}" → "Hello").
+  const suggestedTemplateName =
+    subject.replace(/\{\{.*?\}\}/g, "").replace(/\s+/g, " ").trim() ||
+    selectedTemplate?.name ||
+    "Untitled template";
+
   // Segments only appear as a source when some exist (or failed to load), so
   // admins with no segments see exactly the three sources they expect.
   const hasSegmentsSource =
@@ -617,30 +666,20 @@ export function EmailComposer({
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid gap-4 rounded-md border border-border bg-card p-4 md:grid-cols-2">
-        <div className="flex flex-col gap-4">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">
-              Subject
-            </span>
-            <input
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">
-              Preview
-            </span>
-            <input
-              value={previewText}
-              onChange={(event) => setPreviewText(event.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-            />
-          </label>
+      {/* Delivery: admin-only logistics — how the email is sent and where the
+          design starts. Kept visually distinct from the recipient-facing
+          fields below so admins don't confuse settings with content. */}
+      <div className="rounded-md border border-dashed border-border bg-muted/40 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Delivery
+          </h2>
+          <span className="text-xs text-muted-foreground">
+            · setup only you see
+          </span>
         </div>
-        <div className="flex flex-col gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-muted-foreground">
               Type
@@ -664,6 +703,40 @@ export function EmailComposer({
               onSelectBlank={handleSelectBlank}
               onSelectTemplate={handleSelectTemplate}
               onDeleteTemplate={handleDeleteTemplate}
+              onRenameTemplate={handleRenameTemplate}
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Message: the fields recipients actually see in their inbox. */}
+      <div className="rounded-md border border-border bg-card p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Inbox className="size-3.5 text-muted-foreground" />
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What recipients see
+          </h2>
+        </div>
+        <div className="flex flex-col gap-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">
+              Subject
+            </span>
+            <input
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">
+              Preview text
+            </span>
+            <input
+              value={previewText}
+              onChange={(event) => setPreviewText(event.target.value)}
+              placeholder="Short summary shown after the subject in most inboxes"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
           </label>
         </div>
@@ -699,7 +772,15 @@ export function EmailComposer({
               Preview
             </button>
           </div>
-          <EmailLayoutControls value={layout} onChange={setLayout} />
+          <div className="flex flex-wrap items-center gap-2">
+            <SaveAsTemplate
+              getBuilderJson={getCurrentBuilderJson}
+              suggestedName={suggestedTemplateName}
+              onSaved={handleSavedAsTemplate}
+              disabled={isLoadingSelectedTemplate}
+            />
+            <EmailLayoutControls value={layout} onChange={setLayout} />
+          </div>
         </div>
 
         {/* Editor stays mounted (hidden) so edits and cursor survive toggling. */}

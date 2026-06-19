@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, FilePlus2, LayoutTemplate, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  FilePlus2,
+  LayoutTemplate,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { EmailTemplate } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +29,7 @@ export function StartFromPicker({
   onSelectBlank,
   onSelectTemplate,
   onDeleteTemplate,
+  onRenameTemplate,
   disabled,
 }: {
   templates: EmailTemplate[];
@@ -29,12 +38,27 @@ export function StartFromPicker({
   onSelectBlank: () => void;
   onSelectTemplate: (templateId: string) => void;
   onDeleteTemplate: (templateId: string) => void;
+  onRenameTemplate: (templateId: string, name: string) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
     null,
   );
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  function startRename(template: EmailTemplate) {
+    setConfirmingDeleteId(null);
+    setRenamingId(template.id);
+    setRenameValue(template.name);
+  }
+
+  function commitRename(templateId: string) {
+    const next = renameValue.trim();
+    if (next) onRenameTemplate(templateId, next);
+    setRenamingId(null);
+  }
 
   const selected = templates.find(
     (template) => template.id === selectedTemplateId,
@@ -46,7 +70,10 @@ export function StartFromPicker({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setConfirmingDeleteId(null);
+        if (!next) {
+          setConfirmingDeleteId(null);
+          setRenamingId(null);
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -89,11 +116,51 @@ export function StartFromPicker({
         <div className="max-h-[260px] overflow-auto">
           {templates.map((template) => {
             const isConfirming = confirmingDeleteId === template.id;
+            const isRenaming = renamingId === template.id;
             const isSelected = template.id === selectedTemplateId;
+
+            if (isRenaming) {
+              return (
+                <div
+                  key={template.id}
+                  className="flex items-center gap-1 rounded-md bg-muted px-1 py-1"
+                >
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(event) => setRenameValue(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") commitRename(template.id);
+                      if (event.key === "Escape") setRenamingId(null);
+                    }}
+                    maxLength={120}
+                    className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Save name"
+                    onClick={() => commitRename(template.id)}
+                    disabled={!renameValue.trim()}
+                    className="shrink-0 rounded p-1.5 text-primary hover:bg-primary/10 disabled:opacity-40"
+                  >
+                    <Check className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Cancel rename"
+                    onClick={() => setRenamingId(null)}
+                    className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-muted"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={template.id}
-                className="flex items-center gap-1 rounded-md hover:bg-muted"
+                className="flex items-center gap-0.5 rounded-md hover:bg-muted"
               >
                 <button
                   type="button"
@@ -119,14 +186,24 @@ export function StartFromPicker({
                     Remove?
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    aria-label={`Remove ${template.name}`}
-                    onClick={() => setConfirmingDeleteId(template.id)}
-                    className="mr-1 shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      aria-label={`Rename ${template.name}`}
+                      onClick={() => startRename(template)}
+                      className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${template.name}`}
+                      onClick={() => setConfirmingDeleteId(template.id)}
+                      className="mr-1 shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </>
                 )}
               </div>
             );

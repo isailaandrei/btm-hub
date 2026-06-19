@@ -97,6 +97,24 @@ export async function findTemplateVersionIdByContentHash(
   return (data?.id as string | undefined) ?? null;
 }
 
+export async function renameEmailTemplate(input: {
+  templateId: string;
+  name: string;
+}): Promise<void> {
+  const profile = await requireAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("email_templates")
+    .update({
+      name: input.name,
+      updated_by: profile.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.templateId);
+
+  if (error) throw new Error(`Failed to rename email template: ${error.message}`);
+}
+
 export async function archiveEmailTemplate(templateId: string): Promise<void> {
   const profile = await requireAdmin();
   const supabase = await createClient();

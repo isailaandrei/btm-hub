@@ -7,6 +7,7 @@ import {
   archiveEmailTemplate,
   createEmailTemplate,
   getEmailTemplateVersion,
+  renameEmailTemplate,
 } from "@/lib/data/email-templates";
 import {
   assertMailyDocument,
@@ -122,6 +123,34 @@ export async function renderTemplatePreviewAction(input: {
     variables: PREVIEW_SAMPLE_VARIABLES,
   });
   return { html: rendered.html };
+}
+
+const renameTemplateSchema = z.object({
+  templateId: z.string().min(1, "Template is required"),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Template name is required")
+    .max(120, "Template name must be 120 characters or fewer"),
+});
+
+export async function renameTemplateAction(input: {
+  templateId: string;
+  name: string;
+}): Promise<{ ok: true; name: string }> {
+  await requireAdmin();
+  const parsed = renameTemplateSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid template name");
+  }
+  validateUUID(parsed.data.templateId, "template");
+
+  await renameEmailTemplate({
+    templateId: parsed.data.templateId,
+    name: parsed.data.name,
+  });
+  revalidatePath("/admin");
+  return { ok: true, name: parsed.data.name };
 }
 
 export async function deleteTemplateAction(
