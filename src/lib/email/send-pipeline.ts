@@ -82,18 +82,20 @@ function insertBeforeBodyEnd(html: string, fragment: string): string {
   )}`;
 }
 
-function appendBroadcastUnsubscribe(input: {
+function appendUnsubscribeFooter(input: {
   html: string;
   text: string;
   unsubscribeUrl: string | null;
 }) {
   if (!input.unsubscribeUrl) return input;
-  const footerHtml = `<p style="font-size:12px;line-height:18px;color:#64748b;margin:24px 0 0">You are receiving this newsletter from Behind The Mask. <a href="${escapeHtmlAttribute(input.unsubscribeUrl)}">Unsubscribe from newsletters</a>.</p>`;
+  // Flat exclusion: unsubscribing stops ALL email, so say that plainly rather
+  // than implying it only affects newsletters.
+  const footerHtml = `<p style="font-size:12px;line-height:18px;color:#64748b;margin:24px 0 0">You are receiving this email from Behind The Mask. <a href="${escapeHtmlAttribute(input.unsubscribeUrl)}">Unsubscribe</a> to stop receiving all emails from us.</p>`;
   return {
     html: insertBeforeBodyEnd(input.html, footerHtml),
     text: `${input.text}
 
-Unsubscribe from newsletters: ${input.unsubscribeUrl}`,
+Unsubscribe to stop receiving all emails from Behind The Mask: ${input.unsubscribeUrl}`,
   };
 }
 
@@ -164,14 +166,12 @@ async function renderRecipient(input: {
       input.unsubscribeUrl,
     ),
   });
-  const withComplianceFooter =
-    input.send.kind === "broadcast"
-      ? appendBroadcastUnsubscribe({
-          html: rendered.html,
-          text: rendered.text,
-          unsubscribeUrl: input.unsubscribeUrl,
-        })
-      : rendered;
+  // Every send — newsletter or targeted — carries an unsubscribe footer.
+  const withComplianceFooter = appendUnsubscribeFooter({
+    html: rendered.html,
+    text: rendered.text,
+    unsubscribeUrl: input.unsubscribeUrl,
+  });
   return {
     subject: rendered.subject,
     html: withComplianceFooter.html,
@@ -186,11 +186,14 @@ async function processRecipient(input: {
 }) {
   let acceptedResult: ProviderSendEmailResult | null = null;
   try {
-    const unsubscribe =
-      input.send.kind === "broadcast" ? createUnsubscribeToken() : null;
-    const unsubscribeUrl = unsubscribe
-      ? `${getPublicSiteUrl()}/email/unsubscribe/${unsubscribe.token}`
-      : null;
+    // Every email gets a per-recipient unsubscribe token, so the footer link +
+    // RFC-8058 one-click header work for both newsletters and targeted sends.
+    // Unsubscribing writes a suppression that blocks all future email.
+    const unsubscribe = createUnsubscribeToken();
+    const unsubscribeUrl = `${getPublicSiteUrl()}/email/unsubscribe/${unsubscribe.token}`;
+    // RFC-8058 one-click target: a POST endpoint that unsubscribes without any
+    // further interaction (Gmail/Yahoo bulk-sender requirement).
+    const oneClickUnsubscribeUrl = `${getPublicSiteUrl()}/api/email/unsubscribe/${unsubscribe.token}`;
     const rendered = await renderRecipient({
       send: input.send,
       recipient: input.recipient,
@@ -222,6 +225,10 @@ async function processRecipient(input: {
         sendId: input.send.id,
         recipientId: input.recipient.id,
         contactId: input.recipient.contact_id ?? "",
+      },
+      headers: {
+        "List-Unsubscribe": `<${oneClickUnsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
       },
     });
     acceptedResult = result;

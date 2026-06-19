@@ -4,22 +4,59 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { getContacts } from "@/lib/data/contacts";
+import {
+  getContactById,
+  getContacts,
+  getTagCategories,
+  getTags,
+} from "@/lib/data/contacts";
 import {
   createEmailSendWithRecipients,
   deleteRemovableEmailSend,
+  getEmailSendTemplateInfo,
   listActiveEmailSuppressions,
   listContactEmailPreferences,
   listEmailSends,
   listEmailEventsForSend,
   listEmailSendRecipients,
   queueEmailSend,
+  setEmailSendTemplateVersion,
+  type EmailSendTemplateInfo,
 } from "@/lib/data/email-sends";
 import {
   getEmailManualRecipientsByIds,
   listEmailManualRecipients,
   upsertEmailManualRecipient,
 } from "@/lib/data/email-manual-recipients";
+import {
+  excludeContactEmail,
+  listEmailExclusions,
+  liftEmailExclusion,
+  type EmailExclusionRow,
+} from "@/lib/data/email-suppressions";
+import {
+  addEmailListMembers,
+  createEmailList,
+  deleteEmailList,
+  getEmailListNames,
+  getEmailListWithMembers,
+  listEmailLists,
+  removeEmailListMember,
+  resolveEmailListRecipientIds,
+  updateEmailList,
+  type EmailListMemberRow,
+  type EmailListSummary,
+} from "@/lib/data/email-lists";
+import {
+  countSegmentMatches,
+  createEmailSegment,
+  deleteEmailSegment,
+  getEmailSegmentNames,
+  listEmailSegments,
+  resolveSegmentsContactIds,
+  updateEmailSegment,
+  type EmailSegmentSummary,
+} from "@/lib/data/email-segments";
 import {
   getEmailTemplateVersion,
   listEmailTemplates,
@@ -28,7 +65,9 @@ import { resolveEmailEligibility } from "@/lib/email/eligibility";
 import {
   assertMailyDocument,
   renderMailyDocument,
+  renderMailyEmail,
 } from "@/lib/email/rendering/maily";
+import { findOrCreateTemplateForDocument } from "@/lib/email/template-authoring";
 import {
   getEmailFromEmail,
   getEmailFromName,
@@ -41,9 +80,14 @@ import { triggerEmailWorker } from "@/lib/email/worker-trigger";
 import { validateUUID } from "@/lib/validation-helpers";
 import type {
   EmailEvent,
+  EmailList,
   EmailManualRecipient,
+  EmailSegment,
+  EmailSegmentRule,
   EmailSendKind,
   EmailSuppression,
+  Tag,
+  TagCategory,
 } from "@/types/database";
 
 const emailKindSchema = z.enum(["broadcast", "outreach"]);
@@ -53,9 +97,21 @@ const previewEmailSchema = z.object({
   kind: emailKindSchema,
   contactIds: z.array(z.string()).optional(),
   manualRecipientIds: z.array(z.string()).optional(),
+  listIds: z.array(z.string()).optional(),
+  segmentIds: z.array(z.string()).optional(),
   subject: z.string().trim().min(1, "Subject is required"),
-  templateVersionId: z.string().min(1, "Template is required"),
 });
+
+// The audience *source* an admin chose, persisted on the send so the Sent tab
+// can name it (e.g. "Beginners segment") instead of showing only a count.
+// Lists/segments arrive in later phases; the shape is forward-compatible.
+const audienceSourceSchema = z
+  .object({
+    listIds: z.array(z.string()).optional(),
+    segmentIds: z.array(z.string()).optional(),
+    label: z.string().trim().max(200).optional(),
+  })
+  .optional();
 
 const draftEmailSchema = previewEmailSchema.extend({
   name: z
@@ -70,9 +126,13 @@ const draftEmailSchema = previewEmailSchema.extend({
     .trim()
     .max(200, "Preview text must be 200 characters or fewer")
     .optional(),
+  audience: audienceSourceSchema,
 });
 
 type ParsedEmailSendInput = z.infer<typeof draftEmailSchema>;
+export type AudienceSourceInput = NonNullable<
+  z.infer<typeof audienceSourceSchema>
+>;
 
 const manualRecipientSchema = z.object({
   email: z
@@ -185,14 +245,44 @@ export async function loadEmailStudioDataAction() {
   };
 }
 
+// Expand any selected lists + segments into the contact / manual recipient ids
+// they resolve to, merged with the ad-hoc selection. Lists are frozen members;
+// segments are re-evaluated now. Both target specific people, so outreach only.
+async function expandRecipientSelection(input: {
+  kind: EmailSendKind;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+  listIds?: string[];
+  segmentIds?: string[];
+}): Promise<{ contactIds: string[]; manualRecipientIds: string[] }> {
+  const contactIds = [...(input.contactIds ?? [])];
+  const manualRecipientIds = [...(input.manualRecipientIds ?? [])];
+  if (input.kind !== "outreach") {
+    return { contactIds, manualRecipientIds };
+  }
+  if (input.listIds?.length) {
+    const fromLists = await resolveEmailListRecipientIds(input.listIds);
+    contactIds.push(...fromLists.contactIds);
+    manualRecipientIds.push(...fromLists.manualRecipientIds);
+  }
+  if (input.segmentIds?.length) {
+    const fromSegments = await resolveSegmentsContactIds(input.segmentIds);
+    contactIds.push(...fromSegments);
+  }
+  return { contactIds, manualRecipientIds };
+}
+
 async function resolvePreview(input: {
   kind: EmailSendKind;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  listIds?: string[];
+  segmentIds?: string[];
 }) {
-  const selectedContactIds = Array.from(new Set(input.contactIds ?? []));
+  const expanded = await expandRecipientSelection(input);
+  const selectedContactIds = Array.from(new Set(expanded.contactIds));
   const selectedManualRecipientIds = Array.from(
-    new Set(input.manualRecipientIds ?? []),
+    new Set(expanded.manualRecipientIds),
   );
   if (input.kind === "outreach") {
     if (
@@ -208,6 +298,15 @@ async function resolvePreview(input: {
   }
   if (input.kind === "broadcast" && selectedManualRecipientIds.length > 0) {
     throw new Error("Manual recipients can only be used for outreach");
+  }
+  // The UI sends [] for these on broadcast, but the action is the trust boundary:
+  // a broadcast carrying a list/segment would mail everyone yet be labelled as a
+  // scoped send. Reject loudly instead of silently dropping the audience.
+  if (
+    input.kind === "broadcast" &&
+    ((input.listIds?.length ?? 0) > 0 || (input.segmentIds?.length ?? 0) > 0)
+  ) {
+    throw new Error("Lists and segments can only be used for outreach");
   }
 
   const [contacts, preferences, suppressions, manualRecipients] =
@@ -327,7 +426,6 @@ export async function previewEmailAction(input: {
   contactIds?: string[];
   manualRecipientIds?: string[];
   subject: string;
-  templateVersionId: string;
 }): Promise<{
   eligibleCount: number;
   skipped: Array<{
@@ -342,7 +440,6 @@ export async function previewEmailAction(input: {
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid email preview");
   }
-  validateUUID(parsed.data.templateVersionId, "template version");
 
   const preview = await resolvePreview(parsed.data);
   return {
@@ -351,34 +448,178 @@ export async function previewEmailAction(input: {
   };
 }
 
+// Sample values so variable placeholders render as realistic text in the
+// compose preview (the real send substitutes each recipient's own values).
+const COMPOSE_PREVIEW_VARIABLES = {
+  contact: { name: "Alex Rivera", email: "alex@example.com" },
+  owner: { name: "Behind The Mask", email: "hello@behind-the-mask.com" },
+};
+
+const composePreviewSchema = z.object({
+  builderJson: z.unknown(),
+  subject: z.string().optional(),
+  previewText: z.string().optional(),
+});
+
+/**
+ * Render the current compose document to the exact HTML the recipient will
+ * receive (same renderer + theme as the send pipeline), so the composer can
+ * preview the final email. Variables use sample values; the broadcast
+ * unsubscribe footer is added by the send pipeline, not here.
+ */
+export async function renderComposePreviewAction(input: {
+  builderJson: unknown;
+  subject?: string;
+  previewText?: string;
+}): Promise<{ subject: string; html: string }> {
+  await requireAdmin();
+  const parsed = composePreviewSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid email preview");
+  }
+
+  const document = assertMailyDocument(parsed.data.builderJson);
+  const rendered = await renderMailyEmail({
+    subject: parsed.data.subject?.trim() || "(no subject)",
+    previewText: parsed.data.previewText?.trim() || undefined,
+    document,
+    variables: COMPOSE_PREVIEW_VARIABLES,
+  });
+  return { subject: rendered.subject, html: rendered.html };
+}
+
+const composeRecipientsSchema = z.object({
+  kind: emailKindSchema,
+  contactIds: z.array(z.string()).optional(),
+  manualRecipientIds: z.array(z.string()).optional(),
+  listIds: z.array(z.string()).optional(),
+  segmentIds: z.array(z.string()).optional(),
+});
+
+export interface ComposeRecipient {
+  name: string;
+  email: string;
+  source: "contact" | "manual";
+}
+
+export interface ComposeSkippedRecipient extends ComposeRecipient {
+  reason: string;
+}
+
+/**
+ * Resolve the actual people an outreach send will reach, so the composer can
+ * list them by name instead of showing only a count. Returns eligible
+ * recipients plus the ones that will be skipped (suppressed / unsubscribed) and
+ * why. Broadcast is intentionally not itemized — it targets every contact with
+ * an email, so the composer keeps a summary for it.
+ */
+export async function getComposeRecipientsAction(input: {
+  kind: EmailSendKind;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+  listIds?: string[];
+  segmentIds?: string[];
+}): Promise<{
+  eligible: ComposeRecipient[];
+  skipped: ComposeSkippedRecipient[];
+}> {
+  await requireAdmin();
+  const parsed = composeRecipientsSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid recipients");
+  }
+
+  if (parsed.data.kind !== "outreach") {
+    return { eligible: [], skipped: [] };
+  }
+
+  const hasSelection =
+    (parsed.data.contactIds?.length ?? 0) +
+      (parsed.data.manualRecipientIds?.length ?? 0) +
+      (parsed.data.listIds?.length ?? 0) +
+      (parsed.data.segmentIds?.length ?? 0) >
+    0;
+  if (!hasSelection) {
+    return { eligible: [], skipped: [] };
+  }
+
+  const preview = await resolvePreview(parsed.data);
+  const sourceOf = (contactId: string | null): "contact" | "manual" =>
+    contactId ? "contact" : "manual";
+
+  return {
+    eligible: preview.eligible.map((recipient) => ({
+      name: recipient.name,
+      email: recipient.email,
+      source: sourceOf(recipient.contactId),
+    })),
+    skipped: preview.skipped.map((recipient) => ({
+      name: recipient.name,
+      email: recipient.email,
+      source: sourceOf(recipient.contactId),
+      reason: recipient.reason,
+    })),
+  };
+}
+
 export async function createEmailDraftAction(input: {
   kind: EmailSendKind;
   name?: string;
   subject: string;
-  templateVersionId: string;
   builderJson: unknown;
   previewText?: string;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  listIds?: string[];
+  segmentIds?: string[];
+  audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
   const parsed = draftEmailSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid email draft");
   }
-  validateUUID(parsed.data.templateVersionId, "template version");
 
   const send = await createEmailSend(parsed.data);
   revalidatePath("/admin");
   return { sendId: send.id };
 }
 
+// Record which audience source produced a send so the Sent tab can label it.
+// Counts come from the admin's selection; selected mailing lists contribute
+// their name as the label. Broadcast targets everyone, so counts are omitted.
+async function buildSendMetadata(
+  input: ParsedEmailSendInput,
+): Promise<Record<string, unknown>> {
+  const audience: Record<string, unknown> = { kind: input.kind };
+  // Lists/segments only scope outreach; never let them label a broadcast (which
+  // reaches everyone). resolvePreview already rejects the combination — this is
+  // defence in depth so a mislabel can't slip through.
+  if (input.kind !== "outreach") {
+    return { editor: "maily", audience };
+  }
+  audience.contactCount = new Set(input.contactIds ?? []).size;
+  audience.manualCount = new Set(input.manualRecipientIds ?? []).size;
+  const labels: string[] = [];
+  const listIds = input.listIds ?? [];
+  if (listIds.length > 0) {
+    audience.listIds = listIds;
+    labels.push(...(await getEmailListNames(listIds)));
+  }
+  const segmentIds = input.segmentIds ?? [];
+  if (segmentIds.length > 0) {
+    audience.segmentIds = segmentIds;
+    labels.push(...(await getEmailSegmentNames(segmentIds)));
+  }
+  if (labels.length > 0) audience.label = labels.join(", ");
+  if (!audience.label && input.audience?.label) {
+    audience.label = input.audience.label;
+  }
+  return { editor: "maily", audience };
+}
+
 async function createEmailSend(input: ParsedEmailSendInput) {
-  const [templateVersion, preview] = await Promise.all([
-    getEmailTemplateVersion(input.templateVersionId),
-    resolvePreview(input),
-  ]);
-  if (!templateVersion) throw new Error("Template version not found");
+  const preview = await resolvePreview(input);
   if (preview.eligible.length > INLINE_SEND_CAPACITY && !getEmailWorkerSecret()) {
     throw new Error(
       "EMAIL_WORKER_SECRET must be set before sending more than 500 recipients.",
@@ -390,6 +631,7 @@ async function createEmailSend(input: ParsedEmailSendInput) {
   const rendered = await renderMailyDocument(document, {
     previewText,
   });
+
   const name = input.name ?? input.subject;
   const recipients = [
     ...preview.eligible.map((recipient) => ({
@@ -419,7 +661,7 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     })),
   ];
 
-  return createEmailSendWithRecipients({
+  const send = await createEmailSendWithRecipients({
     kind: input.kind,
     name,
     subjectTemplate: input.subject,
@@ -427,15 +669,33 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     fromEmail: getEmailFromEmail(),
     fromName: getEmailFromName(),
     replyToEmail: getEmailReplyToEmail(),
-    templateVersionId: templateVersion.id,
+    templateVersionId: null,
     builderJsonSnapshot: document as Record<string, unknown>,
     htmlPreviewSnapshot: rendered.html,
     textPreviewSnapshot: rendered.text,
-    metadata: {
-      editor: "maily",
-    },
+    metadata: await buildSendMetadata(input),
     recipients,
   });
+
+  // Auto-save the design as a reusable template, deduped by content, and link it
+  // back for provenance. Done AFTER the send so a failed send never leaves an
+  // orphaned published template in the Start-from picker. Best-effort: the send
+  // is already recorded and will go out even if this bookkeeping fails.
+  try {
+    const { templateVersionId } = await findOrCreateTemplateForDocument({
+      builderJson: document,
+      subject: input.subject,
+    });
+    await setEmailSendTemplateVersion(send.id, templateVersionId);
+    send.template_version_id = templateVersionId;
+  } catch (error) {
+    console.error(
+      `Auto-save template failed for send ${send.id}; the email still sends.`,
+      error,
+    );
+  }
+
+  return send;
 }
 
 export async function confirmEmailSendAction(
@@ -464,18 +724,19 @@ export async function sendEmailNowAction(input: {
   kind: EmailSendKind;
   name?: string;
   subject: string;
-  templateVersionId: string;
   builderJson: unknown;
   previewText?: string;
   contactIds?: string[];
   manualRecipientIds?: string[];
+  listIds?: string[];
+  segmentIds?: string[];
+  audience?: AudienceSourceInput;
 }): Promise<{ sendId: string }> {
   await requireAdmin();
   const parsed = draftEmailSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid email send");
   }
-  validateUUID(parsed.data.templateVersionId, "template version");
 
   const provider = getEmailProvider();
   const send = await createEmailSend(parsed.data);
@@ -495,6 +756,243 @@ export async function sendEmailNowAction(input: {
   return { sendId: queuedSend.id };
 }
 
+export async function loadEmailExclusionsAction(): Promise<{
+  exclusions: EmailExclusionRow[];
+}> {
+  await requireAdmin();
+  const exclusions = await listEmailExclusions();
+  return { exclusions };
+}
+
+export async function liftEmailExclusionAction(
+  suppressionId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(suppressionId, "exclusion");
+  await liftEmailExclusion(suppressionId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+// Manually exclude a contact straight from the Excluded list. The email is
+// resolved server-side from the contact id (never trusted from the client).
+export async function excludeContactFromEmailAction(
+  contactId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(contactId, "contact");
+  const contact = await getContactById(contactId);
+  if (!contact) throw new Error("Contact not found");
+  await excludeContactEmail({ contactId, email: contact.email });
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+const emailListInputSchema = z.object({
+  name: z.string().trim().min(1, "List name is required").max(120),
+  description: z.string().trim().max(500).optional(),
+  contactIds: z.array(z.string()).optional(),
+  manualRecipientIds: z.array(z.string()).optional(),
+});
+
+export async function loadEmailListsAction(): Promise<{
+  lists: EmailListSummary[];
+}> {
+  await requireAdmin();
+  const lists = await listEmailLists();
+  return { lists };
+}
+
+export async function getEmailListAction(listId: string): Promise<{
+  list: EmailList;
+  members: EmailListMemberRow[];
+} | null> {
+  await requireAdmin();
+  validateUUID(listId, "list");
+  return getEmailListWithMembers(listId);
+}
+
+export async function createEmailListAction(input: {
+  name: string;
+  description?: string;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+}): Promise<{ list: EmailList }> {
+  await requireAdmin();
+  const parsed = emailListInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid mailing list");
+  }
+  for (const id of parsed.data.contactIds ?? []) validateUUID(id, "contact");
+  for (const id of parsed.data.manualRecipientIds ?? []) {
+    validateUUID(id, "saved recipient");
+  }
+  const list = await createEmailList(parsed.data);
+  revalidatePath("/admin");
+  return { list };
+}
+
+export async function updateEmailListAction(input: {
+  id: string;
+  name: string;
+  description?: string;
+}): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(input.id, "list");
+  const parsed = emailListInputSchema
+    .pick({ name: true, description: true })
+    .safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid mailing list");
+  }
+  await updateEmailList({
+    id: input.id,
+    name: parsed.data.name,
+    description: parsed.data.description,
+  });
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function deleteEmailListAction(
+  listId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(listId, "list");
+  await deleteEmailList(listId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function addEmailListMembersAction(input: {
+  listId: string;
+  contactIds?: string[];
+  manualRecipientIds?: string[];
+}): Promise<{ added: number }> {
+  await requireAdmin();
+  validateUUID(input.listId, "list");
+  for (const id of input.contactIds ?? []) validateUUID(id, "contact");
+  for (const id of input.manualRecipientIds ?? []) {
+    validateUUID(id, "saved recipient");
+  }
+  const result = await addEmailListMembers(input);
+  revalidatePath("/admin");
+  return result;
+}
+
+export async function removeEmailListMemberAction(
+  memberId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(memberId, "list member");
+  await removeEmailListMember(memberId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+const segmentRuleSchema = z.object({
+  match: z.enum(["all", "any"]),
+  includeTagIds: z.array(z.string()),
+  excludeTagIds: z.array(z.string()),
+});
+
+const emailSegmentInputSchema = z.object({
+  name: z.string().trim().min(1, "Segment name is required").max(120),
+  description: z.string().trim().max(500).optional(),
+  rule: segmentRuleSchema,
+});
+
+function validateSegmentTagIds(rule: EmailSegmentRule) {
+  for (const id of rule.includeTagIds) validateUUID(id, "tag");
+  for (const id of rule.excludeTagIds) validateUUID(id, "tag");
+}
+
+export async function loadEmailSegmentsAction(): Promise<{
+  segments: EmailSegmentSummary[];
+}> {
+  await requireAdmin();
+  const segments = await listEmailSegments();
+  return { segments };
+}
+
+export async function loadAudienceTagsAction(): Promise<{
+  categories: TagCategory[];
+  tags: Tag[];
+}> {
+  await requireAdmin();
+  const [categories, tags] = await Promise.all([getTagCategories(), getTags()]);
+  return { categories, tags };
+}
+
+export async function loadAudienceContactsAction(): Promise<{
+  contacts: Array<{ id: string; name: string; email: string }>;
+}> {
+  await requireAdmin();
+  const contacts = await getContacts();
+  return {
+    contacts: contacts.map((contact) => ({
+      id: contact.id,
+      name: contact.name,
+      email: contact.email,
+    })),
+  };
+}
+
+export async function previewSegmentCountAction(
+  rule: EmailSegmentRule,
+): Promise<{ count: number }> {
+  await requireAdmin();
+  const parsed = segmentRuleSchema.safeParse(rule);
+  if (!parsed.success) throw new Error("Invalid segment rule");
+  validateSegmentTagIds(parsed.data);
+  const count = await countSegmentMatches(parsed.data);
+  return { count };
+}
+
+export async function createEmailSegmentAction(input: {
+  name: string;
+  description?: string;
+  rule: EmailSegmentRule;
+}): Promise<{ segment: EmailSegment }> {
+  await requireAdmin();
+  const parsed = emailSegmentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid segment");
+  }
+  validateSegmentTagIds(parsed.data.rule);
+  const segment = await createEmailSegment(parsed.data);
+  revalidatePath("/admin");
+  return { segment };
+}
+
+export async function updateEmailSegmentAction(input: {
+  id: string;
+  name: string;
+  description?: string;
+  rule: EmailSegmentRule;
+}): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(input.id, "segment");
+  const parsed = emailSegmentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid segment");
+  }
+  validateSegmentTagIds(parsed.data.rule);
+  await updateEmailSegment({ id: input.id, ...parsed.data });
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function deleteEmailSegmentAction(
+  segmentId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(segmentId, "segment");
+  await deleteEmailSegment(segmentId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
 export async function deleteEmailSendAction(
   sendId: string,
 ): Promise<{ ok: true }> {
@@ -508,6 +1006,20 @@ export async function deleteEmailSendAction(
 
   revalidatePath("/admin");
   return { ok: true };
+}
+
+/**
+ * Resolve the saved template name + version a sent campaign was rendered from,
+ * so the Sent emails preview can show exactly which template version went out.
+ */
+export type { EmailSendTemplateInfo };
+
+export async function getEmailSendTemplateInfoAction(
+  sendId: string,
+): Promise<EmailSendTemplateInfo | null> {
+  await requireAdmin();
+  validateUUID(sendId, "email send");
+  return getEmailSendTemplateInfo(sendId);
 }
 
 export type EmailSendDiagnostics = {

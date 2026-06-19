@@ -8,7 +8,8 @@ export function getRecipientSummary(input: {
   if (input.kind === "broadcast") {
     return {
       headline: "All contacts with email",
-      detail: "Broadcast skips newsletter unsubscribes and suppressed addresses.",
+      detail:
+        "A newsletter goes to every contact with an email, skipping unsubscribes and excluded addresses.",
     };
   }
 
@@ -20,7 +21,7 @@ export function getRecipientSummary(input: {
         totalSelected === 1 ? "" : "s"
       }`,
       detail:
-        "Outreach sends to selected contacts and saved recipients unless they are suppressed.",
+        "A targeted email reaches the selected contacts and saved recipients, minus anyone excluded.",
     };
   }
 
@@ -28,6 +29,7 @@ export function getRecipientSummary(input: {
     headline: `${input.selectedContactCount} selected contact${
       input.selectedContactCount === 1 ? "" : "s"
     }`,
-    detail: "Outreach sends to selected contacts unless they are suppressed.",
+    detail:
+      "A targeted email reaches the selected contacts, minus anyone excluded.",
   };
 }

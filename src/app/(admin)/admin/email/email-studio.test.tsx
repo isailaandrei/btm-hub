@@ -17,8 +17,6 @@ const mockSetEmailTemplates = vi.fn();
 const mockSetManualRecipients = vi.fn();
 const mockEmailComposerMount = vi.fn();
 const mockEmailComposerUnmount = vi.fn();
-const mockTemplateEditorMount = vi.fn();
-const mockTemplateEditorUnmount = vi.fn();
 
 vi.mock("sonner", () => ({
   toast: {
@@ -64,17 +62,6 @@ vi.mock("./compose/email-composer", () => ({
     }, []);
 
     return <section data-testid="email-composer">Compose</section>;
-  },
-}));
-
-vi.mock("./templates/template-editor", () => ({
-  TemplateEditor: () => {
-    useEffect(() => {
-      mockTemplateEditorMount();
-      return () => mockTemplateEditorUnmount();
-    }, []);
-
-    return <section data-testid="template-editor">Templates</section>;
   },
 }));
 
@@ -127,8 +114,8 @@ describe("EmailStudio", () => {
 
     expect(buttons.map((button) => button.textContent)).toEqual([
       "Compose",
-      "Templates",
       "Sent emails",
+      "Audiences",
     ]);
     expect(buttons).toHaveLength(3);
     expect(buttons[0].getAttribute("data-state")).toBe("active");
@@ -139,24 +126,19 @@ describe("EmailStudio", () => {
     expect(buttons[1].querySelector("svg")).not.toBeNull();
   });
 
-  it("keeps compose and templates mounted after first visit", () => {
+  it("keeps compose mounted when switching to the sent tab and back", () => {
     act(() => {
       root.render(<EmailStudio selectedContactIds={[]} />);
     });
 
     expect(mockEmailComposerMount).toHaveBeenCalledTimes(1);
-    expect(mockTemplateEditorMount).not.toHaveBeenCalled();
 
-    clickEmailTab("Templates");
-
-    expect(mockEmailComposerUnmount).not.toHaveBeenCalled();
-    expect(mockTemplateEditorMount).toHaveBeenCalledTimes(1);
-
+    clickEmailTab("Sent emails");
     clickEmailTab("Compose");
 
+    // Compose is hidden, never unmounted, so editor state survives tab switches.
     expect(mockEmailComposerMount).toHaveBeenCalledTimes(1);
     expect(mockEmailComposerUnmount).not.toHaveBeenCalled();
-    expect(mockTemplateEditorUnmount).not.toHaveBeenCalled();
   });
 
   it("loads compose data on mount and defers sends until the sent tab is selected", () => {

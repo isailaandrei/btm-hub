@@ -50,6 +50,54 @@ export const getEmailSend = cache(
   },
 );
 
+export interface EmailSendTemplateInfo {
+  templateName: string;
+  versionNumber: number;
+}
+
+/**
+ * Resolve which saved template version a send was rendered from, so the Sent
+ * emails view can label a campaign with its template name + version. Returns
+ * null when the send wasn't linked to a template (e.g. a one-off design whose
+ * auto-save didn't run).
+ */
+export async function getEmailSendTemplateInfo(
+  sendId: string,
+): Promise<EmailSendTemplateInfo | null> {
+  const supabase = await createClient();
+  const { data: send, error } = await supabase
+    .from("email_sends")
+    .select("template_version_id")
+    .eq("id", sendId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load email send: ${error.message}`);
+
+  const versionId = (send?.template_version_id as string | null) ?? null;
+  if (!versionId) return null;
+
+  const { data: version, error: versionError } = await supabase
+    .from("email_template_versions")
+    .select("version_number, email_templates(name)")
+    .eq("id", versionId)
+    .maybeSingle();
+  if (versionError) {
+    throw new Error(`Failed to load template version: ${versionError.message}`);
+  }
+  if (!version) return null;
+
+  const templateRecord = Array.isArray(version.email_templates)
+    ? version.email_templates[0]
+    : version.email_templates;
+  const templateName =
+    (templateRecord as { name?: string } | null)?.name?.trim() ||
+    "Untitled template";
+
+  return {
+    templateName,
+    versionNumber: version.version_number as number,
+  };
+}
+
 export async function getEmailSendForWorker(
   id: string,
 ): Promise<EmailSend | null> {
@@ -153,6 +201,27 @@ export async function queueEmailSend(sendId: string): Promise<EmailSend> {
 
   if (error) throw new Error(`Failed to queue email send: ${error.message}`);
   return data as EmailSend;
+}
+
+/**
+ * Link a send to the template version that captured its design. Done after the
+ * send is created so a failed send never leaves an orphaned published template.
+ */
+export async function setEmailSendTemplateVersion(
+  sendId: string,
+  templateVersionId: string,
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("email_sends")
+    .update({
+      template_version_id: templateVersionId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sendId);
+  if (error) {
+    throw new Error(`Failed to link template to send: ${error.message}`);
+  }
 }
 
 export async function deleteRemovableEmailSend(sendId: string): Promise<boolean> {
@@ -542,6 +611,34 @@ export async function recordProviderNewsletterUnsubscribe(input: {
   }
 }
 
+/**
+ * Land an unsubscribed address on the single exclusion list. Flat exclusion:
+ * once suppressed, the person receives no email of any kind. Safe to call when
+ * an active suppression already exists (the unique partial index raises 23505,
+ * which we ignore — they are already excluded). Uses the admin client because
+ * it runs from the public unsubscribe route and the provider webhook.
+ */
+export async function suppressUnsubscribedEmail(input: {
+  contactId: string | null;
+  email: string;
+  source: string;
+}): Promise<void> {
+  const supabase = await createAdminClient();
+  const { error } = await supabase.from("email_suppressions").insert({
+    contact_id: input.contactId,
+    email: input.email.trim().toLowerCase(),
+    reason: "unsubscribe",
+    detail: `Unsubscribed via ${input.source}`,
+    provider: null,
+    provider_event_id: null,
+    created_by: null,
+  });
+
+  if (error && error.code !== "23505") {
+    throw new Error(`Failed to suppress unsubscribed email: ${error.message}`);
+  }
+}
+
 export const listContactEmailPreferences = cache(
   async function listContactEmailPreferences(): Promise<ContactEmailPreference[]> {
     const supabase = await createClient();
@@ -629,6 +726,13 @@ export async function unsubscribeNewsletterByToken(
       );
     }
   }
+
+  // Flat exclusion: an unsubscribe stops all email, not just newsletters.
+  await suppressUnsubscribedEmail({
+    contactId: row.contact_id,
+    email: row.email,
+    source: "email_link",
+  });
 
   const now = new Date().toISOString();
   const { error: recipientError } = await supabase

@@ -114,6 +114,7 @@ export function createBrevoEmailProvider(
           headers: {
             idempotencyKey: input.recipientId,
             "X-Mailin-custom": JSON.stringify(input.metadata),
+            ...input.headers,
           },
           tags: ["btm-admin-email", input.sendId],
         }),

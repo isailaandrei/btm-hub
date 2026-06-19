@@ -6,6 +6,7 @@ import {
   getEmailRecipientByProviderMessage,
   recordProviderNewsletterUnsubscribe,
   suppressEmailFromProvider,
+  suppressUnsubscribedEmail,
   updateEmailSendCounts,
   updateRecipientForProviderEvent,
 } from "@/lib/data/email-sends";
@@ -201,6 +202,12 @@ async function applyEvent(event: NormalizedProviderEvent) {
   if (recipient && event.type === "unsubscribed") {
     await recordProviderNewsletterUnsubscribe({
       contactId: recipient.contact_id,
+      source: `provider:${event.provider}`,
+    });
+    // Flat exclusion: a provider-side unsubscribe also lands on the exclusion list.
+    await suppressUnsubscribedEmail({
+      contactId: recipient.contact_id,
+      email: recipient.email,
       source: `provider:${event.provider}`,
     });
   }

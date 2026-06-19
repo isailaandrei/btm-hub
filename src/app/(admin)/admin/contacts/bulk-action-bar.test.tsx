@@ -29,6 +29,12 @@ vi.mock("./actions", () => ({
   bulkUnassignTag: vi.fn(),
 }));
 
+vi.mock("../email/actions", () => ({
+  loadEmailListsAction: vi.fn().mockResolvedValue({ lists: [] }),
+  addEmailListMembersAction: vi.fn().mockResolvedValue({ added: 0 }),
+  createEmailListAction: vi.fn(),
+}));
+
 vi.mock("../admin-data-provider", () => ({
   useAdminContactsData: () => ({
     addOptimisticContactTags: mockAddOptimisticContactTags,

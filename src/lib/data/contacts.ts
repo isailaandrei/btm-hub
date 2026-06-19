@@ -32,7 +32,15 @@ export const getContactById = cache(async function getContactById(id: string) {
     .eq("id", id)
     .single();
 
-  if (error) return null;
+  // PGRST116 = no row matched (an id PK can't return more than one), so that's
+  // a genuine miss → null. Any other error is a real failure (RLS, network,
+  // …); surface it instead of masking it as "not found" — callers like the
+  // email-exclusion actions act on the result, so a swallowed error there would
+  // silently misreport. (Fail loud, never fake.)
+  if (error) {
+    if (error.code === "PGRST116") return null;
+    throw new Error(`Failed to load contact: ${error.message}`);
+  }
   return data as Contact;
 });
 

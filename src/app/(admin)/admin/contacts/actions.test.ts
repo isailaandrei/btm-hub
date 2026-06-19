@@ -23,6 +23,7 @@ const mockUnassignTag = vi.fn();
 const mockBulkAssignTags = vi.fn();
 const mockBulkUnassignTags = vi.fn();
 const mockDeleteApplication = vi.fn();
+const mockGetContactById = vi.fn();
 const mockRevalidatePath = vi.fn();
 
 vi.mock("@/lib/data/contacts", () => ({
@@ -32,6 +33,15 @@ vi.mock("@/lib/data/contacts", () => ({
   bulkAssignTags: mockBulkAssignTags,
   bulkUnassignTags: mockBulkUnassignTags,
   deleteApplication: mockDeleteApplication,
+  getContactById: mockGetContactById,
+}));
+
+const mockGetActiveSuppressionForContact = vi.fn();
+
+vi.mock("@/lib/data/email-suppressions", () => ({
+  excludeContactEmail: vi.fn(),
+  liftContactExclusion: vi.fn(),
+  getActiveSuppressionForContact: mockGetActiveSuppressionForContact,
 }));
 
 const mockUpdateProfilePreferences = vi.fn();
@@ -50,6 +60,7 @@ const {
   bulkUnassignTag,
   editContact,
   deleteApplication,
+  loadContactEmailSection,
 } = await import(
   "./actions"
 );
@@ -203,6 +214,59 @@ describe("deleteApplication", () => {
       "/admin/contacts/660e8400-e29b-41d4-a716-446655440001",
     );
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
+  });
+});
+
+describe("loadContactEmailSection", () => {
+  beforeEach(() => {
+    mockGetContactById.mockReset();
+    mockGetActiveSuppressionForContact.mockReset();
+    mockGetContactById.mockResolvedValue({
+      id: VALID_UUID,
+      email: "jane@example.com",
+    });
+  });
+
+  it("resolves the email server-side from the contact id (never the client)", async () => {
+    mockGetActiveSuppressionForContact.mockResolvedValue(null);
+
+    await loadContactEmailSection(VALID_UUID);
+
+    expect(mockGetContactById).toHaveBeenCalledWith(VALID_UUID);
+    // Email passed to the suppression lookup is the server-resolved one.
+    expect(mockGetActiveSuppressionForContact).toHaveBeenCalledWith({
+      contactId: VALID_UUID,
+      email: "jane@example.com",
+    });
+  });
+
+  it("reports excluded with its reason when a suppression exists", async () => {
+    mockGetActiveSuppressionForContact.mockResolvedValue({
+      reason: "unsubscribe",
+    });
+
+    await expect(loadContactEmailSection(VALID_UUID)).resolves.toEqual({
+      excluded: true,
+      reason: "unsubscribe",
+    });
+  });
+
+  it("reports not-excluded when there is no suppression", async () => {
+    mockGetActiveSuppressionForContact.mockResolvedValue(null);
+
+    await expect(loadContactEmailSection(VALID_UUID)).resolves.toEqual({
+      excluded: false,
+      reason: null,
+    });
+  });
+
+  it("throws for an unknown contact rather than faking a status", async () => {
+    mockGetContactById.mockResolvedValue(null);
+
+    await expect(loadContactEmailSection(VALID_UUID)).rejects.toThrow(
+      "Contact not found",
+    );
+    expect(mockGetActiveSuppressionForContact).not.toHaveBeenCalled();
   });
 });
 

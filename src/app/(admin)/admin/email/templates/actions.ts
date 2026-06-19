@@ -3,19 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { listEmailAssetIdsByPublicUrls } from "@/lib/data/email-assets";
 import {
   archiveEmailTemplate,
   createEmailTemplate,
-  createEmailTemplateVersion,
   getEmailTemplateVersion,
+  renameEmailTemplate,
 } from "@/lib/data/email-templates";
 import {
   assertMailyDocument,
-  getAssetIdsForMailyDocument,
-  getAssetPublicUrlsForMailyDocument,
   renderMailyDocument,
 } from "@/lib/email/rendering/maily";
+import { createTemplateVersionFromDocument } from "@/lib/email/template-authoring";
 import { validateUUID } from "@/lib/validation-helpers";
 import type { EmailTemplate } from "@/types/database";
 
@@ -107,6 +105,54 @@ export async function getTemplateVersionForEditorAction(
   };
 }
 
+// Sample values so variable placeholders (e.g. {{ contact.name }}) render as
+// realistic text in the preview instead of falling back to their default.
+const PREVIEW_SAMPLE_VARIABLES = {
+  contact: { name: "Alex Rivera", email: "alex@example.com" },
+  owner: { name: "Behind The Mask", email: "hello@behind-the-mask.com" },
+};
+
+export async function renderTemplatePreviewAction(input: {
+  builderJson: unknown;
+  previewText?: string;
+}): Promise<{ html: string }> {
+  await requireAdmin();
+  const document = assertMailyDocument(input.builderJson);
+  const rendered = await renderMailyDocument(document, {
+    previewText: input.previewText?.trim() || undefined,
+    variables: PREVIEW_SAMPLE_VARIABLES,
+  });
+  return { html: rendered.html };
+}
+
+const renameTemplateSchema = z.object({
+  templateId: z.string().min(1, "Template is required"),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Template name is required")
+    .max(120, "Template name must be 120 characters or fewer"),
+});
+
+export async function renameTemplateAction(input: {
+  templateId: string;
+  name: string;
+}): Promise<{ ok: true; name: string }> {
+  await requireAdmin();
+  const parsed = renameTemplateSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid template name");
+  }
+  validateUUID(parsed.data.templateId, "template");
+
+  await renameEmailTemplate({
+    templateId: parsed.data.templateId,
+    name: parsed.data.name,
+  });
+  revalidatePath("/admin");
+  return { ok: true, name: parsed.data.name };
+}
+
 export async function deleteTemplateAction(
   templateId: string,
 ): Promise<{ ok: true }> {
@@ -122,22 +168,5 @@ async function createVisualTemplateVersion(
   templateId: string,
   builderJson: unknown,
 ) {
-  validateUUID(templateId, "template");
-  const document = assertMailyDocument(builderJson);
-  const explicitAssetIds = getAssetIdsForMailyDocument(document);
-  const uploadedAssetIds = await listEmailAssetIdsByPublicUrls(
-    getAssetPublicUrlsForMailyDocument(document),
-  );
-  const assetIds = [...new Set([...explicitAssetIds, ...uploadedAssetIds])];
-  for (const assetId of assetIds) validateUUID(assetId, "asset");
-
-  const rendered = await renderMailyDocument(document);
-
-  return createEmailTemplateVersion({
-    templateId,
-    builderJson: document as Record<string, unknown>,
-    html: rendered.html,
-    text: rendered.text,
-    assetIds,
-  });
+  return createTemplateVersionFromDocument({ templateId, builderJson });
 }

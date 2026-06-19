@@ -8,7 +8,162 @@ import {
 export type MailyDocument = JSONContent & {
   type: "doc";
   content: JSONContent[];
+  /**
+   * Optional per-template layout, stored alongside the document in builder_json
+   * so it travels through preview, save, and send. All fall back to defaults.
+   * - maxWidth: the container max-width (px).
+   * - paddingTop / paddingBottom: the container's vertical padding (px). Set
+   *   paddingTop to 0 for a banner flush to the top of the card.
+   */
+  maxWidth?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+  /** Whole-email font, by key into EMAIL_FONTS. Defaults to the system stack. */
+  fontKey?: string;
 };
+
+export const DEFAULT_EMAIL_WIDTH = 680;
+export const MIN_EMAIL_WIDTH = 320;
+export const MAX_EMAIL_WIDTH = 900;
+
+export const DEFAULT_EMAIL_PADDING = 32;
+export const MIN_EMAIL_PADDING = 0;
+export const MAX_EMAIL_PADDING = 96;
+
+/** Clamp an arbitrary width input to the allowed email-container range. */
+export function clampEmailWidth(value: unknown): number {
+  const numeric =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(numeric)) return DEFAULT_EMAIL_WIDTH;
+  return Math.min(MAX_EMAIL_WIDTH, Math.max(MIN_EMAIL_WIDTH, Math.round(numeric)));
+}
+
+/** Clamp an arbitrary vertical-padding input to the allowed range. */
+export function clampEmailPadding(value: unknown): number {
+  const numeric =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(numeric)) return DEFAULT_EMAIL_PADDING;
+  return Math.min(
+    MAX_EMAIL_PADDING,
+    Math.max(MIN_EMAIL_PADDING, Math.round(numeric)),
+  );
+}
+
+/** Resolve the effective container width for a document (clamped, with default). */
+export function getMailyDocumentWidth(document: MailyDocument): number {
+  return document.maxWidth == null
+    ? DEFAULT_EMAIL_WIDTH
+    : clampEmailWidth(document.maxWidth);
+}
+
+export function getMailyDocumentPaddingTop(document: MailyDocument): number {
+  return document.paddingTop == null
+    ? DEFAULT_EMAIL_PADDING
+    : clampEmailPadding(document.paddingTop);
+}
+
+export function getMailyDocumentPaddingBottom(document: MailyDocument): number {
+  return document.paddingBottom == null
+    ? DEFAULT_EMAIL_PADDING
+    : clampEmailPadding(document.paddingBottom);
+}
+
+/**
+ * Email-safe font stacks an admin can pick from for a whole message. Custom or
+ * Google web fonts can't be relied on in email (Outlook ignores @font-face,
+ * Gmail strips it), so every option is a system/web-safe stack that renders
+ * without a download. `fontFamily` is the PRIMARY family (emitted quoted by
+ * @maily-to/render); the rest of the stack goes in `fallbackFontFamily`
+ * (emitted unquoted). `cssStack` is the full family for the editor canvas.
+ */
+export interface EmailFontOption {
+  key: string;
+  label: string;
+  fontFamily: string;
+  fallbackFontFamily: string;
+  cssStack: string;
+}
+
+export const EMAIL_FONTS: EmailFontOption[] = [
+  {
+    key: "system",
+    label: "System sans",
+    fontFamily: "-apple-system",
+    fallbackFontFamily:
+      "BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    cssStack:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  },
+  {
+    key: "helvetica",
+    label: "Helvetica / Arial",
+    fontFamily: "Helvetica",
+    fallbackFontFamily: "Arial, sans-serif",
+    cssStack: "Helvetica, Arial, sans-serif",
+  },
+  {
+    key: "georgia",
+    label: "Georgia",
+    fontFamily: "Georgia",
+    fallbackFontFamily: "'Times New Roman', Times, serif",
+    cssStack: "Georgia, 'Times New Roman', Times, serif",
+  },
+  {
+    key: "mono",
+    label: "Monospace",
+    fontFamily: "'Courier New'",
+    fallbackFontFamily: "Courier, monospace",
+    cssStack: "'Courier New', Courier, monospace",
+  },
+];
+
+export const DEFAULT_EMAIL_FONT_KEY = EMAIL_FONTS[0].key;
+
+/** Resolve a font key to its option (falling back to the system stack). */
+export function getEmailFontByKey(key: string | undefined): EmailFontOption {
+  return EMAIL_FONTS.find((font) => font.key === key) ?? EMAIL_FONTS[0];
+}
+
+/** Resolve a document's font key (falling back to the system default). */
+export function getMailyDocumentFontKey(document: MailyDocument): string {
+  const key = document.fontKey;
+  return typeof key === "string" && EMAIL_FONTS.some((font) => font.key === key)
+    ? key
+    : DEFAULT_EMAIL_FONT_KEY;
+}
+
+/** Per-template layout settings (the editor tracks these and merges them into
+ *  the document snapshot so they persist through save/preview/send). */
+export interface EmailLayout {
+  maxWidth: number;
+  paddingTop: number;
+  paddingBottom: number;
+  fontKey: string;
+}
+
+/** Resolve a document's layout (clamped, with defaults). */
+export function getMailyDocumentLayout(document: MailyDocument): EmailLayout {
+  return {
+    maxWidth: getMailyDocumentWidth(document),
+    paddingTop: getMailyDocumentPaddingTop(document),
+    paddingBottom: getMailyDocumentPaddingBottom(document),
+    fontKey: getMailyDocumentFontKey(document),
+  };
+}
+
+/** Merge layout settings onto a document (for the editor snapshot). */
+export function applyLayoutToDocument(
+  document: MailyDocument,
+  layout: EmailLayout,
+): MailyDocument {
+  return {
+    ...document,
+    maxWidth: layout.maxWidth,
+    paddingTop: layout.paddingTop,
+    paddingBottom: layout.paddingBottom,
+    fontKey: layout.fontKey,
+  };
+}
 
 export interface RenderedEmailBody {
   html: string;
@@ -19,27 +174,55 @@ export interface RenderedEmail extends RenderedEmailBody {
   subject: string;
 }
 
+// Build a render-theme `font` from a font option. `webFont: undefined` is
+// required to strip the library's default Inter @font-face — the deep-merge in
+// setTheme keeps the default webFont otherwise (which would download Inter).
+function fontThemeForKey(fontKey: string) {
+  const option = getEmailFontByKey(fontKey);
+  return {
+    fontFamily: option.fontFamily,
+    fallbackFontFamily: option.fallbackFontFamily,
+    webFont: undefined,
+  };
+}
+
+// Default theme font is the system stack (renders identically in every client,
+// no webfont download); a per-email choice overrides it at render time.
+const SYSTEM_FONT = fontThemeForKey(DEFAULT_EMAIL_FONT_KEY);
+
 const DEFAULT_EMAIL_RENDER_THEME = {
+  font: SYSTEM_FONT,
   body: {
     backgroundColor: "#f3f4f6",
     paddingTop: "32px",
-    paddingRight: "16px",
+    // No horizontal gutter: on desktop the container is already centered at its
+    // max-width (gray fills the sides), so side padding only matters on mobile —
+    // where it would inset the card. Zeroing it lets the email fill the phone
+    // width edge-to-edge while leaving the desktop framed look unchanged.
+    paddingRight: "0px",
     paddingBottom: "32px",
-    paddingLeft: "16px",
+    paddingLeft: "0px",
   },
   container: {
     backgroundColor: "#ffffff",
-    maxWidth: "640px",
+    maxWidth: "680px",
     minWidth: "300px",
     paddingTop: "32px",
-    paddingRight: "32px",
+    // No horizontal padding on the container itself — that lets `section` blocks
+    // reach the card edges (full-width bands). Normal content keeps its gutter by
+    // being wrapped in a padded section (see wrapLooseContentInSections).
+    paddingRight: "0px",
     paddingBottom: "32px",
-    paddingLeft: "32px",
+    paddingLeft: "0px",
     borderRadius: "12px",
     borderWidth: "0px",
     borderColor: "transparent",
   },
 };
+
+// Horizontal gutter applied to "loose" (non-section) content so it stays inset
+// from the card edges now that the container has no side padding.
+export const CONTENT_GUTTER = 32;
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -60,6 +243,10 @@ export function createDefaultMailyDocument(input: {
   imageUrl?: string;
   imageAssetId?: string;
 } = {}): MailyDocument {
+  // Content flows inside the container's padding (full-width banners are not the
+  // global default — they'd require zeroing that padding, which strips the gutter
+  // from every other template). height "auto" keeps an inserted banner image
+  // proportional on mobile.
   const content: JSONContent[] = [
     ...(input.imageUrl
       ? [
@@ -145,12 +332,162 @@ function contactNameVariable(): JSONContent {
   };
 }
 
+/**
+ * Force every image node to render with `height: auto`.
+ *
+ * Maily emits images as `<img style="width:{N}px; height:{N}px; max-width:100%">`.
+ * When the editor stores an explicit pixel height (it does whenever an image is
+ * drag-resized), `max-width:100%` shrinks the width on narrow screens but the
+ * fixed height stays put — so the image squashes on mobile. Setting the height
+ * to "auto" lets the browser scale it proportionally. We normalize at render
+ * time (non-destructively) so the stored builder JSON is untouched but every
+ * rendered email — preview, template, and sent message — is responsive.
+ *
+ * `logo` and `inlineImage` nodes are intentionally left alone (they are meant to
+ * be fixed-size).
+ */
+function withResponsiveImages(document: MailyDocument): MailyDocument {
+  const clone = cloneJson(document);
+
+  function visit(node: JSONContent) {
+    if (node.type === "image" && isRecord(node.attrs)) {
+      node.attrs.height = "auto";
+    }
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) visit(child);
+    }
+  }
+
+  visit(clone);
+  return clone;
+}
+
+/** A transparent, borderless section with a horizontal gutter — wraps "loose"
+ *  (non-section) content so it stays inset from the card edges. */
+function paddedContentSection(content: JSONContent[]): JSONContent {
+  return {
+    type: "section",
+    attrs: {
+      backgroundColor: "transparent",
+      borderWidth: 0,
+      borderColor: "transparent",
+      borderRadius: 0,
+      align: "left",
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      marginLeft: 0,
+      paddingTop: 0,
+      paddingRight: CONTENT_GUTTER,
+      paddingBottom: 0,
+      paddingLeft: CONTENT_GUTTER,
+    },
+    content,
+  };
+}
+
+/**
+ * Whether a top-level node renders edge-to-edge (full width) vs inset with a
+ * gutter. An explicit `attrs.fullwidth` boolean wins; otherwise sections default
+ * to full-width and everything else (text, images) defaults to inset. This flag
+ * is what the admin's "Full width" toggle sets.
+ */
+export function isFullWidthNode(node: JSONContent): boolean {
+  // Stored under a lowercase key with a string value (`fullwidth: "true"|"false"`)
+  // so it can ride along on Maily's attr-spreading node views without tripping a
+  // React DOM warning. Booleans are accepted too for resilience.
+  const fullWidth = isRecord(node.attrs) ? node.attrs.fullwidth : undefined;
+  if (fullWidth === true || fullWidth === "true") return true;
+  if (fullWidth === false || fullWidth === "false") return false;
+  return node.type === "section";
+}
+
+/** True for the transparent gutter wrappers `paddedContentSection` creates. */
+function isGutterSection(node: JSONContent): boolean {
+  if (node.type !== "section" || !isRecord(node.attrs)) return false;
+  const attrs = node.attrs;
+  return (
+    attrs.backgroundColor === "transparent" &&
+    attrs.borderWidth === 0 &&
+    attrs.paddingLeft === CONTENT_GUTTER &&
+    attrs.paddingRight === CONTENT_GUTTER
+  );
+}
+
+/**
+ * Editor layout: unwrap the gutter sections back to a flat list of blocks, so
+ * the editor shows the real content and toggling full-width is a live CSS change
+ * (no structural rewrite). Idempotent on an already-flat document.
+ */
+export function flattenEmailRows(document: MailyDocument): MailyDocument {
+  const out: JSONContent[] = [];
+  for (const node of document.content ?? []) {
+    if (isRecord(node) && isGutterSection(node) && Array.isArray(node.content)) {
+      out.push(...node.content);
+    } else {
+      out.push(node);
+    }
+  }
+  return { ...document, content: out };
+}
+
+/**
+ * Render layout: full-width nodes (sections by default, or anything flagged
+ * `fullwidth: true`) become edge-to-edge rows; runs of inset nodes are wrapped in
+ * a padded gutter section so they keep the 32px gutter (the container itself has
+ * no side padding). Reliable across clients — nested 100% tables, no negative
+ * margins. Flattens first so it's idempotent on already-arranged documents.
+ */
+export function arrangeEmailRows(document: MailyDocument): MailyDocument {
+  const flat = flattenEmailRows(document);
+  const out: JSONContent[] = [];
+  let run: JSONContent[] = [];
+  const flush = () => {
+    if (run.length) {
+      out.push(paddedContentSection(run));
+      run = [];
+    }
+  };
+  for (const node of flat.content ?? []) {
+    if (isFullWidthNode(node)) {
+      flush();
+      out.push(node);
+    } else {
+      run.push(node);
+    }
+  }
+  flush();
+  return { ...document, content: out };
+}
+
 export function parseMailyDocumentOrDefault(value: unknown): MailyDocument {
   try {
     return assertMailyDocument(value);
   } catch {
     return createDefaultMailyDocument();
   }
+}
+
+// Injected into <head>:
+// - reset the default ~8px <body> margin Maily leaves in place, so the email is
+//   not inset on narrow screens.
+// - on phones, square off the white card's corners — rounded corners look odd
+//   once the card is full-bleed at the screen edge. Targets the container by its
+//   `border-radius:12px` (buttons/images use other radii); degrades gracefully
+//   in clients that ignore the media query (corners just stay rounded).
+const EMAIL_BASE_CSS = [
+  "<style>",
+  "body{margin:0 !important;padding:0 !important;}",
+  "@media only screen and (max-width:600px){",
+  '[style*="border-radius:12px"]{border-radius:0 !important;}',
+  "}",
+  "</style>",
+].join("");
+
+function injectBaseEmailCss(html: string): string {
+  const headClose = html.toLowerCase().indexOf("</head>");
+  if (headClose === -1) return `${EMAIL_BASE_CSS}${html}`;
+  return `${html.slice(0, headClose)}${EMAIL_BASE_CSS}${html.slice(headClose)}`;
 }
 
 export async function renderMailyDocument(
@@ -160,8 +497,20 @@ export async function renderMailyDocument(
     variables?: EmailRenderVariables;
   } = {},
 ): Promise<RenderedEmailBody> {
-  const renderer = new Maily(assertMailyDocument(document));
-  renderer.setTheme(DEFAULT_EMAIL_RENDER_THEME);
+  const normalized = arrangeEmailRows(
+    withResponsiveImages(assertMailyDocument(document)),
+  );
+  const renderer = new Maily(normalized);
+  renderer.setTheme({
+    ...DEFAULT_EMAIL_RENDER_THEME,
+    font: fontThemeForKey(getMailyDocumentFontKey(normalized)),
+    container: {
+      ...DEFAULT_EMAIL_RENDER_THEME.container,
+      maxWidth: `${getMailyDocumentWidth(normalized)}px`,
+      paddingTop: `${getMailyDocumentPaddingTop(normalized)}px`,
+      paddingBottom: `${getMailyDocumentPaddingBottom(normalized)}px`,
+    },
+  });
   if (input.previewText) {
     renderer.setPreviewText(input.previewText);
   }
@@ -173,7 +522,7 @@ export async function renderMailyDocument(
     renderer.render({ pretty: true }),
     renderer.render({ plainText: true }),
   ]);
-  return { html, text };
+  return { html: injectBaseEmailCss(html), text };
 }
 
 export async function renderMailyEmail(input: {

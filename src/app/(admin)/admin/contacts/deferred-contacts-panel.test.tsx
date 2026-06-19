@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   contactsContext: {
     contactActivitySummaries: [],
     contactTags: [],
-    contacts: [],
+    // Tests reassign this to null to exercise the not-yet-cached path.
+    contacts: [] as unknown[] | null,
     hasLoadedFullContacts: true,
     tagCategories: [],
     tags: [],

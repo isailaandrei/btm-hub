@@ -11,12 +11,13 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
-  LayoutTemplate,
+  Eye,
   Loader2,
   MailCheck,
   PenLine,
   RefreshCw,
   Trash2,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,14 +32,16 @@ import {
   useAdminEmailData,
 } from "./admin-email-data-provider";
 import { EmailComposer } from "./compose/email-composer";
+import { AudiencesPanel } from "./audiences/audiences-panel";
+import { SentEmailPreview } from "./sent-email-preview";
 import {
   buildEmailSendMetrics,
   type EmailSendMetricTone,
 } from "./sent-metrics";
 import { formatEmailSendTiming } from "./sent-date";
-import { TemplateEditor } from "./templates/template-editor";
+import { buildSentRowSummary } from "./sent-summary";
 
-type EmailTab = "compose" | "templates" | "sent";
+type EmailTab = "compose" | "sent" | "audiences";
 type DiagnosticsBySendId = Record<string, EmailSendDiagnostics>;
 
 const EMAIL_TABS: Array<{
@@ -47,8 +50,8 @@ const EMAIL_TABS: Array<{
   icon: LucideIcon;
 }> = [
   { key: "compose", label: "Compose", icon: PenLine },
-  { key: "templates", label: "Templates", icon: LayoutTemplate },
   { key: "sent", label: "Sent emails", icon: MailCheck },
+  { key: "audiences", label: "Audiences", icon: Users },
 ];
 
 function isActiveSend(send: EmailSend) {
@@ -124,7 +127,6 @@ function EmailStudioContent({
     templates,
     sends,
     manualRecipients,
-    templateVersionsById,
     emailError,
     ensureEmailTemplates,
     ensureManualRecipients,
@@ -136,7 +138,7 @@ function EmailStudioContent({
     setManualRecipients,
   } = useAdminEmailData();
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
-  const [hasVisitedTemplates, setHasVisitedTemplates] = useState(false);
+  const [previewSend, setPreviewSend] = useState<EmailSend | null>(null);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
   const [isLoadingData, startLoadDataTransition] = useTransition();
   const [isLoadingSends, startLoadSendsTransition] = useTransition();
@@ -192,9 +194,6 @@ function EmailStudioContent({
   }
 
   function handleSelectEmailTab(tab: EmailTab) {
-    if (tab === "templates") {
-      setHasVisitedTemplates(true);
-    }
     setActiveTab(tab);
   }
 
@@ -326,27 +325,15 @@ function EmailStudioContent({
         <EmailComposer
           key={selectedContactIds.join(",")}
           templates={templates}
-          templateVersionsById={templateVersionsById}
           ensureTemplateVersion={ensureTemplateVersion}
           selectedContactIds={selectedContactIds}
           manualRecipients={manualRecipients ?? []}
           setManualRecipients={setManualRecipients}
+          setTemplates={setEmailTemplates}
           onSendStarted={handleSendStarted}
+          isActive={activeTab === "compose"}
         />
       </div>
-
-      {(activeTab === "templates" || hasVisitedTemplates) && (
-        <div hidden={activeTab !== "templates"}>
-          <TemplateEditor
-            templates={templates}
-            templateVersionsById={templateVersionsById}
-            ensureTemplateVersion={ensureTemplateVersion}
-            onTemplatesChange={(nextTemplates) =>
-              setEmailTemplates(nextTemplates)
-            }
-          />
-        </div>
-      )}
 
       {activeTab === "sent" && (
         <div className="overflow-hidden rounded-md border border-border bg-card">
@@ -392,13 +379,24 @@ function EmailStudioContent({
                   isLoadingDiagnostics && loadingDiagnosticsId === send.id;
                 const metrics = buildEmailSendMetrics(send);
                 const sentOn = formatEmailSendTiming(send);
+                const summary = buildSentRowSummary(send);
+                const audiencePrefix = summary.audienceName
+                  ? `${summary.audienceName} · `
+                  : "";
 
                 return (
                   <Fragment key={send.id}>
-                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(220px,0.9fr)_minmax(460px,2fr)_minmax(190px,auto)_auto] md:items-center">
+                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(240px,1fr)_minmax(420px,1.8fr)_auto] md:items-center">
                       <div className="min-w-0">
                         <p className="truncate font-medium text-foreground">
-                          {send.name}
+                          {sentOn ?? "Draft"}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {audiencePrefix}
+                          {summary.recipientText} · {summary.kindLabel}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground/70">
+                          {send.subject_template}
                         </p>
                       </div>
                       <div className="flex min-w-0 flex-wrap gap-1.5">
@@ -416,10 +414,15 @@ function EmailStudioContent({
                           </span>
                         ))}
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {sentOn}
-                      </span>
                       <div className="flex flex-wrap justify-start gap-2 md:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewSend(send)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Preview
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleToggleDiagnostics(send.id)}
@@ -554,6 +557,18 @@ function EmailStudioContent({
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === "audiences" && <AudiencesPanel />}
+
+      {previewSend && (
+        <SentEmailPreview
+          key={previewSend.id}
+          send={previewSend}
+          kindLabel={buildSentRowSummary(previewSend).kindLabel}
+          sentOn={formatEmailSendTiming(previewSend)}
+          onClose={() => setPreviewSend(null)}
+        />
       )}
     </div>
   );

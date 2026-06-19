@@ -7,6 +7,7 @@ import type { TagCategory, Tag } from "@/types/database";
 import { TAG_COLOR_CLASSES } from "../constants";
 import { useAdminContactsData } from "../admin-data-provider";
 import { bulkAssignTag, bulkUnassignTag } from "./actions";
+import { AddToListMenu } from "./add-to-list-menu";
 
 interface BulkActionBarProps {
   selectedCount: number;
@@ -107,6 +108,8 @@ export const BulkActionBar = memo(function BulkActionBar({
           Send email
         </button>
       )}
+
+      <AddToListMenu contactIds={selectedIds} />
 
       <select
         value={categoryId}

@@ -10,6 +10,8 @@ export interface ProviderSendEmailInput {
   html: string;
   text: string;
   metadata: Record<string, string>;
+  /** Extra MIME headers (e.g. RFC-8058 List-Unsubscribe) for the provider. */
+  headers?: Record<string, string>;
 }
 
 export interface ProviderSendEmailResult {

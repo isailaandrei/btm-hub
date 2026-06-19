@@ -264,7 +264,8 @@ export type EmailSuppressionReason =
   | "spam_complaint"
   | "invalid_address"
   | "manual"
-  | "do_not_contact";
+  | "do_not_contact"
+  | "unsubscribe";
 
 export interface EmailTemplate {
   id: string;
@@ -288,6 +289,7 @@ export interface EmailTemplateVersion {
   html: string;
   text: string;
   asset_ids: string[];
+  content_hash: string | null;
   created_by: string;
   created_at: string;
 }
@@ -310,6 +312,42 @@ export interface EmailManualRecipient {
   email: string;
   name: string;
   notes: string;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailList {
+  id: string;
+  name: string;
+  description: string;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailListMember {
+  id: string;
+  list_id: string;
+  contact_id: string | null;
+  manual_recipient_id: string | null;
+  email: string;
+  added_at: string;
+}
+
+export interface EmailSegmentRule {
+  match: "all" | "any";
+  includeTagIds: string[];
+  excludeTagIds: string[];
+}
+
+export interface EmailSegment {
+  id: string;
+  name: string;
+  description: string;
+  rule: EmailSegmentRule;
   created_by: string;
   updated_by: string;
   created_at: string;

@@ -96,7 +96,7 @@ const task: AdminTask = {
   description: "",
   due_date: null,
   group_id: "group-1",
-  priority: "medium",
+  priority: "normal",
   sort_order: 1000,
   status: "not_started",
   title: "Follow up",

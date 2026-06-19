@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLayoutToDocument,
   assertMailyDocument,
+  clampEmailWidth,
   createDefaultMailyDocument,
+  DEFAULT_EMAIL_FONT_KEY,
+  DEFAULT_EMAIL_WIDTH,
   getAssetIdsForMailyDocument,
+  getMailyDocumentFontKey,
+  getMailyDocumentLayout,
+  getMailyDocumentWidth,
+  MAX_EMAIL_WIDTH,
+  MIN_EMAIL_WIDTH,
   renderMailyDocument,
   renderMailyEmail,
+  arrangeEmailRows,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -12,8 +22,188 @@ describe("Maily rendering", () => {
     const document = createDefaultMailyDocument();
 
     expect(document.type).toBe("doc");
+    // Content flows directly inside the padded container (no full-width section).
     expect(document.content?.some((node) => node.type === "heading")).toBe(true);
     expect(JSON.stringify(document)).toContain("contact.name");
+  });
+
+  it("places a banner image above the body content", () => {
+    const document = createDefaultMailyDocument({
+      imageUrl: "https://cdn.example.com/banner.png",
+    });
+
+    expect(document.content?.[0]?.type).toBe("image");
+    expect(document.content?.[1]?.type).toBe("heading");
+  });
+
+  it("renders the email at the default 680px width with a padded container", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    expect(rendered.html).toContain("max-width:680px");
+    // Container keeps horizontal padding so content is not full-bleed.
+    expect(rendered.html).toContain("padding-left:32px");
+  });
+
+  it("clamps a custom email width to the allowed range", () => {
+    expect(clampEmailWidth(720)).toBe(720);
+    expect(clampEmailWidth(100)).toBe(MIN_EMAIL_WIDTH);
+    expect(clampEmailWidth(5000)).toBe(MAX_EMAIL_WIDTH);
+    expect(clampEmailWidth("not a number")).toBe(DEFAULT_EMAIL_WIDTH);
+    expect(clampEmailWidth("740px")).toBe(740);
+  });
+
+  it("resolves a document's width, defaulting and clamping as needed", () => {
+    expect(getMailyDocumentWidth(createDefaultMailyDocument())).toBe(
+      DEFAULT_EMAIL_WIDTH,
+    );
+    expect(
+      getMailyDocumentWidth({ type: "doc", content: [], maxWidth: 600 }),
+    ).toBe(600);
+    expect(
+      getMailyDocumentWidth({ type: "doc", content: [], maxWidth: 99999 }),
+    ).toBe(MAX_EMAIL_WIDTH);
+  });
+
+  it("renders with custom container vertical padding (e.g. flush-top banner)", async () => {
+    const document = {
+      ...createDefaultMailyDocument(),
+      paddingTop: 0,
+      paddingBottom: 48,
+    };
+    const rendered = await renderMailyDocument(document);
+
+    expect(rendered.html).toContain("padding-top:0px");
+    expect(rendered.html).toContain("padding-bottom:48px");
+  });
+
+  it("renders at a custom per-document width when set", async () => {
+    const document = { ...createDefaultMailyDocument(), maxWidth: 720 };
+    const rendered = await renderMailyDocument(document);
+
+    expect(rendered.html).toContain("max-width:720px");
+    expect(rendered.html).not.toContain("max-width:680px");
+  });
+
+  it("lays out rows: sections full-width, loose content guttered", () => {
+    const banner = { type: "section", attrs: {}, content: [] };
+    const doc = assertMailyDocument({
+      type: "doc",
+      content: [
+        banner,
+        { type: "heading", content: [{ type: "text", text: "Hi" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Body" }] },
+      ],
+    });
+
+    const arranged = arrangeEmailRows(doc);
+
+    // banner section stays full-width (a row); the heading + paragraph get
+    // grouped into one padded gutter section.
+    expect(arranged.content.map((n) => n.type)).toEqual(["section", "section"]);
+    expect(arranged.content[0]).toEqual(banner);
+    expect(arranged.content[1]?.attrs?.paddingLeft).toBe(32);
+    expect(arranged.content[1]?.content?.map((n) => n.type)).toEqual([
+      "heading",
+      "paragraph",
+    ]);
+  });
+
+  it("honors the fullWidth flag: full-width image, inset section", () => {
+    const doc = assertMailyDocument({
+      type: "doc",
+      content: [
+        { type: "image", attrs: { src: "x", fullwidth: true } },
+        { type: "section", attrs: { fullwidth: false }, content: [] },
+      ],
+    });
+
+    const arranged = arrangeEmailRows(doc);
+
+    // flagged image becomes a top-level full-width row; the inset section is
+    // wrapped in a padded gutter section.
+    expect(arranged.content[0]?.type).toBe("image");
+    expect(arranged.content[1]?.type).toBe("section"); // gutter wrapper
+    expect(arranged.content[1]?.attrs?.paddingLeft).toBe(32);
+    expect(arranged.content[1]?.content?.[0]?.type).toBe("section"); // the inset section, nested
+  });
+
+  it("arrangeEmailRows is idempotent", () => {
+    const once = arrangeEmailRows(createDefaultMailyDocument());
+    const twice = arrangeEmailRows(once);
+    expect(twice).toEqual(once);
+  });
+
+  it("keeps normal content inset via a padded section gutter", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    // The 32px gutter now comes from the wrapping section (so sections without
+    // padding can be full-width), and the container keeps its vertical padding.
+    expect(rendered.html).toContain("padding-left:32px");
+    expect(rendered.html).toContain("padding-top:32px");
+    expect(rendered.html).toContain("max-width:680px");
+  });
+
+  it("resets the body margin so the email is not inset on mobile", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    expect(rendered.html).toContain("body{margin:0 !important");
+  });
+
+  it("uses a system font stack and loads no web font", async () => {
+    const rendered = await renderMailyDocument(createDefaultMailyDocument());
+
+    expect(rendered.html).toContain("-apple-system");
+    // The library default Inter web font must not be downloaded.
+    expect(rendered.html).not.toContain("rsms.me");
+  });
+
+  it("renders the per-email font choice and never the default Inter web font", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({ ...createDefaultMailyDocument(), fontKey: "georgia" }),
+    );
+
+    expect(rendered.html).toContain("Georgia");
+    expect(rendered.html).not.toContain("-apple-system");
+    expect(rendered.html).not.toContain("rsms.me");
+  });
+
+  it("round-trips the font key through layout get/apply (default = system)", () => {
+    const blank = createDefaultMailyDocument();
+    expect(getMailyDocumentFontKey(blank)).toBe(DEFAULT_EMAIL_FONT_KEY);
+    expect(getMailyDocumentLayout(blank).fontKey).toBe(DEFAULT_EMAIL_FONT_KEY);
+
+    const layout = { ...getMailyDocumentLayout(blank), fontKey: "mono" };
+    const withFont = applyLayoutToDocument(blank, layout);
+    expect(withFont.fontKey).toBe("mono");
+    expect(getMailyDocumentLayout(withFont).fontKey).toBe("mono");
+
+    // An unknown key falls back to the system default rather than leaking through.
+    expect(getMailyDocumentFontKey(assertMailyDocument({ ...blank, fontKey: "comic-sans" }))).toBe(
+      DEFAULT_EMAIL_FONT_KEY,
+    );
+  });
+
+  it("forces images to height:auto so they scale proportionally on mobile", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({
+        type: "doc",
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: "https://cdn.example.com/banner.png",
+              width: "600",
+              // A fixed pixel height (as the editor stores after a drag-resize)
+              // must be normalized away at render time.
+              height: "200",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(rendered.html).toContain("height:auto");
+    expect(rendered.html).not.toContain("height:200px");
   });
 
   it("renders Maily JSON to HTML and text without consuming variables", async () => {

@@ -12,9 +12,12 @@ const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
 const mockDeleteRemovableEmailSend = vi.fn();
 const mockQueueEmailSend = vi.fn();
+const mockSetEmailSendTemplateVersion = vi.fn();
 const mockGetEmailTemplateVersion = vi.fn();
 const mockListEmailTemplates = vi.fn();
+const mockFindOrCreateTemplateForDocument = vi.fn();
 const mockRenderMailyDocument = vi.fn();
+const mockRenderMailyEmail = vi.fn();
 const mockAssertMailyDocument = vi.fn((document: unknown) => document);
 const mockGetEmailProvider = vi.fn();
 const mockGetEmailWorkerSecret = vi.fn();
@@ -37,6 +40,7 @@ vi.mock("@/lib/data/email-sends", () => ({
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
   queueEmailSend: mockQueueEmailSend,
+  setEmailSendTemplateVersion: mockSetEmailSendTemplateVersion,
 }));
 
 vi.mock("@/lib/data/email-manual-recipients", () => ({
@@ -50,9 +54,14 @@ vi.mock("@/lib/data/email-templates", () => ({
   listEmailTemplates: mockListEmailTemplates,
 }));
 
+vi.mock("@/lib/email/template-authoring", () => ({
+  findOrCreateTemplateForDocument: mockFindOrCreateTemplateForDocument,
+}));
+
 vi.mock("@/lib/email/rendering/maily", () => ({
   assertMailyDocument: mockAssertMailyDocument,
   renderMailyDocument: mockRenderMailyDocument,
+  renderMailyEmail: mockRenderMailyEmail,
 }));
 
 vi.mock("@/lib/email/provider", () => ({
@@ -91,7 +100,9 @@ const {
   loadEmailSendsAction,
   loadEmailStudioDataAction,
   loadEmailTemplatesAction,
+  getComposeRecipientsAction,
   previewEmailAction,
+  renderComposePreviewAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
 } = await import("./actions");
@@ -143,6 +154,11 @@ beforeEach(() => {
     html: "<p>Hello {{contact.name}}</p>",
     text: "Hello {{contact.name}}",
   });
+  mockRenderMailyEmail.mockReset().mockResolvedValue({
+    subject: "Hello Alex Rivera",
+    html: "<html><body><p>Hello Alex Rivera</p></body></html>",
+    text: "Hello Alex Rivera",
+  });
   mockCreateEmailSendWithRecipients.mockReset().mockResolvedValue({
     id: "send-1",
   });
@@ -156,7 +172,11 @@ beforeEach(() => {
   mockUpsertEmailManualRecipient.mockReset().mockResolvedValue(MANUAL_RECIPIENT);
   mockDeleteRemovableEmailSend.mockReset().mockResolvedValue(true);
   mockQueueEmailSend.mockReset().mockResolvedValue({ id: "send-1" });
+  mockSetEmailSendTemplateVersion.mockReset().mockResolvedValue(undefined);
   mockListEmailTemplates.mockReset().mockResolvedValue([{ id: "template-1" }]);
+  mockFindOrCreateTemplateForDocument
+    .mockReset()
+    .mockResolvedValue({ templateVersionId: TEMPLATE_VERSION_ID, created: true });
   mockGetEmailProvider.mockReset().mockReturnValue({ name: "fake" });
   mockGetEmailWorkerSecret.mockReset().mockReturnValue("worker-secret");
   mockProcessEmailSendChunks.mockReset().mockResolvedValue({
@@ -256,7 +276,6 @@ describe("previewEmailAction", () => {
       kind: "outreach",
       contactIds: [CONTACT_ONE.id, CONTACT_TWO.id],
       subject: "Hello",
-      templateVersionId: TEMPLATE_VERSION_ID,
     });
 
     expect(result.eligibleCount).toBe(1);
@@ -274,13 +293,100 @@ describe("previewEmailAction", () => {
       kind: "outreach",
       manualRecipientIds: [MANUAL_RECIPIENT.id],
       subject: "Hello",
-      templateVersionId: TEMPLATE_VERSION_ID,
     });
 
     expect(result.eligibleCount).toBe(1);
     expect(mockGetEmailManualRecipientsByIds).toHaveBeenCalledWith([
       MANUAL_RECIPIENT.id,
     ]);
+  });
+});
+
+describe("renderComposePreviewAction", () => {
+  it("renders the final email HTML and subject with sample variables", async () => {
+    mockAssertMailyDocument.mockReturnValue({ type: "doc", content: [] });
+
+    const result = await renderComposePreviewAction({
+      builderJson: { type: "doc", content: [] },
+      subject: "Hello {{contact.name}}",
+      previewText: "A note",
+    });
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockRenderMailyEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: "Hello {{contact.name}}",
+        variables: expect.objectContaining({
+          contact: expect.objectContaining({ name: "Alex Rivera" }),
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      subject: "Hello Alex Rivera",
+      html: "<html><body><p>Hello Alex Rivera</p></body></html>",
+    });
+  });
+});
+
+describe("getComposeRecipientsAction", () => {
+  it("lists eligible and skipped outreach recipients by name", async () => {
+    mockListActiveEmailSuppressions.mockResolvedValue([
+      {
+        contact_id: CONTACT_TWO.id,
+        email: CONTACT_TWO.email,
+        lifted_at: null,
+      },
+    ]);
+
+    const result = await getComposeRecipientsAction({
+      kind: "outreach",
+      contactIds: [CONTACT_ONE.id, CONTACT_TWO.id],
+    });
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(result.eligible).toEqual([
+      { name: CONTACT_ONE.name, email: CONTACT_ONE.email, source: "contact" },
+    ]);
+    expect(result.skipped).toEqual([
+      {
+        name: CONTACT_TWO.name,
+        email: CONTACT_TWO.email,
+        source: "contact",
+        reason: "suppressed",
+      },
+    ]);
+  });
+
+  it("tags saved manual recipients with a manual source", async () => {
+    const result = await getComposeRecipientsAction({
+      kind: "outreach",
+      manualRecipientIds: [MANUAL_RECIPIENT.id],
+    });
+
+    expect(result.eligible).toEqual([
+      {
+        name: MANUAL_RECIPIENT.name,
+        email: MANUAL_RECIPIENT.email,
+        source: "manual",
+      },
+    ]);
+  });
+
+  it("does not itemize broadcast recipients", async () => {
+    const result = await getComposeRecipientsAction({ kind: "broadcast" });
+
+    expect(result).toEqual({ eligible: [], skipped: [] });
+    expect(mockGetContacts).not.toHaveBeenCalled();
+  });
+
+  it("returns nothing when no outreach recipients are selected", async () => {
+    const result = await getComposeRecipientsAction({
+      kind: "outreach",
+      contactIds: [],
+      manualRecipientIds: [],
+    });
+
+    expect(result).toEqual({ eligible: [], skipped: [] });
   });
 });
 
@@ -296,7 +402,6 @@ describe("createEmailDraftAction", () => {
     const result = await createEmailDraftAction({
       kind: "broadcast",
       subject: "Hello {{contact.name}}",
-      templateVersionId: TEMPLATE_VERSION_ID,
       builderJson: { type: "doc", content: [] },
     });
 
@@ -328,7 +433,6 @@ describe("sendEmailNowAction", () => {
     const result = await sendEmailNowAction({
       kind: "outreach",
       subject: "Hello {{contact.name}}",
-      templateVersionId: TEMPLATE_VERSION_ID,
       builderJson: { type: "doc", content: [] },
       contactIds: [CONTACT_ONE.id],
     });
@@ -348,7 +452,6 @@ describe("sendEmailNowAction", () => {
     await sendEmailNowAction({
       kind: "outreach",
       subject: "Hello {{contact.name}}",
-      templateVersionId: TEMPLATE_VERSION_ID,
       builderJson: { type: "doc", content: [] },
       manualRecipientIds: [MANUAL_RECIPIENT.id],
     });
@@ -382,7 +485,6 @@ describe("sendEmailNowAction", () => {
     await sendEmailNowAction({
       kind: "outreach",
       subject: "Hello {{contact.name}}",
-      templateVersionId: TEMPLATE_VERSION_ID,
       builderJson: { type: "doc", content: [] },
       manualRecipientIds: [MANUAL_RECIPIENT.id, MANUAL_RECIPIENT.id],
     });
@@ -407,7 +509,6 @@ describe("sendEmailNowAction", () => {
     await sendEmailNowAction({
       kind: "outreach",
       subject: "Hello {{contact.name}}",
-      templateVersionId: TEMPLATE_VERSION_ID,
       builderJson: { type: "doc", content: [] },
       manualRecipientIds: [MANUAL_RECIPIENT.id],
     });
@@ -431,13 +532,62 @@ describe("sendEmailNowAction", () => {
       sendEmailNowAction({
         kind: "broadcast",
         subject: "Hello {{contact.name}}",
-        templateVersionId: TEMPLATE_VERSION_ID,
-        builderJson: { type: "doc", content: [] },
+          builderJson: { type: "doc", content: [] },
         manualRecipientIds: [MANUAL_RECIPIENT.id],
       }),
     ).rejects.toThrow("Manual recipients can only be used for outreach");
 
     expect(mockCreateEmailSendWithRecipients).not.toHaveBeenCalled();
+  });
+
+  it("rejects lists and segments for broadcasts", async () => {
+    await expect(
+      sendEmailNowAction({
+        kind: "broadcast",
+        subject: "Hello {{contact.name}}",
+        builderJson: { type: "doc", content: [] },
+        listIds: ["550e8400-e29b-41d4-a716-446655440099"],
+      }),
+    ).rejects.toThrow("Lists and segments can only be used for outreach");
+
+    expect(mockCreateEmailSendWithRecipients).not.toHaveBeenCalled();
+  });
+
+  it("auto-saves the design as a template and records the audience source", async () => {
+    mockFindOrCreateTemplateForDocument.mockResolvedValue({
+      templateVersionId: TEMPLATE_VERSION_ID,
+      created: true,
+    });
+
+    await sendEmailNowAction({
+      kind: "outreach",
+      subject: "Hello {{contact.name}}",
+      builderJson: { type: "doc", content: [] },
+      contactIds: [CONTACT_ONE.id],
+    });
+
+    // The send is created first (no template yet), so a failed send can't leave
+    // an orphaned template; the template is found/created and linked afterwards.
+    expect(mockCreateEmailSendWithRecipients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateVersionId: null,
+        metadata: expect.objectContaining({
+          editor: "maily",
+          audience: expect.objectContaining({
+            kind: "outreach",
+            contactCount: 1,
+            manualCount: 0,
+          }),
+        }),
+      }),
+    );
+    expect(mockFindOrCreateTemplateForDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "Hello {{contact.name}}" }),
+    );
+    expect(mockSetEmailSendTemplateVersion).toHaveBeenCalledWith(
+      "send-1",
+      TEMPLATE_VERSION_ID,
+    );
   });
 
   it("fails before creating large sends when worker continuation is disabled", async () => {
@@ -454,8 +604,7 @@ describe("sendEmailNowAction", () => {
       sendEmailNowAction({
         kind: "broadcast",
         subject: "Hello {{contact.name}}",
-        templateVersionId: TEMPLATE_VERSION_ID,
-        builderJson: { type: "doc", content: [] },
+          builderJson: { type: "doc", content: [] },
       }),
     ).rejects.toThrow("EMAIL_WORKER_SECRET must be set");
 

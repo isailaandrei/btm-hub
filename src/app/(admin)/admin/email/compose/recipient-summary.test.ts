@@ -11,7 +11,8 @@ describe("getRecipientSummary", () => {
       }),
     ).toEqual({
       headline: "1 selected contact",
-      detail: "Outreach sends to selected contacts unless they are suppressed.",
+      detail:
+        "A targeted email reaches the selected contacts, minus anyone excluded.",
     });
   });
 
@@ -25,7 +26,7 @@ describe("getRecipientSummary", () => {
     ).toEqual({
       headline: "5 selected recipients",
       detail:
-        "Outreach sends to selected contacts and saved recipients unless they are suppressed.",
+        "A targeted email reaches the selected contacts and saved recipients, minus anyone excluded.",
     });
   });
 
@@ -39,7 +40,7 @@ describe("getRecipientSummary", () => {
     ).toEqual({
       headline: "All contacts with email",
       detail:
-        "Broadcast skips newsletter unsubscribes and suppressed addresses.",
+        "A newsletter goes to every contact with an email, skipping unsubscribes and excluded addresses.",
     });
   });
 });
