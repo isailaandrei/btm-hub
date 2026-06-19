@@ -34,6 +34,7 @@ import {
 import { EmailComposer } from "./compose/email-composer";
 import { AudiencesPanel } from "./audiences/audiences-panel";
 import { SentEmailPreview } from "./sent-email-preview";
+import { EmailSendsRealtime } from "./email-sends-realtime";
 import {
   buildEmailSendMetrics,
   type EmailSendMetricTone,
@@ -159,6 +160,12 @@ function EmailStudioContent({
     (options?: { quiet?: boolean }) => refreshEmailSends(options),
     [refreshEmailSends],
   );
+
+  // Stable handler for the realtime subscription so it doesn't re-subscribe on
+  // every render; quiet refresh so stats update without a loading flash.
+  const handleSendsRealtimeChange = useCallback(() => {
+    void refreshData({ quiet: true });
+  }, [refreshData]);
 
   useEffect(() => {
     startLoadDataTransition(async () => {
@@ -337,6 +344,9 @@ function EmailStudioContent({
 
       {activeTab === "sent" && (
         <div className="overflow-hidden rounded-md border border-border bg-card">
+          {isVisible && (
+            <EmailSendsRealtime onChange={handleSendsRealtimeChange} />
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
             <h2 className="text-base font-medium text-foreground">Sent emails</h2>
             <div className="flex items-center gap-3">
