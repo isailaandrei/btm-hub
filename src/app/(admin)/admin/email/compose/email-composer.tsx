@@ -121,6 +121,7 @@ export function EmailComposer({
   >([]);
   const [manualRecipientName, setManualRecipientName] = useState("");
   const [manualRecipientEmail, setManualRecipientEmail] = useState("");
+  const [isAddRecipientOpen, setIsAddRecipientOpen] = useState(false);
   const [lists, setLists] = useState<EmailListSummary[] | null>(null);
   const [listsError, setListsError] = useState<string | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
@@ -1028,82 +1029,113 @@ export function EmailComposer({
 
               {activeAudienceSource === "saved" && (
                 <div className="flex flex-col gap-3">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    One-off addresses that aren&apos;t contacts
-                  </p>
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,300px)]">
-                    <div className="min-w-0">
-                      <div className="flex max-h-[160px] flex-col gap-1 overflow-auto pr-1">
-                        {manualRecipients.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">
-                            None saved yet. Add one on the right.
-                          </p>
-                        ) : (
-                          manualRecipients.map((recipient) => {
-                            const checked =
-                              selectedManualRecipientIds.includes(recipient.id);
-                            return (
-                              <label
-                                key={recipient.id}
-                                className={`flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2 text-sm ${
-                                  checked ? "bg-primary/5" : "hover:bg-muted"
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  value={recipient.id}
-                                  checked={checked}
-                                  onChange={() =>
-                                    toggleManualRecipient(recipient.id)
-                                  }
-                                  className="h-4 w-4 rounded border-border"
-                                />
-                                <span className="min-w-0">
-                                  <span className="block truncate font-medium text-foreground">
-                                    {recipient.name}
-                                  </span>
-                                  <span className="block truncate text-xs text-muted-foreground">
-                                    {recipient.email}
-                                  </span>
-                                </span>
-                              </label>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        Add a new address
-                      </p>
-                      <input
-                        value={manualRecipientName}
-                        onChange={(event) =>
-                          setManualRecipientName(event.target.value)
-                        }
-                        placeholder="Name"
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      />
-                      <input
-                        value={manualRecipientEmail}
-                        onChange={(event) =>
-                          setManualRecipientEmail(event.target.value)
-                        }
-                        placeholder="Email"
-                        type="email"
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      One-off addresses that aren&apos;t contacts
+                    </p>
+                    {!isAddRecipientOpen && (
                       <button
                         type="button"
-                        onClick={handleSaveManualRecipient}
-                        disabled={isSavingManualRecipient}
-                        className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                        onClick={() => setIsAddRecipientOpen(true)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
                       >
-                        <Plus className="h-4 w-4" />
-                        {isSavingManualRecipient ? "Saving..." : "Save recipient"}
+                        <Plus className="h-3.5 w-3.5" />
+                        Add new
                       </button>
+                    )}
+                  </div>
+
+                  {isAddRecipientOpen && (
+                    <div className="grid gap-2 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                          Name
+                        </span>
+                        <input
+                          autoFocus
+                          value={manualRecipientName}
+                          onChange={(event) =>
+                            setManualRecipientName(event.target.value)
+                          }
+                          placeholder="Jane Doe"
+                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                          Email
+                        </span>
+                        <input
+                          value={manualRecipientEmail}
+                          onChange={(event) =>
+                            setManualRecipientEmail(event.target.value)
+                          }
+                          placeholder="jane@example.com"
+                          type="email"
+                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveManualRecipient}
+                          disabled={isSavingManualRecipient}
+                          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                        >
+                          <Plus className="h-4 w-4" />
+                          {isSavingManualRecipient ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsAddRecipientOpen(false)}
+                          className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm font-medium text-foreground"
+                        >
+                          Done
+                        </button>
+                      </div>
                     </div>
+                  )}
+
+                  <div className="flex max-h-[160px] flex-col gap-1 overflow-auto pr-1">
+                    {manualRecipients.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {isAddRecipientOpen
+                          ? "Add an address above to get started."
+                          : "No saved recipients yet — use “Add new” to create one."}
+                      </p>
+                    ) : (
+                      manualRecipients.map((recipient) => {
+                        const checked = selectedManualRecipientIds.includes(
+                          recipient.id,
+                        );
+                        return (
+                          <label
+                            key={recipient.id}
+                            className={`flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2 text-sm ${
+                              checked ? "bg-primary/5" : "hover:bg-muted"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              value={recipient.id}
+                              checked={checked}
+                              onChange={() =>
+                                toggleManualRecipient(recipient.id)
+                              }
+                              className="h-4 w-4 rounded border-border"
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-foreground">
+                                {recipient.name}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {recipient.email}
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               )}
