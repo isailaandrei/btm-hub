@@ -295,7 +295,8 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
       <div
         className="flex min-h-[760px] min-w-0 flex-col"
         // Drives the canvas card so Design matches the per-template layout
-        // (width + vertical padding); see .email-maily-canvas in globals.css.
+        // (width, padding, font, card/backdrop color, corners); see
+        // .email-maily-canvas in globals.css.
         style={
           layout
             ? ({
@@ -304,6 +305,9 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
                 "--email-canvas-pb": `${layout.paddingBottom}px`,
                 "--email-canvas-font": getEmailFontByKey(layout.fontKey)
                   .cssStack,
+                "--email-canvas-bg": layout.containerBackground,
+                "--email-canvas-radius": `${layout.cornerRadius}px`,
+                "--email-canvas-backdrop": layout.bodyBackground,
               } as CSSProperties)
             : undefined
         }
@@ -329,7 +333,11 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
             </button>
           </div>
         )}
-        <div className="min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-[#f3f4f6]">
+        <div
+          className="min-w-0 flex-1 overflow-hidden rounded-md border border-border"
+          // Backdrop the card sits on — tracks the per-email choice.
+          style={{ background: "var(--email-canvas-backdrop, #f3f4f6)" }}
+        >
           <MailyEditor
             contentJson={editorContent}
             onCreate={handleCreate}

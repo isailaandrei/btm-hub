@@ -2,16 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   applyLayoutToDocument,
   assertMailyDocument,
+  clampCornerRadius,
   clampEmailWidth,
   createDefaultMailyDocument,
+  DEFAULT_BODY_BACKGROUND,
+  DEFAULT_CONTAINER_BACKGROUND,
+  DEFAULT_CORNER_RADIUS,
   DEFAULT_EMAIL_FONT_KEY,
   DEFAULT_EMAIL_WIDTH,
   getAssetIdsForMailyDocument,
   getMailyDocumentFontKey,
   getMailyDocumentLayout,
   getMailyDocumentWidth,
+  MAX_CORNER_RADIUS,
   MAX_EMAIL_WIDTH,
   MIN_EMAIL_WIDTH,
+  normalizeHexColor,
   renderMailyDocument,
   renderMailyEmail,
   arrangeEmailRows,
@@ -181,6 +187,62 @@ describe("Maily rendering", () => {
     expect(getMailyDocumentFontKey(assertMailyDocument({ ...blank, fontKey: "comic-sans" }))).toBe(
       DEFAULT_EMAIL_FONT_KEY,
     );
+  });
+
+  it("defaults the card/backdrop colors and corner radius, and round-trips them", () => {
+    const blank = createDefaultMailyDocument();
+    const layout = getMailyDocumentLayout(blank);
+    expect(layout.containerBackground).toBe(DEFAULT_CONTAINER_BACKGROUND);
+    expect(layout.bodyBackground).toBe(DEFAULT_BODY_BACKGROUND);
+    expect(layout.cornerRadius).toBe(DEFAULT_CORNER_RADIUS);
+
+    const customized = applyLayoutToDocument(blank, {
+      ...layout,
+      containerBackground: "#101820",
+      bodyBackground: "#fdf6e3",
+      cornerRadius: 24,
+    });
+    const back = getMailyDocumentLayout(customized);
+    expect(back.containerBackground).toBe("#101820");
+    expect(back.bodyBackground).toBe("#fdf6e3");
+    expect(back.cornerRadius).toBe(24);
+  });
+
+  it("sanitizes colors and clamps the corner radius", () => {
+    expect(normalizeHexColor("#AbCdEf", "#ffffff")).toBe("#abcdef");
+    // Anything that isn't a #rrggbb hex can't reach the email's inline styles.
+    expect(normalizeHexColor("red;} body{display:none", "#ffffff")).toBe("#ffffff");
+    expect(normalizeHexColor("#fff", "#ffffff")).toBe("#ffffff");
+    expect(normalizeHexColor(42, "#ffffff")).toBe("#ffffff");
+    expect(clampCornerRadius(9999)).toBe(MAX_CORNER_RADIUS);
+    expect(clampCornerRadius(-10)).toBe(0);
+  });
+
+  it("renders the chosen card color, backdrop, and corner radius", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({
+        ...createDefaultMailyDocument(),
+        containerBackground: "#101820",
+        bodyBackground: "#fdf6e3",
+        cornerRadius: 20,
+      }),
+    );
+    expect(rendered.html).toContain("#101820");
+    expect(rendered.html).toContain("#fdf6e3");
+    expect(rendered.html).toContain("border-radius:20px");
+    // The mobile corner-squaring targets the actual radius value.
+    expect(rendered.html).toContain('[style*="border-radius:20px"]');
+  });
+
+  it("ignores an injection-y color and falls back to defaults when rendering", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({
+        ...createDefaultMailyDocument(),
+        containerBackground: "#fff; } body { background: url(evil)",
+      }),
+    );
+    expect(rendered.html).not.toContain("url(evil)");
+    expect(rendered.html).toContain(DEFAULT_CONTAINER_BACKGROUND);
   });
 
   it("forces images to height:auto so they scale proportionally on mobile", async () => {

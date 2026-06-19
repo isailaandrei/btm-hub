@@ -20,6 +20,12 @@ export type MailyDocument = JSONContent & {
   paddingBottom?: number;
   /** Whole-email font, by key into EMAIL_FONTS. Defaults to the system stack. */
   fontKey?: string;
+  /** Card (container) background color, hex. Defaults to white. */
+  containerBackground?: string;
+  /** Card corner radius (px). Defaults to 12. */
+  cornerRadius?: number;
+  /** Backdrop the card sits on (the area around the email), hex. Light gray. */
+  bodyBackground?: string;
 };
 
 export const DEFAULT_EMAIL_WIDTH = 680;
@@ -29,6 +35,30 @@ export const MAX_EMAIL_WIDTH = 900;
 export const DEFAULT_EMAIL_PADDING = 32;
 export const MIN_EMAIL_PADDING = 0;
 export const MAX_EMAIL_PADDING = 96;
+
+export const DEFAULT_CONTAINER_BACKGROUND = "#ffffff";
+export const DEFAULT_BODY_BACKGROUND = "#f3f4f6";
+
+export const DEFAULT_CORNER_RADIUS = 12;
+export const MIN_CORNER_RADIUS = 0;
+export const MAX_CORNER_RADIUS = 48;
+
+/** Accept only #rrggbb so a stored value can't inject into the email's inline
+ *  styles or the editor CSS (and stays valid for the native color input);
+ *  anything else falls back to the default. */
+export function normalizeHexColor(value: unknown, fallback: string): string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)
+    ? value.toLowerCase()
+    : fallback;
+}
+
+/** Clamp an arbitrary corner-radius input to the allowed range. */
+export function clampCornerRadius(value: unknown): number {
+  const numeric =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(numeric)) return DEFAULT_CORNER_RADIUS;
+  return Math.min(MAX_CORNER_RADIUS, Math.max(MIN_CORNER_RADIUS, Math.round(numeric)));
+}
 
 /** Clamp an arbitrary width input to the allowed email-container range. */
 export function clampEmailWidth(value: unknown): number {
@@ -66,6 +96,25 @@ export function getMailyDocumentPaddingBottom(document: MailyDocument): number {
   return document.paddingBottom == null
     ? DEFAULT_EMAIL_PADDING
     : clampEmailPadding(document.paddingBottom);
+}
+
+export function getMailyDocumentContainerBackground(
+  document: MailyDocument,
+): string {
+  return normalizeHexColor(
+    document.containerBackground,
+    DEFAULT_CONTAINER_BACKGROUND,
+  );
+}
+
+export function getMailyDocumentBodyBackground(document: MailyDocument): string {
+  return normalizeHexColor(document.bodyBackground, DEFAULT_BODY_BACKGROUND);
+}
+
+export function getMailyDocumentCornerRadius(document: MailyDocument): number {
+  return document.cornerRadius == null
+    ? DEFAULT_CORNER_RADIUS
+    : clampCornerRadius(document.cornerRadius);
 }
 
 /**
@@ -139,6 +188,9 @@ export interface EmailLayout {
   paddingTop: number;
   paddingBottom: number;
   fontKey: string;
+  containerBackground: string;
+  cornerRadius: number;
+  bodyBackground: string;
 }
 
 /** Resolve a document's layout (clamped, with defaults). */
@@ -148,6 +200,9 @@ export function getMailyDocumentLayout(document: MailyDocument): EmailLayout {
     paddingTop: getMailyDocumentPaddingTop(document),
     paddingBottom: getMailyDocumentPaddingBottom(document),
     fontKey: getMailyDocumentFontKey(document),
+    containerBackground: getMailyDocumentContainerBackground(document),
+    cornerRadius: getMailyDocumentCornerRadius(document),
+    bodyBackground: getMailyDocumentBodyBackground(document),
   };
 }
 
@@ -162,6 +217,9 @@ export function applyLayoutToDocument(
     paddingTop: layout.paddingTop,
     paddingBottom: layout.paddingBottom,
     fontKey: layout.fontKey,
+    containerBackground: layout.containerBackground,
+    cornerRadius: layout.cornerRadius,
+    bodyBackground: layout.bodyBackground,
   };
 }
 
@@ -471,23 +529,26 @@ export function parseMailyDocumentOrDefault(value: unknown): MailyDocument {
 // Injected into <head>:
 // - reset the default ~8px <body> margin Maily leaves in place, so the email is
 //   not inset on narrow screens.
-// - on phones, square off the white card's corners — rounded corners look odd
-//   once the card is full-bleed at the screen edge. Targets the container by its
-//   `border-radius:12px` (buttons/images use other radii); degrades gracefully
-//   in clients that ignore the media query (corners just stay rounded).
-const EMAIL_BASE_CSS = [
-  "<style>",
-  "body{margin:0 !important;padding:0 !important;}",
-  "@media only screen and (max-width:600px){",
-  '[style*="border-radius:12px"]{border-radius:0 !important;}',
-  "}",
-  "</style>",
-].join("");
+// - on phones, square off the card's corners — rounded corners look odd once the
+//   card is full-bleed at the screen edge. Targets the container by its actual
+//   border-radius value (buttons/images use other radii); degrades gracefully in
+//   clients that ignore the media query (corners just stay rounded).
+function buildBaseEmailCss(cornerRadius: number): string {
+  return [
+    "<style>",
+    "body{margin:0 !important;padding:0 !important;}",
+    "@media only screen and (max-width:600px){",
+    `[style*="border-radius:${cornerRadius}px"]{border-radius:0 !important;}`,
+    "}",
+    "</style>",
+  ].join("");
+}
 
-function injectBaseEmailCss(html: string): string {
+function injectBaseEmailCss(html: string, cornerRadius: number): string {
+  const css = buildBaseEmailCss(cornerRadius);
   const headClose = html.toLowerCase().indexOf("</head>");
-  if (headClose === -1) return `${EMAIL_BASE_CSS}${html}`;
-  return `${html.slice(0, headClose)}${EMAIL_BASE_CSS}${html.slice(headClose)}`;
+  if (headClose === -1) return `${css}${html}`;
+  return `${html.slice(0, headClose)}${css}${html.slice(headClose)}`;
 }
 
 export async function renderMailyDocument(
@@ -500,15 +561,22 @@ export async function renderMailyDocument(
   const normalized = arrangeEmailRows(
     withResponsiveImages(assertMailyDocument(document)),
   );
+  const cornerRadius = getMailyDocumentCornerRadius(normalized);
   const renderer = new Maily(normalized);
   renderer.setTheme({
     ...DEFAULT_EMAIL_RENDER_THEME,
     font: fontThemeForKey(getMailyDocumentFontKey(normalized)),
+    body: {
+      ...DEFAULT_EMAIL_RENDER_THEME.body,
+      backgroundColor: getMailyDocumentBodyBackground(normalized),
+    },
     container: {
       ...DEFAULT_EMAIL_RENDER_THEME.container,
       maxWidth: `${getMailyDocumentWidth(normalized)}px`,
       paddingTop: `${getMailyDocumentPaddingTop(normalized)}px`,
       paddingBottom: `${getMailyDocumentPaddingBottom(normalized)}px`,
+      backgroundColor: getMailyDocumentContainerBackground(normalized),
+      borderRadius: `${cornerRadius}px`,
     },
   });
   if (input.previewText) {
@@ -522,7 +590,7 @@ export async function renderMailyDocument(
     renderer.render({ pretty: true }),
     renderer.render({ plainText: true }),
   ]);
-  return { html: injectBaseEmailCss(html), text };
+  return { html: injectBaseEmailCss(html, cornerRadius), text };
 }
 
 export async function renderMailyEmail(input: {

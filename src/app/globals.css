@@ -215,7 +215,9 @@ button,
 /* Maily email designer canvas */
 .email-maily-editor {
   min-height: 100%;
-  background: #f3f4f6;
+  /* Backdrop the card sits on — tracks the per-email choice (the frame around
+     the card and the area below it stay the same color). */
+  background: var(--email-canvas-backdrop, #f3f4f6);
   padding: 32px 16px;
 }
 
@@ -231,8 +233,9 @@ button,
   margin-right: auto;
   margin-left: auto;
   border: 0;
-  border-radius: 12px;
-  background: #ffffff;
+  /* Card corner radius + background track the per-email settings. */
+  border-radius: var(--email-canvas-radius, 12px);
+  background: var(--email-canvas-bg, #ffffff);
   /* Vertical padding tracks the per-template setting; horizontal is 0 (gutter
      comes from the wrapping section, so full-width sections reach the edges). */
   padding: var(--email-canvas-pt, 32px) 0 var(--email-canvas-pb, 32px);

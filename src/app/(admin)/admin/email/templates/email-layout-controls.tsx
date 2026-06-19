@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import {
+  clampCornerRadius,
   clampEmailPadding,
   clampEmailWidth,
   EMAIL_FONTS,
+  MAX_CORNER_RADIUS,
   MAX_EMAIL_PADDING,
   MAX_EMAIL_WIDTH,
+  MIN_CORNER_RADIUS,
   MIN_EMAIL_PADDING,
   MIN_EMAIL_WIDTH,
   type EmailLayout,
@@ -63,6 +66,32 @@ function DraftNumberInput({
   );
 }
 
+/** A compact color swatch backed by the native color picker. */
+function ColorInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      {label}
+      <span className="relative inline-flex size-6 shrink-0 overflow-hidden rounded-md border border-border">
+        <input
+          type="color"
+          value={value}
+          aria-label={label}
+          onChange={(event) => onChange(event.target.value)}
+          className="absolute inset-[-25%] h-[150%] w-[150%] cursor-pointer border-0 bg-transparent p-0"
+        />
+      </span>
+    </label>
+  );
+}
+
 export function EmailLayoutControls({
   value,
   onChange,
@@ -112,7 +141,27 @@ export function EmailLayoutControls({
         clamp={clampEmailPadding}
         onCommit={(paddingBottom) => onChange({ ...value, paddingBottom })}
       />
+      <DraftNumberInput
+        label="Corners"
+        value={value.cornerRadius}
+        min={MIN_CORNER_RADIUS}
+        max={MAX_CORNER_RADIUS}
+        clamp={clampCornerRadius}
+        onCommit={(cornerRadius) => onChange({ ...value, cornerRadius })}
+      />
       <span className="text-xs text-muted-foreground">px</span>
+      <ColorInput
+        label="Card"
+        value={value.containerBackground}
+        onChange={(containerBackground) =>
+          onChange({ ...value, containerBackground })
+        }
+      />
+      <ColorInput
+        label="Backdrop"
+        value={value.bodyBackground}
+        onChange={(bodyBackground) => onChange({ ...value, bodyBackground })}
+      />
     </div>
   );
 }
