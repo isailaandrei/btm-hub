@@ -82,7 +82,7 @@ function insertBeforeBodyEnd(html: string, fragment: string): string {
   )}`;
 }
 
-function appendBroadcastUnsubscribe(input: {
+function appendUnsubscribeFooter(input: {
   html: string;
   text: string;
   unsubscribeUrl: string | null;
@@ -166,14 +166,12 @@ async function renderRecipient(input: {
       input.unsubscribeUrl,
     ),
   });
-  const withComplianceFooter =
-    input.send.kind === "broadcast"
-      ? appendBroadcastUnsubscribe({
-          html: rendered.html,
-          text: rendered.text,
-          unsubscribeUrl: input.unsubscribeUrl,
-        })
-      : rendered;
+  // Every send — newsletter or targeted — carries an unsubscribe footer.
+  const withComplianceFooter = appendUnsubscribeFooter({
+    html: rendered.html,
+    text: rendered.text,
+    unsubscribeUrl: input.unsubscribeUrl,
+  });
   return {
     subject: rendered.subject,
     html: withComplianceFooter.html,
@@ -188,16 +186,14 @@ async function processRecipient(input: {
 }) {
   let acceptedResult: ProviderSendEmailResult | null = null;
   try {
-    const unsubscribe =
-      input.send.kind === "broadcast" ? createUnsubscribeToken() : null;
-    const unsubscribeUrl = unsubscribe
-      ? `${getPublicSiteUrl()}/email/unsubscribe/${unsubscribe.token}`
-      : null;
+    // Every email gets a per-recipient unsubscribe token, so the footer link +
+    // RFC-8058 one-click header work for both newsletters and targeted sends.
+    // Unsubscribing writes a suppression that blocks all future email.
+    const unsubscribe = createUnsubscribeToken();
+    const unsubscribeUrl = `${getPublicSiteUrl()}/email/unsubscribe/${unsubscribe.token}`;
     // RFC-8058 one-click target: a POST endpoint that unsubscribes without any
     // further interaction (Gmail/Yahoo bulk-sender requirement).
-    const oneClickUnsubscribeUrl = unsubscribe
-      ? `${getPublicSiteUrl()}/api/email/unsubscribe/${unsubscribe.token}`
-      : null;
+    const oneClickUnsubscribeUrl = `${getPublicSiteUrl()}/api/email/unsubscribe/${unsubscribe.token}`;
     const rendered = await renderRecipient({
       send: input.send,
       recipient: input.recipient,
@@ -230,12 +226,10 @@ async function processRecipient(input: {
         recipientId: input.recipient.id,
         contactId: input.recipient.contact_id ?? "",
       },
-      headers: oneClickUnsubscribeUrl
-        ? {
-            "List-Unsubscribe": `<${oneClickUnsubscribeUrl}>`,
-            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-          }
-        : undefined,
+      headers: {
+        "List-Unsubscribe": `<${oneClickUnsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
     });
     acceptedResult = result;
     const providerMetadata = {

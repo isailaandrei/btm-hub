@@ -413,4 +413,40 @@ describe("processEmailSendChunks", () => {
     );
     expect(headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
   });
+
+  it("appends the unsubscribe footer + one-click headers to targeted sends too", async () => {
+    const { emailProvider, sentInputs } = provider();
+    mockGetEmailSendForWorker.mockResolvedValue(
+      send({
+        kind: "outreach",
+        builder_json_snapshot: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Hi" }],
+            },
+          ],
+        },
+      }),
+    );
+    mockClaimQueuedEmailRecipients
+      .mockResolvedValueOnce([recipient()])
+      .mockResolvedValueOnce([]);
+
+    await processEmailSendChunks({
+      sendId: "send-1",
+      provider: emailProvider,
+      chunkSize: 25,
+      maxChunks: 2,
+    });
+
+    const html = sentInputs[0]?.html ?? "";
+    expect(html).toContain("stop receiving all emails");
+    const headers = sentInputs[0]?.headers ?? {};
+    expect(headers["List-Unsubscribe"]).toMatch(
+      /^<http.*\/api\/email\/unsubscribe\/.+>$/,
+    );
+    expect(headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+  });
 });
