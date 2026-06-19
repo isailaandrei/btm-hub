@@ -24,10 +24,29 @@ const EMPTY_RULE: EmailSegmentRule = {
   excludeTagIds: [],
 };
 
+// "everyone" = start from all contacts (an "everybody except …" segment);
+// "tags" = start from contacts matching the include tags. The include picks are
+// kept in state across a scope switch but only applied when scope === "tags".
+type SegmentScope = "everyone" | "tags";
+
 interface EditorState {
   id: string | null; // null = creating
   name: string;
+  scope: SegmentScope;
   rule: EmailSegmentRule;
+}
+
+/** The rule actually saved/counted: include tags only count under "tags". */
+function buildEffectiveRule(state: EditorState): EmailSegmentRule {
+  return {
+    match: state.rule.match,
+    includeTagIds: state.scope === "tags" ? state.rule.includeTagIds : [],
+    excludeTagIds: state.rule.excludeTagIds,
+  };
+}
+
+function ruleTargetsSomeone(rule: EmailSegmentRule): boolean {
+  return rule.includeTagIds.length + rule.excludeTagIds.length > 0;
 }
 
 export function SegmentsSection() {
@@ -81,13 +100,18 @@ export function SegmentsSection() {
 
   // Live "matches ~N contacts" preview, debounced, while editing.
   useEffect(() => {
-    if (!editor || editor.rule.includeTagIds.length === 0) {
+    if (!editor) {
+      setLiveCount(null);
+      setIsCounting(false);
+      return;
+    }
+    const rule = buildEffectiveRule(editor);
+    if (!ruleTargetsSomeone(rule)) {
       setLiveCount(null);
       setIsCounting(false);
       return;
     }
     setIsCounting(true);
-    const rule = editor.rule;
     const handle = window.setTimeout(() => {
       void (async () => {
         try {
@@ -104,29 +128,56 @@ export function SegmentsSection() {
   }, [editor]);
 
   function startCreate() {
-    setEditor({ id: null, name: "", rule: { ...EMPTY_RULE } });
+    setEditor({ id: null, name: "", scope: "tags", rule: { ...EMPTY_RULE } });
     setLiveCount(null);
   }
 
   function startEdit(segment: EmailSegmentSummary) {
-    // Drop any legacy tag-level excludes so the editor (and live count) reflect
-    // the include-only model; they're cleared on save too.
     setEditor({
       id: segment.id,
       name: segment.name,
-      rule: { ...segment.rule, excludeTagIds: [] },
+      // No include tags on a saved rule means it's an "everyone except …" one.
+      scope: segment.rule.includeTagIds.length > 0 ? "tags" : "everyone",
+      rule: segment.rule,
     });
   }
 
+  function setScope(scope: SegmentScope) {
+    if (!editor) return;
+    setEditor({ ...editor, scope });
+  }
+
+  // A tag can't be both included and excluded — toggling one side clears the
+  // other for that tag.
   function toggleIncludeTag(tagId: string) {
     if (!editor) return;
-    const current = editor.rule.includeTagIds;
-    const nextInclude = current.includes(tagId)
-      ? current.filter((id) => id !== tagId)
-      : [...current, tagId];
+    const include = editor.rule.includeTagIds;
+    const nextInclude = include.includes(tagId)
+      ? include.filter((id) => id !== tagId)
+      : [...include, tagId];
     setEditor({
       ...editor,
-      rule: { ...editor.rule, includeTagIds: nextInclude },
+      rule: {
+        ...editor.rule,
+        includeTagIds: nextInclude,
+        excludeTagIds: editor.rule.excludeTagIds.filter((id) => id !== tagId),
+      },
+    });
+  }
+
+  function toggleExcludeTag(tagId: string) {
+    if (!editor) return;
+    const exclude = editor.rule.excludeTagIds;
+    const nextExclude = exclude.includes(tagId)
+      ? exclude.filter((id) => id !== tagId)
+      : [...exclude, tagId];
+    setEditor({
+      ...editor,
+      rule: {
+        ...editor.rule,
+        excludeTagIds: nextExclude,
+        includeTagIds: editor.rule.includeTagIds.filter((id) => id !== tagId),
+      },
     });
   }
 
@@ -137,17 +188,15 @@ export function SegmentsSection() {
       toast.error("Give the segment a name.");
       return;
     }
-    if (editor.rule.includeTagIds.length === 0) {
+    if (editor.scope === "tags" && editor.rule.includeTagIds.length === 0) {
       toast.error("Pick at least one tag to include.");
       return;
     }
-    // Segments are include-only — global exclusions are handled on the Excluded
-    // tag, so never carry tag-level excludes (even from older saved segments).
-    const rule: EmailSegmentRule = {
-      match: editor.rule.match,
-      includeTagIds: editor.rule.includeTagIds,
-      excludeTagIds: [],
-    };
+    if (editor.scope === "everyone" && editor.rule.excludeTagIds.length === 0) {
+      toast.error("Pick at least one tag to exclude.");
+      return;
+    }
+    const rule = buildEffectiveRule(editor);
     startMutateTransition(async () => {
       try {
         if (editor.id) {
@@ -189,9 +238,14 @@ export function SegmentsSection() {
 
   function renderRuleSummary(rule: EmailSegmentRule) {
     const inc = rule.includeTagIds.map((id) => tagName.get(id) ?? "?").join(", ");
+    const exc = rule.excludeTagIds.map((id) => tagName.get(id) ?? "?").join(", ");
+    if (rule.includeTagIds.length === 0) {
+      return <>Everyone{exc ? ` except: ${exc}` : ""}</>;
+    }
     return (
       <>
-        Has {rule.match === "all" ? "all" : "any"} of: {inc || "—"}
+        Has {rule.match === "all" ? "all" : "any"} of: {inc}
+        {exc ? ` · excluding: ${exc}` : ""}
       </>
     );
   }
@@ -231,60 +285,119 @@ export function SegmentsSection() {
               className="h-9 w-full max-w-sm rounded-md border border-border bg-background px-3 text-sm"
             />
 
+            {/* Scope: start from tag-matched contacts, or everyone. */}
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="font-medium text-muted-foreground">
-                  Include contacts with
-                </span>
-                {(["all", "any"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() =>
-                      setEditor({
-                        ...editor,
-                        rule: { ...editor.rule, match: mode },
-                      })
-                    }
-                    className={`rounded-md border px-3 py-1.5 font-medium ${
-                      editor.rule.match === mode
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {mode === "all" ? "All tags" : "Any tag"}
-                  </button>
-                ))}
-                <span className="ml-auto text-muted-foreground">
-                  {editor.rule.includeTagIds.length === 0 ? (
-                    "Pick tags below"
-                  ) : isCounting ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Loader2 className="size-3.5 animate-spin" />
-                      counting…
-                    </span>
-                  ) : (
-                    `matches ~${liveCount ?? 0} contact${
-                      liveCount === 1 ? "" : "s"
-                    }`
-                  )}
-                </span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Who to include
+              </span>
+              <div className="inline-flex w-fit gap-1 rounded-lg border border-border bg-background p-1">
+                {(
+                  [
+                    { key: "tags", label: "Contacts with tags" },
+                    { key: "everyone", label: "Everyone" },
+                  ] as const
+                ).map((option) => {
+                  const active = editor.scope === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setScope(option.key)}
+                      aria-pressed={active}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        active
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {editor.rule.match === "all"
-                  ? "Only contacts who have every tag you pick below are included — the more tags, the narrower the segment."
-                  : "Contacts who have at least one of the tags you pick below are included — the more tags, the wider the segment."}
-              </p>
             </div>
 
+            {editor.scope === "tags" ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-medium text-muted-foreground">Match</span>
+                  {(["all", "any"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() =>
+                        setEditor({
+                          ...editor,
+                          rule: { ...editor.rule, match: mode },
+                        })
+                      }
+                      className={`rounded-md border px-3 py-1.5 font-medium ${
+                        editor.rule.match === mode
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {mode === "all" ? "All tags" : "Any tag"}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {editor.rule.match === "all"
+                    ? "Only contacts who have every tag you pick are included — the more tags, the narrower."
+                    : "Contacts who have at least one of the tags you pick are included — the more tags, the wider."}
+                </p>
+                <TagPicker
+                  label="Include these tags"
+                  categories={categories}
+                  tagsByCategory={tagsByCategory}
+                  selected={editor.rule.includeTagIds}
+                  tone="include"
+                  onToggle={toggleIncludeTag}
+                />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Starts with{" "}
+                <span className="font-medium text-foreground">every contact</span>
+                . Narrow it down by excluding tags below.
+              </p>
+            )}
+
             <TagPicker
-              label="Tags"
+              label={
+                editor.scope === "everyone"
+                  ? "Except anyone with these tags"
+                  : "Exclude anyone with these tags (optional)"
+              }
               categories={categories}
               tagsByCategory={tagsByCategory}
-              selected={editor.rule.includeTagIds}
-              tone="include"
-              onToggle={toggleIncludeTag}
+              selected={editor.rule.excludeTagIds}
+              tone="exclude"
+              onToggle={toggleExcludeTag}
             />
+
+            <div className="text-xs text-muted-foreground">
+              {!ruleTargetsSomeone(buildEffectiveRule(editor)) ? (
+                editor.scope === "everyone" ? (
+                  "Pick at least one tag to exclude."
+                ) : (
+                  "Pick at least one tag to include."
+                )
+              ) : isCounting ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  counting…
+                </span>
+              ) : (
+                <>
+                  Matches{" "}
+                  <span className="font-medium text-foreground">
+                    ~{liveCount ?? 0}
+                  </span>{" "}
+                  {liveCount === 1 ? "contact" : "contacts"} right now.
+                </>
+              )}
+            </div>
 
             <div className="flex items-center gap-2">
               <button

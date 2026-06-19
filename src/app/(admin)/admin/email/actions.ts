@@ -907,6 +907,15 @@ function validateSegmentTagIds(rule: EmailSegmentRule) {
   for (const id of rule.excludeTagIds) validateUUID(id, "tag");
 }
 
+/** A segment must target someone: include tags, or exclude tags ("everyone
+ *  except …"). A fully empty rule (which would resolve to every contact) is
+ *  rejected — that's what a Newsletter is for. */
+function assertSegmentNotEmpty(rule: EmailSegmentRule) {
+  if (rule.includeTagIds.length + rule.excludeTagIds.length === 0) {
+    throw new Error("Pick at least one tag to include or exclude.");
+  }
+}
+
 export async function loadEmailSegmentsAction(): Promise<{
   segments: EmailSegmentSummary[];
 }> {
@@ -960,6 +969,7 @@ export async function createEmailSegmentAction(input: {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid segment");
   }
   validateSegmentTagIds(parsed.data.rule);
+  assertSegmentNotEmpty(parsed.data.rule);
   const segment = await createEmailSegment(parsed.data);
   revalidatePath("/admin");
   return { segment };
@@ -978,6 +988,7 @@ export async function updateEmailSegmentAction(input: {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid segment");
   }
   validateSegmentTagIds(parsed.data.rule);
+  assertSegmentNotEmpty(parsed.data.rule);
   await updateEmailSegment({ id: input.id, ...parsed.data });
   revalidatePath("/admin");
   return { ok: true };

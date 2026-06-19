@@ -17,13 +17,10 @@ export function normalizeSegmentRule(raw: unknown): EmailSegmentRule {
     Array.isArray(value)
       ? value.filter((id): id is string => typeof id === "string")
       : [];
-  // Segments are include-only — global exclusions live on the Excluded tab.
-  // Drop any legacy tag-level excludes here so display, match counts, and
-  // resolution all agree (older saved rules can't silently keep excluding).
   return {
     match,
     includeTagIds: toIds(record.includeTagIds),
-    excludeTagIds: [],
+    excludeTagIds: toIds(record.excludeTagIds),
   };
 }
 
@@ -44,7 +41,12 @@ function toSegment(row: Record<string, unknown>): EmailSegment {
 export async function resolveSegmentContactIds(
   rule: EmailSegmentRule,
 ): Promise<string[]> {
-  if (rule.includeTagIds.length === 0) return [];
+  // No include tags + no exclude tags would resolve to everyone — that's not a
+  // segment, so return nobody. But an exclude-only rule (no include, some
+  // exclude) is "everybody except …" and must hit the RPC.
+  if (rule.includeTagIds.length === 0 && rule.excludeTagIds.length === 0) {
+    return [];
+  }
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("resolve_email_segment_contacts", {
     p_include: rule.includeTagIds,

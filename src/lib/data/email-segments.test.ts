@@ -19,14 +19,14 @@ describe("normalizeSegmentRule", () => {
     });
   });
 
-  it("preserves includes, coerces match, and drops legacy excludes (include-only)", () => {
+  it("preserves include and exclude tags and coerces match", () => {
     expect(
       normalizeSegmentRule({
         match: "any",
         includeTagIds: ["a", "b"],
         excludeTagIds: ["c"],
       }),
-    ).toEqual({ match: "any", includeTagIds: ["a", "b"], excludeTagIds: [] });
+    ).toEqual({ match: "any", includeTagIds: ["a", "b"], excludeTagIds: ["c"] });
     expect(normalizeSegmentRule({ match: "weird" }).match).toBe("all");
   });
 
