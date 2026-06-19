@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ComponentType } from "react";
 import {
-  Bot,
   CheckSquare,
   ContactRound,
   Home,
@@ -49,7 +48,6 @@ const workspaceItems: Array<{
   { item: "email", label: "Email", icon: Mail },
   { item: "tasks", label: "Tasks", icon: CheckSquare },
   { item: "tags", label: "Tags", icon: Tags },
-  { item: "ai", label: "AI Agent", icon: Bot },
 ];
 
 function AdminSidebarCollapseButton() {
@@ -129,9 +127,7 @@ export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
           <SidebarGroupLabel>Workspace</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {workspaceItems
-                .filter((entry) => entry.item !== "ai" || aiEnabled)
-                .map((entry) => {
+              {workspaceItems.map((entry) => {
                   const Icon = entry.icon;
                   return (
                     <SidebarMenuItem key={entry.item}>
