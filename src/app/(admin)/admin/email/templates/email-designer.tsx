@@ -27,6 +27,7 @@ import {
   assertMailyDocument,
   CONTENT_GUTTER,
   DEFAULT_EMAIL_WIDTH,
+  getEmailFontByKey,
   type EmailLayout,
   type MailyDocument,
 } from "@/lib/email/rendering/maily";
@@ -301,6 +302,8 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
                 "--email-canvas-width": `${layout.maxWidth}px`,
                 "--email-canvas-pt": `${layout.paddingTop}px`,
                 "--email-canvas-pb": `${layout.paddingBottom}px`,
+                "--email-canvas-font": getEmailFontByKey(layout.fontKey)
+                  .cssStack,
               } as CSSProperties)
             : undefined
         }

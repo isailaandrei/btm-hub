@@ -18,6 +18,8 @@ export type MailyDocument = JSONContent & {
   maxWidth?: number;
   paddingTop?: number;
   paddingBottom?: number;
+  /** Whole-email font, by key into EMAIL_FONTS. Defaults to the system stack. */
+  fontKey?: string;
 };
 
 export const DEFAULT_EMAIL_WIDTH = 680;
@@ -66,12 +68,77 @@ export function getMailyDocumentPaddingBottom(document: MailyDocument): number {
     : clampEmailPadding(document.paddingBottom);
 }
 
+/**
+ * Email-safe font stacks an admin can pick from for a whole message. Custom or
+ * Google web fonts can't be relied on in email (Outlook ignores @font-face,
+ * Gmail strips it), so every option is a system/web-safe stack that renders
+ * without a download. `fontFamily` is the PRIMARY family (emitted quoted by
+ * @maily-to/render); the rest of the stack goes in `fallbackFontFamily`
+ * (emitted unquoted). `cssStack` is the full family for the editor canvas.
+ */
+export interface EmailFontOption {
+  key: string;
+  label: string;
+  fontFamily: string;
+  fallbackFontFamily: string;
+  cssStack: string;
+}
+
+export const EMAIL_FONTS: EmailFontOption[] = [
+  {
+    key: "system",
+    label: "System sans",
+    fontFamily: "-apple-system",
+    fallbackFontFamily:
+      "BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    cssStack:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  },
+  {
+    key: "helvetica",
+    label: "Helvetica / Arial",
+    fontFamily: "Helvetica",
+    fallbackFontFamily: "Arial, sans-serif",
+    cssStack: "Helvetica, Arial, sans-serif",
+  },
+  {
+    key: "georgia",
+    label: "Georgia",
+    fontFamily: "Georgia",
+    fallbackFontFamily: "'Times New Roman', Times, serif",
+    cssStack: "Georgia, 'Times New Roman', Times, serif",
+  },
+  {
+    key: "mono",
+    label: "Monospace",
+    fontFamily: "'Courier New'",
+    fallbackFontFamily: "Courier, monospace",
+    cssStack: "'Courier New', Courier, monospace",
+  },
+];
+
+export const DEFAULT_EMAIL_FONT_KEY = EMAIL_FONTS[0].key;
+
+/** Resolve a font key to its option (falling back to the system stack). */
+export function getEmailFontByKey(key: string | undefined): EmailFontOption {
+  return EMAIL_FONTS.find((font) => font.key === key) ?? EMAIL_FONTS[0];
+}
+
+/** Resolve a document's font key (falling back to the system default). */
+export function getMailyDocumentFontKey(document: MailyDocument): string {
+  const key = document.fontKey;
+  return typeof key === "string" && EMAIL_FONTS.some((font) => font.key === key)
+    ? key
+    : DEFAULT_EMAIL_FONT_KEY;
+}
+
 /** Per-template layout settings (the editor tracks these and merges them into
  *  the document snapshot so they persist through save/preview/send). */
 export interface EmailLayout {
   maxWidth: number;
   paddingTop: number;
   paddingBottom: number;
+  fontKey: string;
 }
 
 /** Resolve a document's layout (clamped, with defaults). */
@@ -80,6 +147,7 @@ export function getMailyDocumentLayout(document: MailyDocument): EmailLayout {
     maxWidth: getMailyDocumentWidth(document),
     paddingTop: getMailyDocumentPaddingTop(document),
     paddingBottom: getMailyDocumentPaddingBottom(document),
+    fontKey: getMailyDocumentFontKey(document),
   };
 }
 
@@ -93,6 +161,7 @@ export function applyLayoutToDocument(
     maxWidth: layout.maxWidth,
     paddingTop: layout.paddingTop,
     paddingBottom: layout.paddingBottom,
+    fontKey: layout.fontKey,
   };
 }
 
@@ -105,17 +174,21 @@ export interface RenderedEmail extends RenderedEmailBody {
   subject: string;
 }
 
-// System font stack — renders identically in every client (no webfont download).
-// `fontFamily` is emitted quoted by @maily-to/render, so the PRIMARY family goes
-// there and the rest of the stack goes in `fallbackFontFamily` (emitted unquoted).
-// `webFont: undefined` is required to strip the library's default Inter @font-face;
-// the deep-merge in setTheme keeps the default webFont otherwise.
-const SYSTEM_FONT = {
-  fontFamily: "-apple-system",
-  fallbackFontFamily:
-    "BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-  webFont: undefined,
-};
+// Build a render-theme `font` from a font option. `webFont: undefined` is
+// required to strip the library's default Inter @font-face — the deep-merge in
+// setTheme keeps the default webFont otherwise (which would download Inter).
+function fontThemeForKey(fontKey: string) {
+  const option = getEmailFontByKey(fontKey);
+  return {
+    fontFamily: option.fontFamily,
+    fallbackFontFamily: option.fallbackFontFamily,
+    webFont: undefined,
+  };
+}
+
+// Default theme font is the system stack (renders identically in every client,
+// no webfont download); a per-email choice overrides it at render time.
+const SYSTEM_FONT = fontThemeForKey(DEFAULT_EMAIL_FONT_KEY);
 
 const DEFAULT_EMAIL_RENDER_THEME = {
   font: SYSTEM_FONT,
@@ -430,6 +503,7 @@ export async function renderMailyDocument(
   const renderer = new Maily(normalized);
   renderer.setTheme({
     ...DEFAULT_EMAIL_RENDER_THEME,
+    font: fontThemeForKey(getMailyDocumentFontKey(normalized)),
     container: {
       ...DEFAULT_EMAIL_RENDER_THEME.container,
       maxWidth: `${getMailyDocumentWidth(normalized)}px`,

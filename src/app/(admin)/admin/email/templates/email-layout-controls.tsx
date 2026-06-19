@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   clampEmailPadding,
   clampEmailWidth,
+  EMAIL_FONTS,
   MAX_EMAIL_PADDING,
   MAX_EMAIL_WIDTH,
   MIN_EMAIL_PADDING,
@@ -71,6 +72,22 @@ export function EmailLayoutControls({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        Font
+        <select
+          value={value.fontKey}
+          onChange={(event) =>
+            onChange({ ...value, fontKey: event.target.value })
+          }
+          className="rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground"
+        >
+          {EMAIL_FONTS.map((font) => (
+            <option key={font.key} value={font.key}>
+              {font.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <DraftNumberInput
         label="Width"
         value={value.maxWidth}

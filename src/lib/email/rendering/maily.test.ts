@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLayoutToDocument,
   assertMailyDocument,
   clampEmailWidth,
   createDefaultMailyDocument,
+  DEFAULT_EMAIL_FONT_KEY,
   DEFAULT_EMAIL_WIDTH,
   getAssetIdsForMailyDocument,
+  getMailyDocumentFontKey,
+  getMailyDocumentLayout,
   getMailyDocumentWidth,
   MAX_EMAIL_WIDTH,
   MIN_EMAIL_WIDTH,
@@ -151,6 +155,32 @@ describe("Maily rendering", () => {
     expect(rendered.html).toContain("-apple-system");
     // The library default Inter web font must not be downloaded.
     expect(rendered.html).not.toContain("rsms.me");
+  });
+
+  it("renders the per-email font choice and never the default Inter web font", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({ ...createDefaultMailyDocument(), fontKey: "georgia" }),
+    );
+
+    expect(rendered.html).toContain("Georgia");
+    expect(rendered.html).not.toContain("-apple-system");
+    expect(rendered.html).not.toContain("rsms.me");
+  });
+
+  it("round-trips the font key through layout get/apply (default = system)", () => {
+    const blank = createDefaultMailyDocument();
+    expect(getMailyDocumentFontKey(blank)).toBe(DEFAULT_EMAIL_FONT_KEY);
+    expect(getMailyDocumentLayout(blank).fontKey).toBe(DEFAULT_EMAIL_FONT_KEY);
+
+    const layout = { ...getMailyDocumentLayout(blank), fontKey: "mono" };
+    const withFont = applyLayoutToDocument(blank, layout);
+    expect(withFont.fontKey).toBe("mono");
+    expect(getMailyDocumentLayout(withFont).fontKey).toBe("mono");
+
+    // An unknown key falls back to the system default rather than leaking through.
+    expect(getMailyDocumentFontKey(assertMailyDocument({ ...blank, fontKey: "comic-sans" }))).toBe(
+      DEFAULT_EMAIL_FONT_KEY,
+    );
   });
 
   it("forces images to height:auto so they scale proportionally on mobile", async () => {
