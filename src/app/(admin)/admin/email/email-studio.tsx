@@ -329,6 +329,7 @@ function EmailStudioContent({
           setManualRecipients={setManualRecipients}
           setTemplates={setEmailTemplates}
           onSendStarted={handleSendStarted}
+          isActive={activeTab === "compose"}
         />
       </div>
 

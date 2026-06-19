@@ -902,6 +902,20 @@ export async function loadAudienceTagsAction(): Promise<{
   return { categories, tags };
 }
 
+export async function loadAudienceContactsAction(): Promise<{
+  contacts: Array<{ id: string; name: string; email: string }>;
+}> {
+  await requireAdmin();
+  const contacts = await getContacts();
+  return {
+    contacts: contacts.map((contact) => ({
+      id: contact.id,
+      name: contact.name,
+      email: contact.email,
+    })),
+  };
+}
+
 export async function previewSegmentCountAction(
   rule: EmailSegmentRule,
 ): Promise<{ count: number }> {
