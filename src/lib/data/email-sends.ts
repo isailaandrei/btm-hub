@@ -697,6 +697,7 @@ export async function suppressEmail(input: {
 
 export async function unsubscribeNewsletterByToken(
   token: string,
+  feedback?: { reason?: string | null; comment?: string | null },
 ): Promise<boolean> {
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const supabase = await createAdminClient();
@@ -747,6 +748,8 @@ export async function unsubscribeNewsletterByToken(
     throw new Error(`Failed to update email recipient: ${recipientError.message}`);
   }
 
+  const reason = feedback?.reason?.trim() || null;
+  const comment = feedback?.comment?.trim() || null;
   await appendEmailEvent({
     sendId: row.send_id,
     recipientId: row.id,
@@ -757,7 +760,13 @@ export async function unsubscribeNewsletterByToken(
     providerMessageId: row.provider_message_id,
     eventFingerprint: `internal:unsubscribe:${row.id}`,
     occurredAt: now,
-    payload: { source: "email_link" },
+    // Optional self-reported reason/comment, kept on the event as the audit
+    // trail (JSONB payload — no schema change).
+    payload: {
+      source: "email_link",
+      ...(reason ? { reason } : {}),
+      ...(comment ? { comment } : {}),
+    },
   });
   await updateEmailSendCounts(row.send_id);
   return true;
