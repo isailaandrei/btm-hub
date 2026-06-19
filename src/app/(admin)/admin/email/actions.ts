@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { getContacts, getTagCategories, getTags } from "@/lib/data/contacts";
+import {
+  getContactById,
+  getContacts,
+  getTagCategories,
+  getTags,
+} from "@/lib/data/contacts";
 import {
   createEmailSendWithRecipients,
   deleteRemovableEmailSend,
@@ -22,6 +27,7 @@ import {
   upsertEmailManualRecipient,
 } from "@/lib/data/email-manual-recipients";
 import {
+  excludeContactEmail,
   listEmailExclusions,
   liftEmailExclusion,
   type EmailExclusionRow,
@@ -762,6 +768,20 @@ export async function liftEmailExclusionAction(
   await requireAdmin();
   validateUUID(suppressionId, "exclusion");
   await liftEmailExclusion(suppressionId);
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+// Manually exclude a contact straight from the Excluded list. The email is
+// resolved server-side from the contact id (never trusted from the client).
+export async function excludeContactFromEmailAction(
+  contactId: string,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  validateUUID(contactId, "contact");
+  const contact = await getContactById(contactId);
+  if (!contact) throw new Error("Contact not found");
+  await excludeContactEmail({ contactId, email: contact.email });
   revalidatePath("/admin");
   return { ok: true };
 }
