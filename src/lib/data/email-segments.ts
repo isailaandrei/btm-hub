@@ -17,10 +17,13 @@ export function normalizeSegmentRule(raw: unknown): EmailSegmentRule {
     Array.isArray(value)
       ? value.filter((id): id is string => typeof id === "string")
       : [];
+  // Segments are include-only — global exclusions live on the Excluded tab.
+  // Drop any legacy tag-level excludes here so display, match counts, and
+  // resolution all agree (older saved rules can't silently keep excluding).
   return {
     match,
     includeTagIds: toIds(record.includeTagIds),
-    excludeTagIds: toIds(record.excludeTagIds),
+    excludeTagIds: [],
   };
 }
 

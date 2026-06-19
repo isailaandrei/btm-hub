@@ -564,11 +564,13 @@ export function EmailComposer({
     }
     startSendTransition(async () => {
       try {
-        const snapshot = designerRef.current?.getSnapshot();
+        // Same builder JSON the preview renders from, so send and preview can't
+        // diverge — the fallback keeps the layout/font (applyLayoutToDocument)
+        // even if the designer ref is momentarily null.
         await sendEmailNowAction({
           kind,
           subject,
-          builderJson: snapshot?.builderJson ?? document,
+          builderJson: getCurrentBuilderJson(),
           previewText,
           contactIds,
           manualRecipientIds:
