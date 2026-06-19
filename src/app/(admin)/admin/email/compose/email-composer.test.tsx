@@ -157,6 +157,18 @@ describe("EmailComposer manual recipients", () => {
     });
     await flushAsyncWork();
 
+    // Targeted sends open a recipients-confirmation modal first; nothing is sent
+    // until it's confirmed.
+    expect(mockSendEmailNowAction).not.toHaveBeenCalled();
+    const confirmButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.startsWith("Send to "),
+    );
+    if (!confirmButton) throw new Error("Missing recipients-confirm button");
+    await act(async () => {
+      confirmButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
     expect(mockSendEmailNowAction).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "outreach",

@@ -146,6 +146,7 @@ export function EmailComposer({
   const [newListName, setNewListName] = useState("");
   const [isSavingList, startSaveListTransition] = useTransition();
   const [isBroadcastConfirmOpen, setIsBroadcastConfirmOpen] = useState(false);
+  const [isConfirmRecipientsOpen, setIsConfirmRecipientsOpen] = useState(false);
   const [view, setView] = useState<"design" | "preview">("design");
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewSubject, setPreviewSubject] = useState("");
@@ -606,13 +607,21 @@ export function EmailComposer({
       setIsBroadcastConfirmOpen(true);
       return;
     }
-    startSendNow();
+    // Targeted: confirm against the resolved recipient list before sending.
+    setIsConfirmRecipientsOpen(true);
   }
 
   function handleConfirmBroadcastSend() {
     setIsBroadcastConfirmOpen(false);
     startSendNow();
   }
+
+  function handleConfirmRecipientsSend() {
+    setIsConfirmRecipientsOpen(false);
+    startSendNow();
+  }
+
+  const confirmEligibleCount = recipientDetails?.eligible.length ?? 0;
 
   const recipientSummary = getRecipientSummary({
     kind,
@@ -1343,6 +1352,70 @@ export function EmailComposer({
                 disabled={isSending}
               >
                 {isSending ? "Sending..." : "Send newsletter"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isConfirmRecipientsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8"
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-recipients-title"
+            className="flex max-h-full w-full max-w-md flex-col rounded-md border border-border bg-background shadow-lg"
+          >
+            <div className="border-b border-border px-5 py-4">
+              <h2
+                id="confirm-recipients-title"
+                className="text-base font-medium text-foreground"
+              >
+                Send this email?
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Double-check who it goes to — this sends as soon as you confirm.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto px-5 py-3">
+              {recipientDetails ? (
+                <RecipientList
+                  eligible={recipientDetails.eligible}
+                  skipped={recipientDetails.skipped}
+                  isLoading={isLoadingRecipients}
+                />
+              ) : (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Resolving recipients...
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setIsConfirmRecipientsOpen(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground"
+                disabled={isSending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRecipientsSend}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                disabled={isSending || confirmEligibleCount === 0}
+              >
+                {isSending
+                  ? "Sending..."
+                  : confirmEligibleCount === 0
+                    ? "No one to send to"
+                    : `Send to ${confirmEligibleCount} ${
+                        confirmEligibleCount === 1 ? "person" : "people"
+                      }`}
               </button>
             </div>
           </div>
