@@ -31,6 +31,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 import type {
   Application,
@@ -64,6 +65,7 @@ import {
   upsertTagById,
   type RollbackHandle,
 } from "./admin-optimistic-mutations";
+import { contactDetailCacheStore } from "./contacts/contact-detail-cache";
 
 type FetchState = "idle" | "loading" | "done";
 
@@ -234,6 +236,17 @@ export function AdminDataProvider({
     return supabaseRef.current;
   }
 
+  // Flag a cached contact-detail entry stale when a realtime change touches
+  // data the detail bootstrap covers (contact / applications / events). The
+  // panel reloads stale-while-revalidate on next open. Tag changes are excluded
+  // because the detail panel reads tags from this provider, not the bootstrap.
+  const markContactDetailStale = useCallback(
+    (contactId: string | null | undefined) => {
+      if (contactId) contactDetailCacheStore.markStale(contactId);
+    },
+    [],
+  );
+
   const scheduleContactActivitySummaryRefetch = useCallback((contactId: string | null | undefined) => {
     if (!contactId) return;
     pendingActivitySummaryContactIdsRef.current.add(contactId);
@@ -282,9 +295,15 @@ export function AdminDataProvider({
     const supabase = getSupabase();
 
     async function fetchApplications() {
+      const startedAt = startAdminTiming();
+      let answerKeys = 0;
+      let rows = 0;
+      let status = "ok";
+
       const projection = buildApplicationProjectionSelect(
         requestedApplicationAnswerKeysRef.current,
       );
+      answerKeys = projection.answerKeys.length;
       const { data, error, count } = await supabase
         .from("applications")
         .select(projection.select, { count: mode === "replace" ? "exact" : undefined })
@@ -293,9 +312,16 @@ export function AdminDataProvider({
 
       if (error) {
         // Reset to idle so the next ensure call retries the fetch.
+        status = "error";
         appsFetchState.current = "idle";
         setAppsError("Failed to load applications.");
         toast.error("Failed to load applications. Please try again.");
+        logAdminTiming("admin.applications.full.client", startedAt, {
+          answerKeys,
+          mode,
+          rows,
+          status,
+        });
         return;
       }
 
@@ -303,6 +329,7 @@ export function AdminDataProvider({
         (data ?? []) as unknown as Array<Record<string, unknown>>,
         projection.answerKeys,
       );
+      rows = projectedApplications.length;
 
       setAppsError(null);
       setApplications((previous) =>
@@ -331,6 +358,13 @@ export function AdminDataProvider({
           (key) => !loadedApplicationAnswerKeysRef.current.has(key),
         );
         if (missingKeys.length > 0) startApplicationsFetch("merge");
+        logAdminTiming("admin.applications.full.client", startedAt, {
+          answerKeys,
+          count: count ?? null,
+          mode,
+          rows,
+          status,
+        });
         return;
       }
       applicationsChannelStartedRef.current = true;
@@ -343,6 +377,7 @@ export function AdminDataProvider({
           (payload) => {
             const next = payload.new as Application;
             scheduleContactActivitySummaryRefetch(next.contact_id);
+            markContactDetailStale(next.contact_id);
             setApplications((prev) => [
               {
                 id: next.id,
@@ -365,6 +400,7 @@ export function AdminDataProvider({
             // like `answers` from our in-memory copy.
             const next = payload.new as Partial<Application> & { id: string };
             scheduleContactActivitySummaryRefetch(next.contact_id);
+            markContactDetailStale(next.contact_id);
             setApplications((prev) =>
               (prev ?? []).map((a) =>
                 a.id === next.id
@@ -385,9 +421,9 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "applications" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.old as Partial<Application>).contact_id,
-            );
+            const contactId = (payload.old as Partial<Application>).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
             setApplications((prev) =>
               (prev ?? []).filter((a) => a.id !== (payload.old as Application).id)
             );
@@ -401,10 +437,18 @@ export function AdminDataProvider({
         (key) => !loadedApplicationAnswerKeysRef.current.has(key),
       );
       if (missingKeys.length > 0) startApplicationsFetch("merge");
+
+      logAdminTiming("admin.applications.full.client", startedAt, {
+        answerKeys,
+        count: count ?? null,
+        mode,
+        rows,
+        status,
+      });
     }
 
     fetchApplications();
-  }, [scheduleContactActivitySummaryRefetch]);
+  }, [markContactDetailStale, scheduleContactActivitySummaryRefetch]);
 
   const ensureAnswerKeys = useCallback((answerKeys: Iterable<string>) => {
     requestApplicationAnswerKeys(answerKeys);
@@ -620,6 +664,12 @@ export function AdminDataProvider({
     const supabase = getSupabase();
 
     async function fetchContacts() {
+      const startedAt = startAdminTiming();
+      let contactsCount = 0;
+      let contactTagsCount = 0;
+      let activitySummariesCount = 0;
+      let status = "ok";
+
       const [
         { data: contactsData, error: contactsErr },
         { data: tagCategoriesData, error: tagCategoriesErr },
@@ -642,12 +692,22 @@ export function AdminDataProvider({
       const fetchError =
         contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr ?? contactActivitySummariesErr;
       if (fetchError) {
+        status = "error";
         contactsFetchState.current = "idle";
         setContactsError("Failed to load contacts.");
         toast.error("Failed to load contacts. Please try again.");
+        logAdminTiming("admin.contacts.full.client", startedAt, {
+          activitySummaries: activitySummariesCount,
+          contactTags: contactTagsCount,
+          contacts: contactsCount,
+          status,
+        });
         return;
       }
 
+      contactsCount = contactsData?.length ?? 0;
+      contactTagsCount = contactTagsData?.length ?? 0;
+      activitySummariesCount = contactActivitySummariesData?.length ?? 0;
       setContactsError(null);
       setContacts(contactsData ?? []);
       setTagCategories(tagCategoriesData ?? []);
@@ -666,9 +726,9 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "contacts" },
           (payload) => {
-            setContacts((prev) =>
-              upsertSortedContact(prev, payload.new as Contact),
-            );
+            const next = payload.new as Contact;
+            markContactDetailStale(next.id);
+            setContacts((prev) => upsertSortedContact(prev, next));
           },
         )
         .on(
@@ -678,6 +738,7 @@ export function AdminDataProvider({
             // Merge into the existing contact rather than overwriting; see
             // the applications handler above for the rationale.
             const next = payload.new as Partial<Contact> & { id: string };
+            markContactDetailStale(next.id);
             setContacts((prev) => {
               const existing = (prev ?? []).find((c) => c.id === next.id);
               const merged = existing ? { ...existing, ...next } : (next as Contact);
@@ -689,6 +750,7 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "contacts" },
           (payload) => {
+            markContactDetailStale((payload.old as Contact).id);
             setContacts((prev) =>
               (prev ?? []).filter((c) => c.id !== (payload.old as Contact).id)
             );
@@ -763,36 +825,43 @@ export function AdminDataProvider({
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "contact_events" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.new as ContactEvent).contact_id,
-            );
+            const contactId = (payload.new as ContactEvent).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
           },
         )
         .on(
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "contact_events" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.new as Partial<ContactEvent>).contact_id,
-            );
+            const contactId = (payload.new as Partial<ContactEvent>).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
           },
         )
         .on(
           "postgres_changes",
           { event: "DELETE", schema: "public", table: "contact_events" },
           (payload) => {
-            scheduleContactActivitySummaryRefetch(
-              (payload.old as Partial<ContactEvent>).contact_id,
-            );
+            const contactId = (payload.old as Partial<ContactEvent>).contact_id;
+            scheduleContactActivitySummaryRefetch(contactId);
+            markContactDetailStale(contactId);
           },
         )
         .subscribe();
 
       channelsRef.current.push(contactsChannel, contactTagsChannel, tagCategoriesChannel, tagsChannel, contactEventsChannel);
+
+      logAdminTiming("admin.contacts.full.client", startedAt, {
+        activitySummaries: activitySummariesCount,
+        contactTags: contactTagsCount,
+        contacts: contactsCount,
+        status,
+      });
     }
 
     fetchContacts();
-  }, [scheduleContactActivitySummaryRefetch]);
+  }, [markContactDetailStale, scheduleContactActivitySummaryRefetch]);
 
   // Cleanup only the channels that were actually created
   useEffect(() => {

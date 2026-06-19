@@ -100,4 +100,74 @@ describe("contact tag assignment timeline events", () => {
       skippedMissing: 0,
     });
   });
+
+  it("unassignTag delegates to the removal RPC with the current admin for timeline attribution", async () => {
+    mockSupabase.mockQueryResult({
+      requested: 1,
+      existing: 1,
+      removed: 1,
+      not_assigned: 0,
+      skipped_missing: 0,
+      removed_assignments: [
+        {
+          contact_id: CONTACT_ID,
+          assigned_at: "2026-05-01T12:00:00.000Z",
+          removed_at: "2026-05-02T12:00:00.000Z",
+        },
+      ],
+    });
+
+    const { unassignTag } = await import("./contacts");
+    await unassignTag(CONTACT_ID, TAG_ID);
+
+    expect(mockSupabase.client.rpc).toHaveBeenCalledWith(
+      "bulk_unassign_contact_tags",
+      {
+        p_contact_ids: [CONTACT_ID],
+        p_tag_id: TAG_ID,
+        p_author_id: mockProfile.id,
+        p_author_name: mockProfile.display_name,
+      },
+    );
+  });
+
+  it("bulkUnassignTags delegates to the removal RPC and keeps its public return shape", async () => {
+    mockSupabase.mockQueryResult({
+      requested: 2,
+      existing: 2,
+      removed: 1,
+      not_assigned: 1,
+      skipped_missing: 0,
+      removed_assignments: [
+        {
+          contact_id: CONTACT_ID,
+          assigned_at: "2026-05-01T12:00:00.000Z",
+          removed_at: "2026-05-02T12:00:00.000Z",
+        },
+      ],
+    });
+
+    const { bulkUnassignTags } = await import("./contacts");
+    const result = await bulkUnassignTags(
+      [CONTACT_ID, SECOND_CONTACT_ID],
+      TAG_ID,
+    );
+
+    expect(mockSupabase.client.rpc).toHaveBeenCalledWith(
+      "bulk_unassign_contact_tags",
+      {
+        p_contact_ids: [CONTACT_ID, SECOND_CONTACT_ID],
+        p_tag_id: TAG_ID,
+        p_author_id: mockProfile.id,
+        p_author_name: mockProfile.display_name,
+      },
+    );
+    expect(result).toEqual({
+      requested: 2,
+      existing: 2,
+      removed: 1,
+      notAssigned: 1,
+      skippedMissing: 0,
+    });
+  });
 });

@@ -19,10 +19,14 @@ export function ContactEmailExclusion({
   contactId,
   excluded,
   reason,
+  onChanged,
 }: {
   contactId: string;
   excluded: boolean;
   reason: EmailSuppressionReason | null;
+  /** Called after a successful toggle so the parent can re-read the status —
+   *  the client cache survives revalidatePath, so it won't refresh on its own. */
+  onChanged?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [confirmingAllow, setConfirmingAllow] = useState(false);
@@ -32,6 +36,7 @@ export function ContactEmailExclusion({
       try {
         await excludeContactFromEmail(contactId);
         toast.success("Contact excluded from all email.");
+        onChanged?.();
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to exclude contact.",
@@ -46,6 +51,7 @@ export function ContactEmailExclusion({
       try {
         await allowContactEmail(contactId);
         toast.success("Contact can receive email again.");
+        onChanged?.();
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to update contact.",

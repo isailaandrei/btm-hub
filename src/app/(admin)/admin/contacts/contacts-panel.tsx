@@ -42,6 +42,8 @@ import { useContactsPanelViewModel } from "./contacts-panel-view-model";
 import { useDebouncedValue } from "./use-debounced-value";
 import { LastActivityCell } from "./last-activity-cell";
 import { parseSocialLinkText } from "./social-links";
+import { warmContactDetail } from "./[id]/contact-detail-loader";
+import { shouldSoftNavigate, softNavigate } from "../admin-soft-nav";
 import {
   AcademyImportSyncButton,
   AcademyImportSyncPanel,
@@ -259,6 +261,7 @@ export function ContactsPanel({
     [state.selectedIds],
   );
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const prefetchedContactIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     return () => {
@@ -311,6 +314,17 @@ export function ContactsPanel({
       if (next.has(contactId)) next.delete(contactId);
       else next.add(contactId);
       return next;
+    });
+  }
+
+  function prefetchContactDetail(contactId: string) {
+    if (prefetchedContactIdsRef.current.has(contactId)) return;
+    prefetchedContactIdsRef.current.add(contactId);
+    // Warm the session cache so opening the contact is instant. Best-effort:
+    // on failure, allow a retry on the next hover/focus and let the panel
+    // surface the error when actually opened.
+    void warmContactDetail(contactId).catch(() => {
+      prefetchedContactIdsRef.current.delete(contactId);
     });
   }
 
@@ -676,6 +690,14 @@ export function ContactsPanel({
                         <Link
                           href={`/admin/contacts/${contact.id}`}
                           prefetch={false}
+                          onClick={(event) => {
+                            if (!shouldSoftNavigate(event)) return;
+                            event.preventDefault();
+                            prefetchContactDetail(contact.id);
+                            softNavigate(`/admin/contacts/${contact.id}`);
+                          }}
+                          onFocus={() => prefetchContactDetail(contact.id)}
+                          onMouseEnter={() => prefetchContactDetail(contact.id)}
                           className="font-medium text-foreground hover:text-primary"
                         >
                           {contact.name}

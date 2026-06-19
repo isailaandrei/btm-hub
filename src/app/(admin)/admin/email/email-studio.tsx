@@ -29,7 +29,6 @@ import {
   type EmailSendDiagnostics,
 } from "./actions";
 import {
-  AdminEmailDataProvider,
   useAdminEmailData,
 } from "./admin-email-data-provider";
 import { EmailComposer } from "./compose/email-composer";
@@ -579,9 +578,5 @@ export function EmailStudio(props: {
   isVisible?: boolean;
   selectedContactIds: string[];
 }) {
-  return (
-    <AdminEmailDataProvider>
-      <EmailStudioContent {...props} />
-    </AdminEmailDataProvider>
-  );
+  return <EmailStudioContent {...props} />;
 }

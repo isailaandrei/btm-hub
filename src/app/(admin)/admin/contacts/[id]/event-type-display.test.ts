@@ -4,6 +4,7 @@ import {
   EVENT_TYPE_DISPLAY,
   eventTypeDisplayFor,
   isTagAssignmentEvent,
+  isTagChangeEvent,
 } from "./event-type-display";
 
 function event(partial: Partial<ContactEvent>): ContactEvent {
@@ -31,6 +32,13 @@ describe("eventTypeDisplayFor", () => {
     const display = eventTypeDisplayFor(event({ type: "tag_assigned" }));
 
     expect(display).toBe(EVENT_TYPE_DISPLAY.tag_assigned);
+  });
+
+  it("uses the removed tag display for first-class tag removal events", () => {
+    const display = eventTypeDisplayFor(event({ type: "tag_removed" }));
+
+    expect(isTagChangeEvent(event({ type: "tag_removed" }))).toBe(true);
+    expect(display).toBe(EVENT_TYPE_DISPLAY.tag_removed);
   });
 
   it("uses the tag display for backfilled tag assignment events", () => {

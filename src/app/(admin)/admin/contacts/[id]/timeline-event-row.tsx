@@ -11,7 +11,6 @@ import { timelineEventBody } from "./timeline-event-body";
 import {
   eventTypeDisplayFor,
   isEmailSentEvent,
-  isTagAssignmentEvent,
 } from "./event-type-display";
 import {
   updateEvent,
@@ -61,7 +60,6 @@ export function TimelineEventRow({
   const resolvable = isResolvable(event.type);
   const isOpen = resolvable && event.resolved_at === null;
   const isResolved = resolvable && event.resolved_at !== null;
-  const isDerivedTagAssignment = isTagAssignmentEvent(event);
   const isDerivedEmailEvent = isEmailSentEvent(event);
   const displayBody = timelineEventBody(event);
 
@@ -254,7 +252,7 @@ export function TimelineEventRow({
         {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
       </div>
 
-      {!isEditing && !isDerivedTagAssignment && !isDerivedEmailEvent && (
+      {!isEditing && !isDerivedEmailEvent && (
         <div className="flex flex-none items-start gap-0.5">
           {isConfirmingDelete ? (
             <div className="flex items-center gap-1">

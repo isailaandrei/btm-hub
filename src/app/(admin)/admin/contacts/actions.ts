@@ -15,8 +15,10 @@ import {
 } from "@/lib/data/contacts";
 import {
   excludeContactEmail,
+  getActiveSuppressionForContact,
   liftContactExclusion,
 } from "@/lib/data/email-suppressions";
+import type { EmailSuppressionReason } from "@/types/database";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 import {
   contactsPreferencesPatchSchema,
@@ -70,6 +72,20 @@ async function requireContactEmail(contactId: string): Promise<string> {
   const contact = await getContactById(contactId);
   if (!contact) throw new Error("Contact not found");
   return contact.email;
+}
+
+/**
+ * Current do-not-email status for a contact, loaded client-side by the contact
+ * detail panel's Email section (the session cache survives revalidatePath, so
+ * the section fetches its own status and re-fetches after a toggle).
+ */
+export async function loadContactEmailSection(
+  contactId: string,
+): Promise<{ excluded: boolean; reason: EmailSuppressionReason | null }> {
+  await requireAdmin();
+  const email = await requireContactEmail(contactId);
+  const suppression = await getActiveSuppressionForContact({ contactId, email });
+  return { excluded: Boolean(suppression), reason: suppression?.reason ?? null };
 }
 
 export async function excludeContactFromEmail(contactId: string) {

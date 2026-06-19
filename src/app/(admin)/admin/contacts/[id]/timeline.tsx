@@ -1,24 +1,64 @@
 "use client";
 
-import { useOptimistic, useState } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import type { ContactEvent } from "@/types/database";
 import { Card, CardContent } from "@/components/ui/card";
 import { TimelineComposer } from "./timeline-composer";
 import { TimelineEventRow } from "./timeline-event-row";
 import { eventsReducer } from "./timeline-optimistic";
+import { loadMoreContactEvents } from "./event-actions";
 
 interface TimelineProps {
   contactId: string;
   events: ContactEvent[];
+  hasMore: boolean;
+  nextCursor: string | null;
   authorName: string;
 }
 
-export function Timeline({ contactId, events, authorName }: TimelineProps) {
+export function Timeline({
+  contactId,
+  events,
+  hasMore,
+  nextCursor,
+  authorName,
+}: TimelineProps) {
   const [composerOpen, setComposerOpen] = useState(false);
+  const [loadedEvents, setLoadedEvents] = useState(events);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [hasMoreEvents, setHasMoreEvents] = useState(hasMore);
+  const [cursor, setCursor] = useState(nextCursor);
+  const [isPending, startTransition] = useTransition();
   const [optimisticEvents, applyOptimistic] = useOptimistic(
-    events,
+    loadedEvents,
     eventsReducer,
   );
+
+  function handleLoadMore() {
+    if (!cursor || isPending) return;
+
+    startTransition(async () => {
+      try {
+        setLoadMoreError(null);
+        const page = await loadMoreContactEvents(contactId, cursor);
+        setLoadedEvents((current) => {
+          const existingIds = new Set(current.map((event) => event.id));
+          const nextEvents = page.events.filter(
+            (event) => !existingIds.has(event.id),
+          );
+          return [...current, ...nextEvents];
+        });
+        setHasMoreEvents(page.hasMore);
+        setCursor(page.nextCursor);
+      } catch (error) {
+        setLoadMoreError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load more timeline events.",
+        );
+      }
+    });
+  }
 
   return (
     <Card>
@@ -58,6 +98,19 @@ export function Timeline({ contactId, events, authorName }: TimelineProps) {
               />
             ))}
           </div>
+        )}
+        {loadMoreError && (
+          <p className="text-sm text-destructive">{loadMoreError}</p>
+        )}
+        {hasMoreEvents && (
+          <button
+            type="button"
+            onClick={handleLoadMore}
+            disabled={isPending}
+            className="self-start rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            {isPending ? "Loading..." : "Load more events"}
+          </button>
         )}
       </CardContent>
     </Card>

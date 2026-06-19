@@ -1,18 +1,23 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { contactDetailCacheStore } from "../contact-detail-cache";
+import { loadContactDetailAction } from "./contact-detail-actions";
 
 const REFRESH_DEBOUNCE_MS = 120;
 
-export function ContactDetailRealtimeRefresh({
-  contactId,
-}: {
-  contactId: string;
-}) {
-  const router = useRouter();
+/**
+ * Keeps the open contact's cached bootstrap fresh via Supabase Realtime.
+ *
+ * On any change to the contact / its applications / its events, it debounces a
+ * reload and writes the result into the session cache (the subscribed panel
+ * re-renders via `useSyncExternalStore`) — no `router.refresh()`, so it does
+ * not depend on the framework Router Cache. Tag changes are intentionally not
+ * watched here: tags render from `AdminDataProvider`, which owns those channels.
+ */
+export function ContactDetailRealtime({ contactId }: { contactId: string }) {
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -20,10 +25,19 @@ export function ContactDetailRealtimeRefresh({
   useEffect(() => {
     const supabase = createClient();
 
-    function scheduleRefresh() {
+    function scheduleReload() {
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
-        router.refresh();
+        void loadContactDetailAction(contactId)
+          .then((data) => {
+            if (data) contactDetailCacheStore.set(contactId, data);
+          })
+          .catch((error) => {
+            console.error(
+              `Failed to refresh contact detail ${contactId} from realtime change`,
+              error,
+            );
+          });
       }, REFRESH_DEBOUNCE_MS);
     }
 
@@ -38,7 +52,7 @@ export function ContactDetailRealtimeRefresh({
             table: "contacts",
             filter: `id=eq.${contactId}`,
           },
-          scheduleRefresh,
+          scheduleReload,
         )
         .subscribe(),
       supabase
@@ -51,20 +65,7 @@ export function ContactDetailRealtimeRefresh({
             table: "applications",
             filter: `contact_id=eq.${contactId}`,
           },
-          scheduleRefresh,
-        )
-        .subscribe(),
-      supabase
-        .channel(`contact-detail-contact-tags-${contactId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "contact_tags",
-            filter: `contact_id=eq.${contactId}`,
-          },
-          scheduleRefresh,
+          scheduleReload,
         )
         .subscribe(),
       supabase
@@ -77,31 +78,7 @@ export function ContactDetailRealtimeRefresh({
             table: "contact_events",
             filter: `contact_id=eq.${contactId}`,
           },
-          scheduleRefresh,
-        )
-        .subscribe(),
-      supabase
-        .channel("contact-detail-tag-categories")
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "tag_categories",
-          },
-          scheduleRefresh,
-        )
-        .subscribe(),
-      supabase
-        .channel("contact-detail-tags")
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "tags",
-          },
-          scheduleRefresh,
+          scheduleReload,
         )
         .subscribe(),
     ];
@@ -112,7 +89,7 @@ export function ContactDetailRealtimeRefresh({
         void supabase.removeChannel(channel);
       }
     };
-  }, [contactId, router]);
+  }, [contactId]);
 
   return null;
 }

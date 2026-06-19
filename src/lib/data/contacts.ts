@@ -263,6 +263,14 @@ export interface BulkAssignTagsResult {
   skippedMissing: number;
 }
 
+export interface BulkUnassignTagsResult {
+  requested: number;
+  existing: number;
+  removed: number;
+  notAssigned: number;
+  skippedMissing: number;
+}
+
 export async function deleteTag(id: string) {
   await requireAdmin();
   const supabase = await createClient();
@@ -294,15 +302,7 @@ export async function assignTag(contactId: string, tagId: string) {
 }
 
 export async function unassignTag(contactId: string, tagId: string) {
-  await requireAdmin();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("contact_tags")
-    .delete()
-    .eq("contact_id", contactId)
-    .eq("tag_id", tagId);
-
-  if (error) throw new Error(`Failed to remove tag: ${error.message}`);
+  await unassignTagsWithTimeline([contactId], tagId, "remove tag");
 }
 
 export async function bulkAssignTags(
@@ -352,15 +352,32 @@ export async function deleteApplication(applicationId: string) {
 }
 
 export async function bulkUnassignTags(contactIds: string[], tagId: string) {
-  await requireAdmin();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("contact_tags")
-    .delete()
-    .in("contact_id", contactIds)
-    .eq("tag_id", tagId);
+  return unassignTagsWithTimeline(contactIds, tagId, "bulk unassign tags");
+}
 
-  if (error) throw new Error(`Failed to bulk unassign tags: ${error.message}`);
+async function unassignTagsWithTimeline(
+  contactIds: string[],
+  tagId: string,
+  errorContext: string,
+): Promise<BulkUnassignTagsResult> {
+  const profile = await requireAdmin();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("bulk_unassign_contact_tags", {
+    p_contact_ids: contactIds,
+    p_tag_id: tagId,
+    p_author_id: profile.id,
+    p_author_name: profile.display_name ?? profile.email,
+  });
+
+  if (error) throw new Error(`Failed to ${errorContext}: ${error.message}`);
+  const result = (data ?? {}) as Record<string, unknown>;
+  return {
+    requested: Number(result.requested ?? contactIds.length),
+    existing: Number(result.existing ?? 0),
+    removed: Number(result.removed ?? 0),
+    notAssigned: Number(result.not_assigned ?? 0),
+    skippedMissing: Number(result.skipped_missing ?? 0),
+  };
 }
 
 // ---------------------------------------------------------------------------

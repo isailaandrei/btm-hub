@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import { createClient } from "@/lib/supabase/client";
 import type {
   AdminAssigneeProfile,
@@ -208,26 +209,59 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reloadTasks = useCallback(async () => {
+    const startedAt = startAdminTiming();
+    let activeTasks = 0;
+    let doneTasks = 0;
+    let groups = 0;
+    let status = "ok";
+
     try {
-      applyBoardData(await loadTaskBoardDataAction());
+      const data = await loadTaskBoardDataAction();
+      activeTasks = data.activeTasks.length;
+      doneTasks = data.doneTasks.length;
+      groups = data.groups.length;
+      applyBoardData(data);
       tasksFetchState.current = "done";
       return true;
     } catch (error) {
+      status = "error";
       tasksFetchState.current = "idle";
       setTasksError("Failed to load tasks.");
       toast.error(error instanceof Error ? error.message : "Failed to load tasks.");
       return false;
+    } finally {
+      logAdminTiming("admin.tasks.board.client", startedAt, {
+        activeTasks,
+        doneTasks,
+        groups,
+        status,
+      });
     }
   }, [applyBoardData]);
 
   const reloadDateTasks = useCallback(async () => {
+    const startedAt = startAdminTiming();
+    let activeTasks = 0;
+    let doneTasks = 0;
+    let status = "ok";
+
     try {
-      applyDateData(await loadTaskDateViewDataAction());
+      const data = await loadTaskDateViewDataAction();
+      activeTasks = data.activeTasks.length;
+      doneTasks = data.doneTasks.length;
+      applyDateData(data);
       dateFetchState.current = "done";
     } catch (error) {
+      status = "error";
       dateFetchState.current = "idle";
       setDateViewError("Failed to load date view.");
       toast.error(error instanceof Error ? error.message : "Failed to load date view.");
+    } finally {
+      logAdminTiming("admin.tasks.date.client", startedAt, {
+        activeTasks,
+        doneTasks,
+        status,
+      });
     }
   }, [applyDateData]);
 

@@ -11,6 +11,7 @@ import {
   resolveContactEvent,
   unresolveContactEvent,
 } from "@/lib/data/contact-events";
+import { getContactEventsPage } from "@/lib/data/contact-detail";
 import type { ContactEventType } from "@/types/database";
 import { bodyRequiredFor, EVENT_TYPE_META } from "./event-types";
 
@@ -176,4 +177,15 @@ export async function unresolveEvent(eventId: string) {
   revalidatePath(`/admin/contacts/${result.contact_id}`);
   revalidatePath("/admin");
   return result;
+}
+
+export async function loadMoreContactEvents(contactId: string, before: string) {
+  validateUUID(contactId, "contact");
+  const parsed = z.string().datetime().safeParse(before);
+  if (!parsed.success) {
+    throw new Error("Invalid timeline cursor");
+  }
+
+  await requireAdmin();
+  return getContactEventsPage({ contactId, before: parsed.data });
 }

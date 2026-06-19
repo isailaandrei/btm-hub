@@ -130,6 +130,7 @@ export type ContactEventType =
   | "info_requested"
   | "awaiting_btm_response"
   | "tag_assigned"
+  | "tag_removed"
   | "custom";
 
 export interface ContactEvent {

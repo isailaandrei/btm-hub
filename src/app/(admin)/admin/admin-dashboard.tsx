@@ -2,11 +2,15 @@
 
 import dynamic from "next/dynamic";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ContactsPanelSkeleton } from "./contacts/contacts-panel-skeleton";
 import { DeferredContactsPanel } from "./contacts/deferred-contacts-panel";
 import { TagsPanel } from "./tags/tags-panel";
-import { resolveAdminPanelTab, type AdminPanelTab } from "./admin-navigation";
+import {
+  getAdminPanelHref,
+  resolveAdminPanelTab,
+  type AdminPanelTab,
+} from "./admin-navigation";
 import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
 import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 
@@ -50,24 +54,33 @@ const AdminAiDashboardPanel = dynamic(
 );
 
 type VisitedTabs = Partial<Record<AdminPanelTab, true>>;
+type WindowWithIdleCallback = Window & {
+  requestIdleCallback?: (
+    callback: IdleRequestCallback,
+    options?: IdleRequestOptions,
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+const IDLE_PREWARM_TABS: AdminPanelTab[] = ["email", "tasks", "tags"];
 
 export function AdminDashboard({
   initialContactsData,
 }: {
   initialContactsData?: Promise<AdminContactsInitialData>;
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const aiEnabled = isLocalAdminAiEnabled();
   const { tab: activeTab, invalidValue } = resolveAdminPanelTab(
     searchParams.get("tab"),
     { aiEnabled },
   );
-  const [visitedTabs, setVisitedTabs] = useState<VisitedTabs>({
-    contacts: true,
-  });
+  const [visitedTabs, setVisitedTabs] = useState<VisitedTabs>(() => ({
+    [activeTab]: true,
+  }));
   const [emailContactIds, setEmailContactIds] = useState<string[]>([]);
   const previousActiveTabRef = useRef<AdminPanelTab>(activeTab);
+  const prewarmedTabsRef = useRef(false);
   const warnedInvalidTabsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -116,23 +129,70 @@ export function AdminDashboard({
     console.warn(`Invalid admin dashboard tab: ${invalidValue}`);
   }, [invalidValue]);
 
+  useEffect(() => {
+    if (prewarmedTabsRef.current) return;
+    prewarmedTabsRef.current = true;
+
+    let canceled = false;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+    const idleWindow = window as WindowWithIdleCallback;
+
+    function prewarmTabs() {
+      if (canceled) return;
+      setVisitedTabs((current) => {
+        const next = { ...current };
+        let changed = false;
+        for (const tab of IDLE_PREWARM_TABS) {
+          if (!next[tab]) {
+            next[tab] = true;
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    }
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      idleId = idleWindow.requestIdleCallback(prewarmTabs, { timeout: 5000 });
+    } else {
+      timeoutId = window.setTimeout(prewarmTabs, 2500);
+    }
+
+    return () => {
+      canceled = true;
+      if (idleId !== null && typeof idleWindow.cancelIdleCallback === "function") {
+        idleWindow.cancelIdleCallback(idleId);
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
+
   function handleSendEmail(contactIds: string[]) {
     setEmailContactIds(contactIds);
-    router.push("/admin?tab=email");
+    window.history.pushState(null, "", getAdminPanelHref("email"));
   }
 
   return (
     <div>
-      {activeTab === "contacts" && (
-        <Suspense fallback={<ContactsPanelSkeleton />}>
-          <DeferredContactsPanel
-            initialContactsData={initialContactsData}
-            onSendEmail={handleSendEmail}
-          />
-        </Suspense>
+      {(activeTab === "contacts" || visitedTabs.contacts) && (
+        <div hidden={activeTab !== "contacts"}>
+          <Suspense fallback={<ContactsPanelSkeleton />}>
+            <DeferredContactsPanel
+              initialContactsData={initialContactsData}
+              onSendEmail={handleSendEmail}
+            />
+          </Suspense>
+        </div>
       )}
 
-      {activeTab === "tags" && <TagsPanel />}
+      {(activeTab === "tags" || visitedTabs.tags) && (
+        <div hidden={activeTab !== "tags"}>
+          <TagsPanel />
+        </div>
+      )}
 
       {(activeTab === "tasks" || visitedTabs.tasks) && (
         <div hidden={activeTab !== "tasks"}>

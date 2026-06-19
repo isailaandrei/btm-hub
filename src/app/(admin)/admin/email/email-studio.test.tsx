@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 
-import { act, useEffect, type ReactNode } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmailTemplate } from "@/types/database";
@@ -31,9 +31,6 @@ vi.mock("./actions", () => ({
 }));
 
 vi.mock("./admin-email-data-provider", () => ({
-  AdminEmailDataProvider: ({ children }: { children: ReactNode }) => (
-    <>{children}</>
-  ),
   useAdminEmailData: () => ({
     templates: [
       {

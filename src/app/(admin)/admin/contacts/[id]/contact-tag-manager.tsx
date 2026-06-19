@@ -14,7 +14,7 @@ import { TAG_COLOR_CLASSES } from "../../constants";
 import { assignContactTag, unassignContactTag } from "../actions";
 import { AddTagForm } from "../../tags/add-tag-form";
 
-interface TagRow {
+export interface TagRow {
   id: string;
   name: string;
   category_id: string;
@@ -28,7 +28,7 @@ interface TagRow {
   };
 }
 
-type ContactTagRow = {
+export type ContactTagRow = {
   tag_id: string;
   assigned_at: string;
   tags: TagRow | TagRow[];
@@ -54,6 +54,7 @@ interface ContactTagManagerProps {
     name: string;
     sort_order: number;
   }>;
+  onDataMayHaveChanged?: () => void;
 }
 
 export function ContactTagManager({
@@ -61,6 +62,7 @@ export function ContactTagManager({
   contactTagRows,
   categories,
   allTags,
+  onDataMayHaveChanged,
 }: ContactTagManagerProps) {
   const [, startTransition] = useTransition();
   const router = useRouter();
@@ -122,6 +124,7 @@ export function ContactTagManager({
         applyOptimistic({ kind: "remove", tagId });
         await unassignContactTag(contactId, tagId);
         router.refresh();
+        onDataMayHaveChanged?.();
       } catch {
         toast.error("Failed to remove tag. Please try again.");
       } finally {
@@ -163,6 +166,7 @@ export function ContactTagManager({
         applyOptimistic({ kind: "add", row: optimisticRow });
         await assignContactTag(contactId, tagId);
         router.refresh();
+        onDataMayHaveChanged?.();
         // Close dropdown if no more available tags in this category after assignment
         const remaining = allTags.filter(
           (t) => t.category_id === categoryId && !assignedTagIds.has(t.id) && t.id !== tagId,
@@ -260,6 +264,7 @@ export function ContactTagManager({
                       compact
                       onSuccess={() => {
                         router.refresh();
+                        onDataMayHaveChanged?.();
                       }}
                     />
                   </div>

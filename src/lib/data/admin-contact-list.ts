@@ -7,6 +7,7 @@ import type {
   TagCategory,
 } from "@/types/database";
 import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
+import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import {
   buildApplicationProjectionSelect,
   getContactsTableApplicationAnswerKeys,
@@ -110,6 +111,7 @@ export const getAdminContactsInitialData = cache(
   async function getAdminContactsInitialData(
     preferences: Record<string, unknown>,
   ): Promise<AdminContactsInitialData> {
+    const startedAt = startAdminTiming();
     const supabase = await createClient();
     const initialQuery = getAdminContactsInitialQuery(preferences);
 
@@ -251,7 +253,7 @@ export const getAdminContactsInitialData = cache(
       throw new Error(`Failed to load initial contact rows: ${fetchError.message}`);
     }
 
-    return {
+    const result = {
       applications: reassembleProjectedApplications(
         (applicationsData ?? []) as unknown as Array<Record<string, unknown>>,
         applicationProjection.answerKeys,
@@ -267,5 +269,15 @@ export const getAdminContactsInitialData = cache(
       tags: (tagsData ?? []) as unknown as Tag[],
       totalCount,
     };
+
+    logAdminTiming("admin.contacts.initial.server", startedAt, {
+      applications: result.applications.length,
+      contacts: result.contacts.length,
+      pageSize: result.pageSize,
+      sortSource: initialQuery.serverSort.source,
+      totalCount,
+    });
+
+    return result;
   },
 );

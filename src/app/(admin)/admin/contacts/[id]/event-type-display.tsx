@@ -28,17 +28,24 @@ export const EVENT_TYPE_DISPLAY: Record<
   info_requested: { icon: HelpCircle, colorClass: "bg-amber-500" },
   awaiting_btm_response: { icon: Clock, colorClass: "bg-red-600" },
   tag_assigned: { icon: Tag, colorClass: "bg-sky-600" },
+  tag_removed: { icon: Tag, colorClass: "bg-rose-600" },
   email_sent: { icon: Mail, colorClass: "bg-blue-600" },
   custom: { icon: MoreHorizontal, colorClass: "bg-gray-500" },
 };
 
 type EventDisplayInput = Pick<ContactEvent, "type" | "metadata">;
 
-export function isTagAssignmentEvent(event: EventDisplayInput): boolean {
-  if (event.type === "tag_assigned") return true;
+export function isTagChangeEvent(event: EventDisplayInput): boolean {
+  if (event.type === "tag_assigned" || event.type === "tag_removed") {
+    return true;
+  }
 
   const source = event.metadata?.source;
   return source === "contact_tags" || source === "contact_tags_backfill";
+}
+
+export function isTagAssignmentEvent(event: EventDisplayInput): boolean {
+  return isTagChangeEvent(event);
 }
 
 export function isEmailSentEvent(event: EventDisplayInput): boolean {
@@ -47,6 +54,9 @@ export function isEmailSentEvent(event: EventDisplayInput): boolean {
 
 export function eventTypeDisplayFor(event: EventDisplayInput): EventTypeDisplay {
   if (isEmailSentEvent(event)) return EVENT_TYPE_DISPLAY.email_sent;
-  if (isTagAssignmentEvent(event)) return EVENT_TYPE_DISPLAY.tag_assigned;
+  if (event.type === "tag_assigned" || event.type === "tag_removed") {
+    return EVENT_TYPE_DISPLAY[event.type];
+  }
+  if (isTagChangeEvent(event)) return EVENT_TYPE_DISPLAY.tag_assigned;
   return EVENT_TYPE_DISPLAY[event.type];
 }

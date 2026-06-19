@@ -8,8 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+let currentPathname = "/admin";
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/admin",
+  usePathname: () => currentPathname,
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -24,6 +26,7 @@ describe("AdminSidebar", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    currentPathname = "/admin";
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       value: 1280,
@@ -36,6 +39,7 @@ describe("AdminSidebar", () => {
       onchange: null,
       removeEventListener: vi.fn(),
     }));
+    vi.spyOn(window.history, "pushState").mockImplementation(() => undefined);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -43,6 +47,7 @@ describe("AdminSidebar", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    vi.restoreAllMocks();
     container.remove();
   });
 
@@ -86,5 +91,49 @@ describe("AdminSidebar", () => {
     expect(
       container.querySelector('button[aria-label="Expand sidebar"]'),
     ).not.toBeNull();
+  });
+
+  it("uses shallow history updates for workspace tab links on the admin root", () => {
+    renderSidebar();
+
+    const emailLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/admin?tab=email"]',
+    );
+    expect(emailLink).not.toBeNull();
+
+    act(() => {
+      emailLink?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(window.history.pushState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/admin?tab=email",
+    );
+  });
+
+  it("uses shallow history updates for workspace tab links from contact detail routes", () => {
+    currentPathname =
+      "/admin/contacts/550e8400-e29b-41d4-a716-446655440001";
+    renderSidebar();
+
+    const emailLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/admin?tab=email"]',
+    );
+    expect(emailLink).not.toBeNull();
+
+    act(() => {
+      emailLink?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(window.history.pushState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/admin?tab=email",
+    );
   });
 });

@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import type { AdminTask } from "@/types/database";
 import { CreateTaskGroupForm } from "./task-forms";
 import { TaskBoardView } from "./task-board-view";
-import { TaskDataProvider, useTaskData } from "./task-data-provider";
+import { useTaskData } from "./task-data-provider";
 import { TaskDetailPanel } from "./task-detail-panel";
 
-function TasksPanelContent() {
+export function TasksPanel() {
   const {
     admins,
     groups,
@@ -100,13 +100,5 @@ function TasksPanelContent() {
         }}
       />
     </section>
-  );
-}
-
-export function TasksPanel() {
-  return (
-    <TaskDataProvider>
-      <TasksPanelContent />
-    </TaskDataProvider>
   );
 }
