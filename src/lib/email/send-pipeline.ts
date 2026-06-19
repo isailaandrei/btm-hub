@@ -88,14 +88,18 @@ function appendUnsubscribeFooter(input: {
   unsubscribeUrl: string | null;
 }) {
   if (!input.unsubscribeUrl) return input;
-  // Flat exclusion: unsubscribing stops ALL email, so say that plainly rather
-  // than implying it only affects newsletters.
-  const footerHtml = `<p style="font-size:12px;line-height:18px;color:#64748b;margin:24px 0 0">You are receiving this email from Behind The Mask. <a href="${escapeHtmlAttribute(input.unsubscribeUrl)}">Unsubscribe</a> to stop receiving all emails from us.</p>`;
+  // Worded so it does NOT echo a template's own "You are receiving this email…"
+  // footer: a near-duplicate trailing block is what makes Gmail fold this into
+  // "show trimmed content" (the "…"), hiding the unsubscribe link. Centered so
+  // it reads as the email's official footer. Flat exclusion: unsubscribing
+  // stops ALL email.
+  const safeUrl = escapeHtmlAttribute(input.unsubscribeUrl);
+  const footerHtml = `<div style="text-align:center;padding:8px 24px 24px"><p style="font-size:12px;line-height:18px;color:#94a3b8;margin:0">Don't want these emails? <a href="${safeUrl}" style="color:#94a3b8;text-decoration:underline">Unsubscribe</a> to stop receiving all emails from Behind The Mask.</p></div>`;
   return {
     html: insertBeforeBodyEnd(input.html, footerHtml),
     text: `${input.text}
 
-Unsubscribe to stop receiving all emails from Behind The Mask: ${input.unsubscribeUrl}`,
+Don't want these emails? Unsubscribe to stop receiving all emails from Behind The Mask: ${input.unsubscribeUrl}`,
   };
 }
 
