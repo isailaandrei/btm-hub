@@ -3,7 +3,7 @@ import type { EmailSend } from "@/types/database";
 export interface EmailSendRowSummary {
   /** "142 recipients" / "1 recipient" — drawn from the send's resolved count. */
   recipientText: string;
-  /** "Broadcast" / "Outreach". */
+  /** "Newsletter" / "Targeted". */
   kindLabel: string;
   /** Saved list/segment name when the send recorded one, else null. */
   audienceName: string | null;
@@ -40,7 +40,7 @@ export function buildSentRowSummary(send: EmailSend): EmailSendRowSummary {
     recipientText: `${recipientCount} ${
       recipientCount === 1 ? "recipient" : "recipients"
     }`,
-    kindLabel: send.kind === "broadcast" ? "Broadcast" : "Outreach",
+    kindLabel: send.kind === "broadcast" ? "Newsletter" : "Targeted",
     audienceName: getSendAudienceName(send),
   };
 }

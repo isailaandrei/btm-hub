@@ -53,10 +53,10 @@ describe("buildSentRowSummary", () => {
 
   it("labels the send kind", () => {
     expect(buildSentRowSummary(makeSend({ kind: "broadcast" })).kindLabel).toBe(
-      "Broadcast",
+      "Newsletter",
     );
     expect(buildSentRowSummary(makeSend({ kind: "outreach" })).kindLabel).toBe(
-      "Outreach",
+      "Targeted",
     );
   });
 

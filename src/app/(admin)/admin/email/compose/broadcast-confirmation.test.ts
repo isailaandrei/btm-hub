@@ -12,7 +12,7 @@ describe("broadcast confirmation", () => {
 
   it("uses the approved confirmation copy", () => {
     expect(BROADCAST_CONFIRMATION_MESSAGE).toBe(
-      "This broadcast will be sent to all eligible contacts. Do you want to proceed?",
+      "This newsletter will be sent to all eligible contacts. Do you want to proceed?",
     );
   });
 });

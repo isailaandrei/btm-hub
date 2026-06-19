@@ -650,8 +650,8 @@ export function EmailComposer({
               onChange={(event) => setKind(event.target.value as EmailSendKind)}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
             >
-              <option value="broadcast">Broadcast</option>
-              <option value="outreach">Outreach</option>
+              <option value="broadcast">Newsletter</option>
+              <option value="outreach">Targeted</option>
             </select>
           </label>
           <label className="block">
@@ -724,10 +724,8 @@ export function EmailComposer({
               onRefresh={renderPreview}
             />
             <p className="text-xs text-muted-foreground">
-              Variables show sample values; each recipient sees their own.
-              {kind === "broadcast"
-                ? " Broadcasts also append an unsubscribe footer when sent."
-                : ""}
+              Variables show sample values; each recipient sees their own. Every
+              email appends an unsubscribe footer when sent.
             </p>
           </div>
         )}
@@ -1214,7 +1212,7 @@ export function EmailComposer({
               id="broadcast-confirm-title"
               className="text-base font-medium text-foreground"
             >
-              Confirm broadcast
+              Confirm newsletter
             </h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               {BROADCAST_CONFIRMATION_MESSAGE}
@@ -1234,7 +1232,7 @@ export function EmailComposer({
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
                 disabled={isSending}
               >
-                {isSending ? "Sending..." : "Send broadcast"}
+                {isSending ? "Sending..." : "Send newsletter"}
               </button>
             </div>
           </div>
