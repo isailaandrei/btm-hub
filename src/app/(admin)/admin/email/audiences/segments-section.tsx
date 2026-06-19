@@ -109,21 +109,24 @@ export function SegmentsSection() {
   }
 
   function startEdit(segment: EmailSegmentSummary) {
-    setEditor({ id: segment.id, name: segment.name, rule: segment.rule });
+    // Drop any legacy tag-level excludes so the editor (and live count) reflect
+    // the include-only model; they're cleared on save too.
+    setEditor({
+      id: segment.id,
+      name: segment.name,
+      rule: { ...segment.rule, excludeTagIds: [] },
+    });
   }
 
-  function toggleTag(set: "includeTagIds" | "excludeTagIds", tagId: string) {
+  function toggleIncludeTag(tagId: string) {
     if (!editor) return;
-    const other = set === "includeTagIds" ? "excludeTagIds" : "includeTagIds";
-    const current = editor.rule[set];
-    const nextSet = current.includes(tagId)
+    const current = editor.rule.includeTagIds;
+    const nextInclude = current.includes(tagId)
       ? current.filter((id) => id !== tagId)
       : [...current, tagId];
-    // A tag can't be both included and excluded.
-    const nextOther = editor.rule[other].filter((id) => id !== tagId);
     setEditor({
       ...editor,
-      rule: { ...editor.rule, [set]: nextSet, [other]: nextOther },
+      rule: { ...editor.rule, includeTagIds: nextInclude },
     });
   }
 
@@ -138,16 +141,23 @@ export function SegmentsSection() {
       toast.error("Pick at least one tag to include.");
       return;
     }
+    // Segments are include-only — global exclusions are handled on the Excluded
+    // tag, so never carry tag-level excludes (even from older saved segments).
+    const rule: EmailSegmentRule = {
+      match: editor.rule.match,
+      includeTagIds: editor.rule.includeTagIds,
+      excludeTagIds: [],
+    };
     startMutateTransition(async () => {
       try {
         if (editor.id) {
           await updateEmailSegmentAction({
             id: editor.id,
             name,
-            rule: editor.rule,
+            rule,
           });
         } else {
-          await createEmailSegmentAction({ name, rule: editor.rule });
+          await createEmailSegmentAction({ name, rule });
         }
         setEditor(null);
         toast.success(editor.id ? "Segment updated." : "Segment created.");
@@ -179,11 +189,9 @@ export function SegmentsSection() {
 
   function renderRuleSummary(rule: EmailSegmentRule) {
     const inc = rule.includeTagIds.map((id) => tagName.get(id) ?? "?").join(", ");
-    const exc = rule.excludeTagIds.map((id) => tagName.get(id) ?? "?").join(", ");
     return (
       <>
-        Match {rule.match === "all" ? "all" : "any"} of: {inc || "—"}
-        {exc ? ` · excluding: ${exc}` : ""}
+        Has {rule.match === "all" ? "all" : "any"} of: {inc || "—"}
       </>
     );
   }
@@ -223,58 +231,59 @@ export function SegmentsSection() {
               className="h-9 w-full max-w-sm rounded-md border border-border bg-background px-3 text-sm"
             />
 
-            <div className="flex items-center gap-2 text-xs">
-              <span className="font-medium text-muted-foreground">Match</span>
-              {(["all", "any"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() =>
-                    setEditor({
-                      ...editor,
-                      rule: { ...editor.rule, match: mode },
-                    })
-                  }
-                  className={`rounded-md border px-3 py-1.5 font-medium ${
-                    editor.rule.match === mode
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-foreground hover:bg-muted"
-                  }`}
-                >
-                  {mode === "all" ? "All of" : "Any of"}
-                </button>
-              ))}
-              <span className="ml-auto text-muted-foreground">
-                {editor.rule.includeTagIds.length === 0 ? (
-                  "Pick tags to include"
-                ) : isCounting ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="size-3.5 animate-spin" />
-                    counting…
-                  </span>
-                ) : (
-                  `matches ~${liveCount ?? 0} contact${
-                    liveCount === 1 ? "" : "s"
-                  }`
-                )}
-              </span>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-medium text-muted-foreground">
+                  Include contacts with
+                </span>
+                {(["all", "any"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() =>
+                      setEditor({
+                        ...editor,
+                        rule: { ...editor.rule, match: mode },
+                      })
+                    }
+                    className={`rounded-md border px-3 py-1.5 font-medium ${
+                      editor.rule.match === mode
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {mode === "all" ? "All tags" : "Any tag"}
+                  </button>
+                ))}
+                <span className="ml-auto text-muted-foreground">
+                  {editor.rule.includeTagIds.length === 0 ? (
+                    "Pick tags below"
+                  ) : isCounting ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      counting…
+                    </span>
+                  ) : (
+                    `matches ~${liveCount ?? 0} contact${
+                      liveCount === 1 ? "" : "s"
+                    }`
+                  )}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {editor.rule.match === "all"
+                  ? "Only contacts who have every tag you pick below are included — the more tags, the narrower the segment."
+                  : "Contacts who have at least one of the tags you pick below are included — the more tags, the wider the segment."}
+              </p>
             </div>
 
             <TagPicker
-              label="Include tags"
+              label="Tags"
               categories={categories}
               tagsByCategory={tagsByCategory}
               selected={editor.rule.includeTagIds}
               tone="include"
-              onToggle={(id) => toggleTag("includeTagIds", id)}
-            />
-            <TagPicker
-              label="Exclude tags (optional)"
-              categories={categories}
-              tagsByCategory={tagsByCategory}
-              selected={editor.rule.excludeTagIds}
-              tone="exclude"
-              onToggle={(id) => toggleTag("excludeTagIds", id)}
+              onToggle={toggleIncludeTag}
             />
 
             <div className="flex items-center gap-2">
