@@ -439,6 +439,27 @@ export function EmailComposer({
     setTemplateLoadError(null);
   }
 
+  // The selected template now has a new current version (its content was
+  // updated). Reflect that in the list and mark it loaded so the load effect
+  // doesn't refetch and reset the editor — the document on screen is the update.
+  function handleUpdatedTemplate(templateId: string, versionId: string) {
+    setTemplates((current) =>
+      (current ?? []).map((template) =>
+        template.id === templateId
+          ? {
+              ...template,
+              current_version_id: versionId,
+              updated_at: new Date().toISOString(),
+            }
+          : template,
+      ),
+    );
+    if (selectedTemplateId === templateId) {
+      setLoadedTemplateVersionId(versionId);
+      setTemplateLoadError(null);
+    }
+  }
+
   function handleRenameTemplate(templateId: string, name: string) {
     const previous = templates;
     // Optimistically reflect the new name; revert if the server rejects it.
@@ -776,7 +797,13 @@ export function EmailComposer({
             <SaveAsTemplate
               getBuilderJson={getCurrentBuilderJson}
               suggestedName={suggestedTemplateName}
-              onSaved={handleSavedAsTemplate}
+              currentTemplate={
+                selectedTemplate
+                  ? { id: selectedTemplate.id, name: selectedTemplate.name }
+                  : null
+              }
+              onSavedNew={handleSavedAsTemplate}
+              onUpdated={handleUpdatedTemplate}
               disabled={isLoadingSelectedTemplate}
             />
             <EmailLayoutControls value={layout} onChange={setLayout} />

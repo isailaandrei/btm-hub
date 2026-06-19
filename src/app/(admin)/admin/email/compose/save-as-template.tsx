@@ -10,35 +10,70 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { createAndPublishTemplateAction } from "../templates/actions";
+import {
+  createAndPublishTemplateAction,
+  publishTemplateVersionAction,
+} from "../templates/actions";
+
+type Mode = "update" | "new";
 
 /**
- * Saves the email currently being composed as a new, reusable template so it
- * shows up in the "Start from…" picker. Creation only — renaming an existing
- * template lives in the picker itself.
+ * Saves the email being composed as a template. When a template is already the
+ * starting point, the admin can either update that template (a new version that
+ * becomes its current content) or branch off a brand-new template. With a blank
+ * start there's nothing to update, so only "new" is offered.
  */
 export function SaveAsTemplate({
   getBuilderJson,
   suggestedName,
-  onSaved,
+  currentTemplate,
+  onSavedNew,
+  onUpdated,
   disabled,
 }: {
   getBuilderJson: () => unknown;
   suggestedName: string;
-  onSaved: (template: EmailTemplate, versionId: string) => void;
+  /** The template selected as the starting point, or null for a blank start. */
+  currentTemplate: { id: string; name: string } | null;
+  onSavedNew: (template: EmailTemplate, versionId: string) => void;
+  onUpdated: (templateId: string, versionId: string) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>("new");
   const [name, setName] = useState("");
   const [isSaving, startSaveTransition] = useTransition();
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    // Seed the field with a sensible default each time it opens.
-    if (next) setName(suggestedName);
+    if (next) {
+      // Default to updating the loaded template (the common "tweak & re-save"),
+      // and seed the new-template name in case they branch off instead.
+      setMode(currentTemplate ? "update" : "new");
+      setName(suggestedName);
+    }
   }
 
-  function handleSave() {
+  function handleUpdate() {
+    if (!currentTemplate) return;
+    startSaveTransition(async () => {
+      try {
+        const result = await publishTemplateVersionAction({
+          templateId: currentTemplate.id,
+          builderJson: getBuilderJson(),
+        });
+        onUpdated(currentTemplate.id, result.versionId);
+        setOpen(false);
+        toast.success(`Updated “${currentTemplate.name}”.`);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update template.",
+        );
+      }
+    });
+  }
+
+  function handleSaveNew() {
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Give the template a name.");
@@ -50,9 +85,9 @@ export function SaveAsTemplate({
           name: trimmed,
           builderJson: getBuilderJson(),
         });
-        onSaved(result.template, result.versionId);
+        onSavedNew(result.template, result.versionId);
         setOpen(false);
-        toast.success("Saved as a template.");
+        toast.success("Saved as a new template.");
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to save template.",
@@ -75,41 +110,103 @@ export function SaveAsTemplate({
           Save as template
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-3">
-        <p className="text-xs font-medium text-foreground">Save as template</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Reuse this design later from “Start from”.
-        </p>
-        <input
-          autoFocus
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") handleSave();
-            if (event.key === "Escape") setOpen(false);
-          }}
-          placeholder="Template name"
-          maxLength={120}
-          className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-        <div className="mt-3 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving || !name.trim()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
-          >
-            {isSaving && <Loader2 className="size-3.5 animate-spin" />}
-            {isSaving ? "Saving..." : "Save"}
-          </button>
-        </div>
+      <PopoverContent align="end" className="w-80 p-3">
+        {currentTemplate && (
+          <div className="mb-3 flex gap-1 rounded-lg border border-border bg-muted/50 p-1">
+            {(
+              [
+                { key: "update" as const, label: "Update current" },
+                { key: "new" as const, label: "New template" },
+              ]
+            ).map((option) => {
+              const active = mode === option.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => setMode(option.key)}
+                  aria-pressed={active}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {mode === "update" && currentTemplate ? (
+          <div>
+            <p className="text-xs font-medium text-foreground">
+              Update “{currentTemplate.name}”
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Saves the current design as this template’s latest version. Its
+              name stays the same; existing sends are unaffected.
+            </p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdate}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {isSaving && <Loader2 className="size-3.5 animate-spin" />}
+                {isSaving ? "Updating..." : "Update template"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-xs font-medium text-foreground">
+              Save as a new template
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Reuse this design later from “Start from”.
+            </p>
+            <input
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleSaveNew();
+                if (event.key === "Escape") setOpen(false);
+              }}
+              placeholder="Template name"
+              maxLength={120}
+              className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNew}
+                disabled={isSaving || !name.trim()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {isSaving && <Loader2 className="size-3.5 animate-spin" />}
+                {isSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
