@@ -304,6 +304,44 @@ describe("Maily rendering", () => {
     expect(rendered.text).not.toContain("{{contact.name");
   });
 
+  it("resolves a hand-added Unsubscribe button (url = unsubscribe.url variable)", async () => {
+    const document = assertMailyDocument({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Bye" }] },
+        {
+          type: "button",
+          attrs: {
+            text: "Unsubscribe",
+            url: "unsubscribe.url",
+            isUrlVariable: true,
+            variant: "filled",
+            buttonColor: "#111827",
+            textColor: "#ffffff",
+            borderRadius: "smooth",
+            alignment: "left",
+          },
+        },
+      ],
+    });
+
+    const rendered = await renderMailyEmail({
+      subject: "x",
+      document,
+      variables: {
+        unsubscribe: { url: "https://hub.example.com/email/unsubscribe/zzz" },
+      },
+    });
+
+    // The button's variable URL resolves to the per-recipient link — proving an
+    // admin can add their own Unsubscribe control when the footer is off.
+    expect(rendered.html).toContain(
+      "https://hub.example.com/email/unsubscribe/zzz",
+    );
+    expect(rendered.html).not.toContain(">unsubscribe.url<");
+    expect(rendered.html).not.toContain("{{unsubscribe.url}}");
+  });
+
   it("rejects invalid Maily JSON instead of silently replacing it", () => {
     expect(() => assertMailyDocument({ type: "paragraph" })).toThrow(
       "Invalid Maily document",

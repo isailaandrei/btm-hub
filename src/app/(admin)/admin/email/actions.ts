@@ -73,6 +73,7 @@ import {
   getEmailFromName,
   getEmailReplyToEmail,
   getEmailWorkerSecret,
+  getPublicSiteUrl,
 } from "@/lib/email/settings";
 import { getEmailProvider } from "@/lib/email/provider";
 import { processEmailSendChunks } from "@/lib/email/send-pipeline";
@@ -464,8 +465,8 @@ const composePreviewSchema = z.object({
 /**
  * Render the current compose document to the exact HTML the recipient will
  * receive (same renderer + theme as the send pipeline), so the composer can
- * preview the final email. Variables use sample values; the broadcast
- * unsubscribe footer is added by the send pipeline, not here.
+ * preview the final email — including the in-card footer (org name + social
+ * links + unsubscribe). Variables and the unsubscribe link use sample values.
  */
 export async function renderComposePreviewAction(input: {
   builderJson: unknown;
@@ -479,11 +480,18 @@ export async function renderComposePreviewAction(input: {
   }
 
   const document = assertMailyDocument(parsed.data.builderJson);
+  // Sample unsubscribe link so an admin-added Unsubscribe button/link (URL =
+  // unsubscribe.url variable) resolves in the preview instead of showing the raw
+  // placeholder.
+  const sampleUnsubscribeUrl = `${getPublicSiteUrl()}/email/unsubscribe/preview`;
   const rendered = await renderMailyEmail({
     subject: parsed.data.subject?.trim() || "(no subject)",
     previewText: parsed.data.previewText?.trim() || undefined,
     document,
-    variables: COMPOSE_PREVIEW_VARIABLES,
+    variables: {
+      ...COMPOSE_PREVIEW_VARIABLES,
+      unsubscribe: { url: sampleUnsubscribeUrl },
+    },
   });
   return { subject: rendered.subject, html: rendered.html };
 }

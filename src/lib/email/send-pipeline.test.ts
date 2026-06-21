@@ -374,7 +374,7 @@ describe("processEmailSendChunks", () => {
     expect(mockMarkEmailRecipientFailed).not.toHaveBeenCalled();
   });
 
-  it("places broadcast unsubscribe footer inside the rendered HTML document", async () => {
+  it("always sends the RFC-8058 one-click unsubscribe headers for broadcasts", async () => {
     const { emailProvider, sentInputs } = provider();
     mockGetEmailSendForWorker.mockResolvedValue(
       send({
@@ -401,12 +401,9 @@ describe("processEmailSendChunks", () => {
       maxChunks: 2,
     });
 
-    const html = sentInputs[0]?.html ?? "";
-    expect(html).toContain("stop receiving all emails");
-    expect(html.indexOf("stop receiving all emails")).toBeLessThan(
-      html.toLowerCase().lastIndexOf("</body>"),
-    );
-    // RFC-8058 one-click headers accompany broadcasts.
+    // The visible unsubscribe link is the admin's to place (via the
+    // unsubscribe.url variable), but the one-click header is always sent so
+    // Gmail/Yahoo's native unsubscribe works regardless of the body.
     const headers = sentInputs[0]?.headers ?? {};
     expect(headers["List-Unsubscribe"]).toMatch(
       /^<http.*\/api\/email\/unsubscribe\/.+>$/,
@@ -414,7 +411,7 @@ describe("processEmailSendChunks", () => {
     expect(headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
   });
 
-  it("appends the unsubscribe footer + one-click headers to targeted sends too", async () => {
+  it("sends the one-click unsubscribe headers for targeted sends too", async () => {
     const { emailProvider, sentInputs } = provider();
     mockGetEmailSendForWorker.mockResolvedValue(
       send({
@@ -441,8 +438,6 @@ describe("processEmailSendChunks", () => {
       maxChunks: 2,
     });
 
-    const html = sentInputs[0]?.html ?? "";
-    expect(html).toContain("stop receiving all emails");
     const headers = sentInputs[0]?.headers ?? {};
     expect(headers["List-Unsubscribe"]).toMatch(
       /^<http.*\/api\/email\/unsubscribe\/.+>$/,

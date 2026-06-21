@@ -168,6 +168,10 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
             { name: "contact.email", required: false },
             { name: "owner.name", required: false },
             { name: "owner.email", required: false },
+            // Per-recipient unsubscribe link — set a Button/link URL to this
+            // variable to add your own unsubscribe control (e.g. when the
+            // built-in footer is turned off).
+            { name: "unsubscribe.url", required: false },
           ],
         }),
         ImageUploadExtension.configure({

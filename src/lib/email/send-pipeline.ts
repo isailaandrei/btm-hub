@@ -66,43 +66,6 @@ function createUnsubscribeToken(): { token: string; hash: string } {
   return { token, hash };
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function insertBeforeBodyEnd(html: string, fragment: string): string {
-  const closingBodyIndex = html.toLowerCase().lastIndexOf("</body>");
-  if (closingBodyIndex === -1) return `${html}\n${fragment}`;
-  return `${html.slice(0, closingBodyIndex)}${fragment}\n${html.slice(
-    closingBodyIndex,
-  )}`;
-}
-
-function appendUnsubscribeFooter(input: {
-  html: string;
-  text: string;
-  unsubscribeUrl: string | null;
-}) {
-  if (!input.unsubscribeUrl) return input;
-  // Worded so it does NOT echo a template's own "You are receiving this email…"
-  // footer: a near-duplicate trailing block is what makes Gmail fold this into
-  // "show trimmed content" (the "…"), hiding the unsubscribe link. Centered so
-  // it reads as the email's official footer. Flat exclusion: unsubscribing
-  // stops ALL email.
-  const safeUrl = escapeHtmlAttribute(input.unsubscribeUrl);
-  const footerHtml = `<div style="text-align:center;padding:8px 24px 24px"><p style="font-size:12px;line-height:18px;color:#94a3b8;margin:0">Don't want these emails? <a href="${safeUrl}" style="color:#94a3b8;text-decoration:underline">Unsubscribe</a> to stop receiving all emails from Behind The Mask.</p></div>`;
-  return {
-    html: insertBeforeBodyEnd(input.html, footerHtml),
-    text: `${input.text}
-
-Don't want these emails? Unsubscribe to stop receiving all emails from Behind The Mask: ${input.unsubscribeUrl}`,
-  };
-}
-
 function getProviderRecipientEmail(recipient: EmailSendRecipient): string {
   return getEmailTestRecipientOverride() || recipient.email;
 }
@@ -160,6 +123,10 @@ async function renderRecipient(input: {
   unsubscribeUrl: string | null;
 }) {
   const document = assertMailyDocument(input.send.builder_json_snapshot);
+  // The unsubscribe link is the admin's to place (a Button/link whose URL is the
+  // unsubscribe.url variable, resolved here per recipient). The RFC-8058
+  // List-Unsubscribe header below is always sent, so one-click unsubscribe works
+  // regardless of the body.
   const rendered = await renderMailyEmail({
     subject: input.send.subject_template,
     previewText: input.send.preview_text,
@@ -170,16 +137,10 @@ async function renderRecipient(input: {
       input.unsubscribeUrl,
     ),
   });
-  // Every send — newsletter or targeted — carries an unsubscribe footer.
-  const withComplianceFooter = appendUnsubscribeFooter({
-    html: rendered.html,
-    text: rendered.text,
-    unsubscribeUrl: input.unsubscribeUrl,
-  });
   return {
     subject: rendered.subject,
-    html: withComplianceFooter.html,
-    text: withComplianceFooter.text,
+    html: rendered.html,
+    text: rendered.text,
   };
 }
 

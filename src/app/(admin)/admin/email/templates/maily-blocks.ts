@@ -14,6 +14,7 @@ import {
   text,
   type BlockGroupItem,
 } from "@maily-to/core/blocks";
+import { socialBlockGroup } from "./social-blocks";
 
 export const mailyBlockGroups = [
   {
@@ -28,4 +29,5 @@ export const mailyBlockGroups = [
     title: "Layout",
     commands: [section, columns, footer],
   },
+  socialBlockGroup,
 ] satisfies BlockGroupItem[];
