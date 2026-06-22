@@ -10,10 +10,9 @@ import {
 import type { EmailExclusionRow } from "@/lib/data/email-suppressions";
 import {
   excludeContactFromEmailAction,
-  loadAudienceContactsAction,
   liftEmailExclusionAction,
-  loadEmailExclusionsAction,
 } from "../actions";
+import { useAdminEmailData } from "../admin-email-data-provider";
 
 interface PickerContact {
   id: string;
@@ -32,52 +31,41 @@ function formatExcludedOn(value: string): string {
 }
 
 export function ExcludedSection() {
-  const [exclusions, setExclusions] = useState<EmailExclusionRow[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Exclusions + the contacts picker are cached in the provider, so they
+  // survive tab switches and admin navigation — same as Compose/Sent.
+  const {
+    exclusions,
+    exclusionsError: loadError,
+    ensureExclusions,
+    refreshExclusions,
+    setExclusions,
+    audienceContacts: contacts,
+    audienceContactsError: contactsError,
+    ensureAudienceContacts,
+  } = useAdminEmailData();
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [isLoading, startLoadTransition] = useTransition();
   const [isRemoving, startRemoveTransition] = useTransition();
 
   const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [contacts, setContacts] = useState<PickerContact[] | null>(null);
   const [contactQuery, setContactQuery] = useState("");
   const [excludingId, setExcludingId] = useState<string | null>(null);
   const [isExcluding, startExcludeTransition] = useTransition();
 
-  function load() {
+  function reload() {
     startLoadTransition(async () => {
-      try {
-        const result = await loadEmailExclusionsAction();
-        setExclusions(result.exclusions);
-        setLoadError(null);
-      } catch (error) {
-        setLoadError(
-          error instanceof Error ? error.message : "Failed to load exclusions.",
-        );
-      }
+      await refreshExclusions();
     });
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    void ensureExclusions({ quiet: true });
+  }, [ensureExclusions]);
 
   function openPicker() {
     setIsPickerOpen(true);
     setContactQuery("");
-    if (contacts === null) {
-      void (async () => {
-        try {
-          const result = await loadAudienceContactsAction();
-          setContacts(result.contacts);
-        } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "Failed to load contacts.",
-          );
-          setContacts([]);
-        }
-      })();
-    }
+    void ensureAudienceContacts();
   }
 
   // Contacts already excluded (by id or email) are filtered out of the picker.
@@ -114,8 +102,7 @@ export function ExcludedSection() {
     startExcludeTransition(async () => {
       try {
         await excludeContactFromEmailAction(contact.id);
-        const result = await loadEmailExclusionsAction();
-        setExclusions(result.exclusions);
+        await refreshExclusions();
         toast.success(`${contact.name} excluded from all email.`);
       } catch (error) {
         toast.error(
@@ -193,7 +180,11 @@ export function ExcludedSection() {
             </div>
             {contactQuery.trim() && (
               <div className="absolute z-10 mt-1 max-h-[240px] w-full overflow-auto rounded-md border border-border bg-popover shadow-lg">
-                {contacts === null ? (
+                {contactsError ? (
+                  <p className="px-3 py-2 text-sm text-destructive">
+                    {contactsError}
+                  </p>
+                ) : contacts === null ? (
                   <p className="px-3 py-2 text-sm text-muted-foreground">
                     Loading contacts...
                   </p>
@@ -232,22 +223,22 @@ export function ExcludedSection() {
         )}
       </div>
 
-      {exclusions === null ? (
-        <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading excluded recipients...
-        </div>
-      ) : loadError ? (
+      {loadError ? (
         <div className="flex flex-col gap-3 px-4 py-6">
           <p className="text-sm text-destructive">{loadError}</p>
           <button
             type="button"
-            onClick={load}
+            onClick={reload}
             disabled={isLoading}
             className="w-fit rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
           >
             {isLoading ? "Retrying..." : "Retry"}
           </button>
+        </div>
+      ) : exclusions === null ? (
+        <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading excluded recipients...
         </div>
       ) : exclusions.length === 0 ? (
         <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">

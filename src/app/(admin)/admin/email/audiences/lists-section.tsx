@@ -23,11 +23,10 @@ import {
   createEmailListAction,
   deleteEmailListAction,
   getEmailListAction,
-  loadAudienceContactsAction,
-  loadEmailListsAction,
   removeEmailListMemberAction,
   updateEmailListAction,
 } from "../actions";
+import { useAdminEmailData } from "../admin-email-data-provider";
 
 interface PickerContact {
   id: string;
@@ -36,8 +35,18 @@ interface PickerContact {
 }
 
 export function ListsSection() {
-  const [lists, setLists] = useState<EmailListSummary[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Lists + the shared contacts picker live in the provider so they survive
+  // tab switches and admin navigation — same cache as Compose/Sent.
+  const {
+    lists,
+    listsError: loadError,
+    ensureLists,
+    refreshLists,
+    setLists,
+    audienceContacts: contacts,
+    audienceContactsError: contactsError,
+    ensureAudienceContacts,
+  } = useAdminEmailData();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [membersByList, setMembersByList] = useState<
     Record<string, EmailListMemberRow[] | undefined>
@@ -48,28 +57,12 @@ export function ListsSection() {
   const [editName, setEditName] = useState("");
   const [addOpenId, setAddOpenId] = useState<string | null>(null);
   const [addQuery, setAddQuery] = useState("");
-  const [contacts, setContacts] = useState<PickerContact[] | null>(null);
   const [busyAddContactId, setBusyAddContactId] = useState<string | null>(null);
-  const [, startLoadTransition] = useTransition();
   const [isMutating, startMutateTransition] = useTransition();
 
-  function load() {
-    startLoadTransition(async () => {
-      try {
-        const result = await loadEmailListsAction();
-        setLists(result.lists);
-        setLoadError(null);
-      } catch (error) {
-        setLoadError(
-          error instanceof Error ? error.message : "Failed to load lists.",
-        );
-      }
-    });
-  }
-
   useEffect(() => {
-    load();
-  }, []);
+    void ensureLists({ quiet: true });
+  }, [ensureLists]);
 
   function toggleExpand(listId: string) {
     if (expandedId === listId) {
@@ -105,7 +98,7 @@ export function ListsSection() {
         setNewListName("");
         setIsCreating(false);
         toast.success("List created.");
-        load();
+        void refreshLists();
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to create list.",
@@ -193,19 +186,7 @@ export function ListsSection() {
     }
     setAddOpenId(listId);
     setAddQuery("");
-    if (contacts === null) {
-      void (async () => {
-        try {
-          const result = await loadAudienceContactsAction();
-          setContacts(result.contacts);
-        } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "Failed to load contacts.",
-          );
-          setContacts([]);
-        }
-      })();
-    }
+    void ensureAudienceContacts();
   }
 
   function addPerson(listId: string, contact: PickerContact) {
@@ -290,21 +271,21 @@ export function ListsSection() {
         )}
       </div>
 
-      {lists === null ? (
-        <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading lists...
-        </div>
-      ) : loadError ? (
+      {loadError ? (
         <div className="flex flex-col gap-3 px-4 py-6">
           <p className="text-sm text-destructive">{loadError}</p>
           <button
             type="button"
-            onClick={load}
+            onClick={() => void refreshLists()}
             className="w-fit rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground"
           >
             Retry
           </button>
+        </div>
+      ) : lists === null ? (
+        <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading lists...
         </div>
       ) : lists.length === 0 ? (
         <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
@@ -409,6 +390,7 @@ export function ListsSection() {
                     {addOpenId === list.id && (
                       <AddPeoplePanel
                         contacts={contacts}
+                        contactsError={contactsError}
                         query={addQuery}
                         onQueryChange={setAddQuery}
                         existingContactIds={
@@ -477,6 +459,7 @@ export function ListsSection() {
 
 function AddPeoplePanel({
   contacts,
+  contactsError,
   query,
   onQueryChange,
   existingContactIds,
@@ -484,6 +467,7 @@ function AddPeoplePanel({
   onAdd,
 }: {
   contacts: PickerContact[] | null;
+  contactsError: string | null;
   query: string;
   onQueryChange: (value: string) => void;
   existingContactIds: Set<string>;
@@ -516,7 +500,9 @@ function AddPeoplePanel({
           className="h-8 flex-1 bg-transparent text-sm outline-none"
         />
       </div>
-      {contacts === null ? (
+      {contactsError ? (
+        <p className="px-1 py-3 text-sm text-destructive">{contactsError}</p>
+      ) : contacts === null ? (
         <div className="flex items-center gap-2 px-1 py-3 text-sm text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" />
           Loading contacts...

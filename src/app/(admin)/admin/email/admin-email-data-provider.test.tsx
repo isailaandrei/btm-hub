@@ -11,6 +11,11 @@ const mockLoadEmailTemplatesAction = vi.fn();
 const mockLoadEmailSendsAction = vi.fn();
 const mockLoadEmailManualRecipientsAction = vi.fn();
 const mockGetTemplateVersionForEditorAction = vi.fn();
+const mockLoadEmailListsAction = vi.fn();
+const mockLoadEmailSegmentsAction = vi.fn();
+const mockLoadAudienceTagsAction = vi.fn();
+const mockLoadEmailExclusionsAction = vi.fn();
+const mockLoadAudienceContactsAction = vi.fn();
 const mockToastError = vi.fn();
 
 vi.mock("sonner", () => ({
@@ -23,6 +28,11 @@ vi.mock("./actions", () => ({
   loadEmailManualRecipientsAction: mockLoadEmailManualRecipientsAction,
   loadEmailTemplatesAction: mockLoadEmailTemplatesAction,
   loadEmailSendsAction: mockLoadEmailSendsAction,
+  loadEmailListsAction: mockLoadEmailListsAction,
+  loadEmailSegmentsAction: mockLoadEmailSegmentsAction,
+  loadAudienceTagsAction: mockLoadAudienceTagsAction,
+  loadEmailExclusionsAction: mockLoadEmailExclusionsAction,
+  loadAudienceContactsAction: mockLoadAudienceContactsAction,
 }));
 
 vi.mock("./templates/actions", () => ({
@@ -121,6 +131,58 @@ function ManualRecipientsConsumer() {
   );
 }
 
+function ListsConsumer() {
+  const { lists, ensureLists } = useAdminEmailData();
+
+  useEffect(() => {
+    void ensureLists({ quiet: true });
+  }, [ensureLists]);
+
+  return <output>{lists?.[0]?.id ?? "loading"}</output>;
+}
+
+function ListsToggleShell() {
+  const [showConsumer, setShowConsumer] = useState(true);
+
+  return (
+    <AdminEmailDataProvider>
+      <button type="button" onClick={() => setShowConsumer((value) => !value)}>
+        Toggle
+      </button>
+      {showConsumer ? <ListsConsumer /> : <span>Hidden</span>}
+    </AdminEmailDataProvider>
+  );
+}
+
+function ExclusionsRefreshConsumer() {
+  const { exclusions, ensureExclusions, refreshExclusions } =
+    useAdminEmailData();
+
+  useEffect(() => {
+    void ensureExclusions({ quiet: true });
+  }, [ensureExclusions]);
+
+  return (
+    <>
+      <output>{exclusions?.[0]?.id ?? "loading"}</output>
+      <button
+        type="button"
+        onClick={() => void refreshExclusions({ quiet: true })}
+      >
+        Refresh
+      </button>
+    </>
+  );
+}
+
+function ExclusionsRefreshShell() {
+  return (
+    <AdminEmailDataProvider>
+      <ExclusionsRefreshConsumer />
+    </AdminEmailDataProvider>
+  );
+}
+
 function TemplateVersionConsumer() {
   const {
     templateVersionsById,
@@ -209,6 +271,22 @@ describe("AdminEmailDataProvider", () => {
     });
     mockGetTemplateVersionForEditorAction.mockResolvedValue({
       builderJson: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    mockLoadEmailListsAction.mockResolvedValue({
+      lists: [{ id: "list-1", name: "List 1", memberCount: 0 }],
+    });
+    mockLoadEmailSegmentsAction.mockResolvedValue({
+      segments: [{ id: "segment-1", name: "Segment 1" }],
+    });
+    mockLoadAudienceTagsAction.mockResolvedValue({
+      categories: [{ id: "cat-1", name: "Category 1" }],
+      tags: [{ id: "tag-1", name: "Tag 1" }],
+    });
+    mockLoadEmailExclusionsAction.mockResolvedValue({
+      exclusions: [{ id: "exclusion-1", email: "blocked@example.com" }],
+    });
+    mockLoadAudienceContactsAction.mockResolvedValue({
+      contacts: [{ id: "contact-1", name: "Contact 1", email: "c1@example.com" }],
     });
   });
 
@@ -335,5 +413,63 @@ describe("AdminEmailDataProvider", () => {
 
     expect(container.querySelector("output")?.textContent).toBe("version-2");
     expect(mockGetTemplateVersionForEditorAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads audience lists once across consumer remounts", async () => {
+    await act(async () => {
+      root.render(<ListsToggleShell />);
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector("output")?.textContent).toBe("list-1");
+    expect(mockLoadEmailListsAction).toHaveBeenCalledTimes(1);
+
+    // Unmount then remount the consumer — ensure must NOT refetch.
+    await act(async () => {
+      container.querySelector("button")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await act(async () => {
+      container.querySelector("button")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector("output")?.textContent).toBe("list-1");
+    expect(mockLoadEmailListsAction).toHaveBeenCalledTimes(1);
+    // Audience resources are independent — nothing else was loaded.
+    expect(mockLoadEmailSegmentsAction).not.toHaveBeenCalled();
+    expect(mockLoadEmailExclusionsAction).not.toHaveBeenCalled();
+    expect(mockLoadAudienceContactsAction).not.toHaveBeenCalled();
+  });
+
+  it("forces a refetch of exclusions on explicit refresh", async () => {
+    mockLoadEmailExclusionsAction
+      .mockResolvedValueOnce({
+        exclusions: [{ id: "exclusion-1", email: "a@example.com" }],
+      })
+      .mockResolvedValueOnce({
+        exclusions: [{ id: "exclusion-2", email: "b@example.com" }],
+      });
+
+    await act(async () => {
+      root.render(<ExclusionsRefreshShell />);
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector("output")?.textContent).toBe("exclusion-1");
+    expect(mockLoadEmailExclusionsAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      container.querySelector("button")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector("output")?.textContent).toBe("exclusion-2");
+    expect(mockLoadEmailExclusionsAction).toHaveBeenCalledTimes(2);
   });
 });

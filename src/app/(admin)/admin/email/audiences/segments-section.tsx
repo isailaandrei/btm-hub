@@ -12,11 +12,10 @@ import type { EmailSegmentSummary } from "@/lib/data/email-segments";
 import {
   createEmailSegmentAction,
   deleteEmailSegmentAction,
-  loadAudienceTagsAction,
-  loadEmailSegmentsAction,
   previewSegmentCountAction,
   updateEmailSegmentAction,
 } from "../actions";
+import { useAdminEmailData } from "../admin-email-data-provider";
 
 const EMPTY_RULE: EmailSegmentRule = {
   match: "all",
@@ -50,37 +49,39 @@ function ruleTargetsSomeone(rule: EmailSegmentRule): boolean {
 }
 
 export function SegmentsSection() {
-  const [segments, setSegments] = useState<EmailSegmentSummary[] | null>(null);
-  const [categories, setCategories] = useState<TagCategory[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Segments + the tag picker live in the provider, so they're cached across
+  // tab switches and admin navigation — same as Compose/Sent.
+  const {
+    segments,
+    segmentsError,
+    ensureSegments,
+    refreshSegments,
+    setSegments,
+    audienceTags,
+    audienceTagsError,
+    ensureAudienceTags,
+    refreshAudienceTags,
+  } = useAdminEmailData();
+  const categories = useMemo(
+    () => audienceTags?.categories ?? [],
+    [audienceTags],
+  );
+  const tags = useMemo(() => audienceTags?.tags ?? [], [audienceTags]);
+  const loadError = segmentsError ?? audienceTagsError;
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [liveCount, setLiveCount] = useState<number | null>(null);
   const [isCounting, setIsCounting] = useState(false);
   const [isMutating, startMutateTransition] = useTransition();
 
-  function load() {
-    void (async () => {
-      try {
-        const [segmentsResult, tagsResult] = await Promise.all([
-          loadEmailSegmentsAction(),
-          loadAudienceTagsAction(),
-        ]);
-        setSegments(segmentsResult.segments);
-        setCategories(tagsResult.categories);
-        setTags(tagsResult.tags);
-        setLoadError(null);
-      } catch (error) {
-        setLoadError(
-          error instanceof Error ? error.message : "Failed to load segments.",
-        );
-      }
-    })();
+  function reload() {
+    void refreshSegments();
+    void refreshAudienceTags();
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    void ensureSegments({ quiet: true });
+    void ensureAudienceTags({ quiet: true });
+  }, [ensureSegments, ensureAudienceTags]);
 
   const tagsByCategory = useMemo(() => {
     const map = new Map<string, Tag[]>();
@@ -210,7 +211,7 @@ export function SegmentsSection() {
         }
         setEditor(null);
         toast.success(editor.id ? "Segment updated." : "Segment created.");
-        load();
+        void refreshSegments();
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to save segment.",
@@ -420,21 +421,21 @@ export function SegmentsSection() {
         </div>
       )}
 
-      {segments === null ? (
-        <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading segments...
-        </div>
-      ) : loadError ? (
+      {loadError ? (
         <div className="flex flex-col gap-3 px-4 py-6">
           <p className="text-sm text-destructive">{loadError}</p>
           <button
             type="button"
-            onClick={load}
+            onClick={reload}
             className="w-fit rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground"
           >
             Retry
           </button>
+        </div>
+      ) : segments === null ? (
+        <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading segments...
         </div>
       ) : segments.length === 0 ? (
         <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
