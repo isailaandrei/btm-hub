@@ -523,8 +523,9 @@ export function isCardGapSection(node: JSONContent): boolean {
  * Build a "card split" band: a full-width section (sections default to
  * full-width, so it spans the card edge-to-edge) painted in `backgroundColor`,
  * with a spacer for its height. Bordered/padded to nothing so only the colored
- * band shows. The `CARD_GAP_ATTR` marker lets render + the editor repaint it to
- * the live backdrop.
+ * band shows. This is the editor shape; at render `normalizeCardGapBands` repaints
+ * it to the live backdrop and swaps the spacer for padding (see that function for
+ * why). The `CARD_GAP_ATTR` marker is what both steps key off.
  */
 export function createCardGapSection(
   backgroundColor: string,
@@ -555,12 +556,33 @@ export function createCardGapSection(
   };
 }
 
+/** The band height (px) the editor shows for a card-split section: the sum of
+ *  its inner spacer heights, falling back to the default. */
+function cardGapBandHeight(section: JSONContent): number {
+  let total = 0;
+  for (const child of section.content ?? []) {
+    if (child?.type === "spacer" && isRecord(child.attrs)) {
+      const height = Number(child.attrs.height);
+      if (Number.isFinite(height) && height > 0) total += height;
+    }
+  }
+  return total > 0 ? total : DEFAULT_CARD_GAP_HEIGHT;
+}
+
 /**
- * Repaint every card-split band to `color` (the backdrop the card sits on), so
- * the illusion holds even after the admin changes the backdrop — the band always
- * matches it. Non-destructive (clones); the stored band color is just a fallback.
+ * Render-only normalization of card-split bands. The editor stores each band as a
+ * full-width section with an inner spacer for its height — but @maily-to/render
+ * caps that spacer at its ~600px body width, so on clients that let the card grow
+ * past 600px (or shrink the cell to its content) the band stops short of the card
+ * edges and the two "cards" stay joined. So at render we:
+ *  1. repaint the band to `color` (the backdrop), so the split illusion holds even
+ *     after the admin changes the backdrop; and
+ *  2. drop the width-capped inner spacer, carrying the height on symmetric
+ *     vertical padding instead — leaving a bare, full-width colored cell that
+ *     reaches the card edges in every client.
+ * Non-destructive (clones).
  */
-export function paintCardGapSections(
+export function normalizeCardGapBands(
   document: MailyDocument,
   color: string,
 ): MailyDocument {
@@ -568,7 +590,14 @@ export function paintCardGapSections(
 
   function visit(node: JSONContent) {
     if (isCardGapSection(node) && isRecord(node.attrs)) {
+      const height = cardGapBandHeight(node);
       node.attrs.backgroundColor = color;
+      node.attrs.paddingTop = Math.ceil(height / 2);
+      node.attrs.paddingBottom = Math.floor(height / 2);
+      node.attrs.paddingLeft = 0;
+      node.attrs.paddingRight = 0;
+      node.content = [];
+      return;
     }
     if (Array.isArray(node.content)) {
       for (const child of node.content) visit(child);
@@ -616,7 +645,7 @@ export async function renderMailyDocument(
   // One backdrop value drives both the body background and the card-split bands,
   // so the gap is always exactly the backdrop color (the split illusion holds).
   const bodyBackground = getMailyDocumentBodyBackground(arranged);
-  const normalized = paintCardGapSections(arranged, bodyBackground);
+  const normalized = normalizeCardGapBands(arranged, bodyBackground);
   const renderer = new Maily(normalized);
   renderer.setTheme({
     ...DEFAULT_EMAIL_RENDER_THEME,

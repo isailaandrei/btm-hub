@@ -22,7 +22,7 @@ import {
   createCardGapSection,
   DEFAULT_CARD_GAP_HEIGHT,
   isCardGapSection,
-  paintCardGapSections,
+  normalizeCardGapBands,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -364,26 +364,32 @@ describe("Maily rendering", () => {
     );
   });
 
-  it("repaints card-split bands to the backdrop, leaving other sections alone", () => {
+  it("normalizes card-split bands: backdrop color, padding height, no spacer", () => {
     const document = assertMailyDocument({
       type: "doc",
       content: [
         // Stored band color is intentionally wrong — paint must override it.
-        createCardGapSection("#000000"),
+        createCardGapSection("#000000", 24),
         { type: "section", attrs: { backgroundColor: "#123456" }, content: [] },
       ],
     });
 
-    const painted = paintCardGapSections(document, "#abcdef");
+    const normalized = normalizeCardGapBands(document, "#abcdef");
 
-    expect(painted.content[0]?.attrs?.backgroundColor).toBe("#abcdef");
-    // A regular colored section keeps its own background.
-    expect(painted.content[1]?.attrs?.backgroundColor).toBe("#123456");
-    // Non-destructive: the input is untouched.
+    const band = normalized.content[0];
+    expect(band?.attrs?.backgroundColor).toBe("#abcdef");
+    // The width-capped inner spacer is gone; height moves to symmetric padding.
+    expect(band?.content).toEqual([]);
+    expect(band?.attrs?.paddingTop).toBe(12);
+    expect(band?.attrs?.paddingBottom).toBe(12);
+    // A regular colored section is left untouched.
+    expect(normalized.content[1]?.attrs?.backgroundColor).toBe("#123456");
+    // Non-destructive: the input still has its spacer and stored color.
     expect(document.content[0]?.attrs?.backgroundColor).toBe("#000000");
+    expect(document.content[0]?.content?.[0]?.type).toBe("spacer");
   });
 
-  it("renders a card-split band in the backdrop color, not its stored color", async () => {
+  it("renders a card-split band full-width, in the backdrop color", async () => {
     const rendered = await renderMailyDocument(
       assertMailyDocument({
         type: "doc",
@@ -401,6 +407,9 @@ describe("Maily rendering", () => {
     // The band tracks the backdrop, and the stale stored color never ships.
     expect(rendered.html).toContain("#fdf6e3");
     expect(rendered.html).not.toContain("#000000");
+    // The band must NOT render a width-capped spacer (~600px), which would leave
+    // the band narrower than a wider card and rejoin the two halves at the edges.
+    expect(rendered.html).not.toContain("max-width:37.5em");
   });
 
   it("rejects invalid Maily JSON instead of silently replacing it", () => {
