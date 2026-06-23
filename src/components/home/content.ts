@@ -19,10 +19,17 @@ export const NAV_LINKS = [
 export const LOGIN_HREF = "/login";
 
 // TODO: replace with the real Behind the Mask social URLs.
+export const YOUTUBE_CHANNEL = "https://www.youtube.com/@BehindtheMask";
+
 export const SOCIAL = {
+  // TODO: real Behind the Mask Facebook URL.
   facebook: "https://www.facebook.com",
-  youtube: "https://www.youtube.com",
+  youtube: YOUTUBE_CHANNEL,
 };
+
+/** YouTube helpers — `i.ytimg.com` is whitelisted in next.config.ts. */
+export const ytThumb = (id: string) => `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+export const ytWatch = (id: string) => `https://www.youtube.com/watch?v=${id}`;
 
 export const HERO = {
   headline: "LIFE IS AN OCEAN",
@@ -123,15 +130,17 @@ export const STATS = [
   { value: "10", label: "years of ocean stories" },
 ] as const;
 
+export type VideoItem = { id: string; title: string };
+
 export const VIDEOS = {
   title: "ENJOY OUR VIDEOS",
   subtitle:
     "Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean massa.",
-  button: { label: "You Tube Channel", href: SOCIAL.youtube },
-  // Featured clip in the middle so it becomes the emphasized centre card.
-  images: [
-    { src: `${IMG_BASE}/video-2.jpg`, alt: "Video thumbnail" },
-    { src: `${IMG_BASE}/video-main.jpg`, alt: "Featured video" },
-    { src: `${IMG_BASE}/video-3.jpg`, alt: "Video thumbnail" },
-  ],
+  button: { label: "More films", href: "/films" },
+  // Real Behind the Mask videos. The middle item is the emphasized centre card.
+  items: [
+    { id: "8v-kApucQSk", title: "Liquid Blue — Freediving the Maldives with Scuba Spa Yang" },
+    { id: "OzzuXOLTk_o", title: "Maybe You Will — Diving with SAVU in South Alor" },
+    { id: "VSE5n53sFi0", title: "We Need More Ocean Ambassadors — BTM Academy Maldives with ScubaSpa" },
+  ] satisfies VideoItem[],
 };

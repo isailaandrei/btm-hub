@@ -1,5 +1,12 @@
-import { IMG_BASE, VIDEOS } from "./content";
+import Link from "next/link";
+import { IMG_BASE, VIDEOS, ytThumb, ytWatch } from "./content";
 import { VideoCarousel } from "./video-carousel";
+
+const carouselVideos = VIDEOS.items.map((v) => ({
+  src: ytThumb(v.id),
+  href: ytWatch(v.id),
+  alt: v.title,
+}));
 
 /**
  * "Enjoy our videos" section — shared by desktop and mobile (rendered once,
@@ -18,18 +25,16 @@ export function VideosSection() {
         </div>
 
         <div className="mt-12">
-          <VideoCarousel videos={VIDEOS.images} href={VIDEOS.button.href} />
+          <VideoCarousel videos={carouselVideos} />
         </div>
 
         <div className="mt-12 flex justify-center">
-          <a
+          <Link
             href={VIDEOS.button.href}
-            target="_blank"
-            rel="noopener noreferrer"
             className="rounded-full border border-white px-7 py-3 font-display text-sm text-white transition-colors hover:bg-white/10"
           >
             {VIDEOS.button.label}
-          </a>
+          </Link>
         </div>
       </div>
     </section>

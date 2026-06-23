@@ -31,6 +31,8 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle: string }
 export function HomeMobile() {
   return (
     <div className="bg-[#020306] text-white xl:hidden">
+      <MobileNav />
+
       {/* ---- Hero ---- */}
       <section className="relative min-h-[100svh] overflow-hidden">
         <Image
@@ -43,14 +45,10 @@ export function HomeMobile() {
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/25 to-[#020306]" />
 
-        <div className="relative flex min-h-[100svh] flex-col">
-          <MobileNav />
-
-          <div className="flex flex-1 flex-col items-center justify-center px-6 pb-20 text-center">
-            <h1 className="font-display text-5xl leading-[1.05] text-white sm:text-6xl">{HERO.headline}</h1>
-            <Flourish className="my-6 h-4 w-5" />
-            <p className="max-w-sm font-serif text-base leading-relaxed text-white/90">{HERO.intro.join(" ")}</p>
-          </div>
+        <div className="relative flex min-h-[100svh] flex-col items-center justify-center px-6 text-center">
+          <h1 className="font-display text-5xl leading-[1.05] text-white sm:text-6xl">{HERO.headline}</h1>
+          <Flourish className="my-6 h-4 w-5" />
+          <p className="max-w-sm font-serif text-base leading-relaxed text-white/90">{HERO.intro.join(" ")}</p>
         </div>
       </section>
 
