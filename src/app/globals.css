@@ -121,6 +121,8 @@
 
   /* Font */
   --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-serif: Georgia, "Times New Roman", serif;
 
   /* Font sizes */
   --font-size-h1: 2.25rem;
