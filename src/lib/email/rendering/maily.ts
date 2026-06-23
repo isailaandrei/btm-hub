@@ -412,6 +412,93 @@ function withResponsiveImages(document: MailyDocument): MailyDocument {
   return clone;
 }
 
+/** Quality (1–100) used for Supabase image transformations in emails. Lower than
+ *  Supabase's default of 80 — these are display images, and smaller bytes (faster
+ *  loads, less egress) matter more here than pixel-perfect fidelity. */
+export const EMAIL_IMAGE_TRANSFORM_QUALITY = 72;
+
+/** Supabase's hard ceiling for a transform width/height. */
+const SUPABASE_MAX_TRANSFORM_DIMENSION = 2500;
+
+/** This project's `…/storage/v1` base, or null when unconfigured (e.g. a unit
+ *  test without env). Derived from NEXT_PUBLIC_SUPABASE_URL so the project ref is
+ *  never hardcoded. */
+function getSupabaseStorageBaseUrl(): string | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!url) return null;
+  return `${url.replace(/\/+$/, "")}/storage/v1`;
+}
+
+/**
+ * Rewrite a Supabase public-object image URL to the on-the-fly Image
+ * Transformation endpoint (resized + recompressed), or return null when `src`
+ * isn't a transformable Supabase object URL — external URLs (e.g. the
+ * Vercel-served social icons), signed URLs, already-transformed URLs, and
+ * non-raster formats are all left untouched.
+ *
+ * `format=origin` keeps the original format (JPEG/PNG) rather than letting
+ * Supabase auto-negotiate WebP: Outlook desktop can't render WebP, so for email
+ * we trade the WebP egress win for universal compatibility.
+ */
+export function supabaseImageTransformUrl(
+  src: string,
+  width: number,
+): string | null {
+  const base = getSupabaseStorageBaseUrl();
+  if (!base) return null;
+  const objectPrefix = `${base}/object/public/`;
+  if (!src.startsWith(objectPrefix)) return null;
+  const objectPath = src.slice(objectPrefix.length).split(/[?#]/)[0];
+  // Only resize formats that are safe to: skip GIF (would flatten animation),
+  // SVG/ICO (vector), and WebP (already optimized) — leave those as-is.
+  if (!/\.(jpe?g|png)$/i.test(objectPath)) return null;
+  const safeWidth = Math.min(
+    Math.max(Math.round(width), 1),
+    SUPABASE_MAX_TRANSFORM_DIMENSION,
+  );
+  return `${base}/render/image/public/${objectPath}?width=${safeWidth}&quality=${EMAIL_IMAGE_TRANSFORM_QUALITY}&format=origin`;
+}
+
+/**
+ * Point every Supabase-hosted image at the transformation endpoint, sized to a
+ * 2× (retina) version of its display width and capped at the email width. Images
+ * hosted elsewhere are left untouched. Non-destructive (clones), so the stored
+ * builder JSON and asset tracking — which key off the original public URLs — are
+ * unaffected.
+ */
+function withTransformedImageSrcs(document: MailyDocument): MailyDocument {
+  if (!getSupabaseStorageBaseUrl()) return document;
+  const clone = cloneJson(document);
+  const maxWidth = getMailyDocumentWidth(clone);
+
+  function visit(node: JSONContent) {
+    if (
+      node.type === "image" &&
+      isRecord(node.attrs) &&
+      typeof node.attrs.src === "string"
+    ) {
+      const rawWidth =
+        typeof node.attrs.width === "number"
+          ? node.attrs.width
+          : Number.parseInt(String(node.attrs.width), 10);
+      const cssWidth = Number.isFinite(rawWidth)
+        ? Math.min(rawWidth, maxWidth)
+        : maxWidth;
+      const transformed = supabaseImageTransformUrl(
+        node.attrs.src,
+        cssWidth * 2,
+      );
+      if (transformed) node.attrs.src = transformed;
+    }
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) visit(child);
+    }
+  }
+
+  visit(clone);
+  return clone;
+}
+
 /** A transparent, borderless section with a horizontal gutter — wraps "loose"
  *  (non-section) content so it stays inset from the card edges. */
 function paddedContentSection(content: JSONContent[]): JSONContent {
@@ -632,6 +719,84 @@ function injectBaseEmailCss(html: string): string {
   return `${html.slice(0, headClose)}${css}${html.slice(headClose)}`;
 }
 
+/**
+ * Drop zero-width borders from inline styles. @maily-to/render emits
+ * `border-style:solid;border-width:0;border-color:transparent` on the container
+ * and section cells. The Word engine behind Outlook (Windows) doesn't understand
+ * `transparent` and paints those as **black** lines. A 0-width border is never
+ * meant to be visible, so we strip its border-* declarations entirely (keeping
+ * `border-radius`). Real borders (width > 0, e.g. the `<hr>` rules) are untouched.
+ * Safe for every client — a 0-width border renders nothing anywhere.
+ */
+function stripZeroWidthBorders(html: string): string {
+  return html.replace(/style="([^"]*)"/g, (whole, style: string) => {
+    if (!/border-width:0(px)?(;|$)/.test(style)) return whole;
+    const cleaned = style
+      .split(";")
+      .map((decl) => decl.trim())
+      .filter(Boolean)
+      .filter((decl) => !/^border-(width|style|color)\s*:/i.test(decl))
+      .join(";");
+    return `style="${cleaned}"`;
+  });
+}
+
+/** Index just past the `</table>` that closes the `<table` opening at `openIdx`,
+ *  accounting for nested tables; -1 if the markup is unbalanced. */
+function findMatchingTableCloseEnd(html: string, openIdx: number): number {
+  const tagRe = /<table\b|<\/table>/gi;
+  tagRe.lastIndex = openIdx;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    if (match[0][1] === "/") {
+      depth -= 1;
+      if (depth === 0) return match.index + match[0].length;
+    } else {
+      depth += 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Outlook on Windows (the Word rendering engine) ignores `max-width`, so the
+ * `max-width:Npx` container expands to the full width of the reading pane —
+ * blowing out the layout and running text edge-to-edge. Wrap the container in an
+ * MSO-only "ghost table" pinned to the email width: Outlook honors the table's
+ * fixed `width`, and every other client ignores the conditional comment. This is
+ * width-only and Outlook-only — no rendering change anywhere else.
+ */
+function wrapContainerForOutlook(html: string, width: number): string {
+  const markerIdx = html.indexOf(`max-width:${width}px`);
+  if (markerIdx === -1) return html;
+  const openIdx = html.lastIndexOf("<table", markerIdx);
+  if (openIdx === -1) return html;
+  const closeIdx = findMatchingTableCloseEnd(html, openIdx);
+  if (closeIdx === -1) return html;
+
+  const ghostOpen =
+    `<!--[if mso]><table role="presentation" align="center" border="0" ` +
+    `cellpadding="0" cellspacing="0" width="${width}"><tr>` +
+    `<td width="${width}" style="width:${width}px"><![endif]-->`;
+  const ghostClose = "<!--[if mso]></td></tr></table><![endif]-->";
+
+  return (
+    html.slice(0, openIdx) +
+    ghostOpen +
+    html.slice(openIdx, closeIdx) +
+    ghostClose +
+    html.slice(closeIdx)
+  );
+}
+
+/** Apply the Outlook-compatibility fixes to a rendered HTML string: strip the
+ *  transparent zero-width borders Word renders black, then pin the container
+ *  width with an MSO ghost table. */
+function applyOutlookFixes(html: string, width: number): string {
+  return wrapContainerForOutlook(stripZeroWidthBorders(html), width);
+}
+
 export async function renderMailyDocument(
   document: MailyDocument,
   input: {
@@ -640,12 +805,15 @@ export async function renderMailyDocument(
   } = {},
 ): Promise<RenderedEmailBody> {
   const arranged = arrangeEmailRows(
-    withResponsiveImages(assertMailyDocument(document)),
+    withTransformedImageSrcs(
+      withResponsiveImages(assertMailyDocument(document)),
+    ),
   );
   // One backdrop value drives both the body background and the card-split bands,
   // so the gap is always exactly the backdrop color (the split illusion holds).
   const bodyBackground = getMailyDocumentBodyBackground(arranged);
   const normalized = normalizeCardGapBands(arranged, bodyBackground);
+  const width = getMailyDocumentWidth(normalized);
   const renderer = new Maily(normalized);
   renderer.setTheme({
     ...DEFAULT_EMAIL_RENDER_THEME,
@@ -669,11 +837,11 @@ export async function renderMailyDocument(
     renderer.setVariableValues(flattenEmailVariables(input.variables));
   }
 
-  const [html, text] = await Promise.all([
+  const [rawHtml, text] = await Promise.all([
     renderer.render({ pretty: true }),
     renderer.render({ plainText: true }),
   ]);
-  return { html: injectBaseEmailCss(html), text };
+  return { html: injectBaseEmailCss(applyOutlookFixes(rawHtml, width)), text };
 }
 
 export async function renderMailyEmail(input: {

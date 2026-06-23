@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyLayoutToDocument,
   assertMailyDocument,
@@ -8,6 +8,7 @@ import {
   DEFAULT_CONTAINER_BACKGROUND,
   DEFAULT_EMAIL_FONT_KEY,
   DEFAULT_EMAIL_WIDTH,
+  EMAIL_IMAGE_TRANSFORM_QUALITY,
   getAssetIdsForMailyDocument,
   getMailyDocumentFontKey,
   getMailyDocumentLayout,
@@ -23,6 +24,7 @@ import {
   DEFAULT_CARD_GAP_HEIGHT,
   isCardGapSection,
   normalizeCardGapBands,
+  supabaseImageTransformUrl,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -468,5 +470,184 @@ describe("Maily rendering", () => {
     expect(
       getAssetPublicUrlsForMailyDocument(assertMailyDocument(document)),
     ).toEqual(["https://cdn.example.com/email-assets/header.png"]);
+  });
+});
+
+describe("Supabase image transformation URLs", () => {
+  const PROJECT = "https://ojbwpfemujjjkihdhgkr.supabase.co";
+  const objectUrl = (path: string) =>
+    `${PROJECT}/storage/v1/object/public/${path}`;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("rewrites a Supabase object URL to the transform endpoint (JPEG kept via format=origin)", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/hero.jpg"), 1248),
+    ).toBe(
+      `${PROJECT}/storage/v1/render/image/public/email-assets/u/hero.jpg` +
+        `?width=1248&quality=${EMAIL_IMAGE_TRANSFORM_QUALITY}&format=origin`,
+    );
+  });
+
+  it("leaves non-Supabase URLs untouched (e.g. Vercel-served social icons)", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(
+        "https://btm-hub.vercel.app/email/social/instagram.png",
+        80,
+      ),
+    ).toBeNull();
+  });
+
+  it("does not transform formats that are unsafe to resize (gif/svg)", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/anim.gif"), 800),
+    ).toBeNull();
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/logo.svg"), 800),
+    ).toBeNull();
+  });
+
+  it("clamps the requested width to Supabase's 2500px ceiling", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/x.jpg"), 99999),
+    ).toContain("width=2500");
+  });
+
+  it("is a no-op when the Supabase URL is unconfigured", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/x.jpg"), 800),
+    ).toBeNull();
+  });
+});
+
+describe("Outlook-compatible rendering", () => {
+  const PROJECT = "https://ojbwpfemujjjkihdhgkr.supabase.co";
+
+  // A document exercising the structural features that break in Outlook: a
+  // full-width section with a transparent zero-width border, a Supabase image, a
+  // real <hr> border, and a nested columns block (nested tables) with a
+  // Vercel-hosted icon.
+  const document = {
+    type: "doc",
+    maxWidth: 640,
+    content: [
+      {
+        type: "section",
+        attrs: {
+          fullwidth: "true",
+          align: "left",
+          backgroundColor: "transparent",
+          borderColor: "transparent",
+          borderWidth: 0,
+          borderRadius: 0,
+          paddingTop: 8,
+          paddingRight: 8,
+          paddingBottom: 8,
+          paddingLeft: 8,
+        },
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: `${PROJECT}/storage/v1/object/public/email-assets/u/hero.jpg`,
+              width: 624,
+              height: 416,
+              alignment: "center",
+            },
+          },
+          {
+            type: "heading",
+            attrs: { level: 1, textAlign: "left", textDirection: "ltr" },
+            content: [{ type: "text", text: "To our Community" }],
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        attrs: { textAlign: "left", textDirection: "ltr" },
+        content: [{ type: "text", text: "Body copy." }],
+      },
+      { type: "horizontalRule" },
+      {
+        type: "columns",
+        attrs: { gap: 8 },
+        content: [
+          {
+            type: "column",
+            attrs: { width: 50, columnId: null, verticalAlign: "middle" },
+            content: [
+              {
+                type: "image",
+                attrs: {
+                  src: "https://btm-hub.vercel.app/email/social/instagram.png",
+                  width: 40,
+                  height: 40,
+                  alignment: "center",
+                },
+              },
+            ],
+          },
+          {
+            type: "column",
+            attrs: { width: 50, columnId: null, verticalAlign: "middle" },
+            content: [
+              {
+                type: "paragraph",
+                attrs: { textAlign: "left", textDirection: "ltr" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("wraps the container in an MSO ghost table pinned to the email width", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(document));
+    expect(html).toContain(
+      '<!--[if mso]><table role="presentation" align="center" border="0" ' +
+        'cellpadding="0" cellspacing="0" width="640"><tr>' +
+        '<td width="640" style="width:640px"><![endif]-->',
+    );
+    expect(html).toContain("<!--[if mso]></td></tr></table><![endif]-->");
+    // The ghost table opens immediately before the real max-width container.
+    const ghostIdx = html.indexOf('width="640"><tr>');
+    const containerIdx = html.indexOf("max-width:640px");
+    expect(ghostIdx).toBeGreaterThan(-1);
+    expect(ghostIdx).toBeLessThan(containerIdx);
+  });
+
+  it("strips transparent zero-width borders (which Outlook renders black)", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(document));
+    expect(html).not.toContain("border-color:transparent");
+    expect(html).not.toContain("border-width:0");
+    // Real borders are preserved (the horizontal rule).
+    expect(html).toContain("border-top:1px solid #eaeaea");
+  });
+
+  it("routes Supabase images through the transform endpoint but leaves others alone", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    const { html } = await renderMailyDocument(assertMailyDocument(document));
+    // 624px display width → 2× retina = 1248px, JPEG kept.
+    expect(html).toContain("/render/image/public/email-assets/u/hero.jpg");
+    expect(html).toContain("width=1248");
+    expect(html).toContain("format=origin");
+    expect(html).toContain(`quality=${EMAIL_IMAGE_TRANSFORM_QUALITY}`);
+    // The Vercel-hosted icon is untouched.
+    expect(html).toContain(
+      "https://btm-hub.vercel.app/email/social/instagram.png",
+    );
+    expect(html).not.toContain("render/image/public/email/social");
   });
 });
