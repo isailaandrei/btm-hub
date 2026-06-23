@@ -2,25 +2,27 @@ import { describe, expect, it } from "vitest";
 import {
   applyLayoutToDocument,
   assertMailyDocument,
-  clampCornerRadius,
   clampEmailWidth,
   createDefaultMailyDocument,
   DEFAULT_BODY_BACKGROUND,
   DEFAULT_CONTAINER_BACKGROUND,
-  DEFAULT_CORNER_RADIUS,
   DEFAULT_EMAIL_FONT_KEY,
   DEFAULT_EMAIL_WIDTH,
   getAssetIdsForMailyDocument,
   getMailyDocumentFontKey,
   getMailyDocumentLayout,
   getMailyDocumentWidth,
-  MAX_CORNER_RADIUS,
   MAX_EMAIL_WIDTH,
   MIN_EMAIL_WIDTH,
   normalizeHexColor,
   renderMailyDocument,
   renderMailyEmail,
   arrangeEmailRows,
+  CARD_GAP_ATTR,
+  createCardGapSection,
+  DEFAULT_CARD_GAP_HEIGHT,
+  isCardGapSection,
+  paintCardGapSections,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -189,49 +191,49 @@ describe("Maily rendering", () => {
     );
   });
 
-  it("defaults the card/backdrop colors and corner radius, and round-trips them", () => {
+  it("defaults the card/backdrop colors and round-trips them", () => {
     const blank = createDefaultMailyDocument();
     const layout = getMailyDocumentLayout(blank);
     expect(layout.containerBackground).toBe(DEFAULT_CONTAINER_BACKGROUND);
     expect(layout.bodyBackground).toBe(DEFAULT_BODY_BACKGROUND);
-    expect(layout.cornerRadius).toBe(DEFAULT_CORNER_RADIUS);
 
     const customized = applyLayoutToDocument(blank, {
       ...layout,
       containerBackground: "#101820",
       bodyBackground: "#fdf6e3",
-      cornerRadius: 24,
     });
     const back = getMailyDocumentLayout(customized);
     expect(back.containerBackground).toBe("#101820");
     expect(back.bodyBackground).toBe("#fdf6e3");
-    expect(back.cornerRadius).toBe(24);
   });
 
-  it("sanitizes colors and clamps the corner radius", () => {
+  it("sanitizes colors so they can't inject into inline styles", () => {
     expect(normalizeHexColor("#AbCdEf", "#ffffff")).toBe("#abcdef");
     // Anything that isn't a #rrggbb hex can't reach the email's inline styles.
     expect(normalizeHexColor("red;} body{display:none", "#ffffff")).toBe("#ffffff");
     expect(normalizeHexColor("#fff", "#ffffff")).toBe("#ffffff");
     expect(normalizeHexColor(42, "#ffffff")).toBe("#ffffff");
-    expect(clampCornerRadius(9999)).toBe(MAX_CORNER_RADIUS);
-    expect(clampCornerRadius(-10)).toBe(0);
   });
 
-  it("renders the chosen card color, backdrop, and corner radius", async () => {
+  it("renders the chosen card color and backdrop", async () => {
     const rendered = await renderMailyDocument(
       assertMailyDocument({
         ...createDefaultMailyDocument(),
         containerBackground: "#101820",
         bodyBackground: "#fdf6e3",
-        cornerRadius: 20,
       }),
     );
     expect(rendered.html).toContain("#101820");
     expect(rendered.html).toContain("#fdf6e3");
-    expect(rendered.html).toContain("border-radius:20px");
-    // The mobile corner-squaring targets the actual radius value.
-    expect(rendered.html).toContain('[style*="border-radius:20px"]');
+  });
+
+  it("always renders a square card, even if a stored radius is present", async () => {
+    const rendered = await renderMailyDocument(
+      // A legacy document may still carry a corner radius; it must be ignored.
+      assertMailyDocument({ ...createDefaultMailyDocument(), cornerRadius: 20 }),
+    );
+    expect(rendered.html).toContain("border-radius:0px");
+    expect(rendered.html).not.toContain("border-radius:20px");
   });
 
   it("ignores an injection-y color and falls back to defaults when rendering", async () => {
@@ -281,7 +283,8 @@ describe("Maily rendering", () => {
 
     expect(rendered.html).toContain("background-color:#f3f4f6");
     expect(rendered.html).toContain("background-color:#ffffff");
-    expect(rendered.html).toContain("border-radius:12px");
+    // The card is always square.
+    expect(rendered.html).toContain("border-radius:0px");
   });
 
   it("renders subject and body with per-recipient variables", async () => {
@@ -340,6 +343,64 @@ describe("Maily rendering", () => {
     );
     expect(rendered.html).not.toContain(">unsubscribe.url<");
     expect(rendered.html).not.toContain("{{unsubscribe.url}}");
+  });
+
+  it("builds a card-split band: full-width, marked, no border, spacer height", () => {
+    const band = createCardGapSection("#f3f4f6");
+
+    expect(band.type).toBe("section");
+    expect(band.attrs?.[CARD_GAP_ATTR]).toBe("true");
+    expect(band.attrs?.fullwidth).toBe("true");
+    expect(band.attrs?.backgroundColor).toBe("#f3f4f6");
+    expect(band.attrs?.borderWidth).toBe(0);
+    // A spacer carries the band height so it reads as a separation.
+    expect(band.content?.[0]?.type).toBe("spacer");
+    expect(band.content?.[0]?.attrs?.height).toBe(DEFAULT_CARD_GAP_HEIGHT);
+
+    expect(isCardGapSection(band)).toBe(true);
+    // A normal section is not a card-split band.
+    expect(isCardGapSection({ type: "section", attrs: {}, content: [] })).toBe(
+      false,
+    );
+  });
+
+  it("repaints card-split bands to the backdrop, leaving other sections alone", () => {
+    const document = assertMailyDocument({
+      type: "doc",
+      content: [
+        // Stored band color is intentionally wrong — paint must override it.
+        createCardGapSection("#000000"),
+        { type: "section", attrs: { backgroundColor: "#123456" }, content: [] },
+      ],
+    });
+
+    const painted = paintCardGapSections(document, "#abcdef");
+
+    expect(painted.content[0]?.attrs?.backgroundColor).toBe("#abcdef");
+    // A regular colored section keeps its own background.
+    expect(painted.content[1]?.attrs?.backgroundColor).toBe("#123456");
+    // Non-destructive: the input is untouched.
+    expect(document.content[0]?.attrs?.backgroundColor).toBe("#000000");
+  });
+
+  it("renders a card-split band in the backdrop color, not its stored color", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({
+        type: "doc",
+        bodyBackground: "#fdf6e3",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Card A" }] },
+          // Stored as a different color; render must repaint it to the backdrop
+          // so the split illusion holds even if the backdrop changed afterwards.
+          createCardGapSection("#000000"),
+          { type: "paragraph", content: [{ type: "text", text: "Card B" }] },
+        ],
+      }),
+    );
+
+    // The band tracks the backdrop, and the stale stored color never ships.
+    expect(rendered.html).toContain("#fdf6e3");
+    expect(rendered.html).not.toContain("#000000");
   });
 
   it("rejects invalid Maily JSON instead of silently replacing it", () => {

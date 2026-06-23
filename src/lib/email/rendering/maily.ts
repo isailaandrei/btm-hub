@@ -22,8 +22,6 @@ export type MailyDocument = JSONContent & {
   fontKey?: string;
   /** Card (container) background color, hex. Defaults to white. */
   containerBackground?: string;
-  /** Card corner radius (px). Defaults to 12. */
-  cornerRadius?: number;
   /** Backdrop the card sits on (the area around the email), hex. Light gray. */
   bodyBackground?: string;
 };
@@ -39,10 +37,6 @@ export const MAX_EMAIL_PADDING = 96;
 export const DEFAULT_CONTAINER_BACKGROUND = "#ffffff";
 export const DEFAULT_BODY_BACKGROUND = "#f3f4f6";
 
-export const DEFAULT_CORNER_RADIUS = 12;
-export const MIN_CORNER_RADIUS = 0;
-export const MAX_CORNER_RADIUS = 48;
-
 /** Accept only #rrggbb so a stored value can't inject into the email's inline
  *  styles or the editor CSS (and stays valid for the native color input);
  *  anything else falls back to the default. */
@@ -50,14 +44,6 @@ export function normalizeHexColor(value: unknown, fallback: string): string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)
     ? value.toLowerCase()
     : fallback;
-}
-
-/** Clamp an arbitrary corner-radius input to the allowed range. */
-export function clampCornerRadius(value: unknown): number {
-  const numeric =
-    typeof value === "number" ? value : Number.parseInt(String(value), 10);
-  if (!Number.isFinite(numeric)) return DEFAULT_CORNER_RADIUS;
-  return Math.min(MAX_CORNER_RADIUS, Math.max(MIN_CORNER_RADIUS, Math.round(numeric)));
 }
 
 /** Clamp an arbitrary width input to the allowed email-container range. */
@@ -109,12 +95,6 @@ export function getMailyDocumentContainerBackground(
 
 export function getMailyDocumentBodyBackground(document: MailyDocument): string {
   return normalizeHexColor(document.bodyBackground, DEFAULT_BODY_BACKGROUND);
-}
-
-export function getMailyDocumentCornerRadius(document: MailyDocument): number {
-  return document.cornerRadius == null
-    ? DEFAULT_CORNER_RADIUS
-    : clampCornerRadius(document.cornerRadius);
 }
 
 /**
@@ -189,7 +169,6 @@ export interface EmailLayout {
   paddingBottom: number;
   fontKey: string;
   containerBackground: string;
-  cornerRadius: number;
   bodyBackground: string;
 }
 
@@ -201,7 +180,6 @@ export function getMailyDocumentLayout(document: MailyDocument): EmailLayout {
     paddingBottom: getMailyDocumentPaddingBottom(document),
     fontKey: getMailyDocumentFontKey(document),
     containerBackground: getMailyDocumentContainerBackground(document),
-    cornerRadius: getMailyDocumentCornerRadius(document),
     bodyBackground: getMailyDocumentBodyBackground(document),
   };
 }
@@ -218,7 +196,6 @@ export function applyLayoutToDocument(
     paddingBottom: layout.paddingBottom,
     fontKey: layout.fontKey,
     containerBackground: layout.containerBackground,
-    cornerRadius: layout.cornerRadius,
     bodyBackground: layout.bodyBackground,
   };
 }
@@ -272,7 +249,9 @@ const DEFAULT_EMAIL_RENDER_THEME = {
     paddingRight: "0px",
     paddingBottom: "32px",
     paddingLeft: "0px",
-    borderRadius: "12px",
+    // The email card is always square — corner radius is not configurable
+    // (rounded outer corners read oddly next to a square card-split band).
+    borderRadius: "0px",
     borderWidth: "0px",
     borderColor: "transparent",
   },
@@ -281,6 +260,19 @@ const DEFAULT_EMAIL_RENDER_THEME = {
 // Horizontal gutter applied to "loose" (non-section) content so it stays inset
 // from the card edges now that the container has no side padding.
 export const CONTENT_GUTTER = 32;
+
+// "Card split" band: a full-width section painted the same color as the backdrop
+// the card sits on. It reads as a gap that divides the single email card into two
+// stacked cards (an illusion — the email is still one container, which is the
+// only client-safe shape). The marker rides on the section as a lowercase string
+// attr (like `fullwidth`) so it survives Maily's attr handling; render repaints
+// the band to the live backdrop and the editor does the same via CSS (see
+// [data-card-gap] in globals.css), so the gap always matches the backdrop.
+export const CARD_GAP_ATTR = "cardgap";
+
+// Default band height (px). Tall enough to read as a separation; the admin can
+// resize the inner spacer afterwards.
+export const DEFAULT_CARD_GAP_HEIGHT = 24;
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -518,6 +510,75 @@ export function arrangeEmailRows(document: MailyDocument): MailyDocument {
   return { ...document, content: out };
 }
 
+/** True for the full-width "card split" bands inserted via the editor's
+ *  Card-split block. The marker is a lowercase string attr (booleans accepted
+ *  for resilience), mirroring the `fullwidth` convention. */
+export function isCardGapSection(node: JSONContent): boolean {
+  if (node.type !== "section" || !isRecord(node.attrs)) return false;
+  const flag = node.attrs[CARD_GAP_ATTR];
+  return flag === "true" || flag === true;
+}
+
+/**
+ * Build a "card split" band: a full-width section (sections default to
+ * full-width, so it spans the card edge-to-edge) painted in `backgroundColor`,
+ * with a spacer for its height. Bordered/padded to nothing so only the colored
+ * band shows. The `CARD_GAP_ATTR` marker lets render + the editor repaint it to
+ * the live backdrop.
+ */
+export function createCardGapSection(
+  backgroundColor: string,
+  height: number = DEFAULT_CARD_GAP_HEIGHT,
+): JSONContent {
+  return {
+    type: "section",
+    attrs: {
+      backgroundColor,
+      borderWidth: 0,
+      borderColor: "transparent",
+      borderRadius: 0,
+      align: "left",
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      marginLeft: 0,
+      paddingTop: 0,
+      paddingRight: 0,
+      paddingBottom: 0,
+      paddingLeft: 0,
+      // Sections are full-width by default; set it explicitly so the band reaches
+      // the card edges even if a future default changes.
+      fullwidth: "true",
+      [CARD_GAP_ATTR]: "true",
+    },
+    content: [{ type: "spacer", attrs: { height } }],
+  };
+}
+
+/**
+ * Repaint every card-split band to `color` (the backdrop the card sits on), so
+ * the illusion holds even after the admin changes the backdrop — the band always
+ * matches it. Non-destructive (clones); the stored band color is just a fallback.
+ */
+export function paintCardGapSections(
+  document: MailyDocument,
+  color: string,
+): MailyDocument {
+  const clone = cloneJson(document);
+
+  function visit(node: JSONContent) {
+    if (isCardGapSection(node) && isRecord(node.attrs)) {
+      node.attrs.backgroundColor = color;
+    }
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) visit(child);
+    }
+  }
+
+  visit(clone);
+  return clone;
+}
+
 export function parseMailyDocumentOrDefault(value: unknown): MailyDocument {
   try {
     return assertMailyDocument(value);
@@ -526,26 +587,17 @@ export function parseMailyDocumentOrDefault(value: unknown): MailyDocument {
   }
 }
 
-// Injected into <head>:
-// - reset the default ~8px <body> margin Maily leaves in place, so the email is
-//   not inset on narrow screens.
-// - on phones, square off the card's corners — rounded corners look odd once the
-//   card is full-bleed at the screen edge. Targets the container by its actual
-//   border-radius value (buttons/images use other radii); degrades gracefully in
-//   clients that ignore the media query (corners just stay rounded).
-function buildBaseEmailCss(cornerRadius: number): string {
-  return [
-    "<style>",
-    "body{margin:0 !important;padding:0 !important;}",
-    "@media only screen and (max-width:600px){",
-    `[style*="border-radius:${cornerRadius}px"]{border-radius:0 !important;}`,
-    "}",
-    "</style>",
-  ].join("");
+// Injected into <head>: reset the default ~8px <body> margin Maily leaves in
+// place, so the email is not inset on narrow screens. The card is always square
+// (corner radius is fixed at 0), so no corner handling is needed.
+function buildBaseEmailCss(): string {
+  return ["<style>", "body{margin:0 !important;padding:0 !important;}", "</style>"].join(
+    "",
+  );
 }
 
-function injectBaseEmailCss(html: string, cornerRadius: number): string {
-  const css = buildBaseEmailCss(cornerRadius);
+function injectBaseEmailCss(html: string): string {
+  const css = buildBaseEmailCss();
   const headClose = html.toLowerCase().indexOf("</head>");
   if (headClose === -1) return `${css}${html}`;
   return `${html.slice(0, headClose)}${css}${html.slice(headClose)}`;
@@ -558,17 +610,20 @@ export async function renderMailyDocument(
     variables?: EmailRenderVariables;
   } = {},
 ): Promise<RenderedEmailBody> {
-  const normalized = arrangeEmailRows(
+  const arranged = arrangeEmailRows(
     withResponsiveImages(assertMailyDocument(document)),
   );
-  const cornerRadius = getMailyDocumentCornerRadius(normalized);
+  // One backdrop value drives both the body background and the card-split bands,
+  // so the gap is always exactly the backdrop color (the split illusion holds).
+  const bodyBackground = getMailyDocumentBodyBackground(arranged);
+  const normalized = paintCardGapSections(arranged, bodyBackground);
   const renderer = new Maily(normalized);
   renderer.setTheme({
     ...DEFAULT_EMAIL_RENDER_THEME,
     font: fontThemeForKey(getMailyDocumentFontKey(normalized)),
     body: {
       ...DEFAULT_EMAIL_RENDER_THEME.body,
-      backgroundColor: getMailyDocumentBodyBackground(normalized),
+      backgroundColor: bodyBackground,
     },
     container: {
       ...DEFAULT_EMAIL_RENDER_THEME.container,
@@ -576,7 +631,6 @@ export async function renderMailyDocument(
       paddingTop: `${getMailyDocumentPaddingTop(normalized)}px`,
       paddingBottom: `${getMailyDocumentPaddingBottom(normalized)}px`,
       backgroundColor: getMailyDocumentContainerBackground(normalized),
-      borderRadius: `${cornerRadius}px`,
     },
   });
   if (input.previewText) {
@@ -590,7 +644,7 @@ export async function renderMailyDocument(
     renderer.render({ pretty: true }),
     renderer.render({ plainText: true }),
   ]);
-  return { html: injectBaseEmailCss(html, cornerRadius), text };
+  return { html: injectBaseEmailCss(html), text };
 }
 
 export async function renderMailyEmail(input: {

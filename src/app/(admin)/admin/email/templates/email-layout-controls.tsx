@@ -2,14 +2,11 @@
 
 import { useState } from "react";
 import {
-  clampCornerRadius,
   clampEmailPadding,
   clampEmailWidth,
   EMAIL_FONTS,
-  MAX_CORNER_RADIUS,
   MAX_EMAIL_PADDING,
   MAX_EMAIL_WIDTH,
-  MIN_CORNER_RADIUS,
   MIN_EMAIL_PADDING,
   MIN_EMAIL_WIDTH,
   type EmailLayout,
@@ -140,14 +137,6 @@ export function EmailLayoutControls({
         max={MAX_EMAIL_PADDING}
         clamp={clampEmailPadding}
         onCommit={(paddingBottom) => onChange({ ...value, paddingBottom })}
-      />
-      <DraftNumberInput
-        label="Corners"
-        value={value.cornerRadius}
-        min={MIN_CORNER_RADIUS}
-        max={MAX_CORNER_RADIUS}
-        clamp={clampCornerRadius}
-        onCommit={(cornerRadius) => onChange({ ...value, cornerRadius })}
       />
       <span className="text-xs text-muted-foreground">px</span>
       <ColorInput
