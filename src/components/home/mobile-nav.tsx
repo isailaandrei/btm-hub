@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { IMG_BASE, LOGIN_HREF, NAV_LINKS } from "./content";
+import { IMG_BASE, NAV_LINKS } from "./content";
+import { HomeNavAuthMobile } from "./home-nav-auth";
 
 /**
  * Sticky mobile header: fixed to the top, transparent over the hero and
@@ -100,13 +101,7 @@ export function MobileNav() {
               {link.label}
             </Link>
           ))}
-          <Link
-            href={LOGIN_HREF}
-            onClick={() => setOpen(false)}
-            className="mt-6 rounded-full border border-white px-10 py-3 font-display text-base text-white transition-colors hover:bg-white/10"
-          >
-            Log In
-          </Link>
+          <HomeNavAuthMobile onNavigate={() => setOpen(false)} />
         </nav>
       </div>
     </header>

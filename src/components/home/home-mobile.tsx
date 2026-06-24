@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FEATURES, HERO, IMG_BASE, WHAT_WE_DO } from "./content";
 import { MobileNav } from "./mobile-nav";
+import { Parallax } from "./parallax";
 
 /**
  * Mobile / tablet reflow of the homepage (shown below the `xl` breakpoint,
@@ -46,14 +47,18 @@ export function HomeMobile() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/25 to-[#020306]" />
 
         <div className="relative flex min-h-[100svh] flex-col items-center justify-center px-6 text-center">
-          <h1 className="font-display text-5xl leading-[1.05] text-white sm:text-6xl">{HERO.headline}</h1>
-          <Flourish className="my-6 h-4 w-5" />
-          <p className="max-w-sm font-serif text-base leading-relaxed text-white/90">{HERO.intro.join(" ")}</p>
+          {/* Hero copy — scroll parallax: drifts up and fades over the static
+              background (static under reduced-motion). */}
+          <Parallax speed={0.3} className="flex flex-col items-center">
+            <h1 className="font-display text-5xl leading-[1.05] text-white sm:text-6xl">{HERO.headline}</h1>
+            <Flourish className="my-6 h-4 w-5" />
+            <p className="max-w-sm font-serif text-base leading-relaxed text-white/90">{HERO.intro.join(" ")}</p>
+          </Parallax>
         </div>
       </section>
 
       {/* ---- WHAT WE DO ---- */}
-      <section className="px-6 py-16">
+      <section className="reveal px-6 py-16">
         <SectionHeading title={WHAT_WE_DO.title} subtitle={WHAT_WE_DO.subtitle} />
       </section>
 
@@ -61,7 +66,7 @@ export function HomeMobile() {
       <div className="space-y-20 px-6 pb-20">
         {FEATURES.map((feature) => (
           <section key={feature.id} className="flex flex-col gap-7">
-            <div>
+            <div className="reveal">
               <p className="font-serif text-xs uppercase tracking-[0.25em] text-white/50">{feature.overline}</p>
               <h3 className="mt-3 whitespace-pre-line font-display text-3xl leading-[1.1] text-white">
                 {feature.title}
@@ -76,7 +81,7 @@ export function HomeMobile() {
               </Link>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="reveal grid grid-cols-2 gap-3">
               {feature.images.map((img, i) => (
                 <div
                   key={img.src}
@@ -85,7 +90,9 @@ export function HomeMobile() {
                     i === 0 ? "col-span-2 aspect-[4/3]" : "aspect-square",
                   )}
                 >
-                  <Image src={img.src} alt={img.alt} fill sizes="100vw" className="object-cover" />
+                  <div data-parallax className="absolute inset-0">
+                    <Image src={img.src} alt={img.alt} fill sizes="100vw" className="scale-[1.18] object-cover" />
+                  </div>
                 </div>
               ))}
             </div>
