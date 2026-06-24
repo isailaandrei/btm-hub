@@ -4,14 +4,6 @@
     {
       "path": "/api/cron/academy-import",
       "schedule": "15 2 * * *"
-    },
-    {
-      "path": "/api/cron/email-drain",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/email-reconcile",
-      "schedule": "*/10 * * * *"
     }
   ]
 }
