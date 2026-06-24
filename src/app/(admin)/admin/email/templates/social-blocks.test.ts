@@ -24,7 +24,7 @@ describe("socialBlockGroup", () => {
     expect(socialBlockGroup.commands[0].title).toBe("Social icons row");
   });
 
-  it("builds a right-aligned row: filler, then Instagram, YouTube, Facebook, TikTok", () => {
+  it("builds a right-aligned row: filler, then Instagram, YouTube, Facebook", () => {
     type Column = {
       attrs: { width: number };
       content: Array<{ type: string; attrs: { alt?: string; externalLink?: string } }>;
@@ -40,16 +40,15 @@ describe("socialBlockGroup", () => {
     // The first column is a wide empty filler that pushes the icons to the right.
     expect(columns[0].content[0].type).toBe("spacer");
     expect(columns[0].attrs.width).toBeGreaterThan(50);
-    // The remaining columns are the four icons, left-to-right in this order.
+    // The remaining columns are the three icons, left-to-right in this order.
     const icons = columns.slice(1).map((column) => column.content[0].attrs.alt);
-    expect(icons).toEqual(["Instagram", "YouTube", "Facebook", "TikTok"]);
+    expect(icons).toEqual(["Instagram", "YouTube", "Facebook"]);
     // Each icon links to its platform.
     const links = columns.slice(1).map((column) => column.content[0].attrs.externalLink);
     expect(links).toEqual([
       "https://instagram.com/",
       "https://youtube.com/",
       "https://facebook.com/",
-      "https://tiktok.com/",
     ]);
   });
 });

@@ -8,8 +8,8 @@ import type {
 
 /**
  * Social-icon insert block. A single "Social icons row" command drops a Columns
- * row into the footer with the four brand icons aligned to the right of the
- * email — Instagram, YouTube, Facebook, TikTok, in that order. Each icon is a
+ * row into the footer with the three brand icons aligned to the right of the
+ * email — Instagram, YouTube, Facebook, in that order. Each icon is a
  * block `image` (the only node whose link Maily lets you edit): click it and set
  * its "External Link" to your profile. Icons are the committed brand-logo PNGs in
  * public/email/social/. The icons sit on the right because the row leads with a
@@ -19,7 +19,6 @@ const ROW_PLATFORMS: { label: string; iconFile: string; baseUrl: string }[] = [
   { label: "Instagram", iconFile: "instagram.png", baseUrl: "https://instagram.com/" },
   { label: "YouTube", iconFile: "youtube.png", baseUrl: "https://youtube.com/" },
   { label: "Facebook", iconFile: "facebook.png", baseUrl: "https://facebook.com/" },
-  { label: "TikTok", iconFile: "tiktok.png", baseUrl: "https://tiktok.com/" },
 ];
 
 const ICON_DISPLAY_SIZE = 40;
@@ -61,12 +60,12 @@ function fillerColumn() {
   };
 }
 
-/** Inserts the four social icons on one line, aligned to the right of the email;
+/** Inserts the three social icons on one line, aligned to the right of the email;
  *  the admin sets each icon's link. */
 const socialRowCommand: BlockItem = {
   title: "Social icons row",
-  description: "Instagram, YouTube, Facebook & TikTok, aligned right",
-  searchTerms: ["social", "row", "icons", "footer", "line", "instagram", "youtube", "facebook", "tiktok"],
+  description: "Instagram, YouTube & Facebook, aligned right",
+  searchTerms: ["social", "row", "icons", "footer", "line", "instagram", "youtube", "facebook"],
   icon: createElement(Share2, { size: 18 }),
   command: ({ editor, range }: CommandProps) => {
     editor
