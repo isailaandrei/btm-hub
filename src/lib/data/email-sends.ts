@@ -112,6 +112,39 @@ export async function getEmailSendForWorker(
   return data as EmailSend | null;
 }
 
+export interface EmailSendWebVersion {
+  builder_json_snapshot: Record<string, unknown>;
+  preview_text: string;
+  from_name: string;
+  from_email: string;
+  reply_to_email: string;
+}
+
+/**
+ * Public lookup for the "View in browser" web version, keyed by the send's
+ * unguessable public token. Recipients have no session, so this uses the admin
+ * client — but it's scoped to the token and returns only the content needed to
+ * re-render the (non-personalized) email, never recipient PII.
+ */
+export async function getEmailSendByPublicToken(
+  token: string,
+): Promise<EmailSendWebVersion | null> {
+  if (!token.trim()) return null;
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("email_sends")
+    .select(
+      "builder_json_snapshot, preview_text, from_name, from_email, reply_to_email",
+    )
+    .eq("public_token", token)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load email web version: ${error.message}`);
+  }
+  return (data as EmailSendWebVersion | null) ?? null;
+}
+
 export const listEmailSendRecipients = cache(
   async function listEmailSendRecipients(
     sendId: string,

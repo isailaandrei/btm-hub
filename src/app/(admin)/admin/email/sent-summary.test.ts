@@ -14,6 +14,7 @@ function makeSend(overrides: Partial<EmailSend>): EmailSend {
     from_name: "BTM",
     reply_to_email: "hello@example.com",
     template_version_id: null,
+    public_token: "tok-test",
     builder_json_snapshot: {},
     html_preview_snapshot: "",
     text_preview_snapshot: "",

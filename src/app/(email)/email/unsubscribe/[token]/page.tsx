@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { AlertCircle, MailCheck, MailX } from "lucide-react";
 import { confirmNewsletterUnsubscribeAction } from "./actions";
 
@@ -22,7 +21,7 @@ export default async function NewsletterUnsubscribePage({
   const notFound = status === "not-found";
 
   return (
-    <main className="flex min-h-[70vh] items-center justify-center px-6 py-16">
+    <main className="flex min-h-screen items-center justify-center px-6 py-16">
       <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div
           className={`mx-auto mb-5 flex size-12 items-center justify-center rounded-full ${
@@ -107,22 +106,14 @@ export default async function NewsletterUnsubscribePage({
             >
               Unsubscribe
             </button>
-            <Link
-              href="/"
-              className="text-center text-sm text-muted-foreground underline-offset-4 hover:underline"
-            >
-              Never mind, keep me subscribed
-            </Link>
+            <p className="text-center text-sm text-muted-foreground">
+              Changed your mind? You can simply close this window.
+            </p>
           </form>
         ) : (
-          <div className="mt-6 flex justify-center">
-            <Link
-              href="/"
-              className="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              Back to website
-            </Link>
-          </div>
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            You can safely close this window.
+          </p>
         )}
       </div>
     </main>

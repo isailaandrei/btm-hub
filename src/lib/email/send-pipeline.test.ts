@@ -44,6 +44,7 @@ function send(overrides: Partial<EmailSend> = {}): EmailSend {
     from_name: "Behind The Mask",
     reply_to_email: "owner@example.com",
     template_version_id: null,
+    public_token: "tok-test",
     builder_json_snapshot: {
       type: "doc",
       content: [

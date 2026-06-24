@@ -388,6 +388,8 @@ export interface EmailSend {
   from_name: string;
   reply_to_email: string;
   template_version_id: string | null;
+  /** Unguessable token for the public "View in browser" web version of this send. */
+  public_token: string;
   builder_json_snapshot: Record<string, unknown>;
   html_preview_snapshot: string;
   text_preview_snapshot: string;
