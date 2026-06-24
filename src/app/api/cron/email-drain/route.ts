@@ -13,8 +13,12 @@ export const maxDuration = 60;
 // processing and the worker self-retrigger both die. Each send is processed with
 // a bounded number of chunks so one tick can cover several sends; anything still
 // remaining re-triggers the worker and/or is picked up on the next tick.
-const SENDS_PER_TICK = 5;
-const CHUNKS_PER_SEND = 4;
+// Bounded so one tick stays comfortably under the 60s function limit even with
+// full Maily rendering (3 sends x 2 chunks x 25 = 150 emails max). Overlapping
+// ticks are safe: claim_queued_email_recipients uses FOR UPDATE SKIP LOCKED, so
+// two concurrent drains never claim the same recipient.
+const SENDS_PER_TICK = 3;
+const CHUNKS_PER_SEND = 2;
 
 export async function GET(request: Request) {
   const unauthorized = authorizeCronRequest(request);

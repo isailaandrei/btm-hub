@@ -190,15 +190,19 @@ async function processRecipient(input: {
     });
     const result = await input.provider.sendEmail({
       recipientId: input.recipient.id,
-      // Scope the provider idempotency key per attempt so an intentional retry
-      // of a failed recipient isn't deduplicated as a "duplicate" of the
-      // original send. A recipient is only re-claimed when its prior attempt
-      // never delivered, so a fresh key can't cause a double delivery. Hashed +
-      // truncated to 36 chars because Brevo caps the idempotency key length.
-      idempotencyKey: createHash("sha256")
-        .update(`${input.recipient.id}:${input.recipient.send_attempts}`)
-        .digest("hex")
-        .slice(0, 36),
+      // Use the per-dispatch idempotency key assigned by
+      // claim_queued_email_recipients: it is STABLE across a stalled re-claim and
+      // regenerated only on an intentional retry of a failed recipient. So a
+      // re-send of a recipient that stalled AFTER Brevo already accepted it reuses
+      // the SAME key and Brevo dedupes it — no double delivery — while a genuine
+      // retry gets a fresh key and actually re-sends. Fallback to the legacy
+      // per-attempt hash only for rows claimed before this column existed.
+      idempotencyKey:
+        input.recipient.idempotency_key ??
+        createHash("sha256")
+          .update(`${input.recipient.id}:${input.recipient.send_attempts}`)
+          .digest("hex")
+          .slice(0, 36),
       sendId: input.send.id,
       contactId: input.recipient.contact_id,
       to: providerRecipientEmail,
