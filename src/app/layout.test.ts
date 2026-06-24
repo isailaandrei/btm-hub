@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => ({
   Inter: () => ({ variable: "font-sans" }),
+  Zilla_Slab: () => ({ variable: "font-display" }),
 }));
 
 vi.mock("@/components/ui/sonner", () => ({
