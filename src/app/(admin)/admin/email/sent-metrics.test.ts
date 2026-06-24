@@ -27,6 +27,7 @@ function send(overrides: Partial<EmailSend> = {}): EmailSend {
     sent_count: 10,
     delivered_count: 9,
     opened_count: 5,
+    proxy_opened_count: 0,
     clicked_count: 3,
     bounced_count: 1,
     complained_count: 1,
@@ -72,6 +73,32 @@ describe("buildEmailSendMetrics", () => {
     expect(metrics.some((metric) => metric.label === "Bounced")).toBe(false);
     expect(metrics.some((metric) => metric.label === "Not received")).toBe(false);
     expect(metrics.some((metric) => metric.label === "Complaints")).toBe(false);
+  });
+
+  it("adds a 'Maybe opened' chip after Opened only when there are proxy-only opens", () => {
+    const metrics = buildEmailSendMetrics(send({ proxy_opened_count: 7 }));
+
+    const labels = metrics.map((metric) => metric.label);
+    expect(labels).toEqual([
+      "Sent",
+      "Delivered",
+      "Opened",
+      "Maybe opened",
+      "Button clicked",
+      "Failed",
+      "Deferred",
+      "Skipped",
+      "Unsubscribed",
+    ]);
+    const proxy = metrics.find((metric) => metric.label === "Maybe opened");
+    expect(proxy?.value).toBe("+7");
+    // Optimistic upper bound = certain opens (5) + proxy-only opens (7).
+    expect(proxy?.hint).toContain("12");
+  });
+
+  it("omits the proxy chip when there are no proxy-only opens", () => {
+    const metrics = buildEmailSendMetrics(send({ proxy_opened_count: 0 }));
+    expect(metrics.some((metric) => metric.label === "Maybe opened")).toBe(false);
   });
 
   it("defaults missing newer counters to zero for older local rows", () => {

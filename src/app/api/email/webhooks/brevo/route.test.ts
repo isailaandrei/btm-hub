@@ -8,6 +8,8 @@ const mockSuppressEmailFromProvider = vi.fn();
 const mockSuppressUnsubscribedEmail = vi.fn();
 const mockUpdateEmailSendCounts = vi.fn();
 const mockUpdateRecipientForProviderEvent = vi.fn();
+const mockUpdateRecipientForProxyOpen = vi.fn();
+const mockUpdateRecipientForProxyOpenByRecipient = vi.fn();
 const mockUpdateEmailSentContactEventDeliveryStatus = vi.fn();
 const mockCreateBrevoEmailProvider = vi.fn();
 const mockGetBrevoWebhookToken = vi.fn();
@@ -23,6 +25,9 @@ vi.mock("@/lib/data/email-sends", () => ({
   updateRecipientForProviderEvent: mockUpdateRecipientForProviderEvent,
   updateRecipientForProviderEventByRecipient:
     mockUpdateRecipientForProviderEventByRecipient,
+  updateRecipientForProxyOpen: mockUpdateRecipientForProxyOpen,
+  updateRecipientForProxyOpenByRecipient:
+    mockUpdateRecipientForProxyOpenByRecipient,
 }));
 
 vi.mock("@/lib/data/contact-events", () => ({
@@ -49,6 +54,8 @@ describe("Brevo webhook route", () => {
     mockSuppressUnsubscribedEmail.mockReset();
     mockUpdateEmailSendCounts.mockReset();
     mockUpdateRecipientForProviderEvent.mockReset();
+    mockUpdateRecipientForProxyOpen.mockReset();
+    mockUpdateRecipientForProxyOpenByRecipient.mockReset();
     mockUpdateEmailSentContactEventDeliveryStatus.mockReset();
     mockCreateBrevoEmailProvider.mockReset();
     mockGetBrevoWebhookToken.mockReset().mockReturnValue("secret");
@@ -378,6 +385,114 @@ describe("Brevo webhook route", () => {
     });
     expect(mockAppendEmailEvent).toHaveBeenCalledWith(
       expect.objectContaining({ recipientId: "recipient-2" }),
+    );
+  });
+
+  it("routes a proxy open to the proxy-only path (no status change, distinct event)", async () => {
+    mockCreateBrevoEmailProvider.mockReturnValue({
+      parseWebhook: () => [
+        {
+          type: "proxy_opened",
+          provider: "brevo",
+          providerEventId: "brevo-proxy-1",
+          providerMessageId: "message-1",
+          occurredAt: "2026-05-01T00:01:00.000Z",
+          rawEvent: "proxy_open",
+          payload: { event: "proxy_open" },
+        },
+      ],
+    });
+    mockUpdateRecipientForProxyOpen.mockResolvedValue({
+      id: "recipient-1",
+      send_id: "send-1",
+      contact_id: "contact-1",
+      email: "maya@example.com",
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://localhost/api/email/webhooks/brevo", {
+        method: "POST",
+        headers: { "x-brevo-webhook-token": "secret" },
+        body: JSON.stringify({ event: "proxy_open" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    // Proxy opens take the dedicated proxy path, never the status-mapping one.
+    expect(mockUpdateRecipientForProxyOpen).toHaveBeenCalledWith({
+      provider: "brevo",
+      providerMessageId: "message-1",
+      occurredAt: "2026-05-01T00:01:00.000Z",
+    });
+    expect(mockUpdateRecipientForProviderEvent).not.toHaveBeenCalled();
+    // Persisted as its own immutable event type, not folded into "opened".
+    expect(mockAppendEmailEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "proxy_opened",
+        recipientId: "recipient-1",
+      }),
+    );
+    // A proxy fetch still confirms the message was delivered.
+    expect(mockUpdateEmailSentContactEventDeliveryStatus).toHaveBeenCalledWith({
+      recipientId: "recipient-1",
+      deliveryStatus: "delivered",
+      occurredAt: "2026-05-01T00:01:00.000Z",
+    });
+  });
+
+  it("applies a proxy open by signed recipient metadata (race-proof path), not by message id", async () => {
+    mockCreateBrevoEmailProvider.mockReturnValue({
+      parseWebhook: () => [
+        {
+          type: "proxy_opened",
+          provider: "brevo",
+          providerEventId: "brevo-proxy-2",
+          providerMessageId: "message-1",
+          occurredAt: "2026-05-01T00:01:00.000Z",
+          rawEvent: "unique_proxy_open",
+          payload: {
+            event: "unique_proxy_open",
+            "X-Mailin-custom": JSON.stringify({
+              sendId: "send-1",
+              recipientId: "recipient-1",
+              contactId: "contact-1",
+            }),
+          },
+        },
+      ],
+    });
+    mockUpdateRecipientForProxyOpenByRecipient.mockResolvedValue({
+      id: "recipient-1",
+      send_id: "send-1",
+      contact_id: "contact-1",
+      email: "maya@example.com",
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://localhost/api/email/webhooks/brevo", {
+        method: "POST",
+        headers: { "x-brevo-webhook-token": "secret" },
+        body: JSON.stringify({ event: "unique_proxy_open" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    // Deterministic by-recipient path — lands even if provider_message_id isn't persisted yet.
+    expect(mockUpdateRecipientForProxyOpenByRecipient).toHaveBeenCalledWith({
+      recipientId: "recipient-1",
+      provider: "brevo",
+      providerMessageId: "message-1",
+      occurredAt: "2026-05-01T00:01:00.000Z",
+    });
+    // Must NOT also take the msgid fallback, and must NOT touch the status-mapping RPCs.
+    expect(mockUpdateRecipientForProxyOpen).not.toHaveBeenCalled();
+    expect(
+      mockUpdateRecipientForProviderEventByRecipient,
+    ).not.toHaveBeenCalled();
+    expect(mockAppendEmailEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "proxy_opened", recipientId: "recipient-1" }),
     );
   });
 

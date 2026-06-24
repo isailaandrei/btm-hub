@@ -1,0 +1,13 @@
+-- Add the 'proxy_opened' email event type, in its OWN migration.
+--
+-- Postgres forbids using a freshly-added enum value in the same transaction that
+-- added it (ALTER TYPE ... ADD VALUE). Keeping this alone — and ahead of the
+-- migration that references it at runtime — guarantees the value is committed
+-- before any function or insert uses it.
+--
+-- Context: Brevo's "loaded by proxy" event (webhook `proxy_open` /
+-- `unique_proxy_open`, reported as `loadedByProxy`) fires when a privacy proxy —
+-- chiefly Apple Mail Privacy Protection — pre-fetches the tracking pixel. It is
+-- NOT a confirmed human open, so we record it as a distinct event rather than
+-- folding it into `opened`.
+ALTER TYPE email_event_type ADD VALUE IF NOT EXISTS 'proxy_opened';

@@ -9,6 +9,8 @@ import {
   updateEmailSendCounts,
   updateRecipientForProviderEvent,
   updateRecipientForProviderEventByRecipient,
+  updateRecipientForProxyOpen,
+  updateRecipientForProxyOpenByRecipient,
 } from "@/lib/data/email-sends";
 import { updateEmailSentContactEventDeliveryStatus } from "@/lib/data/contact-events";
 import { createBrevoEmailProvider } from "@/lib/email/provider/brevo";
@@ -80,8 +82,11 @@ function deliveryStatusForEvent(event: NormalizedProviderEvent) {
   if (
     event.type === "delivered" ||
     event.type === "opened" ||
+    event.type === "proxy_opened" ||
     event.type === "clicked"
   ) {
+    // A proxy pixel fetch implies the message reached the recipient's mail
+    // system, so it still confirms delivery (even though it isn't a human open).
     return "delivered" as const;
   }
   if (event.type === "bounced") return "not_delivered" as const;
@@ -105,6 +110,9 @@ async function applyEvent(event: NormalizedProviderEvent) {
   } as const;
   const mapped =
     event.type in mapping ? mapping[event.type as keyof typeof mapping] : null;
+  // Proxy opens have no recipient status — they set proxy_opened_at only — so
+  // they take a dedicated path rather than the status-mapping one.
+  const isProxyOpen = event.type === "proxy_opened";
 
   let recipient: EmailSendRecipient | null = null;
 
@@ -113,7 +121,14 @@ async function applyEvent(event: NormalizedProviderEvent) {
   // even if the send-path hasn't persisted the provider_message_id yet (a fast
   // Gmail delivery can beat our own write) — and the RPC backfills that id so
   // later msgid-only events still match.
-  if (metadata.recipientId && mapped) {
+  if (metadata.recipientId && isProxyOpen) {
+    recipient = await updateRecipientForProxyOpenByRecipient({
+      recipientId: metadata.recipientId,
+      provider: event.provider,
+      providerMessageId: event.providerMessageId,
+      occurredAt: event.occurredAt,
+    });
+  } else if (metadata.recipientId && mapped) {
     recipient = await updateRecipientForProviderEventByRecipient({
       recipientId: metadata.recipientId,
       provider: event.provider,
@@ -126,18 +141,26 @@ async function applyEvent(event: NormalizedProviderEvent) {
 
   // 2) Fallback: match by provider message id (events without our metadata).
   if (!recipient && event.providerMessageId) {
-    recipient = mapped
-      ? await updateRecipientForProviderEvent({
-          provider: event.provider,
-          providerMessageId: event.providerMessageId,
-          status: mapped[0],
-          timestampField: mapped[1],
-          occurredAt: event.occurredAt,
-        })
-      : await getEmailRecipientByProviderMessage({
-          provider: event.provider,
-          providerMessageId: event.providerMessageId,
-        });
+    if (isProxyOpen) {
+      recipient = await updateRecipientForProxyOpen({
+        provider: event.provider,
+        providerMessageId: event.providerMessageId,
+        occurredAt: event.occurredAt,
+      });
+    } else if (mapped) {
+      recipient = await updateRecipientForProviderEvent({
+        provider: event.provider,
+        providerMessageId: event.providerMessageId,
+        status: mapped[0],
+        timestampField: mapped[1],
+        occurredAt: event.occurredAt,
+      });
+    } else {
+      recipient = await getEmailRecipientByProviderMessage({
+        provider: event.provider,
+        providerMessageId: event.providerMessageId,
+      });
+    }
   }
 
   await appendEmailEvent({

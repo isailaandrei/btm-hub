@@ -1080,6 +1080,7 @@ export type EmailSendDiagnostics = {
     sentAt: string | null;
     deliveredAt: string | null;
     openedAt: string | null;
+    proxyOpenedAt: string | null;
     clickedAt: string | null;
     deferredAt: string | null;
     bouncedAt: string | null;
@@ -1179,6 +1180,7 @@ export async function getEmailSendDiagnosticsAction(
         sentAt: recipient.sent_at,
         deliveredAt: recipient.delivered_at,
         openedAt: recipient.opened_at,
+        proxyOpenedAt: recipient.proxy_opened_at,
         clickedAt: recipient.clicked_at,
         deferredAt: recipient.deferred_at,
         bouncedAt: recipient.bounced_at,

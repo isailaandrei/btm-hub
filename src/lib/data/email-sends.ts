@@ -607,6 +607,57 @@ export async function updateRecipientForProviderEventByRecipient(input: {
   return recipientRowOrNull(data);
 }
 
+/**
+ * Record a "loaded by proxy" open (Apple Mail Privacy Protection et al.), matched
+ * by provider_message_id. Sets proxy_opened_at only — never a status or opened_at
+ * — so a privacy-proxy pre-fetch is never mistaken for a confirmed human open.
+ */
+export async function updateRecipientForProxyOpen(input: {
+  provider: string;
+  providerMessageId: string;
+  occurredAt: string;
+}): Promise<EmailSendRecipient | null> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc("apply_email_proxy_open", {
+    p_provider: input.provider,
+    p_provider_message_id: input.providerMessageId,
+    p_occurred_at: input.occurredAt,
+  });
+
+  if (error) {
+    throw new Error(`Failed to apply proxy open: ${error.message}`);
+  }
+  return recipientRowOrNull(data);
+}
+
+/**
+ * Race-proof proxy-open variant matched by our own recipient id (from the
+ * webhook's X-Mailin-custom metadata). Lands even if the send-path hasn't
+ * persisted the provider_message_id yet, and backfills it.
+ */
+export async function updateRecipientForProxyOpenByRecipient(input: {
+  recipientId: string;
+  provider: string;
+  providerMessageId: string | null;
+  occurredAt: string;
+}): Promise<EmailSendRecipient | null> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc(
+    "apply_email_proxy_open_by_recipient",
+    {
+      p_recipient_id: input.recipientId,
+      p_provider: input.provider,
+      p_provider_message_id: input.providerMessageId,
+      p_occurred_at: input.occurredAt,
+    },
+  );
+
+  if (error) {
+    throw new Error(`Failed to apply proxy open by recipient: ${error.message}`);
+  }
+  return recipientRowOrNull(data);
+}
+
 export async function getEmailRecipientByProviderMessage(input: {
   provider: string;
   providerMessageId: string;

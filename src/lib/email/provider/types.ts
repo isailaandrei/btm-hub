@@ -32,6 +32,9 @@ export type NormalizedProviderEventType =
   | "delivered"
   | "delivery_delayed"
   | "opened"
+  /** Tracking pixel fetched by a privacy proxy (e.g. Apple Mail Privacy
+   * Protection) — NOT a confirmed human open. Tracked separately from `opened`. */
+  | "proxy_opened"
   | "clicked"
   | "bounced"
   | "complained"

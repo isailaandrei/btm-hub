@@ -48,6 +48,12 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
     case "opened":
     case "unique_opened":
       return "opened";
+    case "proxy_open":
+    case "unique_proxy_open":
+      // "Loaded by proxy" — a privacy proxy (chiefly Apple Mail Privacy
+      // Protection) pre-fetched the tracking pixel. Not a confirmed human open;
+      // tracked separately so it never inflates the real open count.
+      return "proxy_opened";
     case "click":
       return "clicked";
     case "hard_bounce":
@@ -61,6 +67,12 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
     case "unsubscribed":
       return "unsubscribed";
     default:
+      // Defensive catch-all for proxy opens. The exact webhook payload string is
+      // only observable in production; the two cases above are the documented
+      // literals, but no legitimate Brevo event name other than a proxy open
+      // contains "proxy", so this prevents a silent regression to "dropped" if
+      // the literal ever differs from what we expect.
+      if (event.includes("proxy")) return "proxy_opened";
       return null;
   }
 }
@@ -152,7 +164,15 @@ export function createBrevoEmailProvider(
         const rawEvent = readString(eventPayload.event);
         if (!rawEvent) return [];
         const type = mapBrevoEvent(rawEvent);
-        if (!type) return [];
+        if (!type) {
+          // Fail loud, never swallow: surface unmapped Brevo events instead of
+          // silently discarding them, so a new/renamed event type is noticed
+          // (this is how proxy opens went unnoticed) rather than vanishing.
+          console.warn(
+            `[brevo-webhook] Unmapped Brevo event "${rawEvent}" — dropped (no metric updated)`,
+          );
+          return [];
+        }
         const providerMessageId = normalizeBrevoMessageId(
           eventPayload["message-id"],
         );

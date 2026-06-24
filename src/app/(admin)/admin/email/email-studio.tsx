@@ -99,6 +99,7 @@ function buildRecipientActivity(
     ["Sent", recipient.sentAt],
     ["Delivered", recipient.deliveredAt],
     ["Opened", recipient.openedAt],
+    ["Proxy open", recipient.proxyOpenedAt],
     ["Button clicked", recipient.clickedAt],
     ["Deferred", recipient.deferredAt],
     ["Failed", recipient.bouncedAt],
@@ -446,6 +447,7 @@ function EmailStudioContent({
                         {metrics.map((metric) => (
                           <span
                             key={metric.key}
+                            title={metric.hint}
                             className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${metricToneClass(
                               metric.tone,
                             )}`}

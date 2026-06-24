@@ -27,6 +27,7 @@ function makeSend(overrides: Partial<EmailSend>): EmailSend {
     sent_count: 0,
     delivered_count: 0,
     opened_count: 0,
+    proxy_opened_count: 0,
     clicked_count: 0,
     bounced_count: 0,
     complained_count: 0,

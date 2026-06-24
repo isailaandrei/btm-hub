@@ -253,6 +253,7 @@ export type EmailEventType =
   | "delivered"
   | "delivery_delayed"
   | "opened"
+  | "proxy_opened"
   | "clicked"
   | "bounced"
   | "complained"
@@ -402,6 +403,12 @@ export interface EmailSend {
   sent_count: number;
   delivered_count: number;
   opened_count: number;
+  /**
+   * Recipients whose only open signal is a privacy-proxy fetch (Apple Mail
+   * Privacy Protection et al.) — counted only where there is no confirmed open,
+   * so opened_count .. opened_count + proxy_opened_count is the honest range.
+   */
+  proxy_opened_count: number;
   clicked_count: number;
   bounced_count: number;
   complained_count: number;
@@ -429,6 +436,7 @@ export interface EmailSendRecipient {
   provider: string | null;
   provider_message_id: string | null;
   provider_metadata: Record<string, unknown>;
+  idempotency_key: string | null;
   send_attempts: number;
   last_error: string | null;
   queued_at: string | null;
@@ -436,6 +444,9 @@ export interface EmailSendRecipient {
   sent_at: string | null;
   delivered_at: string | null;
   opened_at: string | null;
+  /** Tracking pixel fetched by a privacy proxy (Apple MPP etc.) — not a
+   * confirmed human open. */
+  proxy_opened_at: string | null;
   clicked_at: string | null;
   deferred_at: string | null;
   bounced_at: string | null;
