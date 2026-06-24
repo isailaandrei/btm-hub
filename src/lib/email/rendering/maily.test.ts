@@ -653,6 +653,110 @@ describe("Outlook-compatible rendering", () => {
   });
 });
 
+describe("Outlook long-email splitting (cell-height ceiling)", () => {
+  // Every break is wrapped in an MSO conditional comment, so two clients see two
+  // different documents from the SAME html: Outlook reads the [if mso] content,
+  // everyone else treats it as an inert comment.
+  const stripMso = (html: string) =>
+    html.replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->/gi, "");
+  const activateMso = (html: string) =>
+    html
+      .replace(/<!--\[if !mso\]><!-->[\s\S]*?<!--<!\[endif\]-->/gi, "")
+      .replace(/<!--\[if mso\]>/gi, "")
+      .replace(/<!\[endif\]-->/gi, "");
+  const count = (s: string, re: RegExp) => (s.match(re) || []).length;
+  const balanced = (s: string) =>
+    ["table", "tbody", "tr", "td"].every(
+      (t) =>
+        count(s, new RegExp(`<${t}\\b`, "gi")) ===
+        count(s, new RegExp(`</${t}>`, "gi")),
+    );
+
+  const program = (n: number) => [
+    {
+      type: "heading",
+      attrs: { level: 2, textAlign: "left" },
+      content: [{ type: "text", text: `Program ${n}` }],
+    },
+    {
+      type: "image",
+      attrs: {
+        src: "https://example.com/p.jpg",
+        width: 600,
+        height: 400,
+        alignment: "center",
+      },
+    },
+    {
+      type: "paragraph",
+      attrs: { textAlign: "left" },
+      content: [{ type: "text", text: "Conservation filmmaking. ".repeat(4) }],
+    },
+    { type: "horizontalRule" },
+  ];
+  const tallDocument = {
+    type: "doc",
+    maxWidth: 640,
+    content: [
+      {
+        type: "section",
+        attrs: { fullwidth: "true", paddingTop: 16, paddingBottom: 16 },
+        content: Array.from({ length: 6 }, (_, i) => program(i + 1)).flat(),
+      },
+    ],
+  };
+  const shortDocument = {
+    type: "doc",
+    maxWidth: 640,
+    content: [
+      {
+        type: "paragraph",
+        attrs: { textAlign: "left" },
+        content: [{ type: "text", text: "A quick note." }],
+      },
+    ],
+  };
+
+  it("splits a tall email into multiple width-pinned tables for Outlook", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(tallDocument));
+    // Several ghost-pinned segments (one outer wrap would be a single occurrence).
+    const ghostOpens = count(html, /width="640"><tr>/g);
+    expect(ghostOpens).toBeGreaterThan(1);
+  });
+
+  it("keeps both the Outlook and non-Outlook projections well-formed", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(tallDocument));
+    expect(balanced(activateMso(html))).toBe(true);
+    expect(balanced(stripMso(html))).toBe(true);
+  });
+
+  it("leaves the non-Outlook view as a single, unsplit container", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(tallDocument));
+    const nonOutlook = stripMso(html);
+    // No leaked break tags: exactly one max-width container survives, and no MSO
+    // comment markers remain for clients that ignore conditional comments.
+    expect(count(nonOutlook, /max-width:640px/g)).toBe(1);
+    expect(nonOutlook).not.toContain("[if mso]");
+  });
+
+  it("does not split a short email (only the single width ghost wrap)", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(shortDocument));
+    expect(count(html, /width="640"><tr>/g)).toBe(1);
+  });
+
+  it("tightens seams: moves bottom padding to a trailing spacer when split", async () => {
+    const tall = await renderMailyDocument(assertMailyDocument(tallDocument));
+    const short = await renderMailyDocument(assertMailyDocument(shortDocument));
+    // Split email: a seam spacer is added (relocated bottom padding) and is
+    // present in BOTH projections (it's real markup, not Outlook-only) — so the
+    // non-Outlook bottom spacing is preserved while the first seam goes flush.
+    expect(count(tall.html, /data-seam="1"/g)).toBeGreaterThan(0);
+    expect(stripMso(tall.html)).toContain('data-seam="1"');
+    // Short (unsplit) email is untouched — no seam surgery.
+    expect(count(short.html, /data-seam="1"/g)).toBe(0);
+  });
+});
+
 describe("keepSocialRowInline", () => {
   // Mimics @maily-to/render's columns output: a `tab-row-full` table whose
   // `tab-col-full` cells wrap content in `tab-pad` tables. The mobile media query

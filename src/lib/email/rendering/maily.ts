@@ -760,41 +760,505 @@ function findMatchingTableCloseEnd(html: string, openIdx: number): number {
 }
 
 /**
- * Outlook on Windows (the Word rendering engine) ignores `max-width`, so the
- * `max-width:Npx` container expands to the full width of the reading pane —
- * blowing out the layout and running text edge-to-edge. Wrap the container in an
- * MSO-only "ghost table" pinned to the email width: Outlook honors the table's
- * fixed `width`, and every other client ignores the conditional comment. This is
- * width-only and Outlook-only — no rendering change anywhere else.
+ * Outlook (Windows, the Word engine) clips the content of any single table cell
+ * taller than ~1790px (23.7"), rendering the overflow as blank space — content
+ * silently gone, no "show more". @maily-to/render nests the WHOLE email in one
+ * container cell, so a long newsletter is cut off in Outlook (only — every other
+ * client renders the full height). It also ignores `max-width`, so the container
+ * blows out to the reading-pane width.
+ *
+ * The constants below drive the two Outlook-only fixes (`wrapAndSplitContainerForOutlook`):
+ *  - the ghost table pins the container width, and
+ *  - the container cell is split into a stack of sub-`SEGMENT` tables so no single
+ *    cell ever reaches the `CELL` ceiling.
  */
-function wrapContainerForOutlook(html: string, width: number): string {
-  const markerIdx = html.indexOf(`max-width:${width}px`);
-  if (markerIdx === -1) return html;
-  const openIdx = html.lastIndexOf("<table", markerIdx);
-  if (openIdx === -1) return html;
-  const closeIdx = findMatchingTableCloseEnd(html, openIdx);
-  if (closeIdx === -1) return html;
+const OUTLOOK_MAX_CELL_PX = 1790; // Word's hard per-cell height ceiling
+const OUTLOOK_MAX_SEGMENT_PX = 1400; // target per-segment height (margin under the ceiling)
 
-  const ghostOpen =
-    `<!--[if mso]><table role="presentation" align="center" border="0" ` +
-    `cellpadding="0" cellspacing="0" width="${width}"><tr>` +
-    `<td width="${width}" style="width:${width}px"><![endif]-->`;
-  const ghostClose = "<!--[if mso]></td></tr></table><![endif]-->";
+/** Close tags for one @maily-to/render cell (`<table><tbody><tr><td>…`). */
+const OUTLOOK_CELL_CLOSE = "</td></tr></tbody></table>";
 
+/** The MSO ghost-table wrapper (no <tbody>, matching the long-standing markup the
+ *  width fix shipped with). Opens immediately before the real container. */
+function outlookGhostOpen(width: number): string {
   return (
-    html.slice(0, openIdx) +
-    ghostOpen +
-    html.slice(openIdx, closeIdx) +
-    ghostClose +
-    html.slice(closeIdx)
+    `<table role="presentation" align="center" border="0" ` +
+    `cellpadding="0" cellspacing="0" width="${width}"><tr>` +
+    `<td width="${width}" style="width:${width}px">`
+  );
+}
+const OUTLOOK_GHOST_CLOSE = "</td></tr></table>";
+
+/** Zero a cell's vertical padding in a captured open-tag string, so a *reopened*
+ *  segment doesn't repeat the container/section top+bottom padding at every seam
+ *  (the inter-block spacing lives on block margins, which are preserved). */
+function zeroVerticalPadding(openTags: string): string {
+  return openTags
+    .replace(/padding-top:\s*\d+px/gi, "padding-top:0")
+    .replace(/padding-bottom:\s*\d+px/gi, "padding-bottom:0");
+}
+
+/**
+ * Estimate a rendered block's height in px. Rough by design and biased to
+ * OVER-estimate: a high guess only splits more eagerly (extra, harmless seams in
+ * Outlook), while a low guess risks leaving a segment over the cell ceiling.
+ * Images render with `height:auto`, so their height is unknown — we assume up to a
+ * 3:2 portrait of the display width.
+ */
+function estimateBlockHeightPx(blockHtml: string, maxWidth: number): number {
+  // Hidden wrappers (the preview-text node) occupy no visible height.
+  if (/display:\s*none|max-height:\s*0(px)?\b/i.test(blockHtml)) return 0;
+  let height = 0;
+  const imgRe = /<img\b[^>]*>/gi;
+  let img: RegExpExecArray | null;
+  while ((img = imgRe.exec(blockHtml))) {
+    const w =
+      Number(img[0].match(/width:\s*(\d+)px/i)?.[1]) ||
+      Number(img[0].match(/\bwidth="(\d+)"/i)?.[1]) ||
+      maxWidth;
+    height += Math.min(w, maxWidth) * 1.5;
+  }
+  // Explicit heights (spacers, card-split bands) — img heights are `auto`, so this
+  // never double-counts them.
+  const explicit = [...blockHtml.matchAll(/height:\s*(\d+)px/gi)].map((m) =>
+    Number(m[1]),
+  );
+  if (explicit.length) height += Math.max(...explicit);
+  // Text: a rough line count at the column width.
+  const text = blockHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (text) {
+    const isHeading = /<h[1-6]\b/i.test(blockHtml);
+    const perLine = Math.max(16, Math.floor(maxWidth / (isHeading ? 16 : 8)));
+    height += Math.ceil(text.length / perLine) * (isHeading ? 42 : 28);
+  }
+  return Math.max(height + 24, 36); // every block occupies some space
+}
+
+/** Parse a table's first cell: the open-tag prefix (`<table…><tbody><tr><td…>`),
+ *  the inner content range, and whether it's a single column (vs a `columns` row,
+ *  which must not be split). Returns null if no parseable first cell. */
+function parseFirstCell(
+  html: string,
+  tableStart: number,
+  tableEnd: number,
+): {
+  openTags: string;
+  innerStart: number;
+  innerEnd: number;
+  singleColumn: boolean;
+} | null {
+  const tdOpen = html.indexOf("<td", tableStart);
+  if (tdOpen === -1 || tdOpen >= tableEnd) return null;
+  const tdGt = html.indexOf(">", tdOpen);
+  if (tdGt === -1 || tdGt >= tableEnd) return null;
+  const innerStart = tdGt + 1;
+  const re = /<td\b|<\/td>/gi;
+  re.lastIndex = innerStart;
+  let depth = 1;
+  let innerEnd = -1;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) && m.index < tableEnd) {
+    if (m[0][1] === "/") {
+      depth -= 1;
+      if (depth === 0) {
+        innerEnd = m.index;
+        break;
+      }
+    } else depth += 1;
+  }
+  if (innerEnd === -1) return null;
+  // Single column ⇔ the next significant tag after this cell closes is </tr>
+  // (a `columns` row has a sibling <td> instead).
+  const singleColumn = /^\s*<\/tr/i.test(html.slice(innerEnd + 5, tableEnd));
+  return {
+    openTags: html.slice(tableStart, innerStart),
+    innerStart,
+    innerEnd,
+    singleColumn,
+  };
+}
+
+/** HTML void elements (no closing tag) — a block-level child is "done" the moment
+ *  its tag closes. @maily-to/render emits images/rules self-closed, but match the
+ *  bare forms too for resilience. */
+const VOID_ELEMENTS = /^(img|hr|br|input|source|area|base|col|embed|wbr)$/i;
+
+/** Index just past the `</tag>` that closes the `<tag …>` opened at `from-1`,
+ *  accounting for same-tag nesting; -1 if unbalanced or past `limit`. */
+function findMatchingElementClose(
+  html: string,
+  tag: string,
+  from: number,
+  limit: number,
+): number {
+  const re = new RegExp(`<${tag}\\b|</${tag}>`, "gi");
+  re.lastIndex = from;
+  let depth = 1;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) && m.index < limit) {
+    if (m[0][1] === "/") {
+      depth -= 1;
+      if (depth === 0) return m.index + m[0].length;
+    } else depth += 1;
+  }
+  return -1;
+}
+
+/** The tag name of the element starting at `start` (`"table"`, `"h2"`, `"img"`…),
+ *  or null if `start` isn't an element open. */
+function childTagName(html: string, start: number): string | null {
+  return /^<([a-zA-Z][a-zA-Z0-9]*)\b/.exec(html.slice(start, start + 24))?.[1] ?? null;
+}
+
+/** Enumerate the top-level child ELEMENTS of a cell (skipping whitespace, text,
+ *  and comments). Section cells hold raw block elements (`<h2>`, `<p>`, `<img>`,
+ *  `<hr>`, `<a>`) — not just tables — so the walker is element-generic. */
+function enumerateCellChildren(
+  html: string,
+  start: number,
+  end: number,
+): { start: number; end: number }[] {
+  const children: { start: number; end: number }[] = [];
+  let pos = start;
+  while (pos < end) {
+    while (pos < end && /\s/.test(html[pos])) pos += 1;
+    if (pos >= end) break;
+    if (html.startsWith("<!--", pos)) {
+      const close = html.indexOf("-->", pos);
+      pos = close === -1 ? end : close + 3;
+      continue;
+    }
+    if (html[pos] !== "<") {
+      const next = html.indexOf("<", pos);
+      pos = next === -1 || next >= end ? end : next;
+      continue;
+    }
+    const tag = childTagName(html, pos);
+    if (!tag) break;
+    const gt = html.indexOf(">", pos);
+    if (gt === -1 || gt >= end) break;
+    const selfClosed = html[gt - 1] === "/" || VOID_ELEMENTS.test(tag);
+    const childEnd = selfClosed
+      ? gt + 1
+      : findMatchingElementClose(html, tag, gt + 1, end);
+    if (childEnd === -1) break;
+    children.push({ start: pos, end: childEnd });
+    pos = childEnd;
+  }
+  return children;
+}
+
+/** One open table/ghost level in the nesting chain: how to close it (innermost
+ *  first) and reopen it (outermost first) when splitting at a break. */
+interface OutlookFrame {
+  open: string;
+  close: string;
+}
+
+interface OutlookBreakState {
+  cum: number;
+  insertions: { pos: number; text: string }[];
+}
+
+function cellFrame(openTags: string): OutlookFrame {
+  return { open: zeroVerticalPadding(openTags), close: OUTLOOK_CELL_CLOSE };
+}
+function ghostFrame(width: number): OutlookFrame {
+  return { open: outlookGhostOpen(width), close: OUTLOOK_GHOST_CLOSE };
+}
+
+/**
+ * Walk the block elements inside a cell and record, in `state.insertions`, the
+ * positions where an MSO-conditional break should be spliced in to keep each
+ * Outlook segment under `OUTLOOK_MAX_SEGMENT_PX`. `stack` is the chain of
+ * currently-open levels (body cell → width ghost → container cell → section cell →
+ * …); a break closes them all (innermost first) and reopens them (outermost
+ * first), so Outlook sees a fresh short stack of tables at every level — no single
+ * cell reaches the ceiling. Oversized single-column sections (and the container
+ * itself, which also gets the width ghost) are descended into so their children
+ * break too. `state.cum` (running height) is global across the descent, so a
+ * section's first chunk shares the budget with whatever preceded it.
+ */
+function planOutlookBreaks(
+  html: string,
+  innerStart: number,
+  innerEnd: number,
+  stack: OutlookFrame[],
+  width: number,
+  state: OutlookBreakState,
+): void {
+  const buildBreak = () =>
+    `<!--[if mso]>${stack
+      .slice()
+      .reverse()
+      .map((f) => f.close)
+      .join("")}${stack.map((f) => f.open).join("")}<![endif]-->`;
+
+  for (const child of enumerateCellChildren(html, innerStart, innerEnd)) {
+    const childHeight = estimateBlockHeightPx(
+      html.slice(child.start, child.end),
+      width,
+    );
+
+    // A child worth descending into is itself a single-column section/wrapper
+    // table holding multiple blocks (so its cell can be split too). The container
+    // (the max-width table) additionally carries the width ghost.
+    let descendCell: ReturnType<typeof parseFirstCell> = null;
+    let descendFrames: OutlookFrame[] = [];
+    if (childTagName(html, child.start) === "table") {
+      const cell = parseFirstCell(html, child.start, child.end);
+      // Descend into any single-column wrapper/section with content (container →
+      // section → …). Short leaf tables (buttons, columns, image wrappers) are
+      // already excluded by the `childHeight > SEGMENT` guard below; a lone tall
+      // child (e.g. a single big section) must still be drilled into to reach its
+      // own splittable children — so one child is enough.
+      if (
+        cell &&
+        cell.singleColumn &&
+        enumerateCellChildren(html, cell.innerStart, cell.innerEnd).length >= 1
+      ) {
+        descendCell = cell;
+        const isContainer = html
+          .slice(child.start, cell.innerStart)
+          .includes(`max-width:${width}px`);
+        descendFrames = isContainer
+          ? [ghostFrame(width), cellFrame(cell.openTags)]
+          : [cellFrame(cell.openTags)];
+      }
+    }
+
+    if (descendCell && childHeight > OUTLOOK_MAX_SEGMENT_PX) {
+      // Descend rather than break before it: the carried `cum` is handled by the
+      // first break *inside* the child, so no redundant pre-break here.
+      stack.push(...descendFrames);
+      planOutlookBreaks(
+        html,
+        descendCell.innerStart,
+        descendCell.innerEnd,
+        stack,
+        width,
+        state,
+      );
+      stack.length -= descendFrames.length;
+    } else {
+      // Break before this block when the running segment would overflow (never on
+      // an empty segment — that would emit a useless empty table).
+      if (state.cum > 0 && state.cum + childHeight > OUTLOOK_MAX_SEGMENT_PX) {
+        state.insertions.push({ pos: child.start, text: buildBreak() });
+        state.cum = 0;
+      }
+      if (childHeight > OUTLOOK_MAX_CELL_PX) {
+        // Disclosed degradation: a single indivisible block past the ceiling will
+        // still clip in Outlook (nothing can split one image/paragraph).
+        console.warn(
+          `[email] A single block (~${Math.round(childHeight)}px) exceeds ` +
+            `Outlook's ${OUTLOOK_MAX_CELL_PX}px cell limit and may be clipped in Outlook.`,
+        );
+      }
+      state.cum += childHeight;
+    }
+  }
+}
+
+interface SplitLocation {
+  containerStart: number;
+  containerEnd: number;
+  rootStart: number;
+  rootEnd: number;
+  rootCell: NonNullable<ReturnType<typeof parseFirstCell>>;
+  rootIsContainer: boolean;
+}
+
+/** Locate the container (the max-width table) and the split root — the outermost
+ *  table wrapping it (the body background table), or the container itself if none
+ *  is found. Re-run after any edit, since indices shift. */
+function locateSplitRoot(html: string, width: number): SplitLocation | null {
+  const markerIdx = html.indexOf(`max-width:${width}px`);
+  if (markerIdx === -1) return null;
+  const containerStart = html.lastIndexOf("<table", markerIdx);
+  if (containerStart === -1) return null;
+  const containerEnd = findMatchingTableCloseEnd(html, containerStart);
+  if (containerEnd === -1) return null;
+
+  let rootStart = containerStart;
+  let rootEnd = containerEnd;
+  const bodyIdx = html.indexOf("<body");
+  if (bodyIdx !== -1) {
+    const bodyTableStart = html.indexOf("<table", bodyIdx);
+    if (bodyTableStart !== -1 && bodyTableStart < containerStart) {
+      const bodyTableEnd = findMatchingTableCloseEnd(html, bodyTableStart);
+      if (bodyTableEnd >= containerEnd) {
+        rootStart = bodyTableStart;
+        rootEnd = bodyTableEnd;
+      }
+    }
+  }
+  const rootCell = parseFirstCell(html, rootStart, rootEnd);
+  if (!rootCell) return null;
+  return {
+    containerStart,
+    containerEnd,
+    rootStart,
+    rootEnd,
+    rootCell,
+    rootIsContainer: rootStart === containerStart,
+  };
+}
+
+// When the root IS the container (fallback), the width ghost belongs in the
+// initial stack; otherwise the container's ghost is pushed during descent.
+function buildInitialStack(loc: SplitLocation, width: number): OutlookFrame[] {
+  return loc.rootIsContainer
+    ? [ghostFrame(width), cellFrame(loc.rootCell.openTags)]
+    : [cellFrame(loc.rootCell.openTags)];
+}
+
+/** A transparent, full-width vertical spacer (inherits the parent background).
+ *  `data-seam` marks it as the relocated bottom padding. */
+function seamSpacer(height: number): string {
+  return (
+    `<table role="presentation" data-seam="1" width="100%" border="0" ` +
+    `cellpadding="0" cellspacing="0"><tbody><tr><td height="${height}" ` +
+    `style="height:${height}px;line-height:${height}px;font-size:1px;` +
+    `mso-line-height-rule:exactly">&#8202;</td></tr></tbody></table>`
   );
 }
 
+const zeroPaddingBottom = (s: string) =>
+  s.replace(/padding-bottom:\s*\d+px/gi, "padding-bottom:0");
+
+/**
+ * Tighten the seams that splitting would otherwise create. Without this, the
+ * first segment reuses the container's and body's real open tags, so their
+ * bottom padding (32px white + 32px gray) lands at the FIRST cut instead of the
+ * email's bottom — a visible gray band in Outlook. We move that bottom padding
+ * into a trailing spacer at the true bottom of each cell: padding-bottom→0 (so
+ * the first seam is flush, like every other) and an equal-height spacer as the
+ * cell's last child (so the email's bottom spacing is preserved for every
+ * client). Real-markup change, but visually identical everywhere — only applied
+ * when a split actually happens. Top padding is untouched (it's the email top).
+ */
+function neutralizeSeamPadding(html: string, width: number): string {
+  const loc = locateSplitRoot(html, width);
+  if (!loc) return html;
+  const containerCell = parseFirstCell(html, loc.containerStart, loc.containerEnd);
+  if (!containerCell) return html;
+  const bodyCell = loc.rootIsContainer ? null : loc.rootCell;
+
+  const cpb = Number(
+    containerCell.openTags.match(/padding-bottom:\s*(\d+)px/i)?.[1] ?? 0,
+  );
+  const bpb = bodyCell
+    ? Number(bodyCell.openTags.match(/padding-bottom:\s*(\d+)px/i)?.[1] ?? 0)
+    : 0;
+
+  // Disjoint edits, applied right-to-left so smaller indices stay valid.
+  const edits: { start: number; end: number; text: string }[] = [];
+  if (bodyCell && bpb > 0)
+    edits.push({ start: bodyCell.innerEnd, end: bodyCell.innerEnd, text: seamSpacer(bpb) });
+  if (cpb > 0)
+    edits.push({
+      start: containerCell.innerEnd,
+      end: containerCell.innerEnd,
+      text: seamSpacer(cpb),
+    });
+  if (cpb > 0)
+    edits.push({
+      start: loc.containerStart,
+      end: containerCell.innerStart,
+      text: zeroPaddingBottom(html.slice(loc.containerStart, containerCell.innerStart)),
+    });
+  if (bodyCell && bpb > 0)
+    edits.push({
+      start: loc.rootStart,
+      end: bodyCell.innerStart,
+      text: zeroPaddingBottom(html.slice(loc.rootStart, bodyCell.innerStart)),
+    });
+
+  edits.sort((a, b) => b.start - a.start);
+  let out = html;
+  for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  return out;
+}
+
+/**
+ * Apply both Outlook (Word-engine) container fixes by splicing MSO-conditional
+ * comments into the rendered HTML — invisible to every other client, which see
+ * the original markup untouched (zero regression):
+ *  1. wrap the container in a width-pinned ghost table (fixes `max-width` blowout);
+ *  2. split into a stack of tables each under the cell-height ceiling (fixes the
+ *     long-email clip).
+ *
+ * The split is rooted at the OUTERMOST table that wraps the container (the body
+ * background table): its single cell wraps the whole email too, so Outlook would
+ * clip there regardless of the inner container split. The walk descends body cell
+ * → container cell → section cell, breaking wherever the running height would
+ * exceed the segment target. When a split is needed, seams are first tightened so
+ * the result reads as one continuous card (see `neutralizeSeamPadding`).
+ */
+function wrapAndSplitContainerForOutlook(html: string, width: number): string {
+  let loc = locateSplitRoot(html, width);
+  if (!loc) return html;
+
+  // Probe: will this email actually be split? Short emails keep the original
+  // markup entirely (only the outer width ghost is added below).
+  const probe: OutlookBreakState = { cum: 0, insertions: [] };
+  planOutlookBreaks(
+    html,
+    loc.rootCell.innerStart,
+    loc.rootCell.innerEnd,
+    buildInitialStack(loc, width),
+    width,
+    probe,
+  );
+
+  if (probe.insertions.length > 0) {
+    html = neutralizeSeamPadding(html, width);
+    loc = locateSplitRoot(html, width);
+    if (!loc) return html;
+  }
+
+  const state: OutlookBreakState = { cum: 0, insertions: [] };
+  planOutlookBreaks(
+    html,
+    loc.rootCell.innerStart,
+    loc.rootCell.innerEnd,
+    buildInitialStack(loc, width),
+    width,
+    state,
+  );
+
+  const insertions = [
+    {
+      pos: loc.containerStart,
+      text: `<!--[if mso]>${outlookGhostOpen(width)}<![endif]-->`,
+    },
+    ...state.insertions,
+    {
+      pos: loc.containerEnd,
+      text: `<!--[if mso]>${OUTLOOK_GHOST_CLOSE}<![endif]-->`,
+    },
+  ].sort((a, b) => a.pos - b.pos);
+
+  let out = "";
+  let last = 0;
+  for (const ins of insertions) {
+    out += html.slice(last, ins.pos) + ins.text;
+    last = ins.pos;
+  }
+  return out + html.slice(last);
+}
+
 /** Apply the Outlook-compatibility fixes to a rendered HTML string: strip the
- *  transparent zero-width borders Word renders black, then pin the container
- *  width with an MSO ghost table. */
+ *  transparent zero-width borders Word renders black, keep the social row inline,
+ *  then pin + split the container so long emails aren't clipped at Outlook's
+ *  cell-height ceiling. `keepSocialRowInline` runs first so it operates on clean
+ *  markup, before the split injects MSO comments containing table tags. */
 function applyOutlookFixes(html: string, width: number): string {
-  return wrapContainerForOutlook(stripZeroWidthBorders(html), width);
+  return wrapAndSplitContainerForOutlook(
+    keepSocialRowInline(stripZeroWidthBorders(html)),
+    width,
+  );
 }
 
 /** Public path the brand social icons are served from (the admin app and public
@@ -886,7 +1350,7 @@ export async function renderMailyDocument(
     renderer.render({ plainText: true }),
   ]);
   return {
-    html: injectBaseEmailCss(keepSocialRowInline(applyOutlookFixes(rawHtml, width))),
+    html: injectBaseEmailCss(applyOutlookFixes(rawHtml, width)),
     text,
   };
 }
