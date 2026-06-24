@@ -15,8 +15,10 @@ import type { EmailSend, EmailSendRecipient } from "@/types/database";
 import type { EmailProvider, ProviderSendEmailResult } from "./provider/types";
 import {
   assertMailyDocument,
+  getMailyDocumentWidth,
   renderMailyEmail,
 } from "./rendering/maily";
+import { injectWebviewLink } from "./rendering/webview-link";
 import { type EmailRenderVariables } from "./rendering/variables";
 import { getEmailTestRecipientOverride, getPublicSiteUrl } from "./settings";
 
@@ -137,9 +139,20 @@ async function renderRecipient(input: {
       input.unsubscribeUrl,
     ),
   });
+  // "View in browser" escape hatch shown to every client, for when an email
+  // renders poorly (most useful in Outlook, which clips long emails). Post-render
+  // in the pipeline, so the renderer is untouched and the web version itself is
+  // never given the link.
+  const html = input.send.public_token
+    ? injectWebviewLink(
+        rendered.html,
+        `${getPublicSiteUrl()}/email/view/${input.send.public_token}`,
+        getMailyDocumentWidth(document),
+      )
+    : rendered.html;
   return {
     subject: rendered.subject,
-    html: rendered.html,
+    html,
     text: rendered.text,
   };
 }
