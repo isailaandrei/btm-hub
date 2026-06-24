@@ -797,6 +797,50 @@ function applyOutlookFixes(html: string, width: number): string {
   return wrapContainerForOutlook(stripZeroWidthBorders(html), width);
 }
 
+/** Public path the brand social icons are served from (the admin app and public
+ *  site share an origin, so this segment is stable in dev and prod). Used to
+ *  recognize a social-icon row in the rendered HTML. */
+const SOCIAL_ICON_PATH = "/email/social/";
+
+/**
+ * Keep a social-icon row on one line on mobile. @maily-to/render makes every
+ * `columns` block stack on phones via
+ * `@media (max-width:425px){.tab-col-full{display:block!important;width:100%!important}}`
+ * — right for content columns, but it turns a row of social icons into a
+ * vertical stack. For any columns table that holds the social icons (images
+ * served from SOCIAL_ICON_PATH), strip the responsive `tab-*` classes so it opts
+ * out of stacking and stays inline (the icons just shrink to fit). Content
+ * columns elsewhere keep stacking.
+ */
+export function keepSocialRowInline(html: string): string {
+  const marker = 'class="tab-row-full"';
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const classIdx = html.indexOf(marker, from);
+    if (classIdx === -1) {
+      out += html.slice(from);
+      break;
+    }
+    const openIdx = html.lastIndexOf("<table", classIdx);
+    const closeIdx =
+      openIdx === -1 ? -1 : findMatchingTableCloseEnd(html, openIdx);
+    if (openIdx === -1 || closeIdx === -1) {
+      // Couldn't bound this table — leave it untouched and step past the marker.
+      out += html.slice(from, classIdx + marker.length);
+      from = classIdx + marker.length;
+      continue;
+    }
+    out += html.slice(from, openIdx);
+    const table = html.slice(openIdx, closeIdx);
+    out += table.includes(SOCIAL_ICON_PATH)
+      ? table.replace(/\s*class="(?:tab-row-full|tab-col-full|tab-pad)"/g, "")
+      : table;
+    from = closeIdx;
+  }
+  return out;
+}
+
 export async function renderMailyDocument(
   document: MailyDocument,
   input: {
@@ -841,7 +885,10 @@ export async function renderMailyDocument(
     renderer.render({ pretty: true }),
     renderer.render({ plainText: true }),
   ]);
-  return { html: injectBaseEmailCss(applyOutlookFixes(rawHtml, width)), text };
+  return {
+    html: injectBaseEmailCss(keepSocialRowInline(applyOutlookFixes(rawHtml, width))),
+    text,
+  };
 }
 
 export async function renderMailyEmail(input: {

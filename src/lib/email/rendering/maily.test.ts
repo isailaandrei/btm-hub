@@ -25,6 +25,7 @@ import {
   isCardGapSection,
   normalizeCardGapBands,
   supabaseImageTransformUrl,
+  keepSocialRowInline,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -649,5 +650,43 @@ describe("Outlook-compatible rendering", () => {
       "https://btm-hub.vercel.app/email/social/instagram.png",
     );
     expect(html).not.toContain("render/image/public/email/social");
+  });
+});
+
+describe("keepSocialRowInline", () => {
+  // Mimics @maily-to/render's columns output: a `tab-row-full` table whose
+  // `tab-col-full` cells wrap content in `tab-pad` tables. The mobile media query
+  // turns tab-col-full into display:block (stacking).
+  const colsTable = (inner: string) =>
+    `<table class="tab-row-full" style="width:98%"><tbody><tr>` +
+    `<td class="tab-col-full"><table class="tab-pad"><tbody><tr><td>${inner}</td></tr></tbody></table></td>` +
+    `<td class="tab-col-full"><table class="tab-pad"><tbody><tr><td>x</td></tr></tbody></table></td>` +
+    `</tr></tbody></table>`;
+  const socialTable = colsTable(
+    '<img src="https://btm-hub.vercel.app/email/social/instagram.png" />',
+  );
+  const contentTable = colsTable("<p>Left</p>");
+
+  it("strips the stacking classes from a social-icon row so it stays inline", () => {
+    const out = keepSocialRowInline(socialTable);
+    expect(out).toContain("/email/social/instagram.png"); // icon preserved
+    expect(out).not.toContain("tab-col-full");
+    expect(out).not.toContain("tab-row-full");
+    expect(out).not.toContain("tab-pad");
+  });
+
+  it("leaves content columns (no social icons) stacking on mobile", () => {
+    const out = keepSocialRowInline(contentTable);
+    expect(out).toBe(contentTable); // untouched
+    expect(out).toContain("tab-col-full");
+  });
+
+  it("only neutralizes the social row when both are present", () => {
+    const out = keepSocialRowInline(`<div>${contentTable}${socialTable}</div>`);
+    // The content row keeps its classes; the social row loses them.
+    expect((out.match(/tab-row-full/g) || []).length).toBe(1);
+    expect((out.match(/tab-col-full/g) || []).length).toBe(2);
+    expect(out).toContain("Left");
+    expect(out).toContain("/email/social/instagram.png");
   });
 });
