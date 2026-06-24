@@ -99,7 +99,11 @@ function buildRecipientActivity(
     ["Sent", recipient.sentAt],
     ["Delivered", recipient.deliveredAt],
     ["Opened", recipient.openedAt],
-    ["Proxy open", recipient.proxyOpenedAt],
+    // "Maybe opened": a privacy-proxy fetch (Apple Mail Privacy Protection etc.)
+    // with NO confirmed open — the per-recipient mirror of the send-level "Maybe
+    // opened" count. Suppressed once there's a confirmed open (incl. a click
+    // backfill), since the recipient is then a real open, not a "maybe".
+    ["Maybe opened", recipient.openedAt ? null : recipient.proxyOpenedAt],
     ["Button clicked", recipient.clickedAt],
     ["Deferred", recipient.deferredAt],
     ["Failed", recipient.bouncedAt],
