@@ -177,6 +177,15 @@ async function processRecipient(input: {
     });
     const result = await input.provider.sendEmail({
       recipientId: input.recipient.id,
+      // Scope the provider idempotency key per attempt so an intentional retry
+      // of a failed recipient isn't deduplicated as a "duplicate" of the
+      // original send. A recipient is only re-claimed when its prior attempt
+      // never delivered, so a fresh key can't cause a double delivery. Hashed +
+      // truncated to 36 chars because Brevo caps the idempotency key length.
+      idempotencyKey: createHash("sha256")
+        .update(`${input.recipient.id}:${input.recipient.send_attempts}`)
+        .digest("hex")
+        .slice(0, 36),
       sendId: input.send.id,
       contactId: input.recipient.contact_id,
       to: providerRecipientEmail,

@@ -115,7 +115,7 @@ export function createBrevoEmailProvider(
           htmlContent: input.html,
           textContent: input.text,
           headers: {
-            idempotencyKey: input.recipientId,
+            idempotencyKey: input.idempotencyKey ?? input.recipientId,
             "X-Mailin-custom": JSON.stringify(input.metadata),
             ...input.headers,
           },

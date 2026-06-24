@@ -41,6 +41,36 @@ describe("createBrevoEmailProvider", () => {
     expect(result.providerMessageId).toBe("message-1@relay.example.com");
   });
 
+  it("uses a caller-provided idempotency key (per-attempt) over the recipient id", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ messageId: "<message-2@relay.example.com>" }),
+    });
+
+    const provider = createBrevoEmailProvider("brevo-key");
+    await provider.sendEmail({
+      recipientId: "550e8400-e29b-41d4-a716-446655440040",
+      idempotencyKey: "550e8400-e29b-41d4-a716-446655440040:2",
+      sendId: "send-1",
+      contactId: "contact-1",
+      to: "test@example.com",
+      fromEmail: "owner@example.com",
+      fromName: "Behind The Mask",
+      replyTo: "owner@example.com",
+      subject: "Hello",
+      html: "<p>Hello</p>",
+      text: "Hello",
+      metadata: { sendId: "send-1" },
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      headers: Record<string, unknown>;
+    };
+    expect(body.headers.idempotencyKey).toBe(
+      "550e8400-e29b-41d4-a716-446655440040:2",
+    );
+  });
+
   it("maps Brevo failure events to deferred (transient), failed, or bounced states", () => {
     const provider = createBrevoEmailProvider("brevo-key");
 

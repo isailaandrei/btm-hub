@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmailProvider, ProviderSendEmailInput } from "./provider/types";
 import type { EmailSend, EmailSendRecipient } from "@/types/database";
@@ -176,6 +177,14 @@ describe("processEmailSendChunks", () => {
     expect(sentInputs[0]?.to).toBe("maya@example.com");
     expect(sentInputs[0]?.subject).toBe("Hello Maya");
     expect(sentInputs[0]?.html).toContain("Maya");
+    // Idempotency key is scoped per attempt (hashed to fit Brevo's 36-char
+    // cap) so a retry isn't deduplicated as a duplicate of the original send.
+    const expectedKey = createHash("sha256")
+      .update("recipient-1:1")
+      .digest("hex")
+      .slice(0, 36);
+    expect(sentInputs[0]?.idempotencyKey).toBe(expectedKey);
+    expect(sentInputs[0]?.idempotencyKey?.length).toBeLessThanOrEqual(36);
     expect(mockMarkEmailRecipientSent).toHaveBeenCalledWith(
       "recipient-1",
       expect.objectContaining({
