@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAppendEmailEvent = vi.fn();
-const mockAttachProviderMessageToRecipient = vi.fn();
+const mockUpdateRecipientForProviderEventByRecipient = vi.fn();
 const mockGetEmailRecipientByProviderMessage = vi.fn();
 const mockRecordProviderNewsletterUnsubscribe = vi.fn();
 const mockSuppressEmailFromProvider = vi.fn();
@@ -15,13 +15,14 @@ const mockIsProductionEmailEnvironment = vi.fn();
 
 vi.mock("@/lib/data/email-sends", () => ({
   appendEmailEvent: mockAppendEmailEvent,
-  attachProviderMessageToRecipient: mockAttachProviderMessageToRecipient,
   getEmailRecipientByProviderMessage: mockGetEmailRecipientByProviderMessage,
   recordProviderNewsletterUnsubscribe: mockRecordProviderNewsletterUnsubscribe,
   suppressEmailFromProvider: mockSuppressEmailFromProvider,
   suppressUnsubscribedEmail: mockSuppressUnsubscribedEmail,
   updateEmailSendCounts: mockUpdateEmailSendCounts,
   updateRecipientForProviderEvent: mockUpdateRecipientForProviderEvent,
+  updateRecipientForProviderEventByRecipient:
+    mockUpdateRecipientForProviderEventByRecipient,
 }));
 
 vi.mock("@/lib/data/contact-events", () => ({
@@ -41,7 +42,7 @@ vi.mock("@/lib/email/settings", () => ({
 describe("Brevo webhook route", () => {
   beforeEach(() => {
     mockAppendEmailEvent.mockReset();
-    mockAttachProviderMessageToRecipient.mockReset();
+    mockUpdateRecipientForProviderEventByRecipient.mockReset();
     mockGetEmailRecipientByProviderMessage.mockReset();
     mockRecordProviderNewsletterUnsubscribe.mockReset();
     mockSuppressEmailFromProvider.mockReset();
@@ -273,7 +274,7 @@ describe("Brevo webhook route", () => {
     expect(mockUpdateEmailSentContactEventDeliveryStatus).not.toHaveBeenCalled();
   });
 
-  it("reconciles webhook events by signed metadata when provider message is not stored yet", async () => {
+  it("applies webhook events by signed recipient metadata, independent of the provider message id (race-proof)", async () => {
     mockCreateBrevoEmailProvider.mockReturnValue({
       parseWebhook: () => [
         {
@@ -294,15 +295,9 @@ describe("Brevo webhook route", () => {
         },
       ],
     });
-    mockUpdateRecipientForProviderEvent
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: "recipient-1",
-        send_id: "send-1",
-        contact_id: "contact-1",
-        email: "maya@example.com",
-      });
-    mockAttachProviderMessageToRecipient.mockResolvedValue({
+    // The send-path has NOT stored the provider_message_id yet (the fast-delivery
+    // race). The handler must still land the event via the recipient id.
+    mockUpdateRecipientForProviderEventByRecipient.mockResolvedValue({
       id: "recipient-1",
       send_id: "send-1",
       contact_id: "contact-1",
@@ -319,18 +314,70 @@ describe("Brevo webhook route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockAttachProviderMessageToRecipient).toHaveBeenCalledWith({
+    // Applied deterministically by recipient id from the metadata.
+    expect(
+      mockUpdateRecipientForProviderEventByRecipient,
+    ).toHaveBeenCalledWith({
+      recipientId: "recipient-1",
       provider: "brevo",
       providerMessageId: "message-1",
-      recipientId: "recipient-1",
-      sendId: "send-1",
-      contactId: "contact-1",
+      status: "delivered",
+      timestampField: "delivered_at",
+      occurredAt: "2026-05-01T00:00:00.000Z",
     });
+    // The fragile msgid match is not needed once metadata resolves the recipient.
+    expect(mockUpdateRecipientForProviderEvent).not.toHaveBeenCalled();
     expect(mockAppendEmailEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         sendId: "send-1",
         recipientId: "recipient-1",
       }),
+    );
+  });
+
+  it("falls back to provider-message-id matching for events without our metadata", async () => {
+    mockCreateBrevoEmailProvider.mockReturnValue({
+      parseWebhook: () => [
+        {
+          type: "delivered",
+          provider: "brevo",
+          providerEventId: "brevo-event-2",
+          providerMessageId: "message-2",
+          occurredAt: "2026-05-01T00:00:00.000Z",
+          rawEvent: "delivered",
+          payload: { event: "delivered" },
+        },
+      ],
+    });
+    mockUpdateRecipientForProviderEvent.mockResolvedValue({
+      id: "recipient-2",
+      send_id: "send-2",
+      contact_id: "contact-2",
+      email: "sam@example.com",
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://localhost/api/email/webhooks/brevo", {
+        method: "POST",
+        headers: { "x-brevo-webhook-token": "secret" },
+        body: JSON.stringify({ event: "delivered" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      mockUpdateRecipientForProviderEventByRecipient,
+    ).not.toHaveBeenCalled();
+    expect(mockUpdateRecipientForProviderEvent).toHaveBeenCalledWith({
+      provider: "brevo",
+      providerMessageId: "message-2",
+      status: "delivered",
+      timestampField: "delivered_at",
+      occurredAt: "2026-05-01T00:00:00.000Z",
+    });
+    expect(mockAppendEmailEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientId: "recipient-2" }),
     );
   });
 

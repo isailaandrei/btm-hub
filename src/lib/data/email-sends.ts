@@ -299,49 +299,24 @@ export async function markEmailRecipientSent(
   },
 ): Promise<void> {
   const supabase = await createAdminClient();
-  const providerMetadata = await readRecipientProviderMetadata(recipientId);
-  const { error } = await supabase
-    .from("email_send_recipients")
-    .update({
-      status: "sent",
-      provider: input.provider,
-      provider_message_id: input.providerMessageId,
-      provider_metadata: {
-        ...providerMetadata,
-        ...input.providerMetadata,
-      },
-      rendered_subject: input.renderedSubject,
-      rendered_html: input.renderedHtml,
-      rendered_text: input.renderedText,
-      unsubscribe_token_hash: input.unsubscribeTokenHash,
-      sent_at: new Date().toISOString(),
-      last_error: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", recipientId);
+  // Goes through an RPC (not a plain update) so the status only advances
+  // pending/queued/sending -> sent. If a delivery webhook already won the race
+  // and advanced this recipient (delivered/opened/clicked/bounced/...), that
+  // status is preserved rather than clobbered back to 'sent'. The RPC also merges
+  // provider_metadata server-side, so no read-modify-write is needed here.
+  const { error } = await supabase.rpc("mark_email_recipient_sent", {
+    p_recipient_id: recipientId,
+    p_provider: input.provider,
+    p_provider_message_id: input.providerMessageId,
+    p_provider_metadata: input.providerMetadata,
+    p_rendered_subject: input.renderedSubject,
+    p_rendered_html: input.renderedHtml,
+    p_rendered_text: input.renderedText,
+    p_unsubscribe_token_hash: input.unsubscribeTokenHash,
+    p_last_error: null,
+  });
 
   if (error) throw new Error(`Failed to mark email recipient sent: ${error.message}`);
-}
-
-async function readRecipientProviderMetadata(
-  recipientId: string,
-): Promise<Record<string, unknown>> {
-  const supabase = await createAdminClient();
-  const { data, error } = await supabase
-    .from("email_send_recipients")
-    .select("provider_metadata")
-    .eq("id", recipientId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to load email recipient metadata: ${error.message}`);
-  }
-
-  const metadata = (data as { provider_metadata?: unknown } | null)
-    ?.provider_metadata;
-  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? (metadata as Record<string, unknown>)
-    : {};
 }
 
 export async function markEmailRecipientPrepared(
@@ -405,22 +380,20 @@ export async function markEmailRecipientReconciliationNeeded(
   },
 ): Promise<void> {
   const supabase = await createAdminClient();
-  const providerMetadata = await readRecipientProviderMetadata(recipientId);
-  const { error } = await supabase
-    .from("email_send_recipients")
-    .update({
-      status: "sent",
-      provider: input.provider,
-      provider_message_id: input.providerMessageId,
-      provider_metadata: {
-        ...providerMetadata,
-        ...input.providerMetadata,
-      },
-      sent_at: new Date().toISOString(),
-      last_error: input.message,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", recipientId);
+  // Same no-downgrade "sent" writer; records the post-acceptance error in
+  // last_error. Provider accepted the email, so the recipient must not look
+  // failed — but if a webhook already advanced it, we keep that.
+  const { error } = await supabase.rpc("mark_email_recipient_sent", {
+    p_recipient_id: recipientId,
+    p_provider: input.provider,
+    p_provider_message_id: input.providerMessageId,
+    p_provider_metadata: input.providerMetadata,
+    p_rendered_subject: null,
+    p_rendered_html: null,
+    p_rendered_text: null,
+    p_unsubscribe_token_hash: null,
+    p_last_error: input.message,
+  });
 
   if (error) {
     throw new Error(
@@ -551,6 +524,16 @@ export async function requeueFailedEmailRecipients(
   return typeof data === "number" ? data : 0;
 }
 
+function recipientRowOrNull(data: unknown): EmailSendRecipient | null {
+  // The apply_email_provider_event* RPCs RETURN a composite row; when the UPDATE
+  // matched nothing, plpgsql yields a row with all-NULL fields (a *truthy* object),
+  // NOT SQL NULL. Collapse that to null so callers' "no recipient" branches work.
+  if (data && typeof data === "object" && (data as { id?: unknown }).id) {
+    return data as EmailSendRecipient;
+  }
+  return null;
+}
+
 export async function updateRecipientForProviderEvent(input: {
   provider: string;
   providerMessageId: string;
@@ -577,7 +560,51 @@ export async function updateRecipientForProviderEvent(input: {
   if (error) {
     throw new Error(`Failed to update email recipient event: ${error.message}`);
   }
-  return data as EmailSendRecipient | null;
+  return recipientRowOrNull(data);
+}
+
+/**
+ * Apply a provider event matched by our own recipient id (from the webhook's
+ * X-Mailin-custom metadata) instead of by provider_message_id. This is
+ * race-proof: a fast delivery/engagement webhook lands on the right recipient
+ * even if the send-path hasn't persisted the provider_message_id yet, and the
+ * RPC backfills that id so later msgid-based events still match. Returns null if
+ * no recipient with that id exists.
+ */
+export async function updateRecipientForProviderEventByRecipient(input: {
+  recipientId: string;
+  provider: string;
+  providerMessageId: string | null;
+  status: EmailSendRecipient["status"];
+  timestampField:
+    | "delivered_at"
+    | "opened_at"
+    | "clicked_at"
+    | "deferred_at"
+    | "bounced_at"
+    | "complained_at"
+    | "unsubscribed_at";
+  occurredAt: string;
+}): Promise<EmailSendRecipient | null> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc(
+    "apply_email_provider_event_by_recipient",
+    {
+      p_recipient_id: input.recipientId,
+      p_provider: input.provider,
+      p_provider_message_id: input.providerMessageId,
+      p_status: input.status,
+      p_timestamp_field: input.timestampField,
+      p_occurred_at: input.occurredAt,
+    },
+  );
+
+  if (error) {
+    throw new Error(
+      `Failed to apply email recipient event by recipient: ${error.message}`,
+    );
+  }
+  return recipientRowOrNull(data);
 }
 
 export async function getEmailRecipientByProviderMessage(input: {
@@ -617,6 +644,52 @@ export async function getEmailSendQueueState(sendId: string): Promise<{
     queued: statuses.filter((row) => row.status === "queued").length,
     sending: statuses.filter((row) => row.status === "sending").length,
   };
+}
+
+/**
+ * Backstop: re-link provider events that landed without a recipient
+ * (recipient_id IS NULL) using our X-Mailin-custom metadata, re-apply them, and
+ * refresh affected send counts. Returns how many events were reconciled. Run
+ * from the reconcile cron; safe to run repeatedly.
+ */
+export async function reconcileOrphanEmailEvents(limit = 500): Promise<number> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc("reconcile_orphan_email_events", {
+    p_limit: limit,
+  });
+  if (error) {
+    throw new Error(`Failed to reconcile orphan email events: ${error.message}`);
+  }
+  return typeof data === "number" ? data : 0;
+}
+
+/**
+ * Send ids still in flight that have recipients which never went out
+ * (pending/queued) or are stalled mid-send. The drain cron processes each so a
+ * killed serverless invocation can never leave a send permanently unfinished.
+ */
+export async function getEmailSendsNeedingProcessing(
+  limit = 25,
+): Promise<string[]> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc("email_sends_needing_processing", {
+    p_limit: limit,
+  });
+  if (error) {
+    throw new Error(
+      `Failed to load email sends needing processing: ${error.message}`,
+    );
+  }
+  if (!Array.isArray(data)) return [];
+  // RETURNS SETOF uuid → PostgREST may yield bare strings or { <fn name>: uuid }.
+  return (data as Array<unknown>)
+    .map((row) =>
+      typeof row === "string"
+        ? row
+        : ((row as Record<string, string>)?.email_sends_needing_processing ??
+          null),
+    )
+    .filter((id): id is string => typeof id === "string");
 }
 
 export async function suppressEmailFromProvider(input: {

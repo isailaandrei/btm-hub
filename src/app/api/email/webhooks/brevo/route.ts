@@ -2,17 +2,18 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   appendEmailEvent,
-  attachProviderMessageToRecipient,
   getEmailRecipientByProviderMessage,
   recordProviderNewsletterUnsubscribe,
   suppressEmailFromProvider,
   suppressUnsubscribedEmail,
   updateEmailSendCounts,
   updateRecipientForProviderEvent,
+  updateRecipientForProviderEventByRecipient,
 } from "@/lib/data/email-sends";
 import { updateEmailSentContactEventDeliveryStatus } from "@/lib/data/contact-events";
 import { createBrevoEmailProvider } from "@/lib/email/provider/brevo";
 import type { NormalizedProviderEvent } from "@/lib/email/provider/types";
+import type { EmailSendRecipient } from "@/types/database";
 import {
   getBrevoWebhookToken,
   isProductionEmailEnvironment,
@@ -90,21 +91,7 @@ function deliveryStatusForEvent(event: NormalizedProviderEvent) {
 
 async function applyEvent(event: NormalizedProviderEvent) {
   const eventType = event.type === "bounced" ? "bounced" : event.type;
-  if (!event.providerMessageId) {
-    await appendEmailEvent({
-      sendId: null,
-      recipientId: null,
-      contactId: null,
-      type: eventType,
-      provider: event.provider,
-      providerEventId: event.providerEventId,
-      providerMessageId: event.providerMessageId,
-      eventFingerprint: fingerprint(event),
-      occurredAt: event.occurredAt,
-      payload: event.payload,
-    });
-    return;
-  }
+  const metadata = readWebhookMetadata(event.payload);
 
   const mapping = {
     delivered: ["delivered", "delivered_at"],
@@ -116,45 +103,41 @@ async function applyEvent(event: NormalizedProviderEvent) {
     complained: ["complained", "complained_at"],
     unsubscribed: ["unsubscribed", "unsubscribed_at"],
   } as const;
-
   const mapped =
     event.type in mapping ? mapping[event.type as keyof typeof mapping] : null;
-  let recipient = mapped
-    ? await updateRecipientForProviderEvent({
-        provider: event.provider,
-        providerMessageId: event.providerMessageId,
-        status: mapped[0],
-        timestampField: mapped[1],
-        occurredAt: event.occurredAt,
-      })
-    : await getEmailRecipientByProviderMessage({
-        provider: event.provider,
-        providerMessageId: event.providerMessageId,
-      });
 
+  let recipient: EmailSendRecipient | null = null;
+
+  // 1) Deterministic path: when our X-Mailin-custom metadata carries the
+  // recipientId, apply the event by recipient id. This is race-proof — it lands
+  // even if the send-path hasn't persisted the provider_message_id yet (a fast
+  // Gmail delivery can beat our own write) — and the RPC backfills that id so
+  // later msgid-only events still match.
+  if (metadata.recipientId && mapped) {
+    recipient = await updateRecipientForProviderEventByRecipient({
+      recipientId: metadata.recipientId,
+      provider: event.provider,
+      providerMessageId: event.providerMessageId,
+      status: mapped[0],
+      timestampField: mapped[1],
+      occurredAt: event.occurredAt,
+    });
+  }
+
+  // 2) Fallback: match by provider message id (events without our metadata).
   if (!recipient && event.providerMessageId) {
-    const metadata = readWebhookMetadata(event.payload);
-    if (metadata.recipientId) {
-      await attachProviderMessageToRecipient({
-        provider: event.provider,
-        providerMessageId: event.providerMessageId,
-        recipientId: metadata.recipientId,
-        sendId: metadata.sendId,
-        contactId: metadata.contactId,
-      });
-      recipient = mapped
-        ? await updateRecipientForProviderEvent({
-            provider: event.provider,
-            providerMessageId: event.providerMessageId,
-            status: mapped[0],
-            timestampField: mapped[1],
-            occurredAt: event.occurredAt,
-          })
-        : await getEmailRecipientByProviderMessage({
-            provider: event.provider,
-            providerMessageId: event.providerMessageId,
-          });
-    }
+    recipient = mapped
+      ? await updateRecipientForProviderEvent({
+          provider: event.provider,
+          providerMessageId: event.providerMessageId,
+          status: mapped[0],
+          timestampField: mapped[1],
+          occurredAt: event.occurredAt,
+        })
+      : await getEmailRecipientByProviderMessage({
+          provider: event.provider,
+          providerMessageId: event.providerMessageId,
+        });
   }
 
   await appendEmailEvent({
