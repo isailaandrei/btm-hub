@@ -237,6 +237,7 @@ export type EmailRecipientStatus =
   | "sent"
   | "delivered"
   | "clicked"
+  | "deferred"
   | "bounced"
   | "complained"
   | "failed"
@@ -403,6 +404,7 @@ export interface EmailSend {
   bounced_count: number;
   complained_count: number;
   failed_count: number;
+  deferred_count: number;
   unsubscribed_count: number;
   metadata: Record<string, unknown>;
   created_at: string;
@@ -433,6 +435,7 @@ export interface EmailSendRecipient {
   delivered_at: string | null;
   opened_at: string | null;
   clicked_at: string | null;
+  deferred_at: string | null;
   bounced_at: string | null;
   complained_at: string | null;
   unsubscribed_at: string | null;

@@ -30,6 +30,7 @@ function makeSend(overrides: Partial<EmailSend>): EmailSend {
     bounced_count: 0,
     complained_count: 0,
     failed_count: 0,
+    deferred_count: 0,
     unsubscribed_count: 0,
     metadata: {},
     created_at: "2026-06-18T12:00:00.000Z",

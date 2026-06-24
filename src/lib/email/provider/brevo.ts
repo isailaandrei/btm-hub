@@ -40,6 +40,10 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
     case "delivered":
       return "delivered";
     case "deferred":
+    case "soft_bounce":
+      // Temporary failures: Brevo retries these automatically (greylisting,
+      // mailbox-full, throttling). Transient, not terminal — a later "delivered"
+      // overrides the resulting "deferred" recipient status.
       return "delivery_delayed";
     case "opened":
     case "unique_opened":
@@ -49,7 +53,6 @@ function mapBrevoEvent(event: string): NormalizedProviderEventType | null {
     case "hard_bounce":
     case "invalid_email":
       return "bounced";
-    case "soft_bounce":
     case "blocked":
     case "error":
       return "failed";

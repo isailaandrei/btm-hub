@@ -20,6 +20,7 @@ import {
   listEmailEventsForSend,
   listEmailSendRecipients,
   queueEmailSend,
+  requeueFailedEmailRecipients,
   setEmailSendTemplateVersion,
   type EmailSendTemplateInfo,
 } from "@/lib/data/email-sends";
@@ -764,6 +765,27 @@ export async function sendEmailNowAction(input: {
   return { sendId: queuedSend.id };
 }
 
+export async function retryFailedRecipientsAction(
+  sendId: string,
+): Promise<{ requeued: number }> {
+  await requireAdmin();
+  validateUUID(sendId, "email send");
+  const provider = getEmailProvider();
+  const requeued = await requeueFailedEmailRecipients(sendId);
+
+  if (requeued > 0) {
+    after(async () => {
+      const result = await processEmailSendChunks({ sendId, provider });
+      if (result.hasMore) {
+        await triggerEmailWorker(sendId);
+      }
+    });
+  }
+
+  revalidatePath("/admin");
+  return { requeued };
+}
+
 export async function loadEmailExclusionsAction(): Promise<{
   exclusions: EmailExclusionRow[];
 }> {
@@ -1059,6 +1081,7 @@ export type EmailSendDiagnostics = {
     deliveredAt: string | null;
     openedAt: string | null;
     clickedAt: string | null;
+    deferredAt: string | null;
     bouncedAt: string | null;
     complainedAt: string | null;
     unsubscribedAt: string | null;
@@ -1157,6 +1180,7 @@ export async function getEmailSendDiagnosticsAction(
         deliveredAt: recipient.delivered_at,
         openedAt: recipient.opened_at,
         clickedAt: recipient.clicked_at,
+        deferredAt: recipient.deferred_at,
         bouncedAt: recipient.bounced_at,
         complainedAt: recipient.complained_at,
         unsubscribedAt: recipient.unsubscribed_at,

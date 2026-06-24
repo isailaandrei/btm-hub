@@ -19,6 +19,7 @@ export function buildEmailSendMetrics(send: EmailSend): EmailSendMetric[] {
   const bouncedCount = count(send.bounced_count);
   const failedCount = count(send.failed_count);
   const notReceivedCount = bouncedCount + failedCount;
+  const deferredCount = count(send.deferred_count);
   const skippedCount = count(send.skipped_count);
   const unsubscribedCount = count(send.unsubscribed_count);
 
@@ -52,6 +53,12 @@ export function buildEmailSendMetrics(send: EmailSend): EmailSendMetric[] {
       label: "Failed",
       value: String(notReceivedCount),
       tone: notReceivedCount > 0 ? "danger" : "neutral",
+    },
+    {
+      key: "deferred",
+      label: "Deferred",
+      value: String(deferredCount),
+      tone: deferredCount > 0 ? "warning" : "neutral",
     },
     {
       key: "skipped",

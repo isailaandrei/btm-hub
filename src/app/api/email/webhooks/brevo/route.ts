@@ -110,6 +110,7 @@ async function applyEvent(event: NormalizedProviderEvent) {
     delivered: ["delivered", "delivered_at"],
     opened: ["delivered", "opened_at"],
     clicked: ["clicked", "clicked_at"],
+    delivery_delayed: ["deferred", "deferred_at"],
     bounced: ["bounced", "bounced_at"],
     failed: ["failed", "bounced_at"],
     complained: ["complained", "complained_at"],

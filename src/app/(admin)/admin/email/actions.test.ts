@@ -12,6 +12,7 @@ const mockListActiveEmailSuppressions = vi.fn();
 const mockListContactEmailPreferences = vi.fn();
 const mockDeleteRemovableEmailSend = vi.fn();
 const mockQueueEmailSend = vi.fn();
+const mockRequeueFailedEmailRecipients = vi.fn();
 const mockSetEmailSendTemplateVersion = vi.fn();
 const mockGetEmailTemplateVersion = vi.fn();
 const mockListEmailTemplates = vi.fn();
@@ -40,6 +41,7 @@ vi.mock("@/lib/data/email-sends", () => ({
   listActiveEmailSuppressions: mockListActiveEmailSuppressions,
   listContactEmailPreferences: mockListContactEmailPreferences,
   queueEmailSend: mockQueueEmailSend,
+  requeueFailedEmailRecipients: mockRequeueFailedEmailRecipients,
   setEmailSendTemplateVersion: mockSetEmailSendTemplateVersion,
 }));
 
@@ -103,6 +105,7 @@ const {
   getComposeRecipientsAction,
   previewEmailAction,
   renderComposePreviewAction,
+  retryFailedRecipientsAction,
   saveEmailManualRecipientAction,
   sendEmailNowAction,
 } = await import("./actions");
@@ -172,6 +175,7 @@ beforeEach(() => {
   mockUpsertEmailManualRecipient.mockReset().mockResolvedValue(MANUAL_RECIPIENT);
   mockDeleteRemovableEmailSend.mockReset().mockResolvedValue(true);
   mockQueueEmailSend.mockReset().mockResolvedValue({ id: "send-1" });
+  mockRequeueFailedEmailRecipients.mockReset().mockResolvedValue(2);
   mockSetEmailSendTemplateVersion.mockReset().mockResolvedValue(undefined);
   mockListEmailTemplates.mockReset().mockResolvedValue([{ id: "template-1" }]);
   mockFindOrCreateTemplateForDocument
@@ -731,5 +735,31 @@ describe("getEmailSendDiagnosticsAction", () => {
         updatedAt: "2026-05-01T00:04:00.000Z",
       },
     ]);
+  });
+});
+
+describe("retryFailedRecipientsAction", () => {
+  const SEND_ID = "550e8400-e29b-41d4-a716-446655440099";
+
+  it("re-queues failed recipients and kicks off processing", async () => {
+    mockRequeueFailedEmailRecipients.mockResolvedValue(2);
+
+    const result = await retryFailedRecipientsAction(SEND_ID);
+
+    expect(mockRequireAdmin).toHaveBeenCalled();
+    expect(mockRequeueFailedEmailRecipients).toHaveBeenCalledWith(SEND_ID);
+    expect(mockAfter).toHaveBeenCalled();
+    expect(result).toEqual({ requeued: 2 });
+  });
+
+  it("does nothing when there are no failed recipients to retry", async () => {
+    mockRequeueFailedEmailRecipients.mockResolvedValue(0);
+
+    const result = await retryFailedRecipientsAction(SEND_ID);
+
+    expect(mockRequeueFailedEmailRecipients).toHaveBeenCalledWith(SEND_ID);
+    // No re-send is scheduled when nothing was re-queued.
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(result).toEqual({ requeued: 0 });
   });
 });

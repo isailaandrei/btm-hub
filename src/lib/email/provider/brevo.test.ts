@@ -41,7 +41,7 @@ describe("createBrevoEmailProvider", () => {
     expect(result.providerMessageId).toBe("message-1@relay.example.com");
   });
 
-  it("maps only owner-facing Brevo failure events to failed or bounced states", () => {
+  it("maps Brevo failure events to deferred (transient), failed, or bounced states", () => {
     const provider = createBrevoEmailProvider("brevo-key");
 
     const events = provider.parseWebhook([
@@ -53,7 +53,9 @@ describe("createBrevoEmailProvider", () => {
     ]);
 
     expect(events.map((event) => event.type)).toEqual([
-      "failed",
+      // Soft bounces are transient — Brevo retries them, so they're "delivery
+      // delayed", not a terminal failure.
+      "delivery_delayed",
       "failed",
       "failed",
       "bounced",

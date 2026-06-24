@@ -496,6 +496,28 @@ export async function updateEmailSendCounts(sendId: string): Promise<void> {
   if (error) throw new Error(`Failed to update email send counts: ${error.message}`);
 }
 
+/**
+ * Re-queue the genuinely-failed recipients of a send (status = 'failed') for
+ * another delivery attempt, and flip the send back to 'queued'. Returns how many
+ * recipients were re-queued. Deferred / bounced / complained / unsubscribed /
+ * skipped recipients are intentionally left untouched (see the
+ * requeue_failed_email_recipients RPC); suppression is re-checked when each
+ * recipient is re-claimed for sending.
+ */
+export async function requeueFailedEmailRecipients(
+  sendId: string,
+): Promise<number> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase.rpc("requeue_failed_email_recipients", {
+    p_send_id: sendId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to re-queue failed recipients: ${error.message}`);
+  }
+  return typeof data === "number" ? data : 0;
+}
+
 export async function updateRecipientForProviderEvent(input: {
   provider: string;
   providerMessageId: string;
@@ -504,6 +526,7 @@ export async function updateRecipientForProviderEvent(input: {
     | "delivered_at"
     | "opened_at"
     | "clicked_at"
+    | "deferred_at"
     | "bounced_at"
     | "complained_at"
     | "unsubscribed_at";

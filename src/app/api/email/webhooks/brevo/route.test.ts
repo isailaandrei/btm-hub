@@ -230,6 +230,49 @@ describe("Brevo webhook route", () => {
     });
   });
 
+  it("maps a delivery-delayed (soft bounce) event to a non-terminal deferred state", async () => {
+    mockCreateBrevoEmailProvider.mockReturnValue({
+      parseWebhook: () => [
+        {
+          type: "delivery_delayed",
+          provider: "brevo",
+          providerEventId: "brevo-defer-1",
+          providerMessageId: "message-1",
+          occurredAt: "2026-05-01T00:01:00.000Z",
+          rawEvent: "soft_bounce",
+          payload: { event: "soft_bounce", reason: "450 mailbox unavailable" },
+        },
+      ],
+    });
+    mockUpdateRecipientForProviderEvent.mockResolvedValue({
+      id: "recipient-1",
+      send_id: "send-1",
+      contact_id: "contact-1",
+      email: "maya@example.com",
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://localhost/api/email/webhooks/brevo", {
+        method: "POST",
+        headers: { "x-brevo-webhook-token": "secret" },
+        body: JSON.stringify({ event: "soft_bounce" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    // The recipient moves to the transient "deferred" state, not "failed".
+    expect(mockUpdateRecipientForProviderEvent).toHaveBeenCalledWith({
+      provider: "brevo",
+      providerMessageId: "message-1",
+      status: "deferred",
+      timestampField: "deferred_at",
+      occurredAt: "2026-05-01T00:01:00.000Z",
+    });
+    // A deferral is not a delivery outcome, so the contact event is left alone.
+    expect(mockUpdateEmailSentContactEventDeliveryStatus).not.toHaveBeenCalled();
+  });
+
   it("reconciles webhook events by signed metadata when provider message is not stored yet", async () => {
     mockCreateBrevoEmailProvider.mockReturnValue({
       parseWebhook: () => [

@@ -16,6 +16,7 @@ import {
   MailCheck,
   PenLine,
   RefreshCw,
+  RotateCw,
   Trash2,
   Users,
   type LucideIcon,
@@ -26,6 +27,7 @@ import type { EmailSend } from "@/types/database";
 import {
   deleteEmailSendAction,
   getEmailSendDiagnosticsAction,
+  retryFailedRecipientsAction,
   type EmailSendDiagnostics,
 } from "./actions";
 import {
@@ -98,6 +100,7 @@ function buildRecipientActivity(
     ["Delivered", recipient.deliveredAt],
     ["Opened", recipient.openedAt],
     ["Button clicked", recipient.clickedAt],
+    ["Deferred", recipient.deferredAt],
     ["Failed", recipient.bouncedAt],
     ["Complained", recipient.complainedAt],
     ["Unsubscribed", recipient.unsubscribedAt],
@@ -141,9 +144,11 @@ function EmailStudioContent({
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
   const [previewSend, setPreviewSend] = useState<EmailSend | null>(null);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
+  const [retryingSendId, setRetryingSendId] = useState<string | null>(null);
   const [isLoadingData, startLoadDataTransition] = useTransition();
   const [isLoadingSends, startLoadSendsTransition] = useTransition();
   const [isDeletingSend, startDeleteSendTransition] = useTransition();
+  const [isRetryingSend, startRetrySendTransition] = useTransition();
   const [expandedSendId, setExpandedSendId] = useState<string | null>(null);
   const [diagnosticsBySendId, setDiagnosticsBySendId] =
     useState<DiagnosticsBySendId>({});
@@ -227,6 +232,34 @@ function EmailStudioContent({
         );
       } finally {
         setDeletingSendId(null);
+      }
+    });
+  }
+
+  function handleRetryFailed(sendId: string) {
+    setRetryingSendId(sendId);
+    startRetrySendTransition(async () => {
+      try {
+        const { requeued } = await retryFailedRecipientsAction(sendId);
+        if (requeued > 0) {
+          toast.success(
+            `Retrying ${requeued} failed recipient${requeued === 1 ? "" : "s"}.`,
+          );
+          setDiagnosticsBySendId((current) => {
+            const next = { ...current };
+            delete next[sendId];
+            return next;
+          });
+          await refreshData({ quiet: true });
+        } else {
+          toast.info("No retriable failures — nothing to resend.");
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to retry recipients.",
+        );
+      } finally {
+        setRetryingSendId(null);
       }
     });
   }
@@ -452,6 +485,27 @@ function EmailStudioContent({
                             <ChevronDown className="h-3.5 w-3.5" />
                           )}
                         </button>
+                        {send.failed_count > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRetryFailed(send.id)}
+                            disabled={
+                              isRetryingSend && retryingSendId === send.id
+                            }
+                            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                          >
+                            <RotateCw
+                              className={`h-3.5 w-3.5 ${
+                                isRetryingSend && retryingSendId === send.id
+                                  ? "animate-spin"
+                                  : ""
+                              }`}
+                            />
+                            {isRetryingSend && retryingSendId === send.id
+                              ? "Retrying..."
+                              : "Retry failed"}
+                          </button>
+                        )}
                         {isRemovableSend(send) && (
                           <button
                             type="button"
@@ -524,8 +578,16 @@ function EmailStudioContent({
                                     recipient.providerMessageId) && (
                                     <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                                       {recipient.failureReason && (
-                                        <p className="text-destructive">
-                                          Failure reason:{" "}
+                                        <p
+                                          className={
+                                            recipient.status === "deferred"
+                                              ? "text-amber-600"
+                                              : "text-destructive"
+                                          }
+                                        >
+                                          {recipient.status === "deferred"
+                                            ? "Deferred — the provider will keep retrying: "
+                                            : "Failure reason: "}
                                           {recipient.failureReason}
                                         </p>
                                       )}
