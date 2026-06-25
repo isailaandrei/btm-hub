@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmailProvider, ProviderSendEmailInput } from "./provider/types";
 import type { EmailSend, EmailSendRecipient } from "@/types/database";
@@ -43,6 +44,7 @@ function send(overrides: Partial<EmailSend> = {}): EmailSend {
     from_name: "Behind The Mask",
     reply_to_email: "owner@example.com",
     template_version_id: null,
+    public_token: "tok-test",
     builder_json_snapshot: {
       type: "doc",
       content: [
@@ -69,10 +71,12 @@ function send(overrides: Partial<EmailSend> = {}): EmailSend {
     sent_count: 0,
     delivered_count: 0,
     opened_count: 0,
+    proxy_opened_count: 0,
     clicked_count: 0,
     bounced_count: 0,
     complained_count: 0,
     failed_count: 0,
+    deferred_count: 0,
     unsubscribed_count: 0,
     metadata: {},
     created_at: "2026-05-01T00:00:00.000Z",
@@ -100,6 +104,7 @@ function recipient(overrides: Partial<EmailSendRecipient> = {}): EmailSendRecipi
     provider: null,
     provider_message_id: null,
     provider_metadata: {},
+    idempotency_key: null,
     send_attempts: 1,
     last_error: null,
     queued_at: "2026-05-01T00:00:00.000Z",
@@ -107,7 +112,9 @@ function recipient(overrides: Partial<EmailSendRecipient> = {}): EmailSendRecipi
     sent_at: null,
     delivered_at: null,
     opened_at: null,
+    proxy_opened_at: null,
     clicked_at: null,
+    deferred_at: null,
     bounced_at: null,
     complained_at: null,
     unsubscribed_at: null,
@@ -174,6 +181,14 @@ describe("processEmailSendChunks", () => {
     expect(sentInputs[0]?.to).toBe("maya@example.com");
     expect(sentInputs[0]?.subject).toBe("Hello Maya");
     expect(sentInputs[0]?.html).toContain("Maya");
+    // Idempotency key is scoped per attempt (hashed to fit Brevo's 36-char
+    // cap) so a retry isn't deduplicated as a duplicate of the original send.
+    const expectedKey = createHash("sha256")
+      .update("recipient-1:1")
+      .digest("hex")
+      .slice(0, 36);
+    expect(sentInputs[0]?.idempotencyKey).toBe(expectedKey);
+    expect(sentInputs[0]?.idempotencyKey?.length).toBeLessThanOrEqual(36);
     expect(mockMarkEmailRecipientSent).toHaveBeenCalledWith(
       "recipient-1",
       expect.objectContaining({

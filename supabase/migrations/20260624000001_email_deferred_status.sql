@@ -1,0 +1,11 @@
+-- Add a non-terminal "deferred" recipient status.
+--
+-- Brevo soft bounces / deferrals (e.g. web.de's "450 mailbox unavailable"
+-- greylisting) are TEMPORARY: Brevo retries automatically and usually delivers.
+-- Previously we mapped soft_bounce -> "failed", which (a) over-reported failures
+-- and (b) was sticky — a later "delivered" event could not correct it. "deferred"
+-- is a transient state that a subsequent "delivered" overrides.
+--
+-- ALTER TYPE ... ADD VALUE must commit before the value can be used, so it lives
+-- in its own migration ahead of the one that references it.
+ALTER TYPE email_recipient_status ADD VALUE IF NOT EXISTS 'deferred';

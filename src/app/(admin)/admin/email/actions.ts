@@ -20,6 +20,7 @@ import {
   listEmailEventsForSend,
   listEmailSendRecipients,
   queueEmailSend,
+  requeueFailedEmailRecipients,
   setEmailSendTemplateVersion,
   type EmailSendTemplateInfo,
 } from "@/lib/data/email-sends";
@@ -163,6 +164,8 @@ type ResolvedManualSkippedRecipient = ResolvedManualEligibleRecipient & {
 
 export type EmailTemplateVersionDocument = {
   builderJson: Record<string, unknown>;
+  subjectTemplate: string;
+  previewText: string;
 };
 
 export type EmailTemplateVersionsById = Record<
@@ -185,6 +188,8 @@ async function loadTemplatesWithInitialVersion(): Promise<{
     if (version) {
       templateVersionsById[initialVersionId] = {
         builderJson: version.builder_json,
+        subjectTemplate: version.subject_template ?? "",
+        previewText: version.preview_text ?? "",
       };
     }
   }
@@ -693,6 +698,7 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     const { templateVersionId } = await findOrCreateTemplateForDocument({
       builderJson: document,
       subject: input.subject,
+      previewText: input.previewText,
     });
     await setEmailSendTemplateVersion(send.id, templateVersionId);
     send.template_version_id = templateVersionId;
@@ -762,6 +768,27 @@ export async function sendEmailNowAction(input: {
 
   revalidatePath("/admin");
   return { sendId: queuedSend.id };
+}
+
+export async function retryFailedRecipientsAction(
+  sendId: string,
+): Promise<{ requeued: number }> {
+  await requireAdmin();
+  validateUUID(sendId, "email send");
+  const provider = getEmailProvider();
+  const requeued = await requeueFailedEmailRecipients(sendId);
+
+  if (requeued > 0) {
+    after(async () => {
+      const result = await processEmailSendChunks({ sendId, provider });
+      if (result.hasMore) {
+        await triggerEmailWorker(sendId);
+      }
+    });
+  }
+
+  revalidatePath("/admin");
+  return { requeued };
 }
 
 export async function loadEmailExclusionsAction(): Promise<{
@@ -1058,7 +1085,9 @@ export type EmailSendDiagnostics = {
     sentAt: string | null;
     deliveredAt: string | null;
     openedAt: string | null;
+    proxyOpenedAt: string | null;
     clickedAt: string | null;
+    deferredAt: string | null;
     bouncedAt: string | null;
     complainedAt: string | null;
     unsubscribedAt: string | null;
@@ -1156,7 +1185,9 @@ export async function getEmailSendDiagnosticsAction(
         sentAt: recipient.sent_at,
         deliveredAt: recipient.delivered_at,
         openedAt: recipient.opened_at,
+        proxyOpenedAt: recipient.proxy_opened_at,
         clickedAt: recipient.clicked_at,
+        deferredAt: recipient.deferred_at,
         bouncedAt: recipient.bounced_at,
         complainedAt: recipient.complained_at,
         unsubscribedAt: recipient.unsubscribed_at,

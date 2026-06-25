@@ -15,8 +15,10 @@ import type { EmailSend, EmailSendRecipient } from "@/types/database";
 import type { EmailProvider, ProviderSendEmailResult } from "./provider/types";
 import {
   assertMailyDocument,
+  getMailyDocumentWidth,
   renderMailyEmail,
 } from "./rendering/maily";
+import { injectWebviewLink } from "./rendering/webview-link";
 import { type EmailRenderVariables } from "./rendering/variables";
 import { getEmailTestRecipientOverride, getPublicSiteUrl } from "./settings";
 
@@ -137,9 +139,20 @@ async function renderRecipient(input: {
       input.unsubscribeUrl,
     ),
   });
+  // "View in browser" escape hatch shown to every client, for when an email
+  // renders poorly (most useful in Outlook, which clips long emails). Post-render
+  // in the pipeline, so the renderer is untouched and the web version itself is
+  // never given the link.
+  const html = input.send.public_token
+    ? injectWebviewLink(
+        rendered.html,
+        `${getPublicSiteUrl()}/email/view/${input.send.public_token}`,
+        getMailyDocumentWidth(document),
+      )
+    : rendered.html;
   return {
     subject: rendered.subject,
-    html: rendered.html,
+    html,
     text: rendered.text,
   };
 }
@@ -177,6 +190,19 @@ async function processRecipient(input: {
     });
     const result = await input.provider.sendEmail({
       recipientId: input.recipient.id,
+      // Use the per-dispatch idempotency key assigned by
+      // claim_queued_email_recipients: it is STABLE across a stalled re-claim and
+      // regenerated only on an intentional retry of a failed recipient. So a
+      // re-send of a recipient that stalled AFTER Brevo already accepted it reuses
+      // the SAME key and Brevo dedupes it — no double delivery — while a genuine
+      // retry gets a fresh key and actually re-sends. Fallback to the legacy
+      // per-attempt hash only for rows claimed before this column existed.
+      idempotencyKey:
+        input.recipient.idempotency_key ??
+        createHash("sha256")
+          .update(`${input.recipient.id}:${input.recipient.send_attempts}`)
+          .digest("hex")
+          .slice(0, 36),
       sendId: input.send.id,
       contactId: input.recipient.contact_id,
       to: providerRecipientEmail,

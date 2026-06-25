@@ -26,6 +26,8 @@ type Mode = "update" | "new";
 export function SaveAsTemplate({
   getBuilderJson,
   suggestedName,
+  subject,
+  previewText,
   currentTemplate,
   onSavedNew,
   onUpdated,
@@ -33,6 +35,10 @@ export function SaveAsTemplate({
 }: {
   getBuilderJson: () => unknown;
   suggestedName: string;
+  /** Current subject, saved with the template so reuse restores it. */
+  subject: string;
+  /** Current preview text, saved with the template so reuse restores it. */
+  previewText: string;
   /** The template selected as the starting point, or null for a blank start. */
   currentTemplate: { id: string; name: string } | null;
   onSavedNew: (template: EmailTemplate, versionId: string) => void;
@@ -61,6 +67,8 @@ export function SaveAsTemplate({
         const result = await publishTemplateVersionAction({
           templateId: currentTemplate.id,
           builderJson: getBuilderJson(),
+          subjectTemplate: subject,
+          previewText,
         });
         onUpdated(currentTemplate.id, result.versionId);
         setOpen(false);
@@ -84,6 +92,8 @@ export function SaveAsTemplate({
         const result = await createAndPublishTemplateAction({
           name: trimmed,
           builderJson: getBuilderJson(),
+          subjectTemplate: subject,
+          previewText,
         });
         onSavedNew(result.template, result.versionId);
         setOpen(false);

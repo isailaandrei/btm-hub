@@ -66,6 +66,8 @@ async function buildVersionPayload(
 export async function createTemplateVersionFromDocument(input: {
   templateId: string;
   builderJson: unknown;
+  subjectTemplate?: string;
+  previewText?: string;
 }): Promise<EmailTemplateVersion> {
   validateUUID(input.templateId, "template");
   const document = assertMailyDocument(input.builderJson);
@@ -77,6 +79,8 @@ export async function createTemplateVersionFromDocument(input: {
     text: payload.text,
     assetIds: payload.assetIds,
     contentHash: payload.contentHash,
+    subjectTemplate: input.subjectTemplate,
+    previewText: input.previewText,
   });
 }
 
@@ -91,6 +95,7 @@ export async function createTemplateVersionFromDocument(input: {
 export async function findOrCreateTemplateForDocument(input: {
   builderJson: unknown;
   subject: string;
+  previewText?: string;
 }): Promise<{ templateVersionId: string; created: boolean }> {
   const document = assertMailyDocument(input.builderJson);
   const contentHash = computeMailyContentHash(document);
@@ -112,6 +117,8 @@ export async function findOrCreateTemplateForDocument(input: {
     text: payload.text,
     assetIds: payload.assetIds,
     contentHash: payload.contentHash,
+    subjectTemplate: input.subject,
+    previewText: input.previewText,
   });
 
   return { templateVersionId: version.id, created: true };

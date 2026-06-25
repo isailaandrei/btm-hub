@@ -72,7 +72,10 @@ function formatDateWithPrefix(
 function timingPrefixForStatus(status: EmailSendStatus): string {
   if (status === "queued") return "Queued on";
   if (status === "sending") return "Sending since";
-  if (status === "failed" || status === "partially_failed") return "Failed on";
+  // Only a wholesale failure (nothing went out) reads as "Failed". A
+  // partially_failed send still mostly delivered, so it reads as "Sent on" — a
+  // few bounced/failed recipients shouldn't relabel the whole campaign.
+  if (status === "failed") return "Failed on";
   if (status === "draft") return "Created on";
   return "Sent on";
 }

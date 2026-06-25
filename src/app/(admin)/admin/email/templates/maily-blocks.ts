@@ -15,6 +15,7 @@ import {
   type BlockGroupItem,
 } from "@maily-to/core/blocks";
 import { socialBlockGroup } from "./social-blocks";
+import { cardSplitCommand } from "./card-split-block";
 
 export const mailyBlockGroups = [
   {
@@ -27,7 +28,7 @@ export const mailyBlockGroups = [
   },
   {
     title: "Layout",
-    commands: [section, columns, footer],
+    commands: [section, columns, footer, cardSplitCommand],
   },
   socialBlockGroup,
 ] satisfies BlockGroupItem[];

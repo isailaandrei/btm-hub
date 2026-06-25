@@ -54,6 +54,33 @@ const FullWidthExtension = Extension.create({
   },
 });
 
+// Marks a section as a "card split" band and emits a `data-card-gap` attribute
+// onto the rendered section cell, so the canvas CSS can paint the band in the
+// live backdrop color (see [data-card-gap] in globals.css) — the band tracks the
+// backdrop with no editor reset. The stored value round-trips as the lowercase
+// string attr the renderer reads (CARD_GAP_ATTR). createCardGapSection sets it.
+const CardGapExtension = Extension.create({
+  name: "cardGapAttribute",
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["section"],
+        attributes: {
+          cardgap: {
+            default: "false",
+            parseHTML: (element) =>
+              element.getAttribute("data-card-gap") === "true"
+                ? "true"
+                : "false",
+            renderHTML: (attributes) =>
+              attributes.cardgap === "true" ? { "data-card-gap": "true" } : {},
+          },
+        },
+      },
+    ];
+  },
+});
+
 // memo so unrelated parent re-renders (e.g. changing the email width, which only
 // touches a CSS variable on the wrapper) don't re-render the editor and drop its
 // node views (logo image, variable chips). Only genuine prop changes re-render.
@@ -161,6 +188,7 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
     const extensions = useMemo(
       () => [
         FullWidthExtension,
+        CardGapExtension,
         VariableExtension.configure({
           suggestion: getVariableSuggestions("@"),
           variables: [
@@ -310,7 +338,6 @@ export const EmailDesigner = forwardRef<EmailDesignerHandle, EmailDesignerProps>
                 "--email-canvas-font": getEmailFontByKey(layout.fontKey)
                   .cssStack,
                 "--email-canvas-bg": layout.containerBackground,
-                "--email-canvas-radius": `${layout.cornerRadius}px`,
                 "--email-canvas-backdrop": layout.bodyBackground,
               } as CSSProperties)
             : undefined

@@ -4,6 +4,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useState,
   useTransition,
 } from "react";
@@ -16,16 +17,26 @@ import {
   MailCheck,
   PenLine,
   RefreshCw,
+  RotateCw,
   Trash2,
   Users,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { EmailSend } from "@/types/database";
+import type { EmailSendListItem } from "@/lib/data/email-sends";
 import {
   deleteEmailSendAction,
   getEmailSendDiagnosticsAction,
+  retryFailedRecipientsAction,
   type EmailSendDiagnostics,
 } from "./actions";
 import {
@@ -40,6 +51,7 @@ import {
   type EmailSendMetricTone,
 } from "./sent-metrics";
 import { formatEmailSendTiming } from "./sent-date";
+import { sortSendsForTriage } from "./sent-ordering";
 import { buildSentRowSummary } from "./sent-summary";
 
 type EmailTab = "compose" | "sent" | "audiences";
@@ -60,10 +72,29 @@ function isActiveSend(send: EmailSend) {
 }
 
 function isRemovableSend(send: EmailSend) {
+  // Anything except an in-flight send. Deleting a send mid-dispatch would race
+  // the drain/worker; everything else (drafts, queued, and terminal sends with
+  // their history) is safe to remove. Mirrors deleteRemovableEmailSend.
+  return send.status !== "sending";
+}
+
+/** Whether removing this send also discards real delivery history (and so needs
+ * a heavier confirmation). */
+function hasDeliveryHistory(send: EmailSend) {
   return (
-    send.status === "draft" ||
-    send.status === "queued" ||
-    send.status === "failed"
+    send.status === "sent" ||
+    send.status === "partially_failed" ||
+    send.sent_count > 0 ||
+    send.delivered_count > 0
+  );
+}
+
+/** Row title: the saved template's name, falling back to the subject. */
+function sendRowTitle(send: EmailSendListItem) {
+  return (
+    send.template_name?.trim() ||
+    send.subject_template?.trim() ||
+    "Untitled email"
   );
 }
 
@@ -97,7 +128,13 @@ function buildRecipientActivity(
     ["Sent", recipient.sentAt],
     ["Delivered", recipient.deliveredAt],
     ["Opened", recipient.openedAt],
+    // "Maybe opened": a privacy-proxy fetch (Apple Mail Privacy Protection etc.)
+    // with NO confirmed open — the per-recipient mirror of the send-level "Maybe
+    // opened" count. Suppressed once there's a confirmed open (incl. a click
+    // backfill), since the recipient is then a real open, not a "maybe".
+    ["Maybe opened", recipient.openedAt ? null : recipient.proxyOpenedAt],
     ["Button clicked", recipient.clickedAt],
+    ["Deferred", recipient.deferredAt],
     ["Failed", recipient.bouncedAt],
     ["Complained", recipient.complainedAt],
     ["Unsubscribed", recipient.unsubscribedAt],
@@ -140,10 +177,14 @@ function EmailStudioContent({
   } = useAdminEmailData();
   const [activeTab, setActiveTab] = useState<EmailTab>("compose");
   const [previewSend, setPreviewSend] = useState<EmailSend | null>(null);
+  const [pendingDeleteSend, setPendingDeleteSend] =
+    useState<EmailSendListItem | null>(null);
   const [deletingSendId, setDeletingSendId] = useState<string | null>(null);
+  const [retryingSendId, setRetryingSendId] = useState<string | null>(null);
   const [isLoadingData, startLoadDataTransition] = useTransition();
   const [isLoadingSends, startLoadSendsTransition] = useTransition();
   const [isDeletingSend, startDeleteSendTransition] = useTransition();
+  const [isRetryingSend, startRetrySendTransition] = useTransition();
   const [expandedSendId, setExpandedSendId] = useState<string | null>(null);
   const [diagnosticsBySendId, setDiagnosticsBySendId] =
     useState<DiagnosticsBySendId>({});
@@ -154,6 +195,9 @@ function EmailStudioContent({
   const [isRefreshing, startRefreshTransition] = useTransition();
 
   const localSends = sends ?? [];
+  // Triage order: failures first, then unsubscribes, then the rest (each
+  // most-recent-first), so problems are easy to spot without scrolling.
+  const orderedSends = useMemo(() => sortSendsForTriage(sends ?? []), [sends]);
   const loadError = emailError;
 
   const refreshData = useCallback(
@@ -227,6 +271,35 @@ function EmailStudioContent({
         );
       } finally {
         setDeletingSendId(null);
+        setPendingDeleteSend(null);
+      }
+    });
+  }
+
+  function handleRetryFailed(sendId: string) {
+    setRetryingSendId(sendId);
+    startRetrySendTransition(async () => {
+      try {
+        const { requeued } = await retryFailedRecipientsAction(sendId);
+        if (requeued > 0) {
+          toast.success(
+            `Retrying ${requeued} failed recipient${requeued === 1 ? "" : "s"}.`,
+          );
+          setDiagnosticsBySendId((current) => {
+            const next = { ...current };
+            delete next[sendId];
+            return next;
+          });
+          await refreshData({ quiet: true });
+        } else {
+          toast.info("No retriable failures — nothing to resend.");
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to retry recipients.",
+        );
+      } finally {
+        setRetryingSendId(null);
       }
     });
   }
@@ -382,7 +455,7 @@ function EmailStudioContent({
             </p>
           ) : (
             <div className="divide-y divide-border">
-              {localSends.map((send) => {
+              {orderedSends.map((send) => {
                 const isExpanded = expandedSendId === send.id;
                 const diagnostics = diagnosticsBySendId[send.id];
                 const isLoadingThis =
@@ -393,26 +466,30 @@ function EmailStudioContent({
                 const audiencePrefix = summary.audienceName
                   ? `${summary.audienceName} · `
                   : "";
+                const subjectAndTiming = [send.subject_template, sentOn]
+                  .filter(Boolean)
+                  .join(" · ");
 
                 return (
                   <Fragment key={send.id}>
                     <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[minmax(240px,1fr)_minmax(420px,1.8fr)_auto] md:items-center">
                       <div className="min-w-0">
                         <p className="truncate font-medium text-foreground">
-                          {sentOn ?? "Draft"}
+                          {sendRowTitle(send)}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {audiencePrefix}
                           {summary.recipientText} · {summary.kindLabel}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground/70">
-                          {send.subject_template}
+                          {subjectAndTiming}
                         </p>
                       </div>
                       <div className="flex min-w-0 flex-wrap gap-1.5">
                         {metrics.map((metric) => (
                           <span
                             key={metric.key}
+                            title={metric.hint}
                             className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${metricToneClass(
                               metric.tone,
                             )}`}
@@ -452,10 +529,31 @@ function EmailStudioContent({
                             <ChevronDown className="h-3.5 w-3.5" />
                           )}
                         </button>
+                        {send.failed_count > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRetryFailed(send.id)}
+                            disabled={
+                              isRetryingSend && retryingSendId === send.id
+                            }
+                            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                          >
+                            <RotateCw
+                              className={`h-3.5 w-3.5 ${
+                                isRetryingSend && retryingSendId === send.id
+                                  ? "animate-spin"
+                                  : ""
+                              }`}
+                            />
+                            {isRetryingSend && retryingSendId === send.id
+                              ? "Retrying..."
+                              : "Retry failed"}
+                          </button>
+                        )}
                         {isRemovableSend(send) && (
                           <button
                             type="button"
-                            onClick={() => handleDeleteSend(send.id)}
+                            onClick={() => setPendingDeleteSend(send)}
                             disabled={
                               isDeletingSend && deletingSendId === send.id
                             }
@@ -524,8 +622,16 @@ function EmailStudioContent({
                                     recipient.providerMessageId) && (
                                     <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                                       {recipient.failureReason && (
-                                        <p className="text-destructive">
-                                          Failure reason:{" "}
+                                        <p
+                                          className={
+                                            recipient.status === "deferred"
+                                              ? "text-amber-600"
+                                              : "text-destructive"
+                                          }
+                                        >
+                                          {recipient.status === "deferred"
+                                            ? "Deferred — the provider will keep retrying: "
+                                            : "Failure reason: "}
                                           {recipient.failureReason}
                                         </p>
                                       )}
@@ -580,6 +686,66 @@ function EmailStudioContent({
           onClose={() => setPreviewSend(null)}
         />
       )}
+
+      <Dialog
+        open={pendingDeleteSend !== null}
+        onOpenChange={(next) => {
+          if (!next && !isDeletingSend) setPendingDeleteSend(null);
+        }}
+      >
+        <DialogContent showCloseButton={false} className="max-w-md p-6">
+          {pendingDeleteSend && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Delete this email?</DialogTitle>
+                <DialogDescription>
+                  {hasDeliveryHistory(pendingDeleteSend) ? (
+                    <>
+                      “{sendRowTitle(pendingDeleteSend)}” and all of its delivery
+                      history — opens, clicks, bounces, unsubscribes, and
+                      per-recipient diagnostics — will be permanently removed.
+                      This can’t be undone.
+                    </>
+                  ) : (
+                    <>
+                      “{sendRowTitle(pendingDeleteSend)}” will be permanently
+                      removed. This can’t be undone.
+                    </>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingDeleteSend(null)}
+                  disabled={isDeletingSend}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteSend(pendingDeleteSend.id)}
+                  disabled={isDeletingSend}
+                  className="inline-flex items-center gap-2 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-white hover:bg-destructive/90 disabled:opacity-50"
+                >
+                  {isDeletingSend ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete email
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

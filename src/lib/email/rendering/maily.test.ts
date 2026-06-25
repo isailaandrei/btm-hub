@@ -1,26 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyLayoutToDocument,
   assertMailyDocument,
-  clampCornerRadius,
   clampEmailWidth,
   createDefaultMailyDocument,
   DEFAULT_BODY_BACKGROUND,
   DEFAULT_CONTAINER_BACKGROUND,
-  DEFAULT_CORNER_RADIUS,
   DEFAULT_EMAIL_FONT_KEY,
   DEFAULT_EMAIL_WIDTH,
+  EMAIL_IMAGE_TRANSFORM_QUALITY,
   getAssetIdsForMailyDocument,
   getMailyDocumentFontKey,
   getMailyDocumentLayout,
   getMailyDocumentWidth,
-  MAX_CORNER_RADIUS,
   MAX_EMAIL_WIDTH,
   MIN_EMAIL_WIDTH,
   normalizeHexColor,
   renderMailyDocument,
   renderMailyEmail,
   arrangeEmailRows,
+  CARD_GAP_ATTR,
+  createCardGapSection,
+  DEFAULT_CARD_GAP_HEIGHT,
+  isCardGapSection,
+  normalizeCardGapBands,
+  supabaseImageTransformUrl,
+  keepSocialRowInline,
 } from "./maily";
 
 describe("Maily rendering", () => {
@@ -189,49 +194,49 @@ describe("Maily rendering", () => {
     );
   });
 
-  it("defaults the card/backdrop colors and corner radius, and round-trips them", () => {
+  it("defaults the card/backdrop colors and round-trips them", () => {
     const blank = createDefaultMailyDocument();
     const layout = getMailyDocumentLayout(blank);
     expect(layout.containerBackground).toBe(DEFAULT_CONTAINER_BACKGROUND);
     expect(layout.bodyBackground).toBe(DEFAULT_BODY_BACKGROUND);
-    expect(layout.cornerRadius).toBe(DEFAULT_CORNER_RADIUS);
 
     const customized = applyLayoutToDocument(blank, {
       ...layout,
       containerBackground: "#101820",
       bodyBackground: "#fdf6e3",
-      cornerRadius: 24,
     });
     const back = getMailyDocumentLayout(customized);
     expect(back.containerBackground).toBe("#101820");
     expect(back.bodyBackground).toBe("#fdf6e3");
-    expect(back.cornerRadius).toBe(24);
   });
 
-  it("sanitizes colors and clamps the corner radius", () => {
+  it("sanitizes colors so they can't inject into inline styles", () => {
     expect(normalizeHexColor("#AbCdEf", "#ffffff")).toBe("#abcdef");
     // Anything that isn't a #rrggbb hex can't reach the email's inline styles.
     expect(normalizeHexColor("red;} body{display:none", "#ffffff")).toBe("#ffffff");
     expect(normalizeHexColor("#fff", "#ffffff")).toBe("#ffffff");
     expect(normalizeHexColor(42, "#ffffff")).toBe("#ffffff");
-    expect(clampCornerRadius(9999)).toBe(MAX_CORNER_RADIUS);
-    expect(clampCornerRadius(-10)).toBe(0);
   });
 
-  it("renders the chosen card color, backdrop, and corner radius", async () => {
+  it("renders the chosen card color and backdrop", async () => {
     const rendered = await renderMailyDocument(
       assertMailyDocument({
         ...createDefaultMailyDocument(),
         containerBackground: "#101820",
         bodyBackground: "#fdf6e3",
-        cornerRadius: 20,
       }),
     );
     expect(rendered.html).toContain("#101820");
     expect(rendered.html).toContain("#fdf6e3");
-    expect(rendered.html).toContain("border-radius:20px");
-    // The mobile corner-squaring targets the actual radius value.
-    expect(rendered.html).toContain('[style*="border-radius:20px"]');
+  });
+
+  it("always renders a square card, even if a stored radius is present", async () => {
+    const rendered = await renderMailyDocument(
+      // A legacy document may still carry a corner radius; it must be ignored.
+      assertMailyDocument({ ...createDefaultMailyDocument(), cornerRadius: 20 }),
+    );
+    expect(rendered.html).toContain("border-radius:0px");
+    expect(rendered.html).not.toContain("border-radius:20px");
   });
 
   it("ignores an injection-y color and falls back to defaults when rendering", async () => {
@@ -281,7 +286,8 @@ describe("Maily rendering", () => {
 
     expect(rendered.html).toContain("background-color:#f3f4f6");
     expect(rendered.html).toContain("background-color:#ffffff");
-    expect(rendered.html).toContain("border-radius:12px");
+    // The card is always square.
+    expect(rendered.html).toContain("border-radius:0px");
   });
 
   it("renders subject and body with per-recipient variables", async () => {
@@ -342,6 +348,73 @@ describe("Maily rendering", () => {
     expect(rendered.html).not.toContain("{{unsubscribe.url}}");
   });
 
+  it("builds a card-split band: full-width, marked, no border, spacer height", () => {
+    const band = createCardGapSection("#f3f4f6");
+
+    expect(band.type).toBe("section");
+    expect(band.attrs?.[CARD_GAP_ATTR]).toBe("true");
+    expect(band.attrs?.fullwidth).toBe("true");
+    expect(band.attrs?.backgroundColor).toBe("#f3f4f6");
+    expect(band.attrs?.borderWidth).toBe(0);
+    // A spacer carries the band height so it reads as a separation.
+    expect(band.content?.[0]?.type).toBe("spacer");
+    expect(band.content?.[0]?.attrs?.height).toBe(DEFAULT_CARD_GAP_HEIGHT);
+
+    expect(isCardGapSection(band)).toBe(true);
+    // A normal section is not a card-split band.
+    expect(isCardGapSection({ type: "section", attrs: {}, content: [] })).toBe(
+      false,
+    );
+  });
+
+  it("normalizes card-split bands: backdrop color, padding height, no spacer", () => {
+    const document = assertMailyDocument({
+      type: "doc",
+      content: [
+        // Stored band color is intentionally wrong — paint must override it.
+        createCardGapSection("#000000", 24),
+        { type: "section", attrs: { backgroundColor: "#123456" }, content: [] },
+      ],
+    });
+
+    const normalized = normalizeCardGapBands(document, "#abcdef");
+
+    const band = normalized.content[0];
+    expect(band?.attrs?.backgroundColor).toBe("#abcdef");
+    // The width-capped inner spacer is gone; height moves to symmetric padding.
+    expect(band?.content).toEqual([]);
+    expect(band?.attrs?.paddingTop).toBe(12);
+    expect(band?.attrs?.paddingBottom).toBe(12);
+    // A regular colored section is left untouched.
+    expect(normalized.content[1]?.attrs?.backgroundColor).toBe("#123456");
+    // Non-destructive: the input still has its spacer and stored color.
+    expect(document.content[0]?.attrs?.backgroundColor).toBe("#000000");
+    expect(document.content[0]?.content?.[0]?.type).toBe("spacer");
+  });
+
+  it("renders a card-split band full-width, in the backdrop color", async () => {
+    const rendered = await renderMailyDocument(
+      assertMailyDocument({
+        type: "doc",
+        bodyBackground: "#fdf6e3",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Card A" }] },
+          // Stored as a different color; render must repaint it to the backdrop
+          // so the split illusion holds even if the backdrop changed afterwards.
+          createCardGapSection("#000000"),
+          { type: "paragraph", content: [{ type: "text", text: "Card B" }] },
+        ],
+      }),
+    );
+
+    // The band tracks the backdrop, and the stale stored color never ships.
+    expect(rendered.html).toContain("#fdf6e3");
+    expect(rendered.html).not.toContain("#000000");
+    // The band must NOT render a width-capped spacer (~600px), which would leave
+    // the band narrower than a wider card and rejoin the two halves at the edges.
+    expect(rendered.html).not.toContain("max-width:37.5em");
+  });
+
   it("rejects invalid Maily JSON instead of silently replacing it", () => {
     expect(() => assertMailyDocument({ type: "paragraph" })).toThrow(
       "Invalid Maily document",
@@ -398,5 +471,222 @@ describe("Maily rendering", () => {
     expect(
       getAssetPublicUrlsForMailyDocument(assertMailyDocument(document)),
     ).toEqual(["https://cdn.example.com/email-assets/header.png"]);
+  });
+});
+
+describe("Supabase image transformation URLs", () => {
+  const PROJECT = "https://ojbwpfemujjjkihdhgkr.supabase.co";
+  const objectUrl = (path: string) =>
+    `${PROJECT}/storage/v1/object/public/${path}`;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("rewrites a Supabase object URL to the transform endpoint (JPEG kept via format=origin)", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/hero.jpg"), 1248),
+    ).toBe(
+      `${PROJECT}/storage/v1/render/image/public/email-assets/u/hero.jpg` +
+        `?width=1248&quality=${EMAIL_IMAGE_TRANSFORM_QUALITY}&format=origin`,
+    );
+  });
+
+  it("leaves non-Supabase URLs untouched (e.g. Vercel-served social icons)", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(
+        "https://btm-hub.vercel.app/email/social/instagram.png",
+        80,
+      ),
+    ).toBeNull();
+  });
+
+  it("does not transform formats that are unsafe to resize (gif/svg)", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/anim.gif"), 800),
+    ).toBeNull();
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/logo.svg"), 800),
+    ).toBeNull();
+  });
+
+  it("clamps the requested width to Supabase's 2500px ceiling", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/x.jpg"), 99999),
+    ).toContain("width=2500");
+  });
+
+  it("is a no-op when the Supabase URL is unconfigured", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    expect(
+      supabaseImageTransformUrl(objectUrl("email-assets/u/x.jpg"), 800),
+    ).toBeNull();
+  });
+});
+
+describe("Outlook-compatible rendering", () => {
+  const PROJECT = "https://ojbwpfemujjjkihdhgkr.supabase.co";
+
+  // A document exercising the structural features that break in Outlook: a
+  // full-width section with a transparent zero-width border, a Supabase image, a
+  // real <hr> border, and a nested columns block (nested tables) with a
+  // Vercel-hosted icon.
+  const document = {
+    type: "doc",
+    maxWidth: 640,
+    content: [
+      {
+        type: "section",
+        attrs: {
+          fullwidth: "true",
+          align: "left",
+          backgroundColor: "transparent",
+          borderColor: "transparent",
+          borderWidth: 0,
+          borderRadius: 0,
+          paddingTop: 8,
+          paddingRight: 8,
+          paddingBottom: 8,
+          paddingLeft: 8,
+        },
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: `${PROJECT}/storage/v1/object/public/email-assets/u/hero.jpg`,
+              width: 624,
+              height: 416,
+              alignment: "center",
+            },
+          },
+          {
+            type: "heading",
+            attrs: { level: 1, textAlign: "left", textDirection: "ltr" },
+            content: [{ type: "text", text: "To our Community" }],
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        attrs: { textAlign: "left", textDirection: "ltr" },
+        content: [{ type: "text", text: "Body copy." }],
+      },
+      { type: "horizontalRule" },
+      {
+        type: "columns",
+        attrs: { gap: 8 },
+        content: [
+          {
+            type: "column",
+            attrs: { width: 50, columnId: null, verticalAlign: "middle" },
+            content: [
+              {
+                type: "image",
+                attrs: {
+                  src: "https://btm-hub.vercel.app/email/social/instagram.png",
+                  width: 40,
+                  height: 40,
+                  alignment: "center",
+                },
+              },
+            ],
+          },
+          {
+            type: "column",
+            attrs: { width: 50, columnId: null, verticalAlign: "middle" },
+            content: [
+              {
+                type: "paragraph",
+                attrs: { textAlign: "left", textDirection: "ltr" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("wraps the container in an MSO ghost table pinned to the email width", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(document));
+    expect(html).toContain(
+      '<!--[if mso]><table role="presentation" align="center" border="0" ' +
+        'cellpadding="0" cellspacing="0" width="640"><tr>' +
+        '<td width="640" style="width:640px"><![endif]-->',
+    );
+    expect(html).toContain("<!--[if mso]></td></tr></table><![endif]-->");
+    // The ghost table opens immediately before the real max-width container.
+    const ghostIdx = html.indexOf('width="640"><tr>');
+    const containerIdx = html.indexOf("max-width:640px");
+    expect(ghostIdx).toBeGreaterThan(-1);
+    expect(ghostIdx).toBeLessThan(containerIdx);
+  });
+
+  it("strips transparent zero-width borders (which Outlook renders black)", async () => {
+    const { html } = await renderMailyDocument(assertMailyDocument(document));
+    expect(html).not.toContain("border-color:transparent");
+    expect(html).not.toContain("border-width:0");
+    // Real borders are preserved (the horizontal rule).
+    expect(html).toContain("border-top:1px solid #eaeaea");
+  });
+
+  it("routes Supabase images through the transform endpoint but leaves others alone", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", PROJECT);
+    const { html } = await renderMailyDocument(assertMailyDocument(document));
+    // 624px display width → 2× retina = 1248px, JPEG kept.
+    expect(html).toContain("/render/image/public/email-assets/u/hero.jpg");
+    expect(html).toContain("width=1248");
+    expect(html).toContain("format=origin");
+    expect(html).toContain(`quality=${EMAIL_IMAGE_TRANSFORM_QUALITY}`);
+    // The Vercel-hosted icon is untouched.
+    expect(html).toContain(
+      "https://btm-hub.vercel.app/email/social/instagram.png",
+    );
+    expect(html).not.toContain("render/image/public/email/social");
+  });
+});
+
+describe("keepSocialRowInline", () => {
+  // Mimics @maily-to/render's columns output: a `tab-row-full` table whose
+  // `tab-col-full` cells wrap content in `tab-pad` tables. The mobile media query
+  // turns tab-col-full into display:block (stacking).
+  const colsTable = (inner: string) =>
+    `<table class="tab-row-full" style="width:98%"><tbody><tr>` +
+    `<td class="tab-col-full"><table class="tab-pad"><tbody><tr><td>${inner}</td></tr></tbody></table></td>` +
+    `<td class="tab-col-full"><table class="tab-pad"><tbody><tr><td>x</td></tr></tbody></table></td>` +
+    `</tr></tbody></table>`;
+  const socialTable = colsTable(
+    '<img src="https://btm-hub.vercel.app/email/social/instagram.png" />',
+  );
+  const contentTable = colsTable("<p>Left</p>");
+
+  it("strips the stacking classes from a social-icon row so it stays inline", () => {
+    const out = keepSocialRowInline(socialTable);
+    expect(out).toContain("/email/social/instagram.png"); // icon preserved
+    expect(out).not.toContain("tab-col-full");
+    expect(out).not.toContain("tab-row-full");
+    expect(out).not.toContain("tab-pad");
+  });
+
+  it("leaves content columns (no social icons) stacking on mobile", () => {
+    const out = keepSocialRowInline(contentTable);
+    expect(out).toBe(contentTable); // untouched
+    expect(out).toContain("tab-col-full");
+  });
+
+  it("only neutralizes the social row when both are present", () => {
+    const out = keepSocialRowInline(`<div>${contentTable}${socialTable}</div>`);
+    // The content row keeps its classes; the social row loses them.
+    expect((out.match(/tab-row-full/g) || []).length).toBe(1);
+    expect((out.match(/tab-col-full/g) || []).length).toBe(2);
+    expect(out).toContain("Left");
+    expect(out).toContain("/email/social/instagram.png");
   });
 });

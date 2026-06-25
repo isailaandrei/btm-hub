@@ -41,7 +41,37 @@ describe("createBrevoEmailProvider", () => {
     expect(result.providerMessageId).toBe("message-1@relay.example.com");
   });
 
-  it("maps only owner-facing Brevo failure events to failed or bounced states", () => {
+  it("uses a caller-provided idempotency key (per-attempt) over the recipient id", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ messageId: "<message-2@relay.example.com>" }),
+    });
+
+    const provider = createBrevoEmailProvider("brevo-key");
+    await provider.sendEmail({
+      recipientId: "550e8400-e29b-41d4-a716-446655440040",
+      idempotencyKey: "550e8400-e29b-41d4-a716-446655440040:2",
+      sendId: "send-1",
+      contactId: "contact-1",
+      to: "test@example.com",
+      fromEmail: "owner@example.com",
+      fromName: "Behind The Mask",
+      replyTo: "owner@example.com",
+      subject: "Hello",
+      html: "<p>Hello</p>",
+      text: "Hello",
+      metadata: { sendId: "send-1" },
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      headers: Record<string, unknown>;
+    };
+    expect(body.headers.idempotencyKey).toBe(
+      "550e8400-e29b-41d4-a716-446655440040:2",
+    );
+  });
+
+  it("maps Brevo failure events to deferred (transient), failed, or bounced states", () => {
     const provider = createBrevoEmailProvider("brevo-key");
 
     const events = provider.parseWebhook([
@@ -53,7 +83,9 @@ describe("createBrevoEmailProvider", () => {
     ]);
 
     expect(events.map((event) => event.type)).toEqual([
-      "failed",
+      // Soft bounces are transient — Brevo retries them, so they're "delivery
+      // delayed", not a terminal failure.
+      "delivery_delayed",
       "failed",
       "failed",
       "bounced",
@@ -95,7 +127,7 @@ describe("createBrevoEmailProvider", () => {
     expect(events[0]?.providerEventId).not.toBe(events[1]?.providerEventId);
   });
 
-  it("normalizes human open tracking webhook events and ignores proxy opens", () => {
+  it("maps human opens to 'opened' and privacy-proxy opens to a distinct 'proxy_opened' type", () => {
     const provider = createBrevoEmailProvider("brevo-key");
 
     const events = provider.parseWebhook([
@@ -112,15 +144,58 @@ describe("createBrevoEmailProvider", () => {
         ts_event: 1604933655,
       },
       {
-        event: "unique_proxy_open",
+        // Apple Mail Privacy Protection pre-fetch — kept, but distinct so it
+        // never inflates the real open count.
+        event: "proxy_open",
         email: "maya@example.com",
         "message-id": "message-1@relay.example.com",
         ts_event: 1604933656,
       },
+      {
+        event: "unique_proxy_open",
+        email: "maya@example.com",
+        "message-id": "message-1@relay.example.com",
+        ts_event: 1604933657,
+      },
     ]);
 
-    expect(events.map((event) => event.type)).toEqual(["opened", "opened"]);
+    expect(events.map((event) => event.type)).toEqual([
+      "opened",
+      "opened",
+      "proxy_opened",
+      "proxy_opened",
+    ]);
     expect(events[0]?.providerMessageId).toBe("message-1@relay.example.com");
     expect(events[1]?.rawEvent).toBe("unique_opened");
+    expect(events[2]?.rawEvent).toBe("proxy_open");
+  });
+
+  it("logs and drops genuinely unknown Brevo event types (fail loud)", () => {
+    const provider = createBrevoEmailProvider("brevo-key");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const events = provider.parseWebhook([
+      { event: "some_new_event", "message-id": "message-9" },
+    ]);
+
+    expect(events).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("some_new_event"),
+    );
+    warn.mockRestore();
+  });
+
+  it("defensively maps any proxy-named event variant to proxy_opened (exact string only confirmable in prod)", () => {
+    const provider = createBrevoEmailProvider("brevo-key");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const events = provider.parseWebhook([
+      { event: "unique_proxy_open_v2", "message-id": "m1" },
+    ]);
+
+    expect(events.map((event) => event.type)).toEqual(["proxy_opened"]);
+    // A recognized proxy variant must NOT trip the fail-loud unmapped warning.
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

@@ -12,6 +12,13 @@ export interface ProviderSendEmailInput {
   metadata: Record<string, string>;
   /** Extra MIME headers (e.g. RFC-8058 List-Unsubscribe) for the provider. */
   headers?: Record<string, string>;
+  /**
+   * Idempotency key sent to the provider to suppress duplicate deliveries.
+   * Defaults to the recipient id, but the send pipeline scopes it per attempt
+   * (`<recipientId>:<send_attempts>`) so an intentional retry of a failed
+   * recipient is treated as a new message rather than deduplicated.
+   */
+  idempotencyKey?: string;
 }
 
 export interface ProviderSendEmailResult {
@@ -25,6 +32,9 @@ export type NormalizedProviderEventType =
   | "delivered"
   | "delivery_delayed"
   | "opened"
+  /** Tracking pixel fetched by a privacy proxy (e.g. Apple Mail Privacy
+   * Protection) — NOT a confirmed human open. Tracked separately from `opened`. */
+  | "proxy_opened"
   | "clicked"
   | "bounced"
   | "complained"

@@ -43,4 +43,19 @@ describe("formatSentOnDate", () => {
       ),
     ).toBe("Failed on May 1, 2026 at 11:35 am");
   });
+
+  it("still reads as sent when only some recipients failed", () => {
+    // A few bounced/failed recipients shouldn't relabel the whole campaign as a
+    // failure — partially_failed mostly delivered.
+    expect(
+      formatEmailSendTiming(
+        {
+          status: "partially_failed",
+          confirmed_at: "2026-05-01T11:35:00.000Z",
+          created_at: "2026-05-01T11:30:00.000Z",
+        },
+        { locale: "en-US", timeZone: "UTC" },
+      ),
+    ).toBe("Sent on May 1, 2026 at 11:35 am");
+  });
 });

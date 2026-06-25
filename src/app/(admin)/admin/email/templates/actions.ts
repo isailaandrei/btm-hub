@@ -17,6 +17,24 @@ import { createTemplateVersionFromDocument } from "@/lib/email/template-authorin
 import { validateUUID } from "@/lib/validation-helpers";
 import type { EmailTemplate } from "@/types/database";
 
+// Subject + preview are saved with the template so reusing it restores them.
+// Both optional (older saves / blank composers have none) and capped to match
+// the send-time limits.
+const templateContentFields = {
+  subjectTemplate: z
+    .string()
+    .trim()
+    .max(200, "Subject must be 200 characters or fewer")
+    .optional()
+    .default(""),
+  previewText: z
+    .string()
+    .trim()
+    .max(200, "Preview text must be 200 characters or fewer")
+    .optional()
+    .default(""),
+};
+
 const templateEditorSchema = z.object({
   name: z
     .string()
@@ -30,16 +48,20 @@ const templateEditorSchema = z.object({
     .optional()
     .default(""),
   builderJson: z.unknown(),
+  ...templateContentFields,
 });
 
 const publishTemplateVersionSchema = z.object({
   templateId: z.string().min(1, "Template is required"),
   builderJson: z.unknown(),
+  ...templateContentFields,
 });
 
 export async function publishTemplateVersionAction(input: {
   templateId: string;
   builderJson: unknown;
+  subjectTemplate?: string;
+  previewText?: string;
 }): Promise<{ ok: true; versionId: string }> {
   await requireAdmin();
   const parsed = publishTemplateVersionSchema.safeParse(input);
@@ -49,10 +71,11 @@ export async function publishTemplateVersionAction(input: {
     );
   }
 
-  const version = await createVisualTemplateVersion(
-    parsed.data.templateId,
-    parsed.data.builderJson,
-  );
+  const version = await createVisualTemplateVersion(parsed.data.templateId, {
+    builderJson: parsed.data.builderJson,
+    subjectTemplate: parsed.data.subjectTemplate,
+    previewText: parsed.data.previewText,
+  });
 
   revalidatePath("/admin");
   return { ok: true, versionId: version.id };
@@ -62,6 +85,8 @@ export async function createAndPublishTemplateAction(input: {
   name: string;
   description?: string;
   builderJson: unknown;
+  subjectTemplate?: string;
+  previewText?: string;
 }): Promise<{ ok: true; template: EmailTemplate; versionId: string }> {
   await requireAdmin();
   const parsed = templateEditorSchema.safeParse(input);
@@ -74,10 +99,11 @@ export async function createAndPublishTemplateAction(input: {
     description: parsed.data.description || undefined,
     category: "general",
   });
-  const version = await createVisualTemplateVersion(
-    template.id,
-    parsed.data.builderJson,
-  );
+  const version = await createVisualTemplateVersion(template.id, {
+    builderJson: parsed.data.builderJson,
+    subjectTemplate: parsed.data.subjectTemplate,
+    previewText: parsed.data.previewText,
+  });
   const publishedTemplate: EmailTemplate = {
     ...template,
     status: "published",
@@ -93,6 +119,8 @@ export async function getTemplateVersionForEditorAction(
   templateVersionId: string,
 ): Promise<{
   builderJson: Record<string, unknown>;
+  subjectTemplate: string;
+  previewText: string;
 } | null> {
   await requireAdmin();
   validateUUID(templateVersionId, "template version");
@@ -102,6 +130,8 @@ export async function getTemplateVersionForEditorAction(
 
   return {
     builderJson: version.builder_json,
+    subjectTemplate: version.subject_template ?? "",
+    previewText: version.preview_text ?? "",
   };
 }
 
@@ -166,7 +196,16 @@ export async function deleteTemplateAction(
 
 async function createVisualTemplateVersion(
   templateId: string,
-  builderJson: unknown,
+  input: {
+    builderJson: unknown;
+    subjectTemplate?: string;
+    previewText?: string;
+  },
 ) {
-  return createTemplateVersionFromDocument({ templateId, builderJson });
+  return createTemplateVersionFromDocument({
+    templateId,
+    builderJson: input.builderJson,
+    subjectTemplate: input.subjectTemplate,
+    previewText: input.previewText,
+  });
 }

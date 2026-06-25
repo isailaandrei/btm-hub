@@ -235,8 +235,9 @@ button,
   margin-right: auto;
   margin-left: auto;
   border: 0;
-  /* Card corner radius + background track the per-email settings. */
-  border-radius: var(--email-canvas-radius, 12px);
+  /* The card is always square (corner radius is not configurable); background
+     tracks the per-email setting. */
+  border-radius: 0;
   background: var(--email-canvas-bg, #ffffff);
   /* Vertical padding tracks the per-template setting; horizontal is 0 (gutter
      comes from the wrapping section, so full-width sections reach the edges). */
@@ -272,6 +273,16 @@ button,
    render filled the card (Design != Preview). Let content fill the canvas. */
 .email-maily-editor .tiptap {
   max-width: none !important;
+}
+
+/* "Card split" band: a full-width section flagged as a card gap (the marker
+   rides on the inner section cell as data-card-gap). Paint it in the live
+   backdrop color, overriding the band's stored inline background, so it always
+   matches the backdrop and reads as a gap between two cards — even after the
+   admin changes the backdrop. Render repaints the band for the actual email;
+   this keeps the Design canvas WYSIWYG with no editor reset. */
+.email-maily-editor [data-card-gap="true"] {
+  background-color: var(--email-canvas-backdrop, #f3f4f6) !important;
 }
 
 /* Maily floating toolbars: the number fields (image width/height, padding, etc.)

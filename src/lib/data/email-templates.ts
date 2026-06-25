@@ -35,6 +35,10 @@ export async function createEmailTemplateVersion(input: {
   assetIds: string[];
   /** Stable hash of the document, used to deduplicate auto-saved templates. */
   contentHash?: string;
+  /** Subject the email was composed with, so reusing the template restores it. */
+  subjectTemplate?: string;
+  /** Preview text the email was composed with, restored on reuse. */
+  previewText?: string;
 }): Promise<EmailTemplateVersion> {
   const profile = await requireAdmin();
   const supabase = await createClient();
@@ -52,21 +56,30 @@ export async function createEmailTemplateVersion(input: {
   }
   const version = data as EmailTemplateVersion;
 
-  // The RPC predates content_hash; set it in a follow-up update so we don't have
-  // to churn the function signature. A failure here must be loud — a version
-  // without its hash would silently never deduplicate.
-  if (input.contentHash) {
-    const { error: hashError } = await supabase
-      .from("email_template_versions")
-      .update({ content_hash: input.contentHash })
-      .eq("id", version.id);
-    if (hashError) {
-      throw new Error(
-        `Failed to record template content hash: ${hashError.message}`,
-      );
-    }
-    version.content_hash = input.contentHash;
+  // The RPC predates content_hash + subject/preview; set them in a follow-up
+  // update so we don't have to churn the function signature. A failure here must
+  // be loud — a version without its hash would silently never deduplicate, and a
+  // version without its subject/preview would silently lose them on reuse.
+  const subjectTemplate = input.subjectTemplate ?? "";
+  const previewText = input.previewText ?? "";
+  const updates: Record<string, unknown> = {
+    subject_template: subjectTemplate,
+    preview_text: previewText,
+  };
+  if (input.contentHash) updates.content_hash = input.contentHash;
+
+  const { error: metadataError } = await supabase
+    .from("email_template_versions")
+    .update(updates)
+    .eq("id", version.id);
+  if (metadataError) {
+    throw new Error(
+      `Failed to record template version metadata: ${metadataError.message}`,
+    );
   }
+  version.subject_template = subjectTemplate;
+  version.preview_text = previewText;
+  if (input.contentHash) version.content_hash = input.contentHash;
 
   return version;
 }

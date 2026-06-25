@@ -64,6 +64,8 @@ beforeEach(() => {
   mockGetEmailTemplateVersion.mockReset().mockResolvedValue({
     id: VERSION_ID,
     builder_json: BUILDER_JSON,
+    subject_template: "Hello {{contact.name}}",
+    preview_text: "A quick note",
   });
   mockAssertMailyDocument.mockClear();
   mockGetAssetIdsForMailyDocument.mockReset().mockReturnValue([]);
@@ -92,6 +94,33 @@ describe("publishTemplateVersionAction", () => {
     );
     expect(mockRenderMailyDocument).toHaveBeenCalledWith(BUILDER_JSON);
     expect(result).toEqual({ ok: true, versionId: VERSION_ID });
+  });
+
+  it("saves the current subject + preview text with the version", async () => {
+    await publishTemplateVersionAction({
+      templateId: TEMPLATE_ID,
+      builderJson: BUILDER_JSON,
+      subjectTemplate: "Welcome {{contact.name}}",
+      previewText: "Your spot is confirmed",
+    });
+
+    expect(mockCreateEmailTemplateVersion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectTemplate: "Welcome {{contact.name}}",
+        previewText: "Your spot is confirmed",
+      }),
+    );
+  });
+
+  it("defaults subject + preview to empty strings when omitted", async () => {
+    await publishTemplateVersionAction({
+      templateId: TEMPLATE_ID,
+      builderJson: BUILDER_JSON,
+    });
+
+    expect(mockCreateEmailTemplateVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectTemplate: "", previewText: "" }),
+    );
   });
 });
 
@@ -160,9 +189,13 @@ describe("createAndPublishTemplateAction", () => {
 });
 
 describe("getTemplateVersionForEditorAction", () => {
-  it("returns only the visual template document for editor consumers", async () => {
+  it("returns the visual document plus the saved subject + preview", async () => {
     const result = await getTemplateVersionForEditorAction(VERSION_ID);
 
-    expect(result).toEqual({ builderJson: BUILDER_JSON });
+    expect(result).toEqual({
+      builderJson: BUILDER_JSON,
+      subjectTemplate: "Hello {{contact.name}}",
+      previewText: "A quick note",
+    });
   });
 });
