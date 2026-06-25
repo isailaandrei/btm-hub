@@ -164,6 +164,8 @@ type ResolvedManualSkippedRecipient = ResolvedManualEligibleRecipient & {
 
 export type EmailTemplateVersionDocument = {
   builderJson: Record<string, unknown>;
+  subjectTemplate: string;
+  previewText: string;
 };
 
 export type EmailTemplateVersionsById = Record<
@@ -186,6 +188,8 @@ async function loadTemplatesWithInitialVersion(): Promise<{
     if (version) {
       templateVersionsById[initialVersionId] = {
         builderJson: version.builder_json,
+        subjectTemplate: version.subject_template ?? "",
+        previewText: version.preview_text ?? "",
       };
     }
   }
@@ -694,6 +698,7 @@ async function createEmailSend(input: ParsedEmailSendInput) {
     const { templateVersionId } = await findOrCreateTemplateForDocument({
       builderJson: document,
       subject: input.subject,
+      previewText: input.previewText,
     });
     await setEmailSendTemplateVersion(send.id, templateVersionId);
     send.template_version_id = templateVersionId;

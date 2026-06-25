@@ -23,16 +23,47 @@ export type EmailSendRecipientInput = {
   skipReason?: string | null;
 };
 
+export interface EmailSendListItem extends EmailSend {
+  /** Name of the saved template this send was rendered from, or null when the
+   * send wasn't linked to one. Used as the row title in the Sent emails list. */
+  template_name: string | null;
+}
+
+/** Pull the nested template name out of a PostgREST embed (which arrives as an
+ * object or, defensively, a single-element array). */
+function resolveJoinedTemplateName(versionJoin: unknown): string | null {
+  const version = Array.isArray(versionJoin) ? versionJoin[0] : versionJoin;
+  const templateJoin = (version as { email_templates?: unknown } | null)
+    ?.email_templates;
+  const template = Array.isArray(templateJoin) ? templateJoin[0] : templateJoin;
+  const name = (template as { name?: unknown } | null)?.name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
 export const listEmailSends = cache(
-  async function listEmailSends(): Promise<EmailSend[]> {
+  async function listEmailSends(): Promise<EmailSendListItem[]> {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("email_sends")
-      .select("*")
+      // Disambiguate the inner embed: email_template_versions and email_templates
+      // have two FKs between them (template_id and the current_version_id
+      // back-reference), so PostgREST needs the constraint name spelled out.
+      .select(
+        "*, email_template_versions(email_templates!email_template_versions_template_id_fkey(name))",
+      )
       .order("created_at", { ascending: false });
 
     if (error) throw new Error(`Failed to load sent emails: ${error.message}`);
-    return (data ?? []) as EmailSend[];
+    return (data ?? []).map((row) => {
+      const { email_template_versions: versionJoin, ...send } = row as Record<
+        string,
+        unknown
+      >;
+      return {
+        ...(send as unknown as EmailSend),
+        template_name: resolveJoinedTemplateName(versionJoin),
+      };
+    });
   },
 );
 
@@ -257,14 +288,58 @@ export async function setEmailSendTemplateVersion(
   }
 }
 
+// Any send can be deleted except one that is actively 'sending' — removing a
+// send mid-dispatch (its recipients are being claimed/sent) would race the
+// drain/worker and risk duplicate or orphaned deliveries. Terminal sends
+// (sent / partially_failed / failed) and not-yet-started ones (draft / queued)
+// are safe to remove; the cascade clears their recipients + events.
+const REMOVABLE_SEND_STATUSES = [
+  "draft",
+  "queued",
+  "sent",
+  "partially_failed",
+  "failed",
+];
+
 export async function deleteRemovableEmailSend(sendId: string): Promise<boolean> {
   await requireAdmin();
   const supabase = await createClient();
+
+  // Gate on status first so we never strip events from a send we then can't
+  // delete (e.g. one that flipped to 'sending'). The delete below re-checks the
+  // status, so this is just to avoid touching events for a non-removable send.
+  const { data: existing, error: lookupError } = await supabase
+    .from("email_sends")
+    .select("status")
+    .eq("id", sendId)
+    .maybeSingle();
+  if (lookupError) {
+    throw new Error(`Failed to load email send: ${lookupError.message}`);
+  }
+  if (
+    !existing ||
+    !REMOVABLE_SEND_STATUSES.includes((existing as { status: string }).status)
+  ) {
+    return false;
+  }
+
+  // Remove the send's events explicitly. email_events.send_id is ON DELETE SET
+  // NULL, so deleting the send alone would leave them as orphans (recipient_id
+  // also nulled), which the reconcile cron would then churn on every tick.
+  // Recipients cascade with the send, so they don't need a manual delete.
+  const { error: eventsError } = await supabase
+    .from("email_events")
+    .delete()
+    .eq("send_id", sendId);
+  if (eventsError) {
+    throw new Error(`Failed to delete email send events: ${eventsError.message}`);
+  }
+
   const { data, error } = await supabase
     .from("email_sends")
     .delete()
     .eq("id", sendId)
-    .in("status", ["draft", "queued", "failed"])
+    .in("status", REMOVABLE_SEND_STATUSES)
     .select("id")
     .maybeSingle();
 

@@ -188,6 +188,12 @@ export function EmailComposer({
         const nextDocument = assertMailyDocument(version.builderJson);
         setDocument(nextDocument);
         setLayout(getMailyDocumentLayout(nextDocument));
+        // Restore the subject + preview the template was saved with. Subject only
+        // when the template actually has one, so older templates (saved before
+        // this was captured) keep the composer's current subject instead of
+        // blanking it; preview is restored as-is ("" is a valid empty preview).
+        if (version.subjectTemplate) setSubject(version.subjectTemplate);
+        setPreviewText(version.previewText ?? "");
         setLoadedTemplateVersionId(selectedTemplateVersionId);
         setTemplateLoadError(null);
         designerRef.current?.loadDocument(nextDocument);
@@ -808,6 +814,8 @@ export function EmailComposer({
             <SaveAsTemplate
               getBuilderJson={getCurrentBuilderJson}
               suggestedName={suggestedTemplateName}
+              subject={subject}
+              previewText={previewText}
               currentTemplate={
                 selectedTemplate
                   ? { id: selectedTemplate.id, name: selectedTemplate.name }

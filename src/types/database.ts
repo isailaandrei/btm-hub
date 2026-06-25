@@ -292,6 +292,10 @@ export interface EmailTemplateVersion {
   text: string;
   asset_ids: string[];
   content_hash: string | null;
+  /** Subject the template was saved with, restored when reused. "" = none saved. */
+  subject_template: string;
+  /** Preview text the template was saved with, restored when reused. */
+  preview_text: string;
   created_by: string;
   created_at: string;
 }

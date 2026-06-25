@@ -249,6 +249,8 @@ describe("loadEmailTemplatesAction", () => {
       templateVersionsById: {
         [TEMPLATE_VERSION_ID]: {
           builderJson: { type: "doc", content: [] },
+          subjectTemplate: "",
+          previewText: "",
         },
       },
     });

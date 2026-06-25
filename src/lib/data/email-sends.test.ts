@@ -144,26 +144,70 @@ describe("email send data access", () => {
     expect(result).toBe(events);
   });
 
-  it("deletes only removable email sends", async () => {
-    mockSupabase.mockQueryResult({ id: "send-1" });
+  it("resolves the joined template name onto each send and strips the embed", async () => {
+    mockSupabase.mockQueryResult([
+      {
+        id: "send-1",
+        status: "sent",
+        email_template_versions: { email_templates: { name: "  Welcome  " } },
+      },
+      {
+        id: "send-2",
+        status: "sent",
+        email_template_versions: null,
+      },
+    ]);
+
+    const { listEmailSends } = await import("./email-sends");
+    const result = await listEmailSends();
+
+    expect(mockSupabase.query.select).toHaveBeenCalledWith(
+      "*, email_template_versions(email_templates!email_template_versions_template_id_fkey(name))",
+    );
+    expect(result[0]).toMatchObject({ id: "send-1", template_name: "Welcome" });
+    expect(result[1]).toMatchObject({ id: "send-2", template_name: null });
+    // The raw PostgREST embed must not leak into the returned send shape.
+    expect("email_template_versions" in result[0]).toBe(false);
+  });
+
+  it("deletes a removable send, clearing its events first", async () => {
+    // Single shared mock result: the status pre-check sees a removable status and
+    // the final delete returns a row.
+    mockSupabase.mockQueryResult({ id: "send-1", status: "sent" });
 
     const { deleteRemovableEmailSend } = await import("./email-sends");
     const result = await deleteRemovableEmailSend("send-1");
 
     expect(mockSupabase.client.from).toHaveBeenCalledWith("email_sends");
+    // Events are removed explicitly so the delete doesn't orphan them.
+    expect(mockSupabase.client.from).toHaveBeenCalledWith("email_events");
+    expect(mockSupabase.query.select).toHaveBeenCalledWith("status");
     expect(mockSupabase.query.delete).toHaveBeenCalled();
+    expect(mockSupabase.query.eq).toHaveBeenCalledWith("send_id", "send-1");
     expect(mockSupabase.query.eq).toHaveBeenCalledWith("id", "send-1");
+    // Terminal sends are now removable too — only an in-flight 'sending' is not.
     expect(mockSupabase.query.in).toHaveBeenCalledWith("status", [
       "draft",
       "queued",
+      "sent",
+      "partially_failed",
       "failed",
     ]);
     expect(mockSupabase.query.select).toHaveBeenCalledWith("id");
-    expect(mockSupabase.query.maybeSingle).toHaveBeenCalled();
     expect(result).toBe(true);
   });
 
-  it("returns false when no removable email send was deleted", async () => {
+  it("returns false for a non-removable (in-flight) send without deleting", async () => {
+    mockSupabase.mockQueryResult({ id: "send-1", status: "sending" });
+
+    const { deleteRemovableEmailSend } = await import("./email-sends");
+    const result = await deleteRemovableEmailSend("send-1");
+
+    expect(result).toBe(false);
+    expect(mockSupabase.query.delete).not.toHaveBeenCalled();
+  });
+
+  it("returns false when the send no longer exists", async () => {
     mockSupabase.mockQueryResult(null);
 
     const { deleteRemovableEmailSend } = await import("./email-sends");

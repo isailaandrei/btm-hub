@@ -15,11 +15,11 @@ import { toast } from "sonner";
 import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import type {
   EmailManualRecipient,
-  EmailSend,
   EmailTemplate,
   Tag,
   TagCategory,
 } from "@/types/database";
+import type { EmailSendListItem } from "@/lib/data/email-sends";
 import type { EmailListSummary } from "@/lib/data/email-lists";
 import type { EmailSegmentSummary } from "@/lib/data/email-segments";
 import type { EmailExclusionRow } from "@/lib/data/email-suppressions";
@@ -110,7 +110,7 @@ function useEnsuredResource<T>(
 
 interface AdminEmailDataContextValue {
   templates: EmailTemplate[] | null;
-  sends: EmailSend[] | null;
+  sends: EmailSendListItem[] | null;
   manualRecipients: EmailManualRecipient[] | null;
   templateVersionsById: EmailTemplateVersionsById;
   emailError: string | null;
@@ -125,7 +125,7 @@ interface AdminEmailDataContextValue {
     options?: LoadOptions,
   ) => Promise<EmailTemplateVersionDocument | null>;
   setEmailTemplates: Dispatch<SetStateAction<EmailTemplate[] | null>>;
-  setEmailSends: Dispatch<SetStateAction<EmailSend[] | null>>;
+  setEmailSends: Dispatch<SetStateAction<EmailSendListItem[] | null>>;
   setManualRecipients: Dispatch<
     SetStateAction<EmailManualRecipient[] | null>
   >;
@@ -170,7 +170,7 @@ export function useAdminEmailData() {
 
 export function AdminEmailDataProvider({ children }: { children: ReactNode }) {
   const [templates, setEmailTemplates] = useState<EmailTemplate[] | null>(null);
-  const [sends, setEmailSends] = useState<EmailSend[] | null>(null);
+  const [sends, setEmailSends] = useState<EmailSendListItem[] | null>(null);
   const [manualRecipients, setManualRecipients] = useState<
     EmailManualRecipient[] | null
   >(null);
