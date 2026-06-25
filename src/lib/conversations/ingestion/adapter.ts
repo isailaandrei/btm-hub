@@ -1,5 +1,5 @@
 export type ConversationSource = "whatsapp";
-export type ConversationProvider = "twilio";
+export type ConversationProvider = "ycloud";
 export type ConversationDirection = "inbound" | "outbound";
 
 export type NormalizedConversationMessage = {
@@ -19,5 +19,5 @@ export type NormalizedConversationMessage = {
 };
 
 export interface ConversationIngestAdapter {
-  parse(payload: URLSearchParams): NormalizedConversationMessage;
+  parse(event: unknown): NormalizedConversationMessage;
 }
