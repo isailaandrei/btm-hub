@@ -16,17 +16,6 @@ export const NAV_LINKS = [
   { label: "Foundation", href: "/foundation" },
 ] as const;
 
-export const LOGIN_HREF = "/login";
-
-// TODO: replace with the real Behind the Mask social URLs.
-export const YOUTUBE_CHANNEL = "https://www.youtube.com/@BehindtheMask";
-
-export const SOCIAL = {
-  // TODO: real Behind the Mask Facebook URL.
-  facebook: "https://www.facebook.com",
-  youtube: YOUTUBE_CHANNEL,
-};
-
 /** YouTube helpers — `i.ytimg.com` is whitelisted in next.config.ts. */
 export const ytThumb = (id: string) => `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
 export const ytWatch = (id: string) => `https://www.youtube.com/watch?v=${id}`;

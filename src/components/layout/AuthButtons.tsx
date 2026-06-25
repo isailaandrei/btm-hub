@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { logout } from "@/app/(auth)/actions";
-import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useNavbarAuth, getInitials } from "./use-navbar-auth";
 import type { NavbarUser } from "@/lib/data/auth";
 
 interface AuthButtonsProps {
@@ -13,111 +12,11 @@ interface AuthButtonsProps {
   initialUser?: NavbarUser;
 }
 
-const CACHE_KEY = "btm-navbar-user";
-
 export function AuthButtons({
   variant = "dark",
   initialUser,
 }: AuthButtonsProps) {
-  const hasInitialUser = initialUser !== undefined;
-  const [user, setUser] = useState<NavbarUser>(initialUser ?? null);
-  const [loading, setLoading] = useState(!hasInitialUser);
-
-  useEffect(() => {
-    const supabase = createClient();
-
-    async function fetchProfile(userId: string) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("display_name, avatar_url, role")
-        .eq("id", userId)
-        .single();
-
-      if (profile) {
-        const navUser: NavbarUser = {
-          id: userId,
-          displayName: profile.display_name ?? null,
-          avatarUrl: profile.avatar_url ?? null,
-          role: profile.role,
-        };
-        setUser(navUser);
-        try {
-          sessionStorage.setItem(CACHE_KEY, JSON.stringify(navUser));
-        } catch {}
-      } else {
-        setUser(null);
-        sessionStorage.removeItem(CACHE_KEY);
-      }
-    }
-
-    async function checkAuth({ readCache = true }: { readCache?: boolean } = {}) {
-      // Apply sessionStorage cache immediately (before any await) to avoid skeleton flash
-      let hadCache = false;
-      if (readCache) {
-        try {
-          const raw = sessionStorage.getItem(CACHE_KEY);
-          if (raw) {
-            setUser(JSON.parse(raw) as NavbarUser);
-            setLoading(false);
-            hadCache = true;
-          }
-        } catch {}
-      }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.user) {
-        setUser(null);
-        setLoading(false);
-        sessionStorage.removeItem(CACHE_KEY);
-        return;
-      }
-
-      // If we had cached data, we already rendered it — fetch profile in background to refresh
-      if (hadCache) {
-        fetchProfile(session.user.id);
-      } else {
-        await fetchProfile(session.user.id);
-        setLoading(false);
-      }
-    }
-
-    if (hasInitialUser) {
-      try {
-        if (initialUser) {
-          sessionStorage.setItem(CACHE_KEY, JSON.stringify(initialUser));
-        } else {
-          sessionStorage.removeItem(CACHE_KEY);
-        }
-      } catch {}
-    } else {
-      checkAuth();
-    }
-
-    function handleProfileUpdate() {
-      sessionStorage.removeItem(CACHE_KEY);
-      checkAuth({ readCache: false });
-    }
-    window.addEventListener("profile-updated", handleProfileUpdate);
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") {
-        setUser(null);
-        setLoading(false);
-        sessionStorage.removeItem(CACHE_KEY);
-      } else if (event === "SIGNED_IN") {
-        sessionStorage.removeItem(CACHE_KEY);
-        checkAuth({ readCache: false });
-      }
-    });
-
-    return () => {
-      window.removeEventListener("profile-updated", handleProfileUpdate);
-      subscription.unsubscribe();
-    };
-  }, [hasInitialUser, initialUser]);
+  const { user, loading } = useNavbarAuth(initialUser);
 
   if (loading) {
     return <Skeleton className="h-8 w-32 rounded-full" />;
@@ -145,12 +44,7 @@ export function AuthButtons({
     );
   }
 
-  const initials = (user.displayName || "U")
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  const initials = getInitials(user.displayName);
 
   return (
     <div className="flex items-center gap-3">

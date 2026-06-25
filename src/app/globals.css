@@ -292,3 +292,28 @@ button,
   max-width: 7rem !important;
   min-width: 4.5rem;
 }
+
+/* ---- Scroll reveal -------------------------------------------------------
+   Content rises and fades into place as it enters the viewport. Driven by
+   <RevealOnScroll> (IntersectionObserver), which sets [data-reveal-root] on
+   <html> once active — so the hidden state below never applies before JS runs
+   (content stays visible without JS / under reduced motion). Elements already
+   on screen at load are marked .is-visible synchronously, so they never flash.
+
+   The transition lives on `.is-visible`, NOT on `.reveal`: pre-rendered
+   elements exist at opacity 1 before the root flag is set, so a transition on
+   the hidden state animates 1→0 and sticks at the from-value. Keeping the
+   hidden state transition-less makes it snap to hidden, then animate on reveal. */
+@media not (prefers-reduced-motion: reduce) {
+  [data-reveal-root] .reveal {
+    opacity: 0;
+    transform: translateY(1.75rem);
+  }
+  [data-reveal-root] .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}

@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import { CollageParallax } from "@/components/home/collage-parallax";
+import { HomeAuthProvider } from "@/components/home/home-auth-context";
 import { HomeDesktop } from "@/components/home/home-desktop";
 import { HomeMobile } from "@/components/home/home-mobile";
+import { RevealOnScroll } from "@/components/home/reveal-on-scroll";
 import { VideosSection } from "@/components/home/videos-section";
+import { Footer } from "@/components/layout/Footer";
 
 export const metadata: Metadata = {
   title: "Behind The Mask — Life is an Ocean",
@@ -11,10 +15,13 @@ export const metadata: Metadata = {
 
 export default function HomePage() {
   return (
-    <>
+    <HomeAuthProvider>
+      <RevealOnScroll />
+      <CollageParallax />
       <HomeDesktop />
       <HomeMobile />
       <VideosSection />
-    </>
+      <Footer />
+    </HomeAuthProvider>
   );
 }
