@@ -34,6 +34,28 @@ export type UpdateConversationMessageMatchInput = {
   rawPayload: Record<string, unknown>;
 };
 
+export type ContactConversationMessage = {
+  id: string;
+  direction: ConversationDirection;
+  body: string;
+  media: Array<{ url: string; contentType: string | null }>;
+  fromIdentifier: string;
+  toIdentifier: string;
+  happenedAt: string;
+  matchStatus: ConversationMessageMatchStatus;
+};
+
+type ContactConversationMessageRow = {
+  id: string;
+  direction: ConversationDirection;
+  body: string;
+  media_json: unknown;
+  from_identifier: string;
+  to_identifier: string;
+  happened_at: string;
+  match_status: ConversationMessageMatchStatus;
+};
+
 export type ConversationFactInput = {
   contactId: string;
   source: ConversationSource;
@@ -173,6 +195,61 @@ export async function updateConversationMessageMatch(
   if (error) {
     throw new Error(`Failed to update conversation message match: ${error.message}`);
   }
+}
+
+const PHONE_E164 = /^\+\d{6,15}$/;
+
+/**
+ * Lists a contact's WhatsApp thread: messages linked by `contact_id` plus any
+ * to/from the contact's phone number (covers messages received before the
+ * contact existed, or left unmatched/ambiguous at receipt). Ordered oldest
+ * first for chat rendering.
+ *
+ * `contactId` must be a validated UUID and `phoneE164` is checked against
+ * `PHONE_E164` before interpolation, so the `.or()` filter cannot be abused for
+ * PostgREST filter injection.
+ */
+export async function listContactConversationMessages(input: {
+  contactId: string;
+  phoneE164?: string | null;
+  limit?: number;
+}): Promise<ContactConversationMessage[]> {
+  const supabase = await createAdminClient();
+
+  const filters = [`contact_id.eq.${input.contactId}`];
+  const phone =
+    input.phoneE164 && PHONE_E164.test(input.phoneE164) ? input.phoneE164 : null;
+  if (phone) {
+    filters.push(`from_identifier.eq.${phone}`, `to_identifier.eq.${phone}`);
+  }
+
+  const { data, error } = await supabase
+    .from("conversation_messages")
+    .select(
+      "id, direction, body, media_json, from_identifier, to_identifier, happened_at, match_status",
+    )
+    .or(filters.join(","))
+    .order("happened_at", { ascending: true })
+    .limit(input.limit ?? 500);
+
+  if (error) {
+    throw new Error(
+      `Failed to list contact conversation messages: ${error.message}`,
+    );
+  }
+
+  return ((data ?? []) as ContactConversationMessageRow[]).map((row) => ({
+    id: row.id,
+    direction: row.direction,
+    body: row.body,
+    media: Array.isArray(row.media_json)
+      ? (row.media_json as Array<{ url: string; contentType: string | null }>)
+      : [],
+    fromIdentifier: row.from_identifier,
+    toIdentifier: row.to_identifier,
+    happenedAt: row.happened_at,
+    matchStatus: row.match_status,
+  }));
 }
 
 export async function hasConversationMessages(input?: {

@@ -19,6 +19,11 @@ import {
   liftContactExclusion,
 } from "@/lib/data/email-suppressions";
 import type { EmailSuppressionReason } from "@/types/database";
+import { normalizePhoneNumber } from "@/lib/conversations/phone";
+import {
+  listContactConversationMessages,
+  type ContactConversationMessage,
+} from "@/lib/data/conversations";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 import {
   contactsPreferencesPatchSchema,
@@ -86,6 +91,23 @@ export async function loadContactEmailSection(
   const email = await requireContactEmail(contactId);
   const suppression = await getActiveSuppressionForContact({ contactId, email });
   return { excluded: Boolean(suppression), reason: suppression?.reason ?? null };
+}
+
+/**
+ * WhatsApp conversation thread for a contact, loaded client-side by the contact
+ * detail panel's WhatsApp section. Includes messages linked by contact_id plus
+ * any to/from the contact's phone number (e.g. received before the contact
+ * existed). The section's Realtime channel keeps the open thread fresh.
+ */
+export async function loadContactWhatsAppMessages(
+  contactId: string,
+): Promise<ContactConversationMessage[]> {
+  await requireAdmin();
+  validateUUID(contactId);
+  const contact = await getContactById(contactId);
+  if (!contact) throw new Error("Contact not found");
+  const phoneE164 = normalizePhoneNumber(contact.phone)?.e164 ?? null;
+  return listContactConversationMessages({ contactId, phoneE164 });
 }
 
 export async function excludeContactFromEmail(contactId: string) {

@@ -12,6 +12,7 @@ function makeQuery(data: unknown = null, error: unknown = null) {
     "update",
     "upsert",
     "eq",
+    "or",
     "is",
     "in",
     "gte",
@@ -70,6 +71,63 @@ describe("conversation data layer", () => {
       { onConflict: "provider,provider_message_id" },
     );
     expect(result).toEqual({ id: "message-1", contactId: null });
+  });
+
+  it("lists a contact's thread by contact id and phone, oldest first", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery([
+      {
+        id: "m1",
+        direction: "inbound",
+        body: "Hello",
+        media_json: [{ url: "https://x/y", contentType: "image/jpeg" }],
+        from_identifier: "+40787604139",
+        to_identifier: "+351939054063",
+        happened_at: "2026-06-25T15:31:42Z",
+        match_status: "matched",
+      },
+    ]);
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { listContactConversationMessages } = await import("./conversations");
+    const result = await listContactConversationMessages({
+      contactId: "contact-1",
+      phoneE164: "+40787604139",
+    });
+
+    expect(client.from).toHaveBeenCalledWith("conversation_messages");
+    expect(query.or).toHaveBeenCalledWith(
+      "contact_id.eq.contact-1,from_identifier.eq.+40787604139,to_identifier.eq.+40787604139",
+    );
+    expect(query.order).toHaveBeenCalledWith("happened_at", { ascending: true });
+    expect(result).toEqual([
+      {
+        id: "m1",
+        direction: "inbound",
+        body: "Hello",
+        media: [{ url: "https://x/y", contentType: "image/jpeg" }],
+        fromIdentifier: "+40787604139",
+        toIdentifier: "+351939054063",
+        happenedAt: "2026-06-25T15:31:42Z",
+        matchStatus: "matched",
+      },
+    ]);
+  });
+
+  it("omits the phone filter when the phone is missing or malformed", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery([]);
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { listContactConversationMessages } = await import("./conversations");
+    await listContactConversationMessages({
+      contactId: "contact-1",
+      phoneE164: "not-a-phone",
+    });
+
+    expect(query.or).toHaveBeenCalledWith("contact_id.eq.contact-1");
   });
 
   it("patches phone match metadata after raw message storage", async () => {
