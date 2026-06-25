@@ -99,7 +99,7 @@ function Photo({
       fill
       sizes={sizes}
       priority={priority}
-      className={cn("object-cover", parallax && "scale-[1.18]")}
+      className={cn("object-cover", parallax && "scale-[1.28]")}
       style={objectPosition ? { objectPosition } : undefined}
     />
   );
@@ -262,6 +262,32 @@ export function HomeDesktop() {
           <img src={`${IMG_BASE}/mask-bg.svg`} alt="" aria-hidden className="h-full w-full" />
         </Box>
 
+        {/* ---- Shop section bottom fade ----
+            Dissolves the lower ocean photo (bg-bottom, ends ~y4301) into the
+            section base so there is no hard divider above the videos block. The
+            Figma mask's bottom fade was positioned for the original 6064px
+            canvas; once the layout was compressed to 4700 it stopped reaching
+            full black by the photo's edge — and because that mask is slanted, it
+            blacks out the photo's right side before its edge but leaves the left
+            side still navy at the rectangular cut, showing a hard line on the
+            left. So the gradient reaches solid #020306 ~50px ABOVE the photo's
+            edge, covering that last navy strip across the full width, then stays
+            opaque all the way down to the section's bottom (y=H). Extending it to
+            the canvas edge also covers the faint navy the over-tall mask SVG
+            bleeds into the dead zone below the photo, so there is no second edge
+            where the overlay would otherwise stop. Sits above the photos and mask
+            (z=2) but behind the collage and copy (z≥10), so only the background
+            is affected. */}
+        <Box
+          x={0}
+          y={4080}
+          w={W}
+          h={H - 4080}
+          z={2}
+          className="pointer-events-none select-none"
+          style={{ background: "linear-gradient(to bottom, rgba(2,3,6,0) 0%, rgba(2,3,6,1) 27%)" }}
+        />
+
         {/* ---- Top bar: logo, nav, auth ----
             A flex header (rather than absolutely-positioned boxes) so the auth
             cluster can grow for the logged-in / admin states without colliding
@@ -300,7 +326,7 @@ export function HomeDesktop() {
             background for depth, leaving the section gradients untouched.
             Full-canvas, pointer-events-none so the feature buttons stay
             clickable; static under reduced-motion. */}
-        <Parallax speed={0.35} className="pointer-events-none absolute inset-0 z-[15]">
+        <Parallax speed={0.6} className="pointer-events-none absolute inset-0 z-[15]">
           <Text x={388} y={377} w={905} h={120} size={100} lh={120} font="display" nowrap z={15}>
             {HERO.headline}
           </Text>

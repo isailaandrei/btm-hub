@@ -49,7 +49,7 @@ export function HomeMobile() {
         <div className="relative flex min-h-[100svh] flex-col items-center justify-center px-6 text-center">
           {/* Hero copy — scroll parallax: drifts up and fades over the static
               background (static under reduced-motion). */}
-          <Parallax speed={0.3} className="flex flex-col items-center">
+          <Parallax speed={0.5} className="flex flex-col items-center">
             <h1 className="font-display text-5xl leading-[1.05] text-white sm:text-6xl">{HERO.headline}</h1>
             <Flourish className="my-6 h-4 w-5" />
             <p className="max-w-sm font-serif text-base leading-relaxed text-white/90">{HERO.intro.join(" ")}</p>
@@ -91,7 +91,7 @@ export function HomeMobile() {
                   )}
                 >
                   <div data-parallax className="absolute inset-0">
-                    <Image src={img.src} alt={img.alt} fill sizes="100vw" className="scale-[1.18] object-cover" />
+                    <Image src={img.src} alt={img.alt} fill sizes="100vw" className="scale-[1.28] object-cover" />
                   </div>
                 </div>
               ))}

@@ -10,15 +10,15 @@ import { useEffect } from "react";
  *
  * The offset is a fraction of the frame's own height, so larger photos drift
  * more than small ones (the "different rates"). It stays below the image's
- * `scale-[1.18]` over-scale buffer (~9%), so the pan never exposes a frame edge.
+ * `scale-[1.28]` over-scale buffer (~14%), so the pan never exposes a frame edge.
  *
  * Imperative (writes transforms straight to the DOM in a rAF, no React
  * re-renders); a no-op under prefers-reduced-motion.
  */
 
 // Max pan as a fraction of frame height. Must stay under the image over-scale
-// buffer (scale-[1.18] → ~0.09 of height on each side).
-const PAN = 0.07;
+// buffer (scale-[1.28] → ~0.14 of height on each side).
+const PAN = 0.11;
 
 export function CollageParallax() {
   useEffect(() => {
