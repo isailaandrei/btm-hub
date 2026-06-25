@@ -55,7 +55,7 @@ export function FilmFilterSheet({
             {activeCount > 0 && <Badge variant="secondary">{activeCount}</Badge>}
           </Button>
         </SheetTrigger>
-        <SheetContent>
+        <SheetContent className="dark border-white/10 bg-[#0a0d12] text-white">
           <SheetHeader>
             <SheetTitle>Filter films</SheetTitle>
             <SheetDescription>

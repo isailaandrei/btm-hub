@@ -31,9 +31,10 @@ describe("FilmRow", () => {
     expect(html).toContain("md:px-10");
     expect(html).toContain("lg:px-16");
     expect(html).toContain("absolute left-0 top-0");
-    expect(html).toContain("bg-gradient-to-r from-muted");
+    // Edge-fade overlays dissolve into the cinematic #020306 base (dark reskin).
+    expect(html).toContain("bg-gradient-to-r from-[#020306]");
     expect(html).toContain("absolute right-0 top-0");
-    expect(html).toContain("bg-gradient-to-l from-muted");
+    expect(html).toContain("bg-gradient-to-l from-[#020306]");
     expect(html).toContain("group-hover/row:opacity-100");
     expect(html).not.toContain("rounded-full");
   });

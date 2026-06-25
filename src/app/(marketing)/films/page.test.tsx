@@ -28,11 +28,13 @@ vi.mock("@/lib/films/posters", () => ({
 const { default: FilmsPage } = await import("./page");
 
 describe("FilmsPage", () => {
-  it("removes the centered marketing hero while keeping the existing page theme", async () => {
+  it("renders the films browser on the cinematic #020306 dark theme", async () => {
     const html = renderToStaticMarkup(await FilmsPage());
 
-    expect(html).toContain("min-h-screen bg-muted");
+    expect(html).toContain("dark min-h-screen bg-[#020306] text-white");
     expect(html).toContain('data-testid="films-browser"');
+    // The old light marketing theme + centered hero copy are gone.
+    expect(html).not.toContain("bg-muted");
     expect(html).not.toContain("Stories captured beneath the surface");
     expect(html).not.toContain("Explore our underwater film portfolio through");
   });

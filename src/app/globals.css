@@ -317,3 +317,21 @@ button,
       transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
+
+/* ---- Films hero: slow Ken-Burns drift on the backdrop still ---------------
+   A barely-there 20s zoom-out so the single hero image feels alive without
+   distracting from the copy. Held still under reduced motion. */
+@media not (prefers-reduced-motion: reduce) {
+  .films-hero-zoom {
+    animation: films-hero-zoom 20s ease-out both;
+    will-change: transform;
+  }
+}
+@keyframes films-hero-zoom {
+  from {
+    transform: scale(1.08);
+  }
+  to {
+    transform: scale(1);
+  }
+}

@@ -32,29 +32,32 @@ export default async function FilmsPage() {
 
   if (!films || films.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-muted px-5 py-20">
-        <h1 className="mb-4 text-[length:var(--font-size-h1)] font-medium text-foreground">
-          Films
-        </h1>
-        <p className="max-w-md text-center text-muted-foreground">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#020306] px-5 py-20 text-center text-white">
+        <h1 className="mb-4 font-display text-4xl">Films</h1>
+        <p className="max-w-md font-serif text-white/70">
           Our film portfolio is coming soon. Check back later.
         </p>
       </div>
     );
   }
 
+  // The hero billboard spotlights the editor-flagged featured film, falling back
+  // to the first (most-recent) film so the page always opens cinematically.
+  const featuredFilm = films.find((film) => film.featured) ?? films[0];
+
+  // `dark` makes the in-page shadcn controls (filter trigger, etc.) resolve dark
+  // tokens; the deep #020306 base + white type carry the homepage's vibe.
   return (
-    <main className="min-h-screen bg-muted px-5 py-16 md:px-8 lg:px-12">
-      <div className="space-y-8">
-        <FilmsBrowser
-          films={films}
-          collections={collections ?? []}
-          rowVisibility={{
-            showLatestRow: settings?.showLatestRow ?? true,
-            showAllVideosRow: settings?.showAllVideosRow ?? true,
-          }}
-        />
-      </div>
-    </main>
+    <div className="dark min-h-screen bg-[#020306] text-white">
+      <FilmsBrowser
+        films={films}
+        collections={collections ?? []}
+        featuredFilm={featuredFilm}
+        rowVisibility={{
+          showLatestRow: settings?.showLatestRow ?? true,
+          showAllVideosRow: settings?.showAllVideosRow ?? true,
+        }}
+      />
+    </div>
   );
 }
