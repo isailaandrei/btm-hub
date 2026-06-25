@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { YCloudWhatsAppAdapter } from "./ycloud-whatsapp";
+import {
+  parseYCloudHistoryEvent,
+  YCloudWhatsAppAdapter,
+} from "./ycloud-whatsapp";
 
 describe("YCloudWhatsAppAdapter", () => {
   it("parses a YCloud inbound text event into a source-agnostic message", () => {
@@ -94,5 +97,64 @@ describe("YCloudWhatsAppAdapter", () => {
     expect(() => new YCloudWhatsAppAdapter().parse({ type: "x" })).toThrow(
       /whatsappInboundMessage/,
     );
+  });
+});
+
+describe("parseYCloudHistoryEvent", () => {
+  it("parses an inbound history message (customer -> business)", () => {
+    const message = parseYCloudHistoryEvent({
+      id: "evt_h1",
+      type: "whatsapp.smb.history",
+      whatsappInboundMessage: {
+        id: "h-in-1",
+        from: "+12133734253",
+        to: "+351939054063",
+        sendTime: "2026-01-10T09:00:00.000Z",
+        type: "text",
+        text: { body: "old inbound" },
+      },
+    });
+
+    expect(message).toEqual(
+      expect.objectContaining({
+        provider: "ycloud",
+        providerMessageId: "h-in-1",
+        direction: "inbound",
+        fromIdentifier: "+12133734253",
+        toIdentifier: "+351939054063",
+        body: "old inbound",
+        happenedAt: "2026-01-10T09:00:00.000Z",
+      }),
+    );
+  });
+
+  it("parses an outbound history message (business -> customer)", () => {
+    const message = parseYCloudHistoryEvent({
+      type: "whatsapp.smb.history",
+      whatsappMessage: {
+        id: "h-out-1",
+        from: "+351939054063",
+        to: "+12133734253",
+        sendTime: "2026-01-10T09:05:00.000Z",
+        type: "text",
+        text: { body: "old reply" },
+      },
+    });
+
+    expect(message).toEqual(
+      expect.objectContaining({
+        providerMessageId: "h-out-1",
+        direction: "outbound",
+        fromIdentifier: "+351939054063",
+        toIdentifier: "+12133734253",
+        body: "old reply",
+      }),
+    );
+  });
+
+  it("fails loudly when neither message container is present", () => {
+    expect(() =>
+      parseYCloudHistoryEvent({ type: "whatsapp.smb.history" }),
+    ).toThrow(/whatsappInboundMessage\/whatsappMessage/);
   });
 });

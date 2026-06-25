@@ -1,6 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { YCloudWhatsAppAdapter } from "@/lib/conversations/ingestion/ycloud-whatsapp";
+import type { NormalizedConversationMessage } from "@/lib/conversations/ingestion/adapter";
+import {
+  parseYCloudHistoryEvent,
+  YCloudWhatsAppAdapter,
+} from "@/lib/conversations/ingestion/ycloud-whatsapp";
 import {
   buildContactPhoneIndex,
   matchContactByPhone,
@@ -12,9 +16,11 @@ import {
   upsertConversationMessage,
 } from "@/lib/data/conversations";
 
-// Only inbound messages are ingested. Other subscribed events (e.g. message
-// status updates) are acknowledged with 200 so YCloud does not retry them.
+// Live inbound messages.
 const INBOUND_EVENT_TYPE = "whatsapp.inbound_message.received";
+// WhatsApp Business App / Coexistence history sync — backfills past messages
+// (both directions). Each event carries one message.
+const HISTORY_EVENT_TYPE = "whatsapp.smb.history";
 
 function constantTimeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -88,6 +94,75 @@ function contactFieldsForMatch(match: ContactPhoneMatch): {
   };
 }
 
+/**
+ * Stores a normalized message (idempotent by provider + provider_message_id, so
+ * a re-run history sync never duplicates) and links it to a contact by the
+ * customer phone — the sender for inbound, the recipient for outbound.
+ */
+async function ingestMessage(message: NormalizedConversationMessage) {
+  const stored = await upsertConversationMessage({
+    contactId: null,
+    source: message.source,
+    provider: message.provider,
+    providerMessageId: message.providerMessageId,
+    direction: message.direction,
+    fromIdentifier: message.fromIdentifier,
+    toIdentifier: message.toIdentifier,
+    body: message.body,
+    media: message.media,
+    happenedAt: message.happenedAt,
+    rawPayload: message.rawPayload,
+    matchStatus: "unmatched",
+    matchedVia: null,
+  });
+
+  const customerIdentifier =
+    message.direction === "inbound"
+      ? message.fromIdentifier
+      : message.toIdentifier;
+
+  try {
+    const records = await loadContactPhoneIndexRecords();
+    const match = matchContactByPhone(
+      buildContactPhoneIndex(records),
+      customerIdentifier,
+    );
+    const contact = contactFieldsForMatch(match);
+
+    await updateConversationMessageMatch({
+      messageId: stored.id,
+      contactId: contact.contactId,
+      matchStatus: contact.matchStatus,
+      matchedVia: contact.matchedVia,
+      rawPayload: {
+        ...message.rawPayload,
+        phoneMatch: match,
+      },
+    });
+
+    return {
+      ok: true as const,
+      messageId: stored.id,
+      contactId: contact.contactId,
+      matchStatus: contact.matchStatus,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn("[ycloud-webhook] stored message but phone matching failed", {
+      messageId: stored.id,
+      detail,
+    });
+    return {
+      ok: true as const,
+      messageId: stored.id,
+      contactId: null,
+      matchStatus: "unmatched" as const,
+      warning: "Phone matching failed after raw message storage.",
+      detail,
+    };
+  }
+}
+
 export async function POST(request: Request) {
   const secret = process.env.YCLOUD_WEBHOOK_SECRET?.trim();
   if (!secret) {
@@ -111,14 +186,17 @@ export async function POST(request: Request) {
   }
 
   const type = eventType(event);
-  if (type !== INBOUND_EVENT_TYPE) {
-    // Acknowledge non-inbound events (status updates, etc.) without ingesting.
-    return NextResponse.json({ ok: true, ignored: true, type });
-  }
 
-  let message;
+  let message: NormalizedConversationMessage;
   try {
-    message = new YCloudWhatsAppAdapter().parse(event);
+    if (type === INBOUND_EVENT_TYPE) {
+      message = new YCloudWhatsAppAdapter().parse(event);
+    } else if (type === HISTORY_EVENT_TYPE) {
+      message = parseYCloudHistoryEvent(event);
+    } else {
+      // Acknowledge other events (status updates, etc.) without ingesting.
+      return NextResponse.json({ ok: true, ignored: true, type });
+    }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
@@ -127,61 +205,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const stored = await upsertConversationMessage({
-    contactId: null,
-    source: message.source,
-    provider: message.provider,
-    providerMessageId: message.providerMessageId,
-    direction: message.direction,
-    fromIdentifier: message.fromIdentifier,
-    toIdentifier: message.toIdentifier,
-    body: message.body,
-    media: message.media,
-    happenedAt: message.happenedAt,
-    rawPayload: message.rawPayload,
-    matchStatus: "unmatched",
-    matchedVia: null,
-  });
-
-  let contact: ReturnType<typeof contactFieldsForMatch>;
-  try {
-    const records = await loadContactPhoneIndexRecords();
-    const match = matchContactByPhone(
-      buildContactPhoneIndex(records),
-      message.fromIdentifier,
-    );
-    contact = contactFieldsForMatch(match);
-
-    await updateConversationMessageMatch({
-      messageId: stored.id,
-      contactId: contact.contactId,
-      matchStatus: contact.matchStatus,
-      matchedVia: contact.matchedVia,
-      rawPayload: {
-        ...message.rawPayload,
-        phoneMatch: match,
-      },
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.warn("[ycloud-webhook] stored message but phone matching failed", {
-      messageId: stored.id,
-      detail,
-    });
-    return NextResponse.json({
-      ok: true,
-      messageId: stored.id,
-      contactId: null,
-      matchStatus: "unmatched",
-      warning: "Phone matching failed after raw message storage.",
-      detail,
-    });
-  }
-
-  return NextResponse.json({
-    ok: true,
-    messageId: stored.id,
-    contactId: contact.contactId,
-    matchStatus: contact.matchStatus,
-  });
+  const result = await ingestMessage(message);
+  return NextResponse.json(result);
 }
