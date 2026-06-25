@@ -60,6 +60,36 @@ function makeEvent(from = "+12133734253") {
   };
 }
 
+function makeHistoryInbound(from = "+12133734253") {
+  return {
+    id: "evt_h_in",
+    type: "whatsapp.smb.history",
+    whatsappInboundMessage: {
+      id: "hist-in-1",
+      from,
+      to: "+351939054063",
+      sendTime: "2026-01-10T09:00:00.000Z",
+      type: "text",
+      text: { body: "old inbound" },
+    },
+  };
+}
+
+function makeHistoryOutbound(to = "+12133734253") {
+  return {
+    id: "evt_h_out",
+    type: "whatsapp.smb.history",
+    whatsappMessage: {
+      id: "hist-out-1",
+      from: "+351939054063",
+      to,
+      sendTime: "2026-01-10T09:05:00.000Z",
+      type: "text",
+      text: { body: "old reply" },
+    },
+  };
+}
+
 async function post(
   body: string,
   headers: Record<string, string> = { "ycloud-signature": sign(body) },
@@ -178,6 +208,50 @@ describe("POST /api/whatsapp/ycloud/webhook", () => {
         matchStatus: "ambiguous",
         matchedVia: expect.stringContaining(CONTACT_ID),
       }),
+    );
+  });
+
+  it("ingests inbound history messages matched on the sender", async () => {
+    mockLoadContactPhoneIndexRecords.mockResolvedValue([
+      makeRecord(CONTACT_ID, "+12133734253"),
+    ]);
+
+    const response = await postSigned(makeHistoryInbound());
+
+    expect(response.status).toBe(200);
+    expect(mockUpsertConversationMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "ycloud",
+        providerMessageId: "hist-in-1",
+        direction: "inbound",
+        fromIdentifier: "+12133734253",
+      }),
+    );
+    expect(mockUpdateConversationMessageMatch).toHaveBeenCalledWith(
+      expect.objectContaining({ contactId: CONTACT_ID, matchStatus: "matched" }),
+    );
+  });
+
+  it("ingests outbound history messages matched on the recipient, not the business number", async () => {
+    mockLoadContactPhoneIndexRecords.mockResolvedValue([
+      makeRecord(CONTACT_ID, "+12133734253"),
+    ]);
+
+    const response = await postSigned(makeHistoryOutbound());
+
+    expect(response.status).toBe(200);
+    expect(mockUpsertConversationMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerMessageId: "hist-out-1",
+        direction: "outbound",
+        fromIdentifier: "+351939054063",
+        toIdentifier: "+12133734253",
+      }),
+    );
+    // Matched on the customer side (`to`), even though `from` is the business
+    // number — the contact would be missed if we matched on `from`.
+    expect(mockUpdateConversationMessageMatch).toHaveBeenCalledWith(
+      expect.objectContaining({ contactId: CONTACT_ID, matchStatus: "matched" }),
     );
   });
 

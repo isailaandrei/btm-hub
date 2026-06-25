@@ -1,11 +1,12 @@
 import type {
+  ConversationDirection,
   ConversationIngestAdapter,
   NormalizedConversationMessage,
 } from "./adapter";
 
 /**
- * Media keys that may appear on a YCloud inbound WhatsApp message. Each holds an
- * object shaped like `{ id, link, caption, mime_type, filename, sha256 }`.
+ * Media keys that may appear on a YCloud WhatsApp message. Each holds an object
+ * shaped like `{ id, link, caption, mime_type, filename, sha256 }`.
  * See https://docs.ycloud.com/reference/whatsapp-inbound-message-webhook-examples
  */
 const MEDIA_KEYS = ["image", "video", "audio", "document", "sticker"] as const;
@@ -29,7 +30,7 @@ function nonEmptyString(value: unknown): string | null {
 
 function requiredString(value: unknown, field: string): string {
   const parsed = nonEmptyString(value);
-  if (!parsed) throw new Error(`YCloud inbound message missing ${field}`);
+  if (!parsed) throw new Error(`YCloud message missing ${field}`);
   return parsed;
 }
 
@@ -63,37 +64,85 @@ function extractBody(
 }
 
 /**
- * Normalizes a YCloud `whatsapp.inbound_message.received` event into a
- * source-agnostic conversation message. The caller is responsible for verifying
- * the webhook signature and for filtering to inbound events before calling this.
+ * Normalizes a single YCloud message object (the contents of
+ * `whatsappInboundMessage` or `whatsappMessage`) into a source-agnostic message.
+ * `from`/`to` are stored as sent: for inbound `from` is the customer, for
+ * outbound `from` is the business number.
+ */
+function normalizeMessageObject(
+  message: Record<string, unknown>,
+  direction: ConversationDirection,
+  rawPayload: Record<string, unknown>,
+): NormalizedConversationMessage {
+  const providerMessageId =
+    nonEmptyString(message.id) ?? nonEmptyString(message.wamid);
+  if (!providerMessageId) {
+    throw new Error("YCloud message missing id/wamid");
+  }
+
+  const media = collectMedia(message);
+
+  return {
+    source: "whatsapp",
+    provider: "ycloud",
+    providerMessageId,
+    direction,
+    fromIdentifier: requiredString(message.from, "from"),
+    toIdentifier: requiredString(message.to, "to"),
+    body: extractBody(message, media),
+    media: media.map((item) => ({
+      url: item.url,
+      contentType: item.contentType,
+    })),
+    happenedAt: nonEmptyString(message.sendTime) ?? new Date().toISOString(),
+    rawPayload,
+  };
+}
+
+/**
+ * Normalizes a YCloud `whatsapp.inbound_message.received` event. The caller is
+ * responsible for verifying the webhook signature and filtering to inbound
+ * events before calling this.
  */
 export class YCloudWhatsAppAdapter implements ConversationIngestAdapter {
   parse(event: unknown): NormalizedConversationMessage {
     const root = asRecord(event, "payload");
-    const message = asRecord(root.whatsappInboundMessage, "whatsappInboundMessage");
-
-    const providerMessageId =
-      nonEmptyString(message.id) ?? nonEmptyString(message.wamid);
-    if (!providerMessageId) {
-      throw new Error("YCloud inbound message missing id/wamid");
-    }
-
-    const media = collectMedia(message);
-
-    return {
-      source: "whatsapp",
-      provider: "ycloud",
-      providerMessageId,
-      direction: "inbound",
-      fromIdentifier: requiredString(message.from, "from"),
-      toIdentifier: requiredString(message.to, "to"),
-      body: extractBody(message, media),
-      media: media.map((item) => ({
-        url: item.url,
-        contentType: item.contentType,
-      })),
-      happenedAt: nonEmptyString(message.sendTime) ?? new Date().toISOString(),
-      rawPayload: root,
-    };
+    const message = asRecord(
+      root.whatsappInboundMessage,
+      "whatsappInboundMessage",
+    );
+    return normalizeMessageObject(message, "inbound", root);
   }
+}
+
+/**
+ * Parses a single `whatsapp.smb.history` event (WhatsApp Business App / Coexistence
+ * history sync). Each event carries either `whatsappInboundMessage` (customer →
+ * business) or `whatsappMessage` (business → customer); direction is inferred
+ * from which key is present.
+ */
+export function parseYCloudHistoryEvent(
+  event: unknown,
+): NormalizedConversationMessage {
+  const root = asRecord(event, "payload");
+
+  if (root.whatsappInboundMessage && typeof root.whatsappInboundMessage === "object") {
+    return normalizeMessageObject(
+      root.whatsappInboundMessage as Record<string, unknown>,
+      "inbound",
+      root,
+    );
+  }
+
+  if (root.whatsappMessage && typeof root.whatsappMessage === "object") {
+    return normalizeMessageObject(
+      root.whatsappMessage as Record<string, unknown>,
+      "outbound",
+      root,
+    );
+  }
+
+  throw new Error(
+    "YCloud history event missing whatsappInboundMessage/whatsappMessage",
+  );
 }
