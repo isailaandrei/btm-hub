@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { TwilioWhatsAppAdapter } from "@/lib/conversations/ingestion/twilio-whatsapp";
+import { YCloudWhatsAppAdapter } from "@/lib/conversations/ingestion/ycloud-whatsapp";
 import {
   buildContactPhoneIndex,
   matchContactByPhone,
@@ -12,47 +12,54 @@ import {
   upsertConversationMessage,
 } from "@/lib/data/conversations";
 
+// Only inbound messages are ingested. Other subscribed events (e.g. message
+// status updates) are acknowledged with 200 so YCloud does not retry them.
+const INBOUND_EVENT_TYPE = "whatsapp.inbound_message.received";
+
 function constantTimeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-function signatureBase(url: string, payload: URLSearchParams): string {
-  return (
-    url +
-    [...payload.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, value]) => `${key}${value}`)
-      .join("")
-  );
-}
-
-function getTwilioSignatureUrl(request: Request): string {
-  const configuredUrl = process.env.TWILIO_WEBHOOK_URL?.trim();
-  if (configuredUrl) return configuredUrl;
-
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.trim();
-  const forwardedHost =
-    request.headers.get("x-forwarded-host")?.trim() ??
-    request.headers.get("host")?.trim();
-  if (forwardedProto && forwardedHost) {
-    const requestUrl = new URL(request.url);
-    return `${forwardedProto}://${forwardedHost}${requestUrl.pathname}${requestUrl.search}`;
+// YCloud sends `YCloud-Signature: t={unixSeconds},s={hexHmacSha256}` where the
+// signature is HMAC-SHA256 over `{t}.{rawBody}` keyed with the endpoint secret.
+// https://helpdocs.ycloud.com/help-center/developer/webhook
+function parseSignatureHeader(
+  header: string | null,
+): { timestamp: string; signature: string } | null {
+  if (!header) return null;
+  let timestamp = "";
+  let signature = "";
+  for (const part of header.split(",")) {
+    const separator = part.indexOf("=");
+    if (separator === -1) continue;
+    const key = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+    if (key === "t") timestamp = value;
+    else if (key === "s") signature = value;
   }
-
-  return request.url;
+  if (!timestamp || !signature) return null;
+  return { timestamp, signature };
 }
 
-function verifyTwilioSignature(request: Request, payload: URLSearchParams): boolean {
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!authToken) return false;
-  const provided = request.headers.get("x-twilio-signature") ?? "";
-  if (!provided) return false;
-  const expected = createHmac("sha1", authToken)
-    .update(signatureBase(getTwilioSignatureUrl(request), payload))
-    .digest("base64");
-  return constantTimeEqual(provided, expected);
+function verifyYCloudSignature(
+  header: string | null,
+  rawBody: string,
+  secret: string,
+): boolean {
+  const parsed = parseSignatureHeader(header);
+  if (!parsed) return false;
+  const expected = createHmac("sha256", secret)
+    .update(`${parsed.timestamp}.${rawBody}`)
+    .digest("hex");
+  return constantTimeEqual(parsed.signature, expected);
+}
+
+function eventType(event: unknown): string | null {
+  if (!event || typeof event !== "object") return null;
+  const type = (event as { type?: unknown }).type;
+  return typeof type === "string" ? type : null;
 }
 
 function contactFieldsForMatch(match: ContactPhoneMatch): {
@@ -82,20 +89,40 @@ function contactFieldsForMatch(match: ContactPhoneMatch): {
 }
 
 export async function POST(request: Request) {
-  const rawBody = await request.text();
-  const payload = new URLSearchParams(rawBody);
+  const secret = process.env.YCLOUD_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    console.error("[ycloud-webhook] YCLOUD_WEBHOOK_SECRET is not configured");
+    return NextResponse.json(
+      { error: "Webhook secret not configured" },
+      { status: 500 },
+    );
+  }
 
-  if (!verifyTwilioSignature(request, payload)) {
+  const rawBody = await request.text();
+  if (!verifyYCloudSignature(request.headers.get("ycloud-signature"), rawBody, secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let event: unknown;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+  }
+
+  const type = eventType(event);
+  if (type !== INBOUND_EVENT_TYPE) {
+    // Acknowledge non-inbound events (status updates, etc.) without ingesting.
+    return NextResponse.json({ ok: true, ignored: true, type });
   }
 
   let message;
   try {
-    message = new TwilioWhatsAppAdapter().parse(payload);
+    message = new YCloudWhatsAppAdapter().parse(event);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: "Invalid Twilio payload", detail },
+      { error: "Invalid YCloud payload", detail },
       { status: 400 },
     );
   }
@@ -137,7 +164,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    console.warn("[whatsapp-webhook] stored message but phone matching failed", {
+    console.warn("[ycloud-webhook] stored message but phone matching failed", {
       messageId: stored.id,
       detail,
     });

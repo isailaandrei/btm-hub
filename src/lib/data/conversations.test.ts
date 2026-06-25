@@ -43,7 +43,7 @@ describe("conversation data layer", () => {
     const result = await upsertConversationMessage({
       contactId: null,
       source: "whatsapp",
-      provider: "twilio",
+      provider: "ycloud",
       providerMessageId: "SM123",
       direction: "inbound",
       fromIdentifier: "+12133734253",
@@ -61,7 +61,7 @@ describe("conversation data layer", () => {
       [
         expect.objectContaining({
           contact_id: null,
-          provider: "twilio",
+          provider: "ycloud",
           provider_message_id: "SM123",
           body: "Hello",
           match_status: "unmatched",
