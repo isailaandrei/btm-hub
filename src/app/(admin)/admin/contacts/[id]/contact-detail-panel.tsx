@@ -24,6 +24,7 @@ import {
 } from "./contact-detail-skeleton";
 import { ContactTagsSection } from "./contact-tags-section";
 import { ContactEmailSection } from "./contact-email-section";
+import { ContactWhatsAppSection } from "./contact-whatsapp-section";
 import { PortfolioSectionClient } from "./portfolio-section-client";
 import { Timeline } from "./timeline";
 
@@ -202,6 +203,7 @@ export function ContactDetailPanel({
         <div className="flex min-w-0 flex-col gap-6">
           <ContactTagsSection contactId={contactId} />
           <ContactEmailSection contactId={contactId} />
+          <ContactWhatsAppSection contactId={contactId} />
           <PortfolioSectionClient profileId={contact?.profile_id ?? null} />
         </div>
       </div>
