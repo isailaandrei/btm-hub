@@ -7,6 +7,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockLoad = vi.fn();
+const mockDeactivate = vi.fn();
+const mockRestore = vi.fn();
 const mockRemoveChannel = vi.fn();
 const channelStub = {
   on: vi.fn(() => channelStub),
@@ -15,6 +17,8 @@ const channelStub = {
 
 vi.mock("../actions", () => ({
   loadContactWhatsAppMessages: mockLoad,
+  deactivateContactWhatsAppMessage: mockDeactivate,
+  restoreContactWhatsAppMessage: mockRestore,
 }));
 
 vi.mock("@/lib/supabase/client", () => ({
@@ -38,6 +42,7 @@ function makeMessage(overrides: Record<string, unknown> = {}) {
     toIdentifier: "+351939054063",
     happenedAt: new Date().toISOString(),
     matchStatus: "matched",
+    deactivatedAt: null,
     ...overrides,
   };
 }
@@ -58,6 +63,8 @@ describe("ContactWhatsAppSection", () => {
     document.body.append(container);
     root = createRoot(container);
     mockLoad.mockReset();
+    mockDeactivate.mockReset().mockResolvedValue(undefined);
+    mockRestore.mockReset().mockResolvedValue(undefined);
     channelStub.on.mockClear();
     channelStub.subscribe.mockClear();
     mockRemoveChannel.mockReset();
@@ -115,5 +122,62 @@ describe("ContactWhatsAppSection", () => {
         (button) => button.textContent?.trim() === "Retry",
       ),
     ).toBe(true);
+  });
+
+  it("removes a message via the deactivate action and re-reads", async () => {
+    mockLoad
+      .mockResolvedValueOnce([makeMessage()])
+      .mockResolvedValueOnce([makeMessage({ deactivatedAt: "2026-06-26T00:00:00Z" })]);
+
+    await act(async () => {
+      root.render(<ContactWhatsAppSection contactId={CONTACT_ID} />);
+    });
+    await flushAsyncWork();
+
+    const removeButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Remove",
+    );
+    if (!removeButton) throw new Error("Missing Remove button");
+
+    await act(async () => {
+      removeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
+    expect(mockDeactivate).toHaveBeenCalledWith("m1");
+    // Re-read after the mutation moved it out of the active thread.
+    expect(mockLoad).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("All messages removed");
+    expect(container.textContent).toContain("Show removed (1)");
+  });
+
+  it("restores a removed message from the collapsible area", async () => {
+    mockLoad.mockResolvedValue([
+      makeMessage({ id: "m1", deactivatedAt: "2026-06-26T00:00:00Z" }),
+    ]);
+
+    await act(async () => {
+      root.render(<ContactWhatsAppSection contactId={CONTACT_ID} />);
+    });
+    await flushAsyncWork();
+
+    const showRemoved = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Show removed"),
+    );
+    if (!showRemoved) throw new Error("Missing 'Show removed' toggle");
+    await act(async () => {
+      showRemoved.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const restoreButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Restore",
+    );
+    if (!restoreButton) throw new Error("Missing Restore button");
+    await act(async () => {
+      restoreButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
+    expect(mockRestore).toHaveBeenCalledWith("m1");
   });
 });

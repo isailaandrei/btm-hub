@@ -14,6 +14,7 @@ function makeQuery(data: unknown = null, error: unknown = null) {
     "eq",
     "or",
     "is",
+    "not",
     "in",
     "gte",
     "lte",
@@ -85,6 +86,7 @@ describe("conversation data layer", () => {
         to_identifier: "+351939054063",
         happened_at: "2026-06-25T15:31:42Z",
         match_status: "matched",
+        deactivated_at: null,
       },
     ]);
     const client = { from: vi.fn(() => query), rpc: vi.fn() };
@@ -111,8 +113,53 @@ describe("conversation data layer", () => {
         toIdentifier: "+351939054063",
         happenedAt: "2026-06-25T15:31:42Z",
         matchStatus: "matched",
+        deactivatedAt: null,
       },
     ]);
+  });
+
+  it("soft-deactivates a message with a timestamp and actor, and restores it", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery([]);
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { setConversationMessageDeactivated } = await import("./conversations");
+
+    await setConversationMessageDeactivated({
+      messageId: "m1",
+      deactivated: true,
+      deactivatedBy: "admin-1",
+    });
+    expect(query.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deactivated_at: expect.any(String),
+        deactivated_by: "admin-1",
+      }),
+    );
+    expect(query.eq).toHaveBeenCalledWith("id", "m1");
+
+    await setConversationMessageDeactivated({
+      messageId: "m1",
+      deactivated: false,
+      deactivatedBy: null,
+    });
+    expect(query.update).toHaveBeenLastCalledWith({
+      deactivated_at: null,
+      deactivated_by: null,
+    });
+  });
+
+  it("excludes deactivated messages from digest input", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery([]);
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { listConversationMessagesForDigest } = await import("./conversations");
+    await listConversationMessagesForDigest({ limit: 100 });
+
+    expect(query.is).toHaveBeenCalledWith("deactivated_at", null);
   });
 
   it("omits the phone filter when the phone is missing or malformed", async () => {
