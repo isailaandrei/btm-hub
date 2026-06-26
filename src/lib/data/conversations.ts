@@ -487,6 +487,7 @@ export async function listConversationMessagesForDigest(input: {
     .select("id, contact_id, direction, body, happened_at")
     .not("contact_id", "is", null)
     .is("deactivated_at", null)
+    .eq("direction", "inbound")
     .order("happened_at", { ascending: true })
     .limit(input.limit);
 

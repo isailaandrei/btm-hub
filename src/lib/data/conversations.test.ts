@@ -170,7 +170,7 @@ describe("conversation data layer", () => {
     expect(url).toBe("https://api.ycloud.com/v2/whatsapp/media/download/x");
   });
 
-  it("excludes deactivated messages from digest input", async () => {
+  it("feeds the AI only inbound, non-deactivated messages", async () => {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const query = makeQuery([]);
     const client = { from: vi.fn(() => query), rpc: vi.fn() };
@@ -180,6 +180,7 @@ describe("conversation data layer", () => {
     await listConversationMessagesForDigest({ limit: 100 });
 
     expect(query.is).toHaveBeenCalledWith("deactivated_at", null);
+    expect(query.eq).toHaveBeenCalledWith("direction", "inbound");
   });
 
   it("omits the phone filter when the phone is missing or malformed", async () => {
