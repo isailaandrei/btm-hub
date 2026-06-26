@@ -27,6 +27,8 @@ type FilmsBrowserProps = {
   rowVisibility: FilmRowVisibilitySettings
   /** Spotlighted in the cinematic hero; its play CTA reuses the modal below. */
   featuredFilm?: FilmBrowserFilm | null
+  /** Hi-res hero backdrop URL (uploaded poster); falls back to the film thumbnail. */
+  heroImageUrl?: string | null
 }
 
 export function FilmsBrowser({
@@ -34,6 +36,7 @@ export function FilmsBrowser({
   collections,
   rowVisibility,
   featuredFilm,
+  heroImageUrl,
 }: FilmsBrowserProps) {
   const [search, setSearch] = useState("")
   const [filters, setFilters] = useState<FilmFilterState>(() =>
@@ -66,6 +69,7 @@ export function FilmsBrowser({
       {featuredFilm && (
         <FilmsHero
           film={featuredFilm}
+          heroImageUrl={heroImageUrl}
           onPlay={() => setActiveFilm(featuredFilm)}
         />
       )}

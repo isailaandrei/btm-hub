@@ -59,6 +59,15 @@ export const film = defineType({
       group: "content",
     }),
     defineField({
+      name: "poster",
+      title: "Poster image",
+      type: "image",
+      group: "content",
+      description:
+        "Optional high-quality still for the films hero banner and cards. Falls back to the video's thumbnail when empty. Use a wide 16:9 image; the focal point (hotspot) is preserved when cropped.",
+      options: { hotspot: true },
+    }),
+    defineField({
       name: "description",
       title: "Description",
       type: "portableText",

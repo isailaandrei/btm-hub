@@ -21,6 +21,7 @@ vi.mock("@/lib/data/sanity", () => ({
 }));
 
 vi.mock("@/lib/films/posters", () => ({
+  uploadedPosterImageUrl: vi.fn(() => null),
   withCollectionFilmPosterUrls: vi.fn((collections) => collections),
   withFilmPosterUrls: vi.fn((films) => films),
 }));

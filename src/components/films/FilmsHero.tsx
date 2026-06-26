@@ -13,6 +13,8 @@ type FilmsHeroProps = {
   film: FilmBrowserFilm
   /** Opens the shared playback modal owned by <FilmsBrowser>. */
   onPlay: () => void
+  /** Hi-res uploaded-poster URL for the backdrop; falls back to the film thumbnail. */
+  heroImageUrl?: string | null
 }
 
 /**
@@ -27,10 +29,11 @@ type FilmsHeroProps = {
  * the copy via `motion-safe:` utilities — both fully static for users who ask
  * for reduced motion.
  */
-export function FilmsHero({ film, onPlay }: FilmsHeroProps) {
+export function FilmsHero({ film, onPlay, heroImageUrl }: FilmsHeroProps) {
   const title = film.title ?? "Untitled film"
   const meta = [film.releaseYear, film.duration].filter(Boolean).join("  ·  ")
   const slug = film.slug?.current
+  const backdrop = heroImageUrl ?? film.posterUrl
 
   return (
     <section
@@ -39,9 +42,9 @@ export function FilmsHero({ film, onPlay }: FilmsHeroProps) {
     >
       {/* Single atmospheric backdrop — the featured film's own still. */}
       <div className="absolute inset-0 -z-10">
-        {film.posterUrl ? (
+        {backdrop ? (
           <Image
-            src={film.posterUrl}
+            src={backdrop}
             alt=""
             aria-hidden
             fill

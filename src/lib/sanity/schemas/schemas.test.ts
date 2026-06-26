@@ -103,11 +103,12 @@ describe("sanity schemas", () => {
     }
   });
 
-  it("film schema uses provider video thumbnails instead of uploaded poster images", () => {
-    const fieldNames = fieldsFor("film").map((f) => f.name);
+  it("film schema offers an optional uploaded poster image (falls back to video thumbnails)", () => {
+    const posterField = fieldsFor("film").find((f) => f.name === "poster");
 
-    expect(fieldNames).not.toContain("heroImage");
-    expect(fieldNames).not.toContain("thumbnailImage");
+    expect(posterField?.type).toBe("image");
+    // Optional override only — the auto video thumbnail remains the fallback.
+    expect(posterField?.validation).toBeUndefined();
   });
 
   it("film schema only accepts supported YouTube or Vimeo video URLs", () => {

@@ -109,6 +109,26 @@ describe("withFilmPosterUrls", () => {
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("prefers an uploaded poster image over the auto video thumbnail", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [film] = await withFilmPosterUrls([
+      {
+        _id: "1",
+        videoEmbed: "https://www.youtube.com/watch?v=abc123DEF45",
+        poster: { asset: { _ref: "image-poster123-1920x1080-jpg" } },
+      },
+    ]);
+
+    expect(film.posterUrl).toContain("cdn.sanity.io");
+    expect(film.posterUrl).toContain("poster123");
+    expect(film.posterUrl).toContain("w=1200");
+    // The uploaded still wins; no provider thumbnail is used or fetched.
+    expect(film.posterUrl).not.toContain("ytimg");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("withCollectionFilmPosterUrls", () => {

@@ -6,6 +6,7 @@ import {
   getFilmsPageSettings,
 } from "@/lib/data/sanity";
 import {
+  uploadedPosterImageUrl,
   withCollectionFilmPosterUrls,
   withFilmPosterUrls,
 } from "@/lib/films/posters";
@@ -44,6 +45,11 @@ export default async function FilmsPage() {
   // The hero billboard spotlights the editor-flagged featured film, falling back
   // to the first (most-recent) film so the page always opens cinematically.
   const featuredFilm = films.find((film) => film.featured) ?? films[0];
+  // Hero backdrop: the featured film's uploaded poster at hero resolution,
+  // falling back to its (lower-res) auto video thumbnail.
+  const heroImageUrl =
+    uploadedPosterImageUrl(featuredFilm.poster, 2400, 1350) ??
+    featuredFilm.posterUrl;
 
   // `dark` makes the in-page shadcn controls (filter trigger, etc.) resolve dark
   // tokens; the deep #020306 base + white type carry the homepage's vibe.
@@ -53,6 +59,7 @@ export default async function FilmsPage() {
         films={films}
         collections={collections ?? []}
         featuredFilm={featuredFilm}
+        heroImageUrl={heroImageUrl}
         rowVisibility={{
           showLatestRow: settings?.showLatestRow ?? true,
           showAllVideosRow: settings?.showAllVideosRow ?? true,

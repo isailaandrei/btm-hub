@@ -44,4 +44,18 @@ describe("FilmsHero", () => {
     expect(html).toContain("Watch film")
     expect(html).not.toContain("https://example.com/featured.jpg")
   })
+
+  it("uses the hi-res heroImageUrl for the backdrop when provided", () => {
+    const html = renderToStaticMarkup(
+      <FilmsHero
+        film={film}
+        heroImageUrl="https://cdn.sanity.io/images/p/d/poster123-2400x1350.jpg?w=2400"
+        onPlay={() => {}}
+      />,
+    )
+
+    expect(html).toContain("poster123-2400x1350")
+    // The low-res video thumbnail is not used when a hero image is supplied.
+    expect(html).not.toContain("https://example.com/featured.jpg")
+  })
 })

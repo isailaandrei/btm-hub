@@ -19,7 +19,8 @@ const FILM_CARD_FIELDS = `
   subjects,
   formats,
   skills,
-  displayTags
+  displayTags,
+  poster
 `;
 
 export const FILMS_QUERY = defineQuery(`
