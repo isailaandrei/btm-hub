@@ -9,11 +9,11 @@
 export const IMG_BASE = "/images/home";
 
 export const NAV_LINKS = [
-  { label: "Acedemy", href: "/academy" },
-  { label: "Shop", href: "/shop" },
-  { label: "Community", href: "/community" },
-  { label: "Partners", href: "/partners" },
-  { label: "Foundation", href: "/foundation" },
+  { label: "Academy", href: "/academy" },
+  { label: "Portfolio", href: "/films" },
+  { label: "Team", href: "/team" },
+  { label: "Creative", href: "/creative" },
+  { label: "Contact", href: "/contact" },
 ] as const;
 
 /** YouTube helpers — `i.ytimg.com` is whitelisted in next.config.ts. */

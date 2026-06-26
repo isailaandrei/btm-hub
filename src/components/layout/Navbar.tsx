@@ -14,10 +14,10 @@ export interface NavbarProps {
 
 const NAV_LINKS = [
   { label: "Academy", href: "/academy" },
-  { label: "Films", href: "/films" },
+  { label: "Portfolio", href: "/films" },
   { label: "Team", href: "/team" },
-  { label: "Community", href: "/community" },
-  { label: "Partners", href: "/partners" },
+  { label: "Creative", href: "/creative" },
+  { label: "Contact", href: "/contact" },
 ] as const;
 
 function LogoText({ className }: { className?: string }) {
