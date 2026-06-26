@@ -22,6 +22,7 @@ import type { EmailSuppressionReason } from "@/types/database";
 import { normalizePhoneNumber } from "@/lib/conversations/phone";
 import {
   listContactConversationMessages,
+  setConversationMessageDeactivated,
   type ContactConversationMessage,
 } from "@/lib/data/conversations";
 import { updateProfilePreferences } from "@/lib/data/profiles";
@@ -108,6 +109,31 @@ export async function loadContactWhatsAppMessages(
   if (!contact) throw new Error("Contact not found");
   const phoneE164 = normalizePhoneNumber(contact.phone)?.e164 ?? null;
   return listContactConversationMessages({ contactId, phoneE164 });
+}
+
+/**
+ * Owner curation of a contact's WhatsApp thread: soft-deactivate an irrelevant
+ * message (removes it from the active thread and the admin-AI knowledge base) or
+ * restore a previously removed one. Reversible — nothing is deleted.
+ */
+export async function deactivateContactWhatsAppMessage(messageId: string) {
+  const profile = await requireAdmin();
+  validateUUID(messageId);
+  await setConversationMessageDeactivated({
+    messageId,
+    deactivated: true,
+    deactivatedBy: profile.id,
+  });
+}
+
+export async function restoreContactWhatsAppMessage(messageId: string) {
+  await requireAdmin();
+  validateUUID(messageId);
+  await setConversationMessageDeactivated({
+    messageId,
+    deactivated: false,
+    deactivatedBy: null,
+  });
 }
 
 export async function excludeContactFromEmail(contactId: string) {

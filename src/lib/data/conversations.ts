@@ -43,6 +43,7 @@ export type ContactConversationMessage = {
   toIdentifier: string;
   happenedAt: string;
   matchStatus: ConversationMessageMatchStatus;
+  deactivatedAt: string | null;
 };
 
 type ContactConversationMessageRow = {
@@ -54,6 +55,7 @@ type ContactConversationMessageRow = {
   to_identifier: string;
   happened_at: string;
   match_status: ConversationMessageMatchStatus;
+  deactivated_at: string | null;
 };
 
 export type ConversationFactInput = {
@@ -226,7 +228,7 @@ export async function listContactConversationMessages(input: {
   const { data, error } = await supabase
     .from("conversation_messages")
     .select(
-      "id, direction, body, media_json, from_identifier, to_identifier, happened_at, match_status",
+      "id, direction, body, media_json, from_identifier, to_identifier, happened_at, match_status, deactivated_at",
     )
     .or(filters.join(","))
     .order("happened_at", { ascending: true })
@@ -249,7 +251,35 @@ export async function listContactConversationMessages(input: {
     toIdentifier: row.to_identifier,
     happenedAt: row.happened_at,
     matchStatus: row.match_status,
+    deactivatedAt: row.deactivated_at ?? null,
   }));
+}
+
+/**
+ * Soft-deactivates (or restores) a single conversation message. Deactivated
+ * messages drop out of the contact thread's active view and are excluded from
+ * every admin-AI read path (retrieval + digest/embedding generation) by the
+ * `deactivated_at IS NULL` filters in those RPCs. Reversible — no data removed.
+ */
+export async function setConversationMessageDeactivated(input: {
+  messageId: string;
+  deactivated: boolean;
+  deactivatedBy: string | null;
+}): Promise<void> {
+  const supabase = await createAdminClient();
+  const { error } = await supabase
+    .from("conversation_messages")
+    .update({
+      deactivated_at: input.deactivated ? new Date().toISOString() : null,
+      deactivated_by: input.deactivated ? input.deactivatedBy : null,
+    })
+    .eq("id", input.messageId);
+
+  if (error) {
+    throw new Error(
+      `Failed to update conversation message deactivation: ${error.message}`,
+    );
+  }
 }
 
 export async function hasConversationMessages(input?: {
@@ -431,6 +461,7 @@ export async function listConversationMessagesForDigest(input: {
     .from("conversation_messages")
     .select("id, contact_id, direction, body, happened_at")
     .not("contact_id", "is", null)
+    .is("deactivated_at", null)
     .order("happened_at", { ascending: true })
     .limit(input.limit);
 

@@ -1,11 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
 import { formatRelative } from "@/lib/format-relative";
-import { loadContactWhatsAppMessages } from "../actions";
+import {
+  deactivateContactWhatsAppMessage,
+  loadContactWhatsAppMessages,
+  restoreContactWhatsAppMessage,
+} from "../actions";
 
 type ConversationMessage = Awaited<
   ReturnType<typeof loadContactWhatsAppMessages>
@@ -15,16 +19,18 @@ const REALTIME_DEBOUNCE_MS = 150;
 
 /**
  * WhatsApp thread for the contact detail panel. Mirrors `ContactEmailSection`:
- * lazy-loads its own data via a server action with a skeleton and error+retry
- * (the session-cache panel doesn't carry it). Adds a Supabase Realtime channel
- * filtered on `contact_id` so new inbound messages — which the webhook matches
- * on arrival, since the contact exists — live-append without touching the
- * framework Router Cache.
+ * lazy-loads its own data via a server action with a skeleton and error+retry.
+ * A Supabase Realtime channel filtered on `contact_id` live-appends new inbound
+ * messages. The owner can soft-remove irrelevant messages (excluding them from
+ * the thread and the admin-AI knowledge base); removed messages collapse into a
+ * restorable "Removed" area.
  */
 export function ContactWhatsAppSection({ contactId }: { contactId: string }) {
   const [messages, setMessages] = useState<ConversationMessage[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isMutating, startMutation] = useTransition();
+  const [showRemoved, setShowRemoved] = useState(false);
 
   const loadData = useCallback(() => {
     startTransition(async () => {
@@ -90,6 +96,33 @@ export function ContactWhatsAppSection({ contactId }: { contactId: string }) {
     };
   }, [contactId]);
 
+  // Curation runs through its own transition and re-reads on success so the
+  // moved message lands in the right group.
+  const runMutation = useCallback(
+    (mutation: () => Promise<void>) => {
+      startMutation(async () => {
+        try {
+          await mutation();
+          setMessages(await loadContactWhatsAppMessages(contactId));
+        } catch (error) {
+          console.error(
+            `WhatsApp message curation failed for contact ${contactId}`,
+            error,
+          );
+        }
+      });
+    },
+    [contactId],
+  );
+
+  const { active, removed } = useMemo(() => {
+    const all = messages ?? [];
+    return {
+      active: all.filter((message) => !message.deactivatedAt),
+      removed: all.filter((message) => message.deactivatedAt),
+    };
+  }, [messages]);
+
   return (
     <Card>
       <CardHeader>
@@ -108,22 +141,68 @@ export function ContactWhatsAppSection({ contactId }: { contactId: string }) {
               {isPending ? "Retrying..." : "Retry"}
             </button>
           </div>
-        ) : messages ? (
-          messages.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No WhatsApp messages yet.
-            </p>
-          ) : (
-            <ol className="flex max-h-96 flex-col gap-3 overflow-y-auto pr-1">
-              {messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
-              ))}
-            </ol>
-          )
-        ) : (
+        ) : messages === null ? (
           <div className="flex flex-col gap-2">
             <div className="h-10 w-3/4 animate-pulse rounded bg-muted" />
             <div className="h-10 w-2/3 animate-pulse self-end rounded bg-muted" />
+          </div>
+        ) : active.length === 0 && removed.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No WhatsApp messages yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {active.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                All messages removed.
+              </p>
+            ) : (
+              <ol className="flex max-h-96 flex-col gap-3 overflow-y-auto pr-1">
+                {active.map((message) => (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    disabled={isMutating}
+                    action={{
+                      label: "Remove",
+                      onClick: () =>
+                        runMutation(() =>
+                          deactivateContactWhatsAppMessage(message.id),
+                        ),
+                    }}
+                  />
+                ))}
+              </ol>
+            )}
+
+            {removed.length > 0 ? (
+              <div className="border-t border-border pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRemoved((value) => !value)}
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  {showRemoved ? "Hide" : "Show"} removed ({removed.length})
+                </button>
+                {showRemoved ? (
+                  <ol className="mt-2 flex max-h-72 flex-col gap-3 overflow-y-auto pr-1">
+                    {removed.map((message) => (
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        muted
+                        disabled={isMutating}
+                        action={{
+                          label: "Restore",
+                          onClick: () =>
+                            runMutation(() =>
+                              restoreContactWhatsAppMessage(message.id),
+                            ),
+                        }}
+                      />
+                    ))}
+                  </ol>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
       </CardContent>
@@ -131,33 +210,59 @@ export function ContactWhatsAppSection({ contactId }: { contactId: string }) {
   );
 }
 
-function MessageBubble({ message }: { message: ConversationMessage }) {
+function MessageBubble({
+  message,
+  action,
+  disabled,
+  muted,
+}: {
+  message: ConversationMessage;
+  action?: { label: string; onClick: () => void };
+  disabled?: boolean;
+  muted?: boolean;
+}) {
   const isInbound = message.direction === "inbound";
   return (
     <li className={`flex flex-col ${isInbound ? "items-start" : "items-end"}`}>
       <div
-        className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-          isInbound
-            ? "bg-muted text-foreground"
-            : "bg-primary text-primary-foreground"
+        className={`flex items-center gap-1.5 ${
+          isInbound ? "flex-row" : "flex-row-reverse"
         }`}
       >
-        {message.body ? (
-          <p className="whitespace-pre-wrap break-words">{message.body}</p>
-        ) : null}
-        {message.media.map((item, index) => (
-          <a
-            key={`${message.id}-media-${index}`}
-            href={item.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 block text-xs underline underline-offset-2"
+        <div
+          className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+            isInbound
+              ? "bg-muted text-foreground"
+              : "bg-primary text-primary-foreground"
+          } ${muted ? "opacity-60" : ""}`}
+        >
+          {message.body ? (
+            <p className="whitespace-pre-wrap break-words">{message.body}</p>
+          ) : null}
+          {message.media.map((item, index) => (
+            <a
+              key={`${message.id}-media-${index}`}
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 block text-xs underline underline-offset-2"
+            >
+              {item.contentType ?? "Attachment"}
+            </a>
+          ))}
+          {!message.body && message.media.length === 0 ? (
+            <p className="italic opacity-70">[no content]</p>
+          ) : null}
+        </div>
+        {action ? (
+          <button
+            type="button"
+            onClick={action.onClick}
+            disabled={disabled}
+            className="shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
           >
-            {item.contentType ?? "Attachment"}
-          </a>
-        ))}
-        {!message.body && message.media.length === 0 ? (
-          <p className="italic opacity-70">[no content]</p>
+            {action.label}
+          </button>
         ) : null}
       </div>
       <time
