@@ -150,6 +150,26 @@ describe("conversation data layer", () => {
     });
   });
 
+  it("resolves a message's media url by index for the proxy", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery({
+      media_json: [
+        {
+          url: "https://api.ycloud.com/v2/whatsapp/media/download/x",
+          contentType: "image/jpeg",
+        },
+      ],
+    });
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { getConversationMessageMediaUrl } = await import("./conversations");
+    const url = await getConversationMessageMediaUrl("m1", 0);
+
+    expect(query.eq).toHaveBeenCalledWith("id", "m1");
+    expect(url).toBe("https://api.ycloud.com/v2/whatsapp/media/download/x");
+  });
+
   it("excludes deactivated messages from digest input", async () => {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const query = makeQuery([]);

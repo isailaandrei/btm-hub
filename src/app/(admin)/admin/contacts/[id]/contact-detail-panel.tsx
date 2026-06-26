@@ -198,12 +198,13 @@ export function ContactDetailPanel({
           ) : (
             <ContactDetailTimelineSkeleton />
           )}
+
+          <ContactWhatsAppSection contactId={contactId} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
           <ContactTagsSection contactId={contactId} />
           <ContactEmailSection contactId={contactId} />
-          <ContactWhatsAppSection contactId={contactId} />
           <PortfolioSectionClient profileId={contact?.profile_id ?? null} />
         </div>
       </div>

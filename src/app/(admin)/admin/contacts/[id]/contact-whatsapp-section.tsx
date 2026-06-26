@@ -210,6 +210,61 @@ export function ContactWhatsAppSection({ contactId }: { contactId: string }) {
   );
 }
 
+/**
+ * Renders one WhatsApp attachment. Images are shown inline via the admin media
+ * proxy (which adds the YCloud API key); if the image can't load — proxy not
+ * configured (no YCLOUD_API_KEY) or media expired by YCloud — it degrades to a
+ * plain "open" link instead of a broken-image icon. Non-images are always links.
+ */
+function MediaAttachment({
+  messageId,
+  index,
+  contentType,
+}: {
+  messageId: string;
+  index: number;
+  contentType: string | null;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const proxySrc = `/api/whatsapp/ycloud/media?messageId=${encodeURIComponent(
+    messageId,
+  )}&index=${index}`;
+  const isImage = (contentType?.startsWith("image/") ?? false) && !imageFailed;
+
+  if (isImage) {
+    return (
+      <a
+        href={proxySrc}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1 block"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={proxySrc}
+          alt="WhatsApp image attachment"
+          loading="lazy"
+          onError={() => setImageFailed(true)}
+          className="max-h-72 max-w-full rounded-md object-contain"
+        />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={proxySrc}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-1 block text-xs underline underline-offset-2"
+    >
+      {contentType?.startsWith("image/")
+        ? "Image (open)"
+        : (contentType ?? "Attachment")}
+    </a>
+  );
+}
+
 function MessageBubble({
   message,
   action,
@@ -240,15 +295,12 @@ function MessageBubble({
             <p className="whitespace-pre-wrap break-words">{message.body}</p>
           ) : null}
           {message.media.map((item, index) => (
-            <a
+            <MediaAttachment
               key={`${message.id}-media-${index}`}
-              href={item.url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 block text-xs underline underline-offset-2"
-            >
-              {item.contentType ?? "Attachment"}
-            </a>
+              messageId={message.id}
+              index={index}
+              contentType={item.contentType}
+            />
           ))}
           {!message.body && message.media.length === 0 ? (
             <p className="italic opacity-70">[no content]</p>

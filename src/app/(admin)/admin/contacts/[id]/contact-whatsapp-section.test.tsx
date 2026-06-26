@@ -124,6 +124,30 @@ describe("ContactWhatsAppSection", () => {
     ).toBe(true);
   });
 
+  it("renders image attachments as <img> through the media proxy", async () => {
+    mockLoad.mockResolvedValue([
+      makeMessage({
+        media: [
+          {
+            url: "https://api.ycloud.com/v2/whatsapp/media/download/x",
+            contentType: "image/jpeg",
+          },
+        ],
+      }),
+    ]);
+
+    await act(async () => {
+      root.render(<ContactWhatsAppSection contactId={CONTACT_ID} />);
+    });
+    await flushAsyncWork();
+
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toContain(
+      "/api/whatsapp/ycloud/media?messageId=m1",
+    );
+  });
+
   it("removes a message via the deactivate action and re-reads", async () => {
     mockLoad
       .mockResolvedValueOnce([makeMessage()])

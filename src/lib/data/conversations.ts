@@ -256,6 +256,31 @@ export async function listContactConversationMessages(input: {
 }
 
 /**
+ * Resolves the stored media URL for one attachment of a message, used by the
+ * admin media proxy. Returns null if the message/attachment doesn't exist.
+ */
+export async function getConversationMessageMediaUrl(
+  messageId: string,
+  index: number,
+): Promise<string | null> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("conversation_messages")
+    .select("media_json")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load conversation message media: ${error.message}`);
+  }
+
+  const media = (data as { media_json?: unknown } | null)?.media_json;
+  if (!Array.isArray(media)) return null;
+  const item = media[index] as { url?: unknown } | undefined;
+  return item && typeof item.url === "string" ? item.url : null;
+}
+
+/**
  * Soft-deactivates (or restores) a single conversation message. Deactivated
  * messages drop out of the contact thread's active view and are excluded from
  * every admin-AI read path (retrieval + digest/embedding generation) by the
