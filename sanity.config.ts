@@ -21,6 +21,7 @@ export default defineConfig({
             S.documentTypeListItem("film").title("Films"),
             S.documentTypeListItem("filmCollection").title("Collections"),
             S.documentTypeListItem("teamMember").title("Team"),
+            S.documentTypeListItem("homepageVideo").title("Homepage videos"),
             S.divider(),
             // Less-frequent content, tucked below.
             S.documentTypeListItem("partner").title("Partners"),
