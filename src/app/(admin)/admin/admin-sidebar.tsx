@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   CheckSquare,
+  Clapperboard,
   ContactRound,
   Home,
   LogOut,
@@ -186,6 +187,22 @@ export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
                     </SidebarMenuItem>
                   );
                 })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Content</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Films, collections & team">
+                  <Link href="/studio">
+                    <Clapperboard className="size-4" />
+                    <span>Content</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
