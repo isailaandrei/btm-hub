@@ -15,6 +15,7 @@ import {
   ALL_TEAM_MEMBER_SLUGS_QUERY,
   PARTNERS_QUERY,
   FEATURED_PARTNERS_QUERY,
+  HOMEPAGE_VIDEOS_QUERY,
 } from "@/lib/sanity/queries";
 import type {
   FILMS_QUERY_RESULT,
@@ -73,6 +74,29 @@ export const getFilmCollections = cache(async function getFilmCollections() {
 export const getFilmsPageSettings = cache(async function getFilmsPageSettings() {
   const { data } = await sanityFetch({ query: FILMS_PAGE_SETTINGS_QUERY });
   return data;
+});
+
+// ---------------------------------------------------------------------------
+// Homepage
+// ---------------------------------------------------------------------------
+
+export type HomepageVideo = { _id: string; title: string; youtubeId: string };
+
+/**
+ * Homepage carousel videos, owner-managed in Sanity. Resilient: on any fetch
+ * error (or when none are configured) it returns [], so the homepage falls back
+ * to its bundled list instead of crashing.
+ */
+export const getHomepageVideos = cache(async function getHomepageVideos() {
+  try {
+    return await client.fetch<HomepageVideo[]>(HOMEPAGE_VIDEOS_QUERY);
+  } catch (error) {
+    console.warn(
+      "Failed to load homepage videos from Sanity; using the bundled fallback.",
+      error,
+    );
+    return [] as HomepageVideo[];
+  }
 });
 
 /** Uses plain client (not sanityFetch) — safe for generateStaticParams. */

@@ -14,6 +14,7 @@ import { filmsPageSettings } from "./documents/filmsPageSettings";
 import { program } from "./documents/program";
 import { teamMember } from "./documents/teamMember";
 import { partner } from "./documents/partner";
+import { homepageVideo } from "./documents/homepageVideo";
 
 export const schemaTypes: SchemaTypeDefinition[] = [
   // Objects
@@ -29,4 +30,5 @@ export const schemaTypes: SchemaTypeDefinition[] = [
   program,
   teamMember,
   partner,
+  homepageVideo,
 ];

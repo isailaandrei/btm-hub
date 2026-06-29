@@ -68,10 +68,21 @@ describe("sanity schemas", () => {
     expect(names).toContain("program");
     expect(names).toContain("teamMember");
     expect(names).toContain("partner");
+    expect(names).toContain("homepageVideo");
   });
 
-  it("has 11 total schema types (5 objects + 6 documents)", () => {
-    expect(schemaTypes).toHaveLength(11);
+  it("has 12 total schema types (5 objects + 7 documents)", () => {
+    expect(schemaTypes).toHaveLength(12);
+  });
+
+  it("homepageVideo schema has a title, youtube id and sort order", () => {
+    const video = schemaTypes.find((s) => s.name === "homepageVideo");
+    expect(video?.type).toBe("document");
+    expect(fieldsFor("homepageVideo").map((field) => field.name)).toEqual([
+      "title",
+      "youtubeId",
+      "sortOrder",
+    ]);
   });
 
   it("film schema exposes browsing metadata fields", () => {

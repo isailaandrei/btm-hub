@@ -17,6 +17,14 @@ export default defineConfig({
         S.list()
           .title("Content")
           .items([
+            // The three things admins manage day-to-day, up top.
+            S.documentTypeListItem("film").title("Films"),
+            S.documentTypeListItem("filmCollection").title("Collections"),
+            S.documentTypeListItem("teamMember").title("Team"),
+            S.documentTypeListItem("homepageVideo").title("Homepage videos"),
+            S.divider(),
+            // Less-frequent content, tucked below.
+            S.documentTypeListItem("partner").title("Partners"),
             S.listItem()
               .title("Films Page Settings")
               .schemaType("filmsPageSettings")
@@ -26,10 +34,7 @@ export default defineConfig({
                   .schemaType("filmsPageSettings")
                   .documentId("filmsPageSettings"),
               ),
-            S.divider(),
-            ...S.documentTypeListItems().filter(
-              (item) => item.getId() !== "filmsPageSettings",
-            ),
+            // "program" is intentionally hidden from the desk — unused on the site.
           ]),
     }),
     presentationTool({

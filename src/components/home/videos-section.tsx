@@ -2,18 +2,24 @@ import Link from "next/link";
 import { IMG_BASE, VIDEOS, ytThumb, ytWatch } from "./content";
 import { VideoCarousel } from "./video-carousel";
 
-const carouselVideos = VIDEOS.items.map((v) => ({
-  src: ytThumb(v.id),
-  href: ytWatch(v.id),
-  alt: v.title,
-}));
+export type HomepageVideoItem = { id: string; title: string };
 
 /**
  * "Enjoy our videos" section — shared by desktop and mobile (rendered once,
  * below the layout-specific content). Uses a scrollable {@link VideoCarousel}
  * instead of the Figma's fixed thumbnail collage.
+ *
+ * Videos are owner-managed in Sanity (passed in via `items`); when none are set
+ * it falls back to the bundled list, so the homepage never empties.
  */
-export function VideosSection() {
+export function VideosSection({ items }: { items?: HomepageVideoItem[] }) {
+  const source = items && items.length > 0 ? items : VIDEOS.items;
+  const carouselVideos = source.map((video) => ({
+    src: ytThumb(video.id),
+    href: ytWatch(video.id),
+    alt: video.title,
+  }));
+
   return (
     <section className="bg-[#020306] px-5 py-20 text-white sm:px-8 lg:px-16">
       <div className="mx-auto max-w-[1420px]">
