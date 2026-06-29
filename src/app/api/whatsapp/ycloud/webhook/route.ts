@@ -24,6 +24,15 @@ import {
 // provisioned-memory time per call. See the Jun 2026 Fluid-burn incident.
 export const maxDuration = 20;
 
+// INVARIANT — keep this handler storm-proof (Jun 2026 Fluid-burn incident):
+//   1. Every awaited external call (DB, fetch, …) MUST be bounded by a timeout
+//      (e.g. `AbortSignal.timeout`). An unbounded await can hang until
+//      `maxDuration`, which Vercel returns as a 504 — a 5xx your `catch` never
+//      sees, and which makes YCloud retry.
+//   2. Internal/DB failures MUST resolve to a 2xx (logged), never a 5xx, so a
+//      provider retry can't amplify load into a self-reinforcing storm.
+// Adding a new unbounded await — or any 5xx error path — here reopens that hole.
+
 // Live inbound messages.
 const INBOUND_EVENT_TYPE = "whatsapp.inbound_message.received";
 // WhatsApp Business App / Coexistence history sync — backfills past messages
