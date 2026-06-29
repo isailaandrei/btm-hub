@@ -146,3 +146,18 @@ export function parseYCloudHistoryEvent(
     "YCloud history event missing whatsappInboundMessage/whatsappMessage",
   );
 }
+
+/**
+ * Parses a `whatsapp.smb.message.echoes` event. In Coexistence mode the business
+ * sends from the WhatsApp Business App / a linked device, and Meta echoes that
+ * outbound message to the Cloud API. YCloud delivers the content under
+ * `whatsappMessage` (business -> customer) — the same shape as an outbound
+ * history message — so these are always outbound.
+ */
+export function parseYCloudEchoEvent(
+  event: unknown,
+): NormalizedConversationMessage {
+  const root = asRecord(event, "payload");
+  const message = asRecord(root.whatsappMessage, "whatsappMessage");
+  return normalizeMessageObject(message, "outbound", root);
+}

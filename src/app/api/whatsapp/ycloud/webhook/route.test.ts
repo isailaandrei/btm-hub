@@ -90,6 +90,21 @@ function makeHistoryOutbound(to = "+12133734253") {
   };
 }
 
+function makeEcho(to = "+12133734253") {
+  return {
+    id: "evt_echo",
+    type: "whatsapp.smb.message.echoes",
+    whatsappMessage: {
+      id: "echo-1",
+      from: "+351939054063",
+      to,
+      sendTime: "2026-06-26T10:00:00.000Z",
+      type: "text",
+      text: { body: "reply from the phone" },
+    },
+  };
+}
+
 async function post(
   body: string,
   headers: Record<string, string> = { "ycloud-signature": sign(body) },
@@ -250,6 +265,30 @@ describe("POST /api/whatsapp/ycloud/webhook", () => {
     );
     // Matched on the customer side (`to`), even though `from` is the business
     // number — the contact would be missed if we matched on `from`.
+    expect(mockUpdateConversationMessageMatch).toHaveBeenCalledWith(
+      expect.objectContaining({ contactId: CONTACT_ID, matchStatus: "matched" }),
+    );
+  });
+
+  it("ingests outbound echo messages (sent from the WhatsApp Business App) matched on the recipient", async () => {
+    mockLoadContactPhoneIndexRecords.mockResolvedValue([
+      makeRecord(CONTACT_ID, "+12133734253"),
+    ]);
+
+    const response = await postSigned(makeEcho());
+
+    expect(response.status).toBe(200);
+    expect(mockUpsertConversationMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "ycloud",
+        providerMessageId: "echo-1",
+        direction: "outbound",
+        fromIdentifier: "+351939054063",
+        toIdentifier: "+12133734253",
+        body: "reply from the phone",
+      }),
+    );
+    // Matched on the customer side (`to`), not the business `from`.
     expect(mockUpdateConversationMessageMatch).toHaveBeenCalledWith(
       expect.objectContaining({ contactId: CONTACT_ID, matchStatus: "matched" }),
     );

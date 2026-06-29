@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseYCloudEchoEvent,
   parseYCloudHistoryEvent,
   YCloudWhatsAppAdapter,
 } from "./ycloud-whatsapp";
@@ -156,5 +157,44 @@ describe("parseYCloudHistoryEvent", () => {
     expect(() =>
       parseYCloudHistoryEvent({ type: "whatsapp.smb.history" }),
     ).toThrow(/whatsappInboundMessage\/whatsappMessage/);
+  });
+});
+
+describe("parseYCloudEchoEvent", () => {
+  it("parses an echo as an outbound message (business -> customer)", () => {
+    const message = parseYCloudEchoEvent({
+      id: "evt_echo_1",
+      type: "whatsapp.smb.message.echoes",
+      whatsappMessage: {
+        id: "echo-1",
+        wamid: "wamid.echo",
+        from: "+351939054063",
+        to: "+12133734253",
+        sendTime: "2026-06-26T10:00:00.000Z",
+        type: "text",
+        text: { body: "Sent from my phone" },
+      },
+    });
+
+    expect(message).toEqual(
+      expect.objectContaining({
+        provider: "ycloud",
+        providerMessageId: "echo-1",
+        direction: "outbound",
+        fromIdentifier: "+351939054063",
+        toIdentifier: "+12133734253",
+        body: "Sent from my phone",
+        happenedAt: "2026-06-26T10:00:00.000Z",
+        rawPayload: expect.objectContaining({
+          type: "whatsapp.smb.message.echoes",
+        }),
+      }),
+    );
+  });
+
+  it("fails loudly when the echoed message container is missing", () => {
+    expect(() =>
+      parseYCloudEchoEvent({ type: "whatsapp.smb.message.echoes" }),
+    ).toThrow(/whatsappMessage/);
   });
 });

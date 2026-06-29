@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { NormalizedConversationMessage } from "@/lib/conversations/ingestion/adapter";
 import {
+  parseYCloudEchoEvent,
   parseYCloudHistoryEvent,
   YCloudWhatsAppAdapter,
 } from "@/lib/conversations/ingestion/ycloud-whatsapp";
@@ -21,6 +22,10 @@ const INBOUND_EVENT_TYPE = "whatsapp.inbound_message.received";
 // WhatsApp Business App / Coexistence history sync — backfills past messages
 // (both directions). Each event carries one message.
 const HISTORY_EVENT_TYPE = "whatsapp.smb.history";
+// Live outbound messages the business sent from the WhatsApp Business App / a
+// linked device (Coexistence). Meta "messaging echo" carrying one outbound
+// message — without this we only ever see inbound and the thread looks one-sided.
+const ECHO_EVENT_TYPE = "whatsapp.smb.message.echoes";
 
 function constantTimeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -193,6 +198,8 @@ export async function POST(request: Request) {
       message = new YCloudWhatsAppAdapter().parse(event);
     } else if (type === HISTORY_EVENT_TYPE) {
       message = parseYCloudHistoryEvent(event);
+    } else if (type === ECHO_EVENT_TYPE) {
+      message = parseYCloudEchoEvent(event);
     } else {
       // Acknowledge other events (status updates, etc.) without ingesting.
       return NextResponse.json({ ok: true, ignored: true, type });
