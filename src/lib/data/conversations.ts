@@ -5,6 +5,13 @@ import type {
   ConversationSource,
 } from "@/lib/conversations/ingestion/adapter";
 
+// Webhook ingestion runs on every inbound/outbound WhatsApp event. Bound each
+// DB round-trip so a saturated database fails fast instead of hanging until the
+// function's max duration — under load, an unbounded await holds a Fluid
+// instance (and a Postgres connection) open for minutes. See the Jun 2026
+// WhatsApp-webhook Fluid-burn incident.
+const INGEST_DB_TIMEOUT_MS = 5000;
+
 export type ConversationMessageMatchStatus =
   | "matched"
   | "unmatched"
@@ -170,6 +177,7 @@ export async function upsertConversationMessage(
       { onConflict: "provider,provider_message_id" },
     )
     .select("id, contact_id")
+    .abortSignal(AbortSignal.timeout(INGEST_DB_TIMEOUT_MS))
     .single();
 
   if (error) {
@@ -192,7 +200,8 @@ export async function updateConversationMessageMatch(
       matched_via: input.matchedVia,
       raw_payload: input.rawPayload,
     })
-    .eq("id", input.messageId);
+    .eq("id", input.messageId)
+    .abortSignal(AbortSignal.timeout(INGEST_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(`Failed to update conversation message match: ${error.message}`);

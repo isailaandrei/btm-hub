@@ -16,6 +16,7 @@ function makeQuery(data: unknown = null, error: unknown = null) {
     "select",
     "not",
     "order",
+    "abortSignal",
   ]) {
     query[method] = vi.fn().mockReturnValue(query);
   }

@@ -319,4 +319,25 @@ describe("POST /api/whatsapp/ycloud/webhook", () => {
       }),
     );
   });
+
+  it("acknowledges (200) without retrying when the message store fails", async () => {
+    // A returned 5xx makes YCloud retry; under DB pressure those retries hang
+    // and burn Fluid compute (the Jun 2026 incident). We log loudly and ack 2xx.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUpsertConversationMessage.mockRejectedValue(
+      new Error("canceling statement due to statement timeout"),
+    );
+
+    const response = await postSigned(makeEvent());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({ ok: false, stored: false }),
+    );
+    // The store failed, so matching must not run.
+    expect(mockUpdateConversationMessageMatch).not.toHaveBeenCalled();
+    // Fail loud: the failure is still surfaced in logs.
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
 });

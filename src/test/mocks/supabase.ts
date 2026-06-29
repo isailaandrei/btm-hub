@@ -18,6 +18,7 @@ export function createMockSupabaseClient() {
     "like", "ilike", "is", "in", "contains",
     "or", "and", "not", "filter",
     "order", "limit", "range", "single", "maybeSingle",
+    "abortSignal",
   ]) {
     query[method] = vi.fn().mockReturnValue(query);
   }
