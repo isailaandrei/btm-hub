@@ -1,14 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import {
-  FEATURES,
-  HERO,
-  IMG_BASE,
-  NAV_LINKS,
-  WHAT_WE_DO,
-} from "./content";
-import { HomeNavAuth } from "./home-nav-auth";
+import { FEATURES, HERO, IMG_BASE, WHAT_WE_DO } from "./content";
 import { Parallax } from "./parallax";
 
 /**
@@ -73,7 +66,6 @@ function Photo({
   sizes = "(min-width: 1680px) 840px, 50vw",
   className,
   objectPosition,
-  parallax,
 }: {
   x: number;
   y: number;
@@ -87,31 +79,18 @@ function Photo({
   className?: string;
   /** Focal point for the cover crop. Figma hand-positions some image fills; match them here. */
   objectPosition?: string;
-  /** Collage parallax: the photo pans within its frame as it passes through the
-   *  viewport (driven by <CollageParallax>). The image is over-scaled so the
-   *  pan never exposes the frame edges. */
-  parallax?: boolean;
 }) {
-  const image = (
-    <Image
-      src={src}
-      alt={alt}
-      fill
-      sizes={sizes}
-      priority={priority}
-      className={cn("object-cover", parallax && "scale-[1.28]")}
-      style={objectPosition ? { objectPosition } : undefined}
-    />
-  );
   return (
     <Box x={x} y={y} w={w} h={h} z={z} className={cn("overflow-hidden", className)}>
-      {parallax ? (
-        <div data-parallax className="absolute inset-0">
-          {image}
-        </div>
-      ) : (
-        image
-      )}
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        sizes={sizes}
+        priority={priority}
+        className="object-cover"
+        style={objectPosition ? { objectPosition } : undefined}
+      />
     </Box>
   );
 }
@@ -288,39 +267,8 @@ export function HomeDesktop() {
           style={{ background: "linear-gradient(to bottom, rgba(2,3,6,0) 0%, rgba(2,3,6,1) 27%)" }}
         />
 
-        {/* ---- Top bar: logo, nav, auth ----
-            A flex header (rather than absolutely-positioned boxes) so the auth
-            cluster can grow for the logged-in / admin states without colliding
-            with the nav links. Still sized in cqw, so it scales with the canvas. */}
-        <header
-          className="absolute inset-x-0 top-0 z-30 flex items-center justify-between"
-          style={{ paddingInline: q(130), paddingTop: q(34), paddingBottom: q(24) }}
-        >
-          <Link href="/" aria-label="Behind the Mask home" className="shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`${IMG_BASE}/logo.png`}
-              alt="Behind the Mask"
-              className="w-auto object-contain"
-              style={{ height: q(39) }}
-            />
-          </Link>
-
-          <nav className="flex items-center" style={{ gap: q(40) }}>
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.label}
-                href={link.href}
-                className="font-display text-white transition-opacity hover:opacity-70"
-                style={{ fontSize: q(16) }}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-
-          <HomeNavAuth />
-        </header>
+        {/* The site header (logo + Menu → full-screen sitemap) is rendered once
+            by the page, fixed over this canvas, shared with every subpage. */}
 
         {/* Hero copy — scroll parallax: drifts up and fades over the static
             background for depth, leaving the section gradients untouched.
@@ -361,15 +309,15 @@ export function HomeDesktop() {
         </Text>
         <Pill x={249} y={1784} w={145} h={48} href={FILM.button.href} label={FILM.button.label} className="reveal" />
         {/* collage */}
-        <Photo x={737} y={1326} w={458} h={458} src={FILM.images[0].src} alt={FILM.images[0].alt} className="reveal" parallax />
-        <Photo x={1210} y={1444} w={345} h={194} src={FILM.images[1].src} alt={FILM.images[1].alt} className="reveal" parallax />
-        <Photo x={1210} y={1658} w={277} h={208} src={FILM.images[2].src} alt={FILM.images[2].alt} className="reveal" parallax />
-        <Photo x={971} y={1804} w={221} h={124} src={FILM.images[3].src} alt={FILM.images[3].alt} className="reveal" parallax />
+        <Photo x={737} y={1326} w={458} h={458} src={FILM.images[0].src} alt={FILM.images[0].alt} className="reveal" />
+        <Photo x={1210} y={1444} w={345} h={194} src={FILM.images[1].src} alt={FILM.images[1].alt} className="reveal" />
+        <Photo x={1210} y={1658} w={277} h={208} src={FILM.images[2].src} alt={FILM.images[2].alt} className="reveal" />
+        <Photo x={971} y={1804} w={221} h={124} src={FILM.images[3].src} alt={FILM.images[3].alt} className="reveal" />
 
         {/* ---- Feature 2: Travel & Expeditions (collage left, text right) ---- */}
-        <Photo x={130} y={2262} w={327} h={491} src={TRAVEL.images[1].src} alt={TRAVEL.images[1].alt} className="reveal" parallax />
-        <Photo x={477} y={2377} w={471} h={277} src={TRAVEL.images[0].src} alt={TRAVEL.images[0].alt} className="reveal" parallax />
-        <Photo x={477} y={2672} w={233} h={229} src={TRAVEL.images[2].src} alt={TRAVEL.images[2].alt} className="reveal" parallax />
+        <Photo x={130} y={2262} w={327} h={491} src={TRAVEL.images[1].src} alt={TRAVEL.images[1].alt} className="reveal" />
+        <Photo x={477} y={2377} w={471} h={277} src={TRAVEL.images[0].src} alt={TRAVEL.images[0].alt} className="reveal" />
+        <Photo x={477} y={2672} w={233} h={229} src={TRAVEL.images[2].src} alt={TRAVEL.images[2].alt} className="reveal" />
         <Svg x={998} y={2306} w={90.63} h={145} z={2} src={`${IMG_BASE}/section-icon.svg`} className="reveal" />
         <Text x={1118} y={2349} w={401} h={24} size={16} color="rgba(255,255,255,0.8)" className="reveal">
           {TRAVEL.overline}
@@ -401,14 +349,14 @@ export function HomeDesktop() {
         </Text>
         <Pill x={249} y={3607} w={162} h={48} href={COMMUNITY.button.href} label={COMMUNITY.button.label} className="reveal" />
         {/* collage */}
-        <Photo x={1210} y={3272} w={340} h={509} src={COMMUNITY.images[1].src} alt={COMMUNITY.images[1].alt} className="reveal" parallax />
-        <Photo x={850} y={3307} w={341} h={173} src={COMMUNITY.images[0].src} alt={COMMUNITY.images[0].alt} className="reveal" parallax />
-        <Photo x={850} y={3500} w={341} h={221} src={COMMUNITY.images[2].src} alt={COMMUNITY.images[2].alt} className="reveal" parallax />
+        <Photo x={1210} y={3272} w={340} h={509} src={COMMUNITY.images[1].src} alt={COMMUNITY.images[1].alt} className="reveal" />
+        <Photo x={850} y={3307} w={341} h={173} src={COMMUNITY.images[0].src} alt={COMMUNITY.images[0].alt} className="reveal" />
+        <Photo x={850} y={3500} w={341} h={221} src={COMMUNITY.images[2].src} alt={COMMUNITY.images[2].alt} className="reveal" />
 
         {/* ---- Feature 4: Shop & Merch (collage left, text right) ---- */}
-        <Photo x={130} y={3903} w={341} h={511} src={SHOP.images[1].src} alt={SHOP.images[1].alt} className="reveal" parallax />
-        <Photo x={490} y={3953} w={340} h={267} src={SHOP.images[0].src} alt={SHOP.images[0].alt} className="reveal" parallax />
-        <Photo x={490} y={4240} w={187} h={280} src={SHOP.images[2].src} alt={SHOP.images[2].alt} className="reveal" parallax />
+        <Photo x={130} y={3903} w={341} h={511} src={SHOP.images[1].src} alt={SHOP.images[1].alt} className="reveal" />
+        <Photo x={490} y={3953} w={340} h={267} src={SHOP.images[0].src} alt={SHOP.images[0].alt} className="reveal" />
+        <Photo x={490} y={4240} w={187} h={280} src={SHOP.images[2].src} alt={SHOP.images[2].alt} className="reveal" />
         <Svg x={942} y={4020} w={90.63} h={145} z={2} src={`${IMG_BASE}/section-icon.svg`} className="reveal" />
         <Text x={1062} y={4063} w={401} h={24} size={16} color="rgba(255,255,255,0.8)" className="reveal">
           {SHOP.overline}

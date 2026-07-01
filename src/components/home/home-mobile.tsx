@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FEATURES, HERO, IMG_BASE, WHAT_WE_DO } from "./content";
-import { MobileNav } from "./mobile-nav";
 import { Parallax } from "./parallax";
 
 /**
@@ -32,8 +31,6 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle: string }
 export function HomeMobile() {
   return (
     <div className="bg-[#020306] text-white xl:hidden">
-      <MobileNav />
-
       {/* ---- Hero ---- */}
       <section className="relative min-h-[100svh] overflow-hidden">
         <Image
@@ -90,9 +87,7 @@ export function HomeMobile() {
                     i === 0 ? "col-span-2 aspect-[4/3]" : "aspect-square",
                   )}
                 >
-                  <div data-parallax className="absolute inset-0">
-                    <Image src={img.src} alt={img.alt} fill sizes="100vw" className="scale-[1.28] object-cover" />
-                  </div>
+                    <Image src={img.src} alt={img.alt} fill sizes="100vw" className="object-cover" />
                 </div>
               ))}
             </div>

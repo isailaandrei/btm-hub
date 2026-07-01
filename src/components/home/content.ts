@@ -8,13 +8,8 @@
 
 export const IMG_BASE = "/images/home";
 
-export const NAV_LINKS = [
-  { label: "Academy", href: "/academy" },
-  { label: "Portfolio", href: "/films" },
-  { label: "Team", href: "/team" },
-  { label: "Creative", href: "/creative" },
-  { label: "Contact", href: "/contact" },
-] as const;
+// Site navigation now lives in `@/components/nav/site-map` (SITE_NAV), shared by
+// the homepage and every subpage through <SiteHeader>.
 
 /** YouTube helpers — `i.ytimg.com` is whitelisted in next.config.ts. */
 export const ytThumb = (id: string) => `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
