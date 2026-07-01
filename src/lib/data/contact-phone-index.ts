@@ -4,6 +4,12 @@ import type { ContactCardRecord } from "./contact-cards";
 
 const PHONE_INDEX_CACHE_TTL_MS = 60_000;
 
+// Bound these reads so a saturated database can't hang the WhatsApp webhook that
+// calls this on a cache miss. Matching is best-effort there, so a timeout just
+// stores the message unmatched rather than holding a Fluid instance open. See
+// the Jun 2026 webhook Fluid-burn incident.
+const PHONE_INDEX_DB_TIMEOUT_MS = 5000;
+
 let phoneIndexCache: {
   expiresAt: number;
   records: ContactCardRecord[];
@@ -36,14 +42,16 @@ export async function loadContactPhoneIndexRecords(): Promise<ContactCardRecord[
     supabase
       .from("contacts")
       .select("id, name, email, phone, profile_id, created_at, updated_at")
-      .order("name", { ascending: true }),
+      .order("name", { ascending: true })
+      .abortSignal(AbortSignal.timeout(PHONE_INDEX_DB_TIMEOUT_MS)),
     supabase
       .from("applications")
       .select(
         "id, user_id, contact_id, program, status, answers, tags, admin_notes, submitted_at, updated_at",
       )
       .not("contact_id", "is", null)
-      .order("submitted_at", { ascending: false }),
+      .order("submitted_at", { ascending: false })
+      .abortSignal(AbortSignal.timeout(PHONE_INDEX_DB_TIMEOUT_MS)),
   ]);
 
   if (contactError) {

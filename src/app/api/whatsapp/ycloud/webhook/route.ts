@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { NormalizedConversationMessage } from "@/lib/conversations/ingestion/adapter";
 import {
+  parseYCloudEchoEvent,
   parseYCloudHistoryEvent,
   YCloudWhatsAppAdapter,
 } from "@/lib/conversations/ingestion/ycloud-whatsapp";
@@ -16,11 +17,31 @@ import {
   upsertConversationMessage,
 } from "@/lib/data/conversations";
 
+// A webhook only needs to verify, persist, and acknowledge — it must never hold
+// a (Fluid) function instance open for the 300s project default. Each DB call
+// below is bounded well under this; 20s is a generous backstop so a degraded
+// database fails the request fast instead of accruing minutes of
+// provisioned-memory time per call. See the Jun 2026 Fluid-burn incident.
+export const maxDuration = 20;
+
+// INVARIANT — keep this handler storm-proof (Jun 2026 Fluid-burn incident):
+//   1. Every awaited external call (DB, fetch, …) MUST be bounded by a timeout
+//      (e.g. `AbortSignal.timeout`). An unbounded await can hang until
+//      `maxDuration`, which Vercel returns as a 504 — a 5xx your `catch` never
+//      sees, and which makes YCloud retry.
+//   2. Internal/DB failures MUST resolve to a 2xx (logged), never a 5xx, so a
+//      provider retry can't amplify load into a self-reinforcing storm.
+// Adding a new unbounded await — or any 5xx error path — here reopens that hole.
+
 // Live inbound messages.
 const INBOUND_EVENT_TYPE = "whatsapp.inbound_message.received";
 // WhatsApp Business App / Coexistence history sync — backfills past messages
 // (both directions). Each event carries one message.
 const HISTORY_EVENT_TYPE = "whatsapp.smb.history";
+// Live outbound messages the business sent from the WhatsApp Business App / a
+// linked device (Coexistence). Meta "messaging echo" carrying one outbound
+// message — without this we only ever see inbound and the thread looks one-sided.
+const ECHO_EVENT_TYPE = "whatsapp.smb.message.echoes";
 
 function constantTimeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -100,21 +121,45 @@ function contactFieldsForMatch(match: ContactPhoneMatch): {
  * customer phone — the sender for inbound, the recipient for outbound.
  */
 async function ingestMessage(message: NormalizedConversationMessage) {
-  const stored = await upsertConversationMessage({
-    contactId: null,
-    source: message.source,
-    provider: message.provider,
-    providerMessageId: message.providerMessageId,
-    direction: message.direction,
-    fromIdentifier: message.fromIdentifier,
-    toIdentifier: message.toIdentifier,
-    body: message.body,
-    media: message.media,
-    happenedAt: message.happenedAt,
-    rawPayload: message.rawPayload,
-    matchStatus: "unmatched",
-    matchedVia: null,
-  });
+  let stored: { id: string; contactId: string | null };
+  try {
+    stored = await upsertConversationMessage({
+      contactId: null,
+      source: message.source,
+      provider: message.provider,
+      providerMessageId: message.providerMessageId,
+      direction: message.direction,
+      fromIdentifier: message.fromIdentifier,
+      toIdentifier: message.toIdentifier,
+      body: message.body,
+      media: message.media,
+      happenedAt: message.happenedAt,
+      rawPayload: message.rawPayload,
+      matchStatus: "unmatched",
+      matchedVia: null,
+    });
+  } catch (error) {
+    // Fail loud in our logs, but ACK 2xx so YCloud doesn't retry-storm us into a
+    // self-reinforcing meltdown (a returned 5xx triggers provider retries; under
+    // DB pressure each retry then hangs and burns Fluid provisioned memory — the
+    // Jun 2026 incident). A dropped event is recoverable: the WhatsApp history
+    // sync (whatsapp.smb.history) re-delivers past messages on demand.
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(
+      "[ycloud-webhook] failed to store message; acknowledging to avoid retry storm",
+      {
+        provider: message.provider,
+        providerMessageId: message.providerMessageId,
+        detail,
+      },
+    );
+    return {
+      ok: false as const,
+      stored: false as const,
+      providerMessageId: message.providerMessageId,
+      detail,
+    };
+  }
 
   const customerIdentifier =
     message.direction === "inbound"
@@ -193,6 +238,8 @@ export async function POST(request: Request) {
       message = new YCloudWhatsAppAdapter().parse(event);
     } else if (type === HISTORY_EVENT_TYPE) {
       message = parseYCloudHistoryEvent(event);
+    } else if (type === ECHO_EVENT_TYPE) {
+      message = parseYCloudEchoEvent(event);
     } else {
       // Acknowledge other events (status updates, etc.) without ingesting.
       return NextResponse.json({ ok: true, ignored: true, type });

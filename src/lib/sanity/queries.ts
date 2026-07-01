@@ -49,6 +49,18 @@ export const FEATURED_FILMS_QUERY = defineQuery(`
   }
 `);
 
+// ---------------------------------------------------------------------------
+// Homepage
+// ---------------------------------------------------------------------------
+
+export const HOMEPAGE_VIDEOS_QUERY = defineQuery(`
+  *[_type == "homepageVideo"] | order(sortOrder asc) {
+    _id,
+    title,
+    youtubeId
+  }
+`);
+
 export const FILM_COLLECTIONS_QUERY = defineQuery(`
   *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {
     _id,
