@@ -21,7 +21,12 @@ export function getEmailReplyToEmail(): string {
 export type EmailProviderName = "brevo" | "fake";
 
 export function isProductionEmailEnvironment(): boolean {
+  // Host-agnostic production detection. `APP_ENV` is the portable signal set
+  // explicitly per deployment (Hostinger/VPS/etc.); `VERCEL_ENV` is kept as a
+  // fallback so a Vercel deployment still works unchanged; `EMAIL_REQUIRE_REAL_PROVIDER`
+  // is the explicit force-real override.
   return (
+    process.env.APP_ENV === "production" ||
     process.env.VERCEL_ENV === "production" ||
     process.env.EMAIL_REQUIRE_REAL_PROVIDER === "true"
   );
