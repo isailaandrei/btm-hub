@@ -2,8 +2,65 @@ import { describe, expect, it } from "vitest";
 import {
   parseYCloudEchoEvent,
   parseYCloudHistoryEvent,
+  whatsappMessageIdFromWamid,
   YCloudWhatsAppAdapter,
 } from "./ycloud-whatsapp";
+
+// Real wamids captured from production. The two outbound ones are the SAME
+// logical message delivered twice by YCloud — their only difference is the
+// embedded peer phone (echo encodes the customer, history the business), while
+// the trailing message id is identical.
+const WAMID_OUTBOUND_ECHO =
+  "wamid.HBgMMzUxOTYzNDk1NjAyFQIAERgUMkEzNkU1RDUzNkE0NEIzODI1RjgA";
+const WAMID_OUTBOUND_HISTORY =
+  "wamid.HBgMMzUxOTM5MDU0MDYzFQIAERgUMkEzNkU1RDUzNkE0NEIzODI1RjgA";
+const OUTBOUND_MESSAGE_ID = "2A36E5D536A44B3825F8";
+const WAMID_INBOUND =
+  "wamid.HBgMMzUxOTE4NTMzODUyFQIAEhgUM0FEMDY2Rjc3ODE5M0YyQkVDMUQA";
+const INBOUND_MESSAGE_ID = "3AD066F778193F2BEC1D";
+
+describe("whatsappMessageIdFromWamid", () => {
+  it("extracts the trailing message id, ignoring the embedded peer phone", () => {
+    expect(whatsappMessageIdFromWamid(WAMID_INBOUND)).toBe(INBOUND_MESSAGE_ID);
+  });
+
+  it("yields the same id for an echo and its history copy of one message", () => {
+    // The core dedupe invariant: two different full wamids -> one identity.
+    expect(whatsappMessageIdFromWamid(WAMID_OUTBOUND_ECHO)).toBe(
+      OUTBOUND_MESSAGE_ID,
+    );
+    expect(whatsappMessageIdFromWamid(WAMID_OUTBOUND_HISTORY)).toBe(
+      OUTBOUND_MESSAGE_ID,
+    );
+  });
+
+  it("handles varying phone and message-id lengths", () => {
+    // US number (11 digits) + 22-char id
+    expect(
+      whatsappMessageIdFromWamid(
+        "wamid.HBgLMTg0NzM0MDk5OTQVAgASGBYzRUIwRTczRTU1NDlCQUY4NDI1Q0U0AA==",
+      ),
+    ).toBe("3EB0E73E5549BAF8425CE4");
+    // 32-char id
+    expect(
+      whatsappMessageIdFromWamid(
+        "wamid.HBgKOTYwNzUwMTAyNRUCABIYIEFDQTkwMkIwMDlFOEEzRTA2QkQxNzMzODhFQ0IwMzNEAA==",
+      ),
+    ).toBe("ACA902B009E8A3E06BD173388ECB033D");
+    // id ending in ASCII "0" (the byte that tripped a naive NUL-strip)
+    expect(
+      whatsappMessageIdFromWamid(
+        "wamid.HBgMNDQ3OTcxMjgzNzM0FQIAEhgUM0ExRkZFQ0U2M0VFQjI1MEExQjAA",
+      ),
+    ).toBe("3A1FFECE63EEB250A1B0");
+  });
+
+  it("returns null for a non-wamid or an unparseable envelope", () => {
+    expect(whatsappMessageIdFromWamid("63f872f6741c165b4342a751")).toBeNull();
+    expect(whatsappMessageIdFromWamid("wamid.only")).toBeNull();
+    expect(whatsappMessageIdFromWamid("")).toBeNull();
+  });
+});
 
 describe("YCloudWhatsAppAdapter", () => {
   it("parses a YCloud inbound text event into a source-agnostic message", () => {
@@ -14,9 +71,9 @@ describe("YCloudWhatsAppAdapter", () => {
       createTime: "2026-06-25T12:00:00.000Z",
       whatsappInboundMessage: {
         id: "63f872f6741c165b4342a751",
-        wamid: "wamid.HBgNODi",
+        wamid: WAMID_INBOUND,
         wabaId: "WABA-ID",
-        from: "+12133734253",
+        from: "+351918533852",
         to: "+351939054063",
         sendTime: "2026-06-25T12:00:00.000Z",
         type: "text",
@@ -29,9 +86,10 @@ describe("YCloudWhatsAppAdapter", () => {
     expect(message).toEqual({
       source: "whatsapp",
       provider: "ycloud",
-      providerMessageId: "63f872f6741c165b4342a751",
+      // Keyed on the stable wamid message id, NOT YCloud's ephemeral `id`.
+      providerMessageId: INBOUND_MESSAGE_ID,
       direction: "inbound",
-      fromIdentifier: "+12133734253",
+      fromIdentifier: "+351918533852",
       toIdentifier: "+351939054063",
       body: "Hello from WhatsApp",
       media: [],
@@ -47,7 +105,8 @@ describe("YCloudWhatsAppAdapter", () => {
       type: "whatsapp.inbound_message.received",
       whatsappInboundMessage: {
         id: "63f87878509703399f3fd3d0",
-        from: "+12133734253",
+        wamid: WAMID_INBOUND,
+        from: "+351918533852",
         to: "+351939054063",
         type: "image",
         sendTime: "2026-06-25T12:00:00.000Z",
@@ -71,10 +130,11 @@ describe("YCloudWhatsAppAdapter", () => {
     ]);
   });
 
-  it("falls back to wamid when the YCloud message id is absent", () => {
+  it("falls back to the full wamid when the id cannot be extracted", () => {
     const message = new YCloudWhatsAppAdapter().parse({
       type: "whatsapp.inbound_message.received",
       whatsappInboundMessage: {
+        id: "63f872f6741c165b4342a751",
         wamid: "wamid.only",
         from: "+12133734253",
         to: "+351939054063",
@@ -84,6 +144,21 @@ describe("YCloudWhatsAppAdapter", () => {
     });
 
     expect(message.providerMessageId).toBe("wamid.only");
+  });
+
+  it("falls back to the YCloud id only when no wamid is present", () => {
+    const message = new YCloudWhatsAppAdapter().parse({
+      type: "whatsapp.inbound_message.received",
+      whatsappInboundMessage: {
+        id: "63f872f6741c165b4342a751",
+        from: "+12133734253",
+        to: "+351939054063",
+        type: "text",
+        text: { body: "hi" },
+      },
+    });
+
+    expect(message.providerMessageId).toBe("63f872f6741c165b4342a751");
   });
 
   it("fails loudly when the sender is missing", () => {
@@ -108,7 +183,8 @@ describe("parseYCloudHistoryEvent", () => {
       type: "whatsapp.smb.history",
       whatsappInboundMessage: {
         id: "h-in-1",
-        from: "+12133734253",
+        wamid: WAMID_INBOUND,
+        from: "+351918533852",
         to: "+351939054063",
         sendTime: "2026-01-10T09:00:00.000Z",
         type: "text",
@@ -119,9 +195,9 @@ describe("parseYCloudHistoryEvent", () => {
     expect(message).toEqual(
       expect.objectContaining({
         provider: "ycloud",
-        providerMessageId: "h-in-1",
+        providerMessageId: INBOUND_MESSAGE_ID,
         direction: "inbound",
-        fromIdentifier: "+12133734253",
+        fromIdentifier: "+351918533852",
         toIdentifier: "+351939054063",
         body: "old inbound",
         happenedAt: "2026-01-10T09:00:00.000Z",
@@ -134,8 +210,9 @@ describe("parseYCloudHistoryEvent", () => {
       type: "whatsapp.smb.history",
       whatsappMessage: {
         id: "h-out-1",
+        wamid: WAMID_OUTBOUND_HISTORY,
         from: "+351939054063",
-        to: "+12133734253",
+        to: "+351963495602",
         sendTime: "2026-01-10T09:05:00.000Z",
         type: "text",
         text: { body: "old reply" },
@@ -144,10 +221,10 @@ describe("parseYCloudHistoryEvent", () => {
 
     expect(message).toEqual(
       expect.objectContaining({
-        providerMessageId: "h-out-1",
+        providerMessageId: OUTBOUND_MESSAGE_ID,
         direction: "outbound",
         fromIdentifier: "+351939054063",
-        toIdentifier: "+12133734253",
+        toIdentifier: "+351963495602",
         body: "old reply",
       }),
     );
@@ -167,9 +244,9 @@ describe("parseYCloudEchoEvent", () => {
       type: "whatsapp.smb.message.echoes",
       whatsappMessage: {
         id: "echo-1",
-        wamid: "wamid.echo",
+        wamid: WAMID_OUTBOUND_ECHO,
         from: "+351939054063",
-        to: "+12133734253",
+        to: "+351963495602",
         sendTime: "2026-06-26T10:00:00.000Z",
         type: "text",
         text: { body: "Sent from my phone" },
@@ -179,10 +256,10 @@ describe("parseYCloudEchoEvent", () => {
     expect(message).toEqual(
       expect.objectContaining({
         provider: "ycloud",
-        providerMessageId: "echo-1",
+        providerMessageId: OUTBOUND_MESSAGE_ID,
         direction: "outbound",
         fromIdentifier: "+351939054063",
-        toIdentifier: "+12133734253",
+        toIdentifier: "+351963495602",
         body: "Sent from my phone",
         happenedAt: "2026-06-26T10:00:00.000Z",
         rawPayload: expect.objectContaining({
@@ -190,6 +267,40 @@ describe("parseYCloudEchoEvent", () => {
         }),
       }),
     );
+  });
+
+  it("gives a live echo and its later history copy one identity (dedupe)", () => {
+    // Regression for the duplication bug: YCloud delivers this outbound message
+    // once as an echo and again in a history sync, with different YCloud ids,
+    // different wamids, and skewed sendTimes — all of which must collapse to a
+    // single providerMessageId so the unique constraint stores it exactly once.
+    const echo = parseYCloudEchoEvent({
+      type: "whatsapp.smb.message.echoes",
+      whatsappMessage: {
+        id: "6a4299b164ee8f32f61edcd6",
+        wamid: WAMID_OUTBOUND_ECHO,
+        from: "+351939054063",
+        to: "+351963495602",
+        sendTime: "2026-06-29T16:13:00.000Z",
+        type: "text",
+        text: { body: "Am I holding off any message to her parents?" },
+      },
+    });
+    const history = parseYCloudHistoryEvent({
+      type: "whatsapp.smb.history",
+      whatsappMessage: {
+        id: "6a42addcc5dfe72b091d2894",
+        wamid: WAMID_OUTBOUND_HISTORY,
+        from: "+351939054063",
+        to: "+351963495602",
+        sendTime: "2026-06-29T17:39:00.000Z",
+        type: "text",
+        text: { body: "Am I holding off any message to her parents?" },
+      },
+    });
+
+    expect(echo.providerMessageId).toBe(OUTBOUND_MESSAGE_ID);
+    expect(history.providerMessageId).toBe(echo.providerMessageId);
   });
 
   it("fails loudly when the echoed message container is missing", () => {

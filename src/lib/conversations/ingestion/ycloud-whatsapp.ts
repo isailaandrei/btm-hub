@@ -64,6 +64,42 @@ function extractBody(
 }
 
 /**
+ * Extracts WhatsApp's canonical, perspective-independent message id from a
+ * `wamid`, so ingestion can dedupe on a stable identity.
+ *
+ * A wamid is `wamid.` + base64 of a small binary envelope shaped like:
+ *
+ *   0x1c 0x18 <phoneLen> <peer phone, ASCII digits>
+ *   0x15 0x02 0x00 <dir> 0x18 <idLen> <message id, ASCII hex> [0x00]
+ *
+ * The embedded *peer phone* is NOT stable for a given message: the live
+ * send-echo (`whatsapp.smb.message.echoes`) encodes the customer while the
+ * history-sync copy (`whatsapp.smb.history`) encodes the business number — so
+ * the same outbound message arrives under two different full wamids. The
+ * trailing, length-prefixed ASCII-hex *message id* is identical across the live
+ * inbound event, the echo, and every history re-sync, so that is the identity
+ * we key on. (YCloud's own `id` field is an ephemeral per-delivery surrogate and
+ * must never be used — it defeats the `(provider, provider_message_id)` unique
+ * constraint, which is what let duplicates accumulate.)
+ *
+ * The decoded envelope contains exactly two runs of ASCII-hex characters — the
+ * peer phone, then the message id — fenced apart by the non-hex control bytes
+ * of the `0x15 0x02 0x00 … 0x18` marker, so the final hex run is the message id.
+ *
+ * Returns `null` when the envelope doesn't match this shape; the caller then
+ * falls back to the full wamid, so a future wamid-format change degrades to
+ * "dedupe by wamid" rather than crashing or silently over-merging messages.
+ */
+export function whatsappMessageIdFromWamid(wamid: string): string | null {
+  if (!wamid.startsWith("wamid.")) return null;
+  const decoded = Buffer.from(wamid.slice("wamid.".length), "base64").toString(
+    "latin1",
+  );
+  const runs = decoded.match(/[0-9A-Fa-f]{8,}/g);
+  return runs ? runs[runs.length - 1].toUpperCase() : null;
+}
+
+/**
  * Normalizes a single YCloud message object (the contents of
  * `whatsappInboundMessage` or `whatsappMessage`) into a source-agnostic message.
  * `from`/`to` are stored as sent: for inbound `from` is the customer, for
@@ -74,8 +110,15 @@ function normalizeMessageObject(
   direction: ConversationDirection,
   rawPayload: Record<string, unknown>,
 ): NormalizedConversationMessage {
+  // Dedupe identity: the stable message id derived from the wamid, falling back
+  // to the full wamid, and only as a last resort to YCloud's ephemeral `id`
+  // (which changes on every re-delivery — never a reliable key). See
+  // whatsappMessageIdFromWamid.
+  const wamid = nonEmptyString(message.wamid);
   const providerMessageId =
-    nonEmptyString(message.id) ?? nonEmptyString(message.wamid);
+    (wamid ? whatsappMessageIdFromWamid(wamid) : null) ??
+    wamid ??
+    nonEmptyString(message.id);
   if (!providerMessageId) {
     throw new Error("YCloud message missing id/wamid");
   }
