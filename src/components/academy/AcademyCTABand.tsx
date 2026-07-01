@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const FLOURISH = "/images/home/flourish.svg";
@@ -5,11 +6,21 @@ const FLOURISH = "/images/home/flourish.svg";
 /**
  * Closing conversion band — catches anyone who scrolled all four programmes
  * without deciding, and routes the undecided to a conversation rather than a
- * dead end.
+ * dead end. A wide atmospheric still sits behind a heavy #020306 wash so the
+ * copy stays legible while the ocean carries the mood.
  */
 export function AcademyCTABand() {
   return (
-    <section className="reveal border-t border-white/5 bg-[#020306] px-5 py-24 text-center sm:px-8">
+    <section className="reveal relative isolate overflow-hidden border-t border-white/5 px-5 py-28 text-center sm:px-8">
+      <Image
+        src="/images/academy/cta-wide.jpg"
+        alt=""
+        aria-hidden
+        fill
+        sizes="100vw"
+        className="-z-10 object-cover"
+      />
+      <div className="absolute inset-0 -z-10 bg-[#020306]/80" />
       <div className="mx-auto max-w-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={FLOURISH} alt="" aria-hidden className="mx-auto mb-5 h-4 w-5" />

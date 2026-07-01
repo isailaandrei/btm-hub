@@ -12,6 +12,7 @@ const { AcademyProgramSection } = await import("./AcademyProgramSection")
 
 const base = {
   index: 0,
+  slug: "photography",
   name: "Photography",
   overline: "Mentorship programme",
   description: "Learn to capture life beneath the surface.",
@@ -31,6 +32,7 @@ describe("AcademyProgramSection", () => {
   it("renders the programme pitch with apply + learn-more CTAs", () => {
     const html = renderToStaticMarkup(<AcademyProgramSection {...base} />)
 
+    expect(html).toContain('id="photography"')
     expect(html).toContain("Photography")
     expect(html).toContain("Mentorship programme")
     expect(html).toContain("One-to-one mentorship")

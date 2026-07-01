@@ -11,6 +11,8 @@ const FLOURISH = "/images/home/flourish.svg";
 type AcademyProgramSectionProps = {
   /** 0-based position; drives the alternating photo/text layout + index label. */
   index: number;
+  /** Programme slug — used as the anchor id the hero panels scroll to. */
+  slug: string;
   name: string;
   overline: string;
   description: string;
@@ -33,6 +35,7 @@ type AcademyProgramSectionProps = {
  */
 export function AcademyProgramSection({
   index,
+  slug,
   name,
   overline,
   description,
@@ -47,7 +50,10 @@ export function AcademyProgramSection({
   const number = String(index + 1).padStart(2, "0");
 
   return (
-    <section className="reveal border-t border-white/5 py-16 md:py-24">
+    <section
+      id={slug}
+      className="reveal scroll-mt-24 border-t border-white/5 py-16 md:py-24"
+    >
       <div className="mx-auto grid max-w-[1420px] items-center gap-10 px-5 sm:px-8 md:grid-cols-2 md:gap-16 lg:px-16">
         {/* Image — the programme's single photo */}
         <div className={cn("relative", reverse ? "md:order-2" : "md:order-1")}>
