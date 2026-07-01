@@ -1,14 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import {
-  FEATURES,
-  HERO,
-  IMG_BASE,
-  NAV_LINKS,
-  WHAT_WE_DO,
-} from "./content";
-import { HomeNavAuth } from "./home-nav-auth";
+import { FEATURES, HERO, IMG_BASE, WHAT_WE_DO } from "./content";
 import { Parallax } from "./parallax";
 
 /**
@@ -288,39 +281,8 @@ export function HomeDesktop() {
           style={{ background: "linear-gradient(to bottom, rgba(2,3,6,0) 0%, rgba(2,3,6,1) 27%)" }}
         />
 
-        {/* ---- Top bar: logo, nav, auth ----
-            A flex header (rather than absolutely-positioned boxes) so the auth
-            cluster can grow for the logged-in / admin states without colliding
-            with the nav links. Still sized in cqw, so it scales with the canvas. */}
-        <header
-          className="absolute inset-x-0 top-0 z-30 flex items-center justify-between"
-          style={{ paddingInline: q(130), paddingTop: q(34), paddingBottom: q(24) }}
-        >
-          <Link href="/" aria-label="Behind the Mask home" className="shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`${IMG_BASE}/logo.png`}
-              alt="Behind the Mask"
-              className="w-auto object-contain"
-              style={{ height: q(39) }}
-            />
-          </Link>
-
-          <nav className="flex items-center" style={{ gap: q(40) }}>
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.label}
-                href={link.href}
-                className="font-display text-white transition-opacity hover:opacity-70"
-                style={{ fontSize: q(16) }}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-
-          <HomeNavAuth />
-        </header>
+        {/* The site header (logo + Menu → full-screen sitemap) is rendered once
+            by the page, fixed over this canvas, shared with every subpage. */}
 
         {/* Hero copy — scroll parallax: drifts up and fades over the static
             background for depth, leaving the section gradients untouched.

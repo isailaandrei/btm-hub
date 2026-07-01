@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FEATURES, HERO, IMG_BASE, WHAT_WE_DO } from "./content";
-import { MobileNav } from "./mobile-nav";
 import { Parallax } from "./parallax";
 
 /**
@@ -32,8 +31,6 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle: string }
 export function HomeMobile() {
   return (
     <div className="bg-[#020306] text-white xl:hidden">
-      <MobileNav />
-
       {/* ---- Hero ---- */}
       <section className="relative min-h-[100svh] overflow-hidden">
         <Image
