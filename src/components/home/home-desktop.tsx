@@ -66,7 +66,6 @@ function Photo({
   sizes = "(min-width: 1680px) 840px, 50vw",
   className,
   objectPosition,
-  parallax,
 }: {
   x: number;
   y: number;
@@ -80,31 +79,18 @@ function Photo({
   className?: string;
   /** Focal point for the cover crop. Figma hand-positions some image fills; match them here. */
   objectPosition?: string;
-  /** Collage parallax: the photo pans within its frame as it passes through the
-   *  viewport (driven by <CollageParallax>). The image is over-scaled so the
-   *  pan never exposes the frame edges. */
-  parallax?: boolean;
 }) {
-  const image = (
-    <Image
-      src={src}
-      alt={alt}
-      fill
-      sizes={sizes}
-      priority={priority}
-      className={cn("object-cover", parallax && "scale-[1.28]")}
-      style={objectPosition ? { objectPosition } : undefined}
-    />
-  );
   return (
     <Box x={x} y={y} w={w} h={h} z={z} className={cn("overflow-hidden", className)}>
-      {parallax ? (
-        <div data-parallax className="absolute inset-0">
-          {image}
-        </div>
-      ) : (
-        image
-      )}
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        sizes={sizes}
+        priority={priority}
+        className="object-cover"
+        style={objectPosition ? { objectPosition } : undefined}
+      />
     </Box>
   );
 }
@@ -323,15 +309,15 @@ export function HomeDesktop() {
         </Text>
         <Pill x={249} y={1784} w={145} h={48} href={FILM.button.href} label={FILM.button.label} className="reveal" />
         {/* collage */}
-        <Photo x={737} y={1326} w={458} h={458} src={FILM.images[0].src} alt={FILM.images[0].alt} className="reveal" parallax />
-        <Photo x={1210} y={1444} w={345} h={194} src={FILM.images[1].src} alt={FILM.images[1].alt} className="reveal" parallax />
-        <Photo x={1210} y={1658} w={277} h={208} src={FILM.images[2].src} alt={FILM.images[2].alt} className="reveal" parallax />
-        <Photo x={971} y={1804} w={221} h={124} src={FILM.images[3].src} alt={FILM.images[3].alt} className="reveal" parallax />
+        <Photo x={737} y={1326} w={458} h={458} src={FILM.images[0].src} alt={FILM.images[0].alt} className="reveal" />
+        <Photo x={1210} y={1444} w={345} h={194} src={FILM.images[1].src} alt={FILM.images[1].alt} className="reveal" />
+        <Photo x={1210} y={1658} w={277} h={208} src={FILM.images[2].src} alt={FILM.images[2].alt} className="reveal" />
+        <Photo x={971} y={1804} w={221} h={124} src={FILM.images[3].src} alt={FILM.images[3].alt} className="reveal" />
 
         {/* ---- Feature 2: Travel & Expeditions (collage left, text right) ---- */}
-        <Photo x={130} y={2262} w={327} h={491} src={TRAVEL.images[1].src} alt={TRAVEL.images[1].alt} className="reveal" parallax />
-        <Photo x={477} y={2377} w={471} h={277} src={TRAVEL.images[0].src} alt={TRAVEL.images[0].alt} className="reveal" parallax />
-        <Photo x={477} y={2672} w={233} h={229} src={TRAVEL.images[2].src} alt={TRAVEL.images[2].alt} className="reveal" parallax />
+        <Photo x={130} y={2262} w={327} h={491} src={TRAVEL.images[1].src} alt={TRAVEL.images[1].alt} className="reveal" />
+        <Photo x={477} y={2377} w={471} h={277} src={TRAVEL.images[0].src} alt={TRAVEL.images[0].alt} className="reveal" />
+        <Photo x={477} y={2672} w={233} h={229} src={TRAVEL.images[2].src} alt={TRAVEL.images[2].alt} className="reveal" />
         <Svg x={998} y={2306} w={90.63} h={145} z={2} src={`${IMG_BASE}/section-icon.svg`} className="reveal" />
         <Text x={1118} y={2349} w={401} h={24} size={16} color="rgba(255,255,255,0.8)" className="reveal">
           {TRAVEL.overline}
@@ -363,14 +349,14 @@ export function HomeDesktop() {
         </Text>
         <Pill x={249} y={3607} w={162} h={48} href={COMMUNITY.button.href} label={COMMUNITY.button.label} className="reveal" />
         {/* collage */}
-        <Photo x={1210} y={3272} w={340} h={509} src={COMMUNITY.images[1].src} alt={COMMUNITY.images[1].alt} className="reveal" parallax />
-        <Photo x={850} y={3307} w={341} h={173} src={COMMUNITY.images[0].src} alt={COMMUNITY.images[0].alt} className="reveal" parallax />
-        <Photo x={850} y={3500} w={341} h={221} src={COMMUNITY.images[2].src} alt={COMMUNITY.images[2].alt} className="reveal" parallax />
+        <Photo x={1210} y={3272} w={340} h={509} src={COMMUNITY.images[1].src} alt={COMMUNITY.images[1].alt} className="reveal" />
+        <Photo x={850} y={3307} w={341} h={173} src={COMMUNITY.images[0].src} alt={COMMUNITY.images[0].alt} className="reveal" />
+        <Photo x={850} y={3500} w={341} h={221} src={COMMUNITY.images[2].src} alt={COMMUNITY.images[2].alt} className="reveal" />
 
         {/* ---- Feature 4: Shop & Merch (collage left, text right) ---- */}
-        <Photo x={130} y={3903} w={341} h={511} src={SHOP.images[1].src} alt={SHOP.images[1].alt} className="reveal" parallax />
-        <Photo x={490} y={3953} w={340} h={267} src={SHOP.images[0].src} alt={SHOP.images[0].alt} className="reveal" parallax />
-        <Photo x={490} y={4240} w={187} h={280} src={SHOP.images[2].src} alt={SHOP.images[2].alt} className="reveal" parallax />
+        <Photo x={130} y={3903} w={341} h={511} src={SHOP.images[1].src} alt={SHOP.images[1].alt} className="reveal" />
+        <Photo x={490} y={3953} w={340} h={267} src={SHOP.images[0].src} alt={SHOP.images[0].alt} className="reveal" />
+        <Photo x={490} y={4240} w={187} h={280} src={SHOP.images[2].src} alt={SHOP.images[2].alt} className="reveal" />
         <Svg x={942} y={4020} w={90.63} h={145} z={2} src={`${IMG_BASE}/section-icon.svg`} className="reveal" />
         <Text x={1062} y={4063} w={401} h={24} size={16} color="rgba(255,255,255,0.8)" className="reveal">
           {SHOP.overline}

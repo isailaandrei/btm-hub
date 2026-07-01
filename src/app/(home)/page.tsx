@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { CollageParallax } from "@/components/home/collage-parallax";
 import { HomeDesktop } from "@/components/home/home-desktop";
 import { HomeMobile } from "@/components/home/home-mobile";
 import { RevealOnScroll } from "@/components/home/reveal-on-scroll";
@@ -18,7 +17,6 @@ export default function HomePage() {
     <>
       <SiteHeader transparent />
       <RevealOnScroll />
-      <CollageParallax />
       <HomeDesktop />
       <HomeMobile />
       <VideosSection />

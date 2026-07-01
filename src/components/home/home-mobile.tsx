@@ -87,9 +87,7 @@ export function HomeMobile() {
                     i === 0 ? "col-span-2 aspect-[4/3]" : "aspect-square",
                   )}
                 >
-                  <div data-parallax className="absolute inset-0">
-                    <Image src={img.src} alt={img.alt} fill sizes="100vw" className="scale-[1.28] object-cover" />
-                  </div>
+                    <Image src={img.src} alt={img.alt} fill sizes="100vw" className="object-cover" />
                 </div>
               ))}
             </div>
