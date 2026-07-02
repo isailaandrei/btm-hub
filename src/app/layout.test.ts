@@ -15,18 +15,10 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
-vi.mock("@vercel/analytics/next", () => ({
-  Analytics: () => "VERCEL_ANALYTICS_MARKER",
-}));
-
-vi.mock("@vercel/speed-insights/next", () => ({
-  SpeedInsights: () => "VERCEL_SPEED_INSIGHTS_MARKER",
-}));
-
 const { default: RootLayout } = await import("./layout");
 
 describe("RootLayout", () => {
-  it("mounts Vercel Analytics and Speed Insights once at the app root", () => {
+  it("renders children and mounts the Toaster once at the app root", () => {
     const html = renderToStaticMarkup(
       createElement(
         RootLayout,
@@ -35,7 +27,10 @@ describe("RootLayout", () => {
       ),
     );
 
-    expect(html.match(/VERCEL_ANALYTICS_MARKER/g)).toHaveLength(1);
-    expect(html.match(/VERCEL_SPEED_INSIGHTS_MARKER/g)).toHaveLength(1);
+    expect(html).toContain("Page content");
+    expect(html.match(/TOASTER_MARKER/g)).toHaveLength(1);
+    // Vercel Analytics / Speed Insights were removed for the move off Vercel;
+    // guard against an accidental re-add pulling in host-specific beacons.
+    expect(html).not.toMatch(/VERCEL_/);
   });
 });
