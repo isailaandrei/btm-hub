@@ -388,20 +388,3 @@ async function unassignTagsWithTimeline(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Applications for a contact
-// ---------------------------------------------------------------------------
-
-export const getApplicationsByContactId = cache(
-  async function getApplicationsByContactId(contactId: string) {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("applications")
-      .select("*")
-      .eq("contact_id", contactId)
-      .order("submitted_at", { ascending: false });
-
-    if (error) throw new Error(`Failed to load applications: ${error.message}`);
-    return data;
-  },
-);

@@ -100,7 +100,6 @@ const {
   getEmailSendDiagnosticsAction,
   loadEmailManualRecipientsAction,
   loadEmailSendsAction,
-  loadEmailStudioDataAction,
   loadEmailTemplatesAction,
   getComposeRecipientsAction,
   previewEmailAction,
@@ -191,19 +190,6 @@ beforeEach(() => {
   mockAfter.mockReset();
   mockRequireAdmin.mockReset().mockResolvedValue({ id: "admin-1" });
   mockRevalidatePath.mockReset();
-});
-
-describe("loadEmailStudioDataAction", () => {
-  it("loads email studio data on demand after an admin check", async () => {
-    const result = await loadEmailStudioDataAction();
-
-    expect(mockRequireAdmin).toHaveBeenCalled();
-    expect(result).toEqual({
-      templates: [{ id: "template-1" }],
-      templateVersionsById: {},
-      sends: [{ id: "send-1" }],
-    });
-  });
 });
 
 describe("loadEmailManualRecipientsAction", () => {

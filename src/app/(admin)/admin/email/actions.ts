@@ -238,19 +238,6 @@ export async function saveEmailManualRecipientAction(input: {
   return { manualRecipient };
 }
 
-export async function loadEmailStudioDataAction() {
-  await requireAdmin();
-  const [templateData, sends] = await Promise.all([
-    loadTemplatesWithInitialVersion(),
-    listEmailSends(),
-  ]);
-
-  return {
-    ...templateData,
-    sends,
-  };
-}
-
 // Expand any selected lists + segments into the contact / manual recipient ids
 // they resolve to, merged with the ad-hoc selection. Lists are frozen members;
 // segments are re-evaluated now. Both target specific people, so outreach only.

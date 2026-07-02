@@ -1,26 +1,7 @@
-import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import type { ContactEvent, ContactEventType } from "@/types/database";
-
-// ---------------------------------------------------------------------------
-// Read
-// ---------------------------------------------------------------------------
-
-export const getContactEvents = cache(async function getContactEvents(
-  contactId: string,
-): Promise<ContactEvent[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("contact_events")
-    .select("*")
-    .eq("contact_id", contactId)
-    .order("happened_at", { ascending: false });
-
-  if (error) throw new Error(`Failed to load contact events: ${error.message}`);
-  return (data ?? []) as ContactEvent[];
-});
 
 // ---------------------------------------------------------------------------
 // Write
@@ -227,15 +208,3 @@ export interface ContactEventSummary {
   happened_at: string;
   resolved_at: string | null;
 }
-
-export const getAllContactEventSummaries = cache(
-  async function getAllContactEventSummaries(): Promise<ContactEventSummary[]> {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("contact_events")
-      .select("id, contact_id, type, custom_label, happened_at, resolved_at");
-
-    if (error) throw new Error(`Failed to load contact event summaries: ${error.message}`);
-    return (data ?? []) as ContactEventSummary[];
-  },
-);
