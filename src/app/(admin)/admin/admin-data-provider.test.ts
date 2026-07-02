@@ -37,6 +37,40 @@ describe("AdminDataProvider activity summaries", () => {
   });
 });
 
+describe("AdminDataProvider realtime resilience", () => {
+  it("monitors every channel's subscribe status instead of subscribing blind", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    expect(source).not.toContain(".subscribe();");
+    expect(source).toContain(".subscribe(handleChannelStatus)");
+    expect(source).toContain('status === "CHANNEL_ERROR"');
+    expect(source).toContain('status === "TIMED_OUT"');
+  });
+
+  it("resyncs on reconnect and on tab wake (postgres_changes cannot replay the gap)", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    expect(source).toContain("resyncContactsData");
+    expect(source).toContain("resyncAdminData");
+    expect(source).toContain('addEventListener("visibilitychange"');
+    expect(source).toContain('addEventListener("online"');
+    expect(source).toContain("REALTIME_RESYNC_MIN_INTERVAL_MS");
+  });
+
+  it("surfaces realtime refetch failures instead of silently keeping stale tags", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    expect(source).toContain('toast.error("Failed to refresh tag categories.")');
+    expect(source).toContain('toast.error("Failed to refresh tags.")');
+  });
+
+  it("prepends realtime application inserts idempotently", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    expect(source).toContain("prependContactListApplication");
+  });
+});
+
 describe("AdminDataProvider task profiles", () => {
   it("does not own task assignee profile fetching", () => {
     const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");

@@ -74,6 +74,21 @@ export function reassembleProjectedApplications(
   });
 }
 
+/**
+ * Prepend a realtime-inserted application, deduped by id and capped. Idempotent:
+ * a double-delivered INSERT (or one overlapping the fetch->subscribe snapshot)
+ * replaces the existing row instead of duplicating it — no colliding React keys,
+ * no double-counted rows — and the cap keeps a long session's prepends bounded.
+ */
+export function prependContactListApplication(
+  previous: ContactListApplication[] | null,
+  incoming: ContactListApplication,
+  cap: number,
+): ContactListApplication[] {
+  const withoutDuplicate = (previous ?? []).filter((app) => app.id !== incoming.id);
+  return [incoming, ...withoutDuplicate].slice(0, cap);
+}
+
 export function mergeProjectedApplicationAnswers(
   previous: ContactListApplication[] | null,
   next: ContactListApplication[],
