@@ -1,6 +1,6 @@
 # Vercel → Hostinger migration plan
 
-**Status:** v2 — red-team reviewed (2026-07-02, adversarial agent; 3 SEV-1 / 8 SEV-2 findings incorporated). Domain not yet chosen (pilot runs on a temporary `*.hostingersite.com` subdomain).
+**Status:** v2 — red-team reviewed; **BLOCKED 2026-07-02 on a third-party-account/trust issue (see ⚠️ section below).** Phase 0 code done + verified; Phase 1 on hold pending two owner decisions.
 **Builds on:** branch `chore/hostinger-portability` (2 commits, unmerged — analytics removal, `APP_ENV` prod detection, Node pin) and its analysis doc `docs/plans/hostinger-migration-overhead.md`.
 
 ## Context
@@ -10,14 +10,24 @@ BTM Hub runs on **Vercel Hobby** at `btm-hub.vercel.app` (no custom domain). Two
 1. **Hobby is non-compliant and at pause risk — treat as urgent.** Vercel's fair-use policy restricts Hobby to non-commercial use; the shop makes this site commercial. The June 29 YCloud webhook retry storm burned **482.9/360 GB-hrs provisioned memory and 4h36m/4h active CPU** — both exceeded. Per [Vercel's Hobby docs](https://vercel.com/docs/plans/hobby), exceeding usage limits can suspend the feature **until 30 days have passed**. Production may pause at any moment; Phase 0/1 should be executed in days, not weeks (see Break-glass below).
 2. **A Hostinger Cloud Startup plan is already paid for and sits empty.** Hostinger's Node.js Web Apps hosting runs Next.js (SSR/ISR/API routes) from a GitHub repo with auto-deploy on push, Node 18–24, env-var UI, managed SSL, CDN, supervising process manager. Plan: **4 CPU / 4 GB RAM / 100 GB NVMe**, all available to this app.
 
-**Verdict: feasible.** Standard `next start` server; Vercel coupling in app code is confined to `src/lib/email/settings.ts` + the analytics imports (verified). Trade-offs: no PR previews, undocumented proxy request-timeout (pilot test), self-served image optimization, build-memory headroom on a 4 GB builder (measured, mitigated below).
+**Verdict: technically feasible.** Standard `next start` server; Vercel coupling in app code is confined to `src/lib/email/settings.ts` + the analytics imports (verified). Trade-offs: no PR previews, undocumented proxy request-timeout (pilot test), self-served image optimization, build-memory headroom on a 4 GB builder (measured, mitigated below).
+
+## ⚠️ BLOCKING — the Hostinger account belongs to a third party (raised 2026-07-02)
+
+The Cloud Startup plan and `behind-the-mask.com` are owned by **someone else**, and there is an **unresolved money dispute** with them. This changes the recommendation and must be resolved before any deploy.
+
+- **There is no reliable "kill-switch" on hardware someone else administers.** Deploying runs `npm ci && next build` onto *his* filesystem (hPanel File Manager / SSH), exposing in plaintext: the full source code (he can snapshot it any time — deleting it later doesn't un-copy it) and — the real crown jewel — **all env secrets, above all `SUPABASE_SERVICE_ROLE_KEY`** (full DB read/write, bypasses RLS; also Brevo/OpenAI/YCloud keys). Any kill-switch written in code is defeatable because it's his machine. He also controls DNS (the domain is his).
+- **The only ungameable kill-switch lives in accounts *you* own.** Rotating the Supabase service-role + anon keys instantly bricks any deployed copy (can't auth, read, or send). Same for rotating Brevo/OpenAI/YCloud. **This only works if the Supabase project `ojbwpfemujjjkihdhgkr` is under Andrei's own account — MUST VERIFY (open decision #2).**
+- **Recommended path: host on Andrei's OWN plan** (a separate ~$8/mo Cloud Startup, or Vercel Pro ~$20/mo). The entire cost saving was "the plan is already paid for" — which is void once it's not his account. Own plan = own server, own DNS, own keys, clean exit any time. Do NOT weaponize access as dispute leverage (legal risk; out of scope) — the goal is simply to not hand an untrusted party your code + data-keys.
+- **Two open decisions gate everything below** (asked 2026-07-02, awaiting answer): (1) host on his account / own new plan / stay on Vercel Pro; (2) who controls Supabase. Phase 0 code is done and host-agnostic, so it is unaffected regardless. Phase 1 does not proceed until (1) and (2) are settled.
 
 ## Decisions made (Andrei, 2026-07-01)
 
-- Pilot on a **temp Hostinger subdomain**; real domain later. External repointing happens **once**, at final cutover (break-glass excepted).
-- Cloud Startup plan is empty → full resources for this app.
+- Pilot on **`preview.behind-the-mask.com`** (decided 2026-07-02, supersedes the temp `*.hostingersite.com` idea — equal effort, better URL). External repointing happens **once**, at final cutover (break-glass excepted).
+- Cloud Startup plan is empty of *other* Node apps → full resources for this app.
 - **Drop Vercel Analytics + Speed Insights** now; replacement later.
-- Domain candidate discovered 2026-07-02: **`behind-the-mask.com` is already registered in the Hostinger account** (parked on Hostinger FR infra, `ns1/ns2.dns-parking.com`, `panel: hpanel` headers). `btmacademy.com` is NOT owned (NameBright marketplace). If chosen, Phase 3 is a same-account domain attach.
+- **Domain reality (corrected 2026-07-02):** `behind-the-mask.com` is in the Hostinger account but **hosts the live WordPress brand site** ("Underwater film production & dive travel", WP 7.0 — no repo; it lives in hPanel). The `preview` subdomain has no DNS record — free to claim; subdomain attach does not touch apex/`www`. `btmacademy.com` is NOT owned (NameBright marketplace).
+- **Official release (gates Phase 3, Andrei's call):** either (a) hub takes the apex and the WP site is retired or remapped (e.g. `old.`/`films.`), or (b) hub lives permanently on a subdomain (`hub.`/`community.`) and WP keeps the apex. Pilot is valid under both.
 
 ## What the app needs from a host (audit summary — verified)
 
@@ -69,8 +79,9 @@ Provider selection is **solely `EMAIL_PROVIDER`** (`getEmailProviderName()`, `sr
 
 1. hPanel → Websites → **Add Website → Node.js Apps** → Import Git Repository → `isailaandrei/btm-hub`, the Phase 0 branch (pushed with approval). Datacenter **France (or UK)**.
 2. Build settings: install `npm ci`, build `npm run build`, start **`npm run start`** (plain — Hostinger docs say apps must listen on **port 3000**, which is `next start`'s default and it honors a platform `PORT` env var; `-p $PORT` relies on an undocumented variable and crashes if unset). Node **22**. Add build env **`NODE_OPTIONS=--max-old-space-size=2048`** (measured: caps cold-build peak at ≈3 GB vs 3.3–3.6 GB, no time penalty).
-3. Env vars (list below), pilot values: `NEXT_PUBLIC_SITE_URL`/`EMAIL_WORKER_ORIGIN` = temp subdomain; **no `APP_ENV`**; **`EMAIL_PROVIDER=fake`** (see email model above); all secrets present so config checks don't 500/404.
-4. **Sanity CORS:** register `https://<temp>.hostingersite.com` at sanity.io/manage (allow credentials) — `/studio` auth fails without it. Remove after cutover.
+3. Env vars (list below), pilot values: `NEXT_PUBLIC_SITE_URL`/`EMAIL_WORKER_ORIGIN` = `https://preview.behind-the-mask.com`; **no `APP_ENV`**; **`EMAIL_PROVIDER=fake`** (see email model above); all secrets present so config checks don't 500/404.
+3b. **Attach `preview.behind-the-mask.com`** to the app (same-account subdomain; auto-SSL). The WordPress site on apex/`www` is untouched. Note: the pilot is noindexed but publicly reachable — optional hardening before sharing the URL: a cookie-based preview gate keyed on non-production.
+4. **Sanity CORS:** register `https://preview.behind-the-mask.com` at sanity.io/manage (allow credentials) — `/studio` auth fails without it. Remove after cutover.
 5. **Supabase: no changes needed for the pilot.** The app never passes `redirectTo`/`emailRedirectTo` (plain `signInWithPassword`/`signUp` — verified), so password login works as-is. Expect: **new registrations on the pilot get confirmation emails linking to the Vercel Site URL** until Phase 3 — known cosmetic weirdness, not a Hostinger failure.
 
 ## Phase 2 — Pilot validation checklist (in order)
@@ -96,7 +107,7 @@ Provider selection is **solely `EMAIL_PROVIDER`** (`getEmailProviderName()`, `sr
 
 1. **Env first, then rebuild:** set final env on Hostinger — `APP_ENV=production`, `EMAIL_PROVIDER=brevo`, remove `EMAIL_TEST_RECIPIENT_OVERRIDE`, `NEXT_PUBLIC_SITE_URL` + `EMAIL_WORKER_ORIGIN` = final domain — and **redeploy** (NEXT_PUBLIC_* is baked at build). Verify on the temp subdomain.
 2. **Land the repo commit** that deletes the cron from `vercel.json` (kills Vercel-side academy-import everywhere — both platforms deploy from main, so no double-execution window; the importer's duplicate check is check-then-insert and races under concurrent runs).
-3. **Attach the domain** (hPanel; if `behind-the-mask.com`: same-account attach) + managed SSL. Verify the temp subdomain's fate (replaced vs coexists) — if it stays live, plan its removal in Phase 4.
+3. **Attach the release hostname** (hPanel, same-account): either the apex — which replaces the WordPress site's routing (WP files stay in hPanel; remap it to `old.`/`films.` first if it should stay reachable) — or the chosen permanent subdomain. Then plan `preview.*`'s removal in Phase 4.
 4. **Repoint external references** (only now):
    - Supabase Auth **Site URL** → final domain (fixes confirmation-email links)
    - Supabase **Vault `email_drain_url`** → `https://<domain>/api/cron/email-drain`; **verify the ported `CRON_SECRET` equals Vault `email_cron_secret`** (mismatch = drain 401s forever, emails stall)
