@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildApplicationProjectionSelect,
   getSafeApplicationAnswerKeys,
+  mergeProjectedApplicationAnswers,
   prependContactListApplication,
   reassembleProjectedApplications,
   type ContactListApplication,
@@ -46,6 +47,28 @@ describe("prependContactListApplication", () => {
 
   it("tolerates a null previous list", () => {
     expect(prependContactListApplication(null, app("a"), 5)).toEqual([app("a")]);
+  });
+});
+
+describe("mergeProjectedApplicationAnswers", () => {
+  it("merges answers for rows present in both, keyed by id", () => {
+    const previous = [app("a", { answers: { phone: "123", budget: "5k" } })];
+    const next = [app("a", { answers: { phone: "999" } })];
+    const result = mergeProjectedApplicationAnswers(previous, next);
+    expect(result).toHaveLength(1);
+    expect(result[0].answers).toEqual({ phone: "999", budget: "5k" });
+  });
+
+  it("preserves rows present only in previous (a realtime insert mid-fetch)", () => {
+    const previous = [app("a"), app("realtime-inserted")];
+    const next = [app("a")];
+    const result = mergeProjectedApplicationAnswers(previous, next);
+    expect(result.map((a) => a.id).sort()).toEqual(["a", "realtime-inserted"]);
+  });
+
+  it("includes rows present only in next", () => {
+    const result = mergeProjectedApplicationAnswers([app("a")], [app("a"), app("b")]);
+    expect(result.map((a) => a.id).sort()).toEqual(["a", "b"]);
   });
 });
 

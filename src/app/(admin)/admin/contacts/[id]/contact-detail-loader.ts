@@ -25,9 +25,13 @@ export function warmContactDetail(
     return Promise.resolve(entry.data);
   }
 
+  // Stamp at request time, not resolution time, so last-write-wins is real: a
+  // load issued earlier that resolves later (network reordering) won't clobber a
+  // newer load's data. Without this the cache store's loadedAt guard is inert.
+  const requestedAt = Date.now();
   const request = loadContactDetailAction(contactId)
     .then((data) => {
-      if (data) contactDetailCacheStore.set(contactId, data);
+      if (data) contactDetailCacheStore.set(contactId, data, requestedAt);
       return data;
     })
     .finally(() => {

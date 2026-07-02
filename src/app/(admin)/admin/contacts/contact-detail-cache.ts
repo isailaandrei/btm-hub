@@ -41,6 +41,11 @@ export interface ContactDetailCacheStore {
   clear(): void;
 }
 
+/** Cap on cached contact-detail entries. Bounds memory over a long session
+ *  where many contacts are opened/hovered; the on-screen contact (which has an
+ *  active listener) is never evicted. */
+const MAX_CACHE_ENTRIES = 50;
+
 export function createContactDetailCacheStore(): ContactDetailCacheStore {
   const entries = new Map<string, ContactDetailCacheEntry>();
   const listeners = new Map<string, Set<Listener>>();
@@ -49,6 +54,17 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
     const set = listeners.get(contactId);
     if (!set) return;
     for (const listener of set) listener();
+  }
+
+  // FIFO eviction (Map iterates in insertion order) that skips any entry with an
+  // active subscriber, so the currently-displayed contact is never dropped.
+  function evictIfNeeded(): void {
+    if (entries.size <= MAX_CACHE_ENTRIES) return;
+    for (const key of entries.keys()) {
+      if (entries.size <= MAX_CACHE_ENTRIES) break;
+      if ((listeners.get(key)?.size ?? 0) > 0) continue;
+      entries.delete(key);
+    }
   }
 
   return {
@@ -68,6 +84,7 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
       // after a newer write must not clobber it.
       if (existing && existing.loadedAt > stamp) return;
       entries.set(contactId, { data, loadedAt: stamp, status: "fresh" });
+      evictIfNeeded();
       notify(contactId);
     },
     markStale(contactId) {

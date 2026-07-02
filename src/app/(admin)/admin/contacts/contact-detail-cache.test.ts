@@ -99,4 +99,28 @@ describe("contactDetailCacheStore", () => {
     store.clear();
     expect(store.has(ID_A)).toBe(false);
   });
+
+  it("evicts oldest entries beyond the cap (FIFO)", () => {
+    const store = createContactDetailCacheStore();
+    // 60 > MAX_CACHE_ENTRIES (50): the earliest-inserted entries are evicted.
+    for (let i = 0; i < 60; i++) {
+      store.set(`id-${i}`, makeData(`Contact ${i}`));
+    }
+    expect(store.has("id-0")).toBe(false);
+    expect(store.has("id-9")).toBe(false);
+    expect(store.has("id-10")).toBe(true);
+    expect(store.has("id-59")).toBe(true);
+  });
+
+  it("never evicts an entry that has an active subscriber", () => {
+    const store = createContactDetailCacheStore();
+    store.set("pinned", makeData("Pinned"));
+    // The on-screen contact keeps a subscriber; it must survive eviction even
+    // though it is the oldest entry.
+    store.subscribe("pinned", () => {});
+    for (let i = 0; i < 60; i++) {
+      store.set(`id-${i}`, makeData(`Contact ${i}`));
+    }
+    expect(store.has("pinned")).toBe(true);
+  });
 });

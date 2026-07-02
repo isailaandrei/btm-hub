@@ -94,8 +94,9 @@ export function mergeProjectedApplicationAnswers(
   next: ContactListApplication[],
 ): ContactListApplication[] {
   const previousById = new Map((previous ?? []).map((app) => [app.id, app]));
+  const nextIds = new Set(next.map((app) => app.id));
 
-  return next.map((app) => {
+  const merged = next.map((app) => {
     const existing = previousById.get(app.id);
     if (!existing) return app;
 
@@ -108,6 +109,14 @@ export function mergeProjectedApplicationAnswers(
       },
     };
   });
+
+  // Keep rows present only in `previous` — e.g. a realtime INSERT that landed
+  // AFTER this merge fetch's SELECT snapshot. Deriving the result solely from
+  // `next` would silently drop such a row until the next full refetch. Order is
+  // irrelevant: the provider regroups applications by contact for display.
+  const onlyInPrevious = (previous ?? []).filter((app) => !nextIds.has(app.id));
+
+  return [...merged, ...onlyInPrevious];
 }
 
 export function getContactsTableApplicationAnswerKeys({
