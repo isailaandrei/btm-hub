@@ -198,4 +198,29 @@ describe("createBrevoEmailProvider", () => {
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  it("bounds the send with a timeout and throws with context when it fails", async () => {
+    fetchMock.mockRejectedValue(
+      new DOMException("The operation timed out", "TimeoutError"),
+    );
+
+    const provider = createBrevoEmailProvider("brevo-key");
+    await expect(
+      provider.sendEmail({
+        recipientId: "550e8400-e29b-41d4-a716-446655440040",
+        sendId: "send-1",
+        contactId: "contact-1",
+        to: "test@example.com",
+        fromEmail: "owner@example.com",
+        fromName: "Behind The Mask",
+        replyTo: "owner@example.com",
+        subject: "Hello",
+        html: "<p>Hello</p>",
+        text: "Hello",
+        metadata: { sendId: "send-1" },
+      }),
+    ).rejects.toThrow(/Brevo send request failed or timed out/);
+    // The fetch is bounded by an AbortSignal timeout.
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
 });

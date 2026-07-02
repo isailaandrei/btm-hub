@@ -56,13 +56,21 @@ function getVimeoVideoIdForLog(oEmbedUrl: string): string {
   }
 }
 
+// Bound the Vimeo oEmbed lookup so a slow/hung provider can't stall a render
+// (the result is day-cached, so this only costs on a cache miss). On timeout the
+// catch below logs a warning and returns null — the film just shows no poster.
+const VIMEO_OEMBED_TIMEOUT_MS = 8000;
+
 async function getVimeoThumbnailUrl(oEmbedUrl: string): Promise<string | null> {
   const endpoint = new URL("https://vimeo.com/api/oembed.json");
   endpoint.searchParams.set("url", oEmbedUrl);
   const videoId = getVimeoVideoIdForLog(oEmbedUrl);
 
   try {
-    const response = await fetch(endpoint, { next: { revalidate: 86400 } });
+    const response = await fetch(endpoint, {
+      next: { revalidate: 86400 },
+      signal: AbortSignal.timeout(VIMEO_OEMBED_TIMEOUT_MS),
+    });
     if (!response.ok) {
       console.warn("Unable to resolve Vimeo thumbnail.", {
         videoId,

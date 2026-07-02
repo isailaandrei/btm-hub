@@ -81,4 +81,10 @@ describe("GET /api/whatsapp/ycloud/media", () => {
     const res = await get(`messageId=${MESSAGE_ID}&index=0`);
     expect(res.status).toBe(502);
   });
+
+  it("504s when the initial upstream fetch times out (bounded, not left hanging)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("aborted")));
+    const res = await get(`messageId=${MESSAGE_ID}&index=0`);
+    expect(res.status).toBe(504);
+  });
 });

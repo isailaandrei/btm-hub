@@ -8,6 +8,9 @@ import type {
 } from "./types";
 
 const BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email";
+// Bound the send so a hung Brevo API call can't hold a worker instance (and its
+// resources) open indefinitely. See the CLAUDE.md storm-proofing invariant.
+const BREVO_SEND_TIMEOUT_MS = 15000;
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -133,6 +136,15 @@ export function createBrevoEmailProvider(
           },
           tags: ["btm-admin-email", input.sendId],
         }),
+        signal: AbortSignal.timeout(BREVO_SEND_TIMEOUT_MS),
+      }).catch((error: unknown): never => {
+        // Fail loud with context so the send pipeline records the failure and
+        // retries, rather than the recipient silently stalling on a hung request.
+        throw new Error(
+          `Brevo send request failed or timed out after ${BREVO_SEND_TIMEOUT_MS}ms: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       });
 
       const raw = (await response.json().catch(() => ({}))) as Record<

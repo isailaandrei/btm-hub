@@ -9,6 +9,9 @@ import { getConversationMessageMediaUrl } from "@/lib/data/conversations";
 // streams the bytes back. We only ever proxy YCloud media-download URLs we
 // stored ourselves (looked up by message id), which avoids open-proxy/SSRF.
 const YCLOUD_MEDIA_HOST = "api.ycloud.com";
+// Bound only the initial request (connect + response headers). We deliberately
+// do NOT bound the streamed body — see the fetch below.
+const YCLOUD_MEDIA_FETCH_TIMEOUT_MS = 15000;
 
 export async function GET(request: Request) {
   await requireAdmin();
@@ -49,9 +52,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unsupported media URL" }, { status: 400 });
   }
 
-  const upstream = await fetch(parsed.toString(), {
-    headers: { "X-API-Key": apiKey },
-  });
+  // Bound the initial fetch (connect + headers) so a hung YCloud endpoint can't
+  // hold this request open, but clear the timer the moment headers arrive so
+  // streaming the (possibly large) media body to the client is never cut off.
+  const controller = new AbortController();
+  const headersTimeout = setTimeout(
+    () => controller.abort(),
+    YCLOUD_MEDIA_FETCH_TIMEOUT_MS,
+  );
+  let upstream: Response;
+  try {
+    upstream = await fetch(parsed.toString(), {
+      headers: { "X-API-Key": apiKey },
+      signal: controller.signal,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Media unavailable upstream (fetch timed out)" },
+      { status: 504 },
+    );
+  } finally {
+    clearTimeout(headersTimeout);
+  }
   if (!upstream.ok || !upstream.body) {
     return NextResponse.json(
       { error: "Media unavailable upstream", status: upstream.status },
