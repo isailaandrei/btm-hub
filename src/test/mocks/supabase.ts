@@ -29,8 +29,10 @@ export function createMockSupabaseClient() {
   // Make the query builder thenable so `await supabase.from(...).select(...)` works
   const from = vi.fn().mockReturnValue(query);
 
-  // RPC
-  const rpc = vi.fn().mockResolvedValue(result);
+  // RPC — returns the same chainable builder so `.rpc(...).abortSignal(...)` works
+  // (the storm-proofing DB timeouts chain .abortSignal after .rpc). The builder is
+  // thenable and resolves to `result`, so `await supabase.rpc(...)` is unchanged.
+  const rpc = vi.fn().mockReturnValue(query);
 
   // Auth
   const auth = {

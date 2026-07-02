@@ -14,6 +14,16 @@ import type {
   EmailSuppressionReason,
 } from "@/types/database";
 
+// Every Supabase call in this module is bounded by a timeout so a saturated
+// database fails fast (thrown, with context) instead of hanging until the
+// serverless function's max duration. Unbounded awaits on the email hot paths
+// (the Brevo webhook, the drain/reconcile crons, the public unsubscribe/view
+// routes) hold a function instance and a Postgres connection open for minutes
+// under load — that's how a provider retry-storm turns into a compute-burn
+// storm. See the Jun 2026 Fluid-burn incident and the CLAUDE.md storm-proofing
+// invariant. Modeled on INGEST_DB_TIMEOUT_MS in src/lib/data/conversations.ts.
+const EMAIL_DB_TIMEOUT_MS = 5000;
+
 export type EmailSendRecipientInput = {
   contactId: string | null;
   email: string;
@@ -51,7 +61,8 @@ export const listEmailSends = cache(
       .select(
         "*, email_template_versions(email_templates!email_template_versions_template_id_fkey(name))",
       )
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
     if (error) throw new Error(`Failed to load sent emails: ${error.message}`);
     return (data ?? []).map((row) => {
@@ -74,6 +85,7 @@ export const getEmailSend = cache(
       .from("email_sends")
       .select("*")
       .eq("id", id)
+      .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
       .maybeSingle();
 
     if (error) throw new Error(`Failed to load email send: ${error.message}`);
@@ -100,6 +112,7 @@ export async function getEmailSendTemplateInfo(
     .from("email_sends")
     .select("template_version_id")
     .eq("id", sendId)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
   if (error) throw new Error(`Failed to load email send: ${error.message}`);
 
@@ -110,6 +123,7 @@ export async function getEmailSendTemplateInfo(
     .from("email_template_versions")
     .select("version_number, email_templates(name)")
     .eq("id", versionId)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
   if (versionError) {
     throw new Error(`Failed to load template version: ${versionError.message}`);
@@ -137,6 +151,7 @@ export async function getEmailSendForWorker(
     .from("email_sends")
     .select("*")
     .eq("id", id)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error) throw new Error(`Failed to load email send: ${error.message}`);
@@ -168,6 +183,7 @@ export async function getEmailSendByPublicToken(
       "builder_json_snapshot, preview_text, from_name, from_email, reply_to_email",
     )
     .eq("public_token", token)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error) {
@@ -185,7 +201,8 @@ export const listEmailSendRecipients = cache(
       .from("email_send_recipients")
       .select("*")
       .eq("send_id", sendId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
     if (error) throw new Error(`Failed to load email recipients: ${error.message}`);
     return (data ?? []) as EmailSendRecipient[];
@@ -200,7 +217,8 @@ export const listEmailEventsForSend = cache(
       .select("*")
       .eq("send_id", sendId)
       .in("type", ["bounced", "failed", "delivery_delayed"])
-      .order("occurred_at", { ascending: false });
+      .order("occurred_at", { ascending: false })
+      .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
     if (error) throw new Error(`Failed to load email events: ${error.message}`);
     return (data ?? []) as EmailEvent[];
@@ -224,9 +242,8 @@ export async function createEmailSendWithRecipients(input: {
 }): Promise<EmailSend> {
   const profile = await requireAdmin();
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc(
-    "create_email_send_with_recipients",
-    {
+  const { data, error } = await supabase
+    .rpc("create_email_send_with_recipients", {
       p_kind: input.kind,
       p_name: input.name,
       p_subject_template: input.subjectTemplate,
@@ -248,8 +265,8 @@ export async function createEmailSendWithRecipients(input: {
         skip_reason: recipient.skipReason ?? null,
       })),
       p_user_id: profile.id,
-    },
-  );
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) throw new Error(`Failed to create email send: ${error.message}`);
   return data as EmailSend;
@@ -258,10 +275,12 @@ export async function createEmailSendWithRecipients(input: {
 export async function queueEmailSend(sendId: string): Promise<EmailSend> {
   const profile = await requireAdmin();
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("queue_email_send", {
-    p_send_id: sendId,
-    p_user_id: profile.id,
-  });
+  const { data, error } = await supabase
+    .rpc("queue_email_send", {
+      p_send_id: sendId,
+      p_user_id: profile.id,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) throw new Error(`Failed to queue email send: ${error.message}`);
   return data as EmailSend;
@@ -282,7 +301,8 @@ export async function setEmailSendTemplateVersion(
       template_version_id: templateVersionId,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", sendId);
+    .eq("id", sendId)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
   if (error) {
     throw new Error(`Failed to link template to send: ${error.message}`);
   }
@@ -312,6 +332,7 @@ export async function deleteRemovableEmailSend(sendId: string): Promise<boolean>
     .from("email_sends")
     .select("status")
     .eq("id", sendId)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
   if (lookupError) {
     throw new Error(`Failed to load email send: ${lookupError.message}`);
@@ -330,7 +351,8 @@ export async function deleteRemovableEmailSend(sendId: string): Promise<boolean>
   const { error: eventsError } = await supabase
     .from("email_events")
     .delete()
-    .eq("send_id", sendId);
+    .eq("send_id", sendId)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
   if (eventsError) {
     throw new Error(`Failed to delete email send events: ${eventsError.message}`);
   }
@@ -341,6 +363,7 @@ export async function deleteRemovableEmailSend(sendId: string): Promise<boolean>
     .eq("id", sendId)
     .in("status", REMOVABLE_SEND_STATUSES)
     .select("id")
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error) throw new Error(`Failed to delete email send: ${error.message}`);
@@ -352,10 +375,12 @@ export async function claimQueuedEmailRecipients(input: {
   limit: number;
 }): Promise<EmailSendRecipient[]> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc("claim_queued_email_recipients", {
-    p_send_id: input.sendId,
-    p_limit: input.limit,
-  });
+  const { data, error } = await supabase
+    .rpc("claim_queued_email_recipients", {
+      p_send_id: input.sendId,
+      p_limit: input.limit,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) throw new Error(`Failed to claim email recipients: ${error.message}`);
   return (data ?? []) as EmailSendRecipient[];
@@ -379,17 +404,19 @@ export async function markEmailRecipientSent(
   // and advanced this recipient (delivered/opened/clicked/bounced/...), that
   // status is preserved rather than clobbered back to 'sent'. The RPC also merges
   // provider_metadata server-side, so no read-modify-write is needed here.
-  const { error } = await supabase.rpc("mark_email_recipient_sent", {
-    p_recipient_id: recipientId,
-    p_provider: input.provider,
-    p_provider_message_id: input.providerMessageId,
-    p_provider_metadata: input.providerMetadata,
-    p_rendered_subject: input.renderedSubject,
-    p_rendered_html: input.renderedHtml,
-    p_rendered_text: input.renderedText,
-    p_unsubscribe_token_hash: input.unsubscribeTokenHash,
-    p_last_error: null,
-  });
+  const { error } = await supabase
+    .rpc("mark_email_recipient_sent", {
+      p_recipient_id: recipientId,
+      p_provider: input.provider,
+      p_provider_message_id: input.providerMessageId,
+      p_provider_metadata: input.providerMetadata,
+      p_rendered_subject: input.renderedSubject,
+      p_rendered_html: input.renderedHtml,
+      p_rendered_text: input.renderedText,
+      p_unsubscribe_token_hash: input.unsubscribeTokenHash,
+      p_last_error: null,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) throw new Error(`Failed to mark email recipient sent: ${error.message}`);
 }
@@ -422,7 +449,8 @@ export async function markEmailRecipientPrepared(
       last_error: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", recipientId);
+    .eq("id", recipientId)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(`Failed to prepare email recipient: ${error.message}`);
@@ -434,11 +462,13 @@ export async function markEmailRecipientFailed(
   message: string,
 ): Promise<void> {
   const supabase = await createAdminClient();
-  const { error } = await supabase.rpc("mark_email_recipient_failure", {
-    p_recipient_id: recipientId,
-    p_message: message,
-    p_max_attempts: 3,
-  });
+  const { error } = await supabase
+    .rpc("mark_email_recipient_failure", {
+      p_recipient_id: recipientId,
+      p_message: message,
+      p_max_attempts: 3,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(`Failed to mark email recipient failed: ${error.message}`);
@@ -458,17 +488,19 @@ export async function markEmailRecipientReconciliationNeeded(
   // Same no-downgrade "sent" writer; records the post-acceptance error in
   // last_error. Provider accepted the email, so the recipient must not look
   // failed — but if a webhook already advanced it, we keep that.
-  const { error } = await supabase.rpc("mark_email_recipient_sent", {
-    p_recipient_id: recipientId,
-    p_provider: input.provider,
-    p_provider_message_id: input.providerMessageId,
-    p_provider_metadata: input.providerMetadata,
-    p_rendered_subject: null,
-    p_rendered_html: null,
-    p_rendered_text: null,
-    p_unsubscribe_token_hash: null,
-    p_last_error: input.message,
-  });
+  const { error } = await supabase
+    .rpc("mark_email_recipient_sent", {
+      p_recipient_id: recipientId,
+      p_provider: input.provider,
+      p_provider_message_id: input.providerMessageId,
+      p_provider_metadata: input.providerMetadata,
+      p_rendered_subject: null,
+      p_rendered_html: null,
+      p_rendered_text: null,
+      p_unsubscribe_token_hash: null,
+      p_last_error: input.message,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(
@@ -494,7 +526,9 @@ export async function attachProviderMessageToRecipient(input: {
     selectQuery = selectQuery.eq("contact_id", input.contactId);
   }
 
-  const { data: existing, error: selectError } = await selectQuery.maybeSingle();
+  const { data: existing, error: selectError } = await selectQuery
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
+    .maybeSingle();
   if (selectError) {
     throw new Error(
       `Failed to load email recipient for webhook reconciliation: ${selectError.message}`,
@@ -523,6 +557,7 @@ export async function attachProviderMessageToRecipient(input: {
     })
     .eq("id", current.id)
     .select("*")
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error) {
@@ -561,6 +596,7 @@ export async function appendEmailEvent(input: {
       payload: input.payload,
     })
     .select("*")
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error && error.code === "23505") return null;
@@ -570,9 +606,11 @@ export async function appendEmailEvent(input: {
 
 export async function updateEmailSendCounts(sendId: string): Promise<void> {
   const supabase = await createAdminClient();
-  const { error } = await supabase.rpc("update_email_send_counts", {
-    p_send_id: sendId,
-  });
+  const { error } = await supabase
+    .rpc("update_email_send_counts", {
+      p_send_id: sendId,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) throw new Error(`Failed to update email send counts: ${error.message}`);
 }
@@ -589,9 +627,11 @@ export async function requeueFailedEmailRecipients(
   sendId: string,
 ): Promise<number> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc("requeue_failed_email_recipients", {
-    p_send_id: sendId,
-  });
+  const { data, error } = await supabase
+    .rpc("requeue_failed_email_recipients", {
+      p_send_id: sendId,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(`Failed to re-queue failed recipients: ${error.message}`);
@@ -624,13 +664,15 @@ export async function updateRecipientForProviderEvent(input: {
   occurredAt: string;
 }): Promise<EmailSendRecipient | null> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc("apply_email_provider_event", {
-    p_provider: input.provider,
-    p_provider_message_id: input.providerMessageId,
-    p_status: input.status,
-    p_timestamp_field: input.timestampField,
-    p_occurred_at: input.occurredAt,
-  });
+  const { data, error } = await supabase
+    .rpc("apply_email_provider_event", {
+      p_provider: input.provider,
+      p_provider_message_id: input.providerMessageId,
+      p_status: input.status,
+      p_timestamp_field: input.timestampField,
+      p_occurred_at: input.occurredAt,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(`Failed to update email recipient event: ${error.message}`);
@@ -662,17 +704,16 @@ export async function updateRecipientForProviderEventByRecipient(input: {
   occurredAt: string;
 }): Promise<EmailSendRecipient | null> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc(
-    "apply_email_provider_event_by_recipient",
-    {
+  const { data, error } = await supabase
+    .rpc("apply_email_provider_event_by_recipient", {
       p_recipient_id: input.recipientId,
       p_provider: input.provider,
       p_provider_message_id: input.providerMessageId,
       p_status: input.status,
       p_timestamp_field: input.timestampField,
       p_occurred_at: input.occurredAt,
-    },
-  );
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(
@@ -693,11 +734,13 @@ export async function updateRecipientForProxyOpen(input: {
   occurredAt: string;
 }): Promise<EmailSendRecipient | null> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc("apply_email_proxy_open", {
-    p_provider: input.provider,
-    p_provider_message_id: input.providerMessageId,
-    p_occurred_at: input.occurredAt,
-  });
+  const { data, error } = await supabase
+    .rpc("apply_email_proxy_open", {
+      p_provider: input.provider,
+      p_provider_message_id: input.providerMessageId,
+      p_occurred_at: input.occurredAt,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(`Failed to apply proxy open: ${error.message}`);
@@ -717,15 +760,14 @@ export async function updateRecipientForProxyOpenByRecipient(input: {
   occurredAt: string;
 }): Promise<EmailSendRecipient | null> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc(
-    "apply_email_proxy_open_by_recipient",
-    {
+  const { data, error } = await supabase
+    .rpc("apply_email_proxy_open_by_recipient", {
       p_recipient_id: input.recipientId,
       p_provider: input.provider,
       p_provider_message_id: input.providerMessageId,
       p_occurred_at: input.occurredAt,
-    },
-  );
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(`Failed to apply proxy open by recipient: ${error.message}`);
@@ -743,6 +785,7 @@ export async function getEmailRecipientByProviderMessage(input: {
     .select("*")
     .eq("provider", input.provider)
     .eq("provider_message_id", input.providerMessageId)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error) {
@@ -761,7 +804,8 @@ export async function getEmailSendQueueState(sendId: string): Promise<{
     .from("email_send_recipients")
     .select("status")
     .eq("send_id", sendId)
-    .in("status", ["pending", "queued", "sending"]);
+    .in("status", ["pending", "queued", "sending"])
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) throw new Error(`Failed to load email queue state: ${error.message}`);
   const statuses = (data ?? []) as Array<Pick<EmailSendRecipient, "status">>;
@@ -780,9 +824,11 @@ export async function getEmailSendQueueState(sendId: string): Promise<{
  */
 export async function reconcileOrphanEmailEvents(limit = 500): Promise<number> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc("reconcile_orphan_email_events", {
-    p_limit: limit,
-  });
+  const { data, error } = await supabase
+    .rpc("reconcile_orphan_email_events", {
+      p_limit: limit,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
   if (error) {
     throw new Error(`Failed to reconcile orphan email events: ${error.message}`);
   }
@@ -798,9 +844,11 @@ export async function getEmailSendsNeedingProcessing(
   limit = 25,
 ): Promise<string[]> {
   const supabase = await createAdminClient();
-  const { data, error } = await supabase.rpc("email_sends_needing_processing", {
-    p_limit: limit,
-  });
+  const { data, error } = await supabase
+    .rpc("email_sends_needing_processing", {
+      p_limit: limit,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
   if (error) {
     throw new Error(
       `Failed to load email sends needing processing: ${error.message}`,
@@ -837,7 +885,8 @@ export async function suppressEmailFromProvider(input: {
       provider: input.provider,
       provider_event_id: input.providerEventId,
       created_by: null,
-    });
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error && error.code !== "23505") {
     throw new Error(`Failed to suppress provider email: ${error.message}`);
@@ -851,13 +900,16 @@ export async function recordProviderNewsletterUnsubscribe(input: {
   if (!input.contactId) return;
   const now = new Date().toISOString();
   const supabase = await createAdminClient();
-  const { error } = await supabase.from("contact_email_preferences").upsert({
-    contact_id: input.contactId,
-    newsletter_unsubscribed_at: now,
-    newsletter_unsubscribed_source: input.source,
-    updated_by: null,
-    updated_at: now,
-  });
+  const { error } = await supabase
+    .from("contact_email_preferences")
+    .upsert({
+      contact_id: input.contactId,
+      newsletter_unsubscribed_at: now,
+      newsletter_unsubscribed_source: input.source,
+      updated_by: null,
+      updated_at: now,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error) {
     throw new Error(
@@ -879,15 +931,18 @@ export async function suppressUnsubscribedEmail(input: {
   source: string;
 }): Promise<void> {
   const supabase = await createAdminClient();
-  const { error } = await supabase.from("email_suppressions").insert({
-    contact_id: input.contactId,
-    email: input.email.trim().toLowerCase(),
-    reason: "unsubscribe",
-    detail: `Unsubscribed via ${input.source}`,
-    provider: null,
-    provider_event_id: null,
-    created_by: null,
-  });
+  const { error } = await supabase
+    .from("email_suppressions")
+    .insert({
+      contact_id: input.contactId,
+      email: input.email.trim().toLowerCase(),
+      reason: "unsubscribe",
+      detail: `Unsubscribed via ${input.source}`,
+      provider: null,
+      provider_event_id: null,
+      created_by: null,
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error && error.code !== "23505") {
     throw new Error(`Failed to suppress unsubscribed email: ${error.message}`);
@@ -899,7 +954,8 @@ export const listContactEmailPreferences = cache(
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("contact_email_preferences")
-      .select("*");
+      .select("*")
+      .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
     if (error) {
       throw new Error(`Failed to load email preferences: ${error.message}`);
@@ -914,7 +970,8 @@ export const listActiveEmailSuppressions = cache(
     const { data, error } = await supabase
       .from("email_suppressions")
       .select("*")
-      .is("lifted_at", null);
+      .is("lifted_at", null)
+      .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
     if (error) {
       throw new Error(`Failed to load email suppressions: ${error.message}`);
@@ -943,7 +1000,8 @@ export async function suppressEmail(input: {
       provider: input.provider ?? null,
       provider_event_id: input.providerEventId ?? null,
       created_by: profile.id,
-    });
+    })
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
 
   if (error && error.code !== "23505") {
     throw new Error(`Failed to suppress email: ${error.message}`);
@@ -960,6 +1018,7 @@ export async function unsubscribeNewsletterByToken(
     .from("email_send_recipients")
     .select("*")
     .eq("unsubscribe_token_hash", tokenHash)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error) throw new Error(`Failed to load unsubscribe token: ${error.message}`);
@@ -975,7 +1034,8 @@ export async function unsubscribeNewsletterByToken(
         newsletter_unsubscribed_source: "email_link",
         updated_by: null,
         updated_at: new Date().toISOString(),
-      });
+      })
+      .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
     if (preferenceError) {
       throw new Error(
         `Failed to update email preference: ${preferenceError.message}`,
@@ -998,7 +1058,8 @@ export async function unsubscribeNewsletterByToken(
       unsubscribed_at: now,
       updated_at: now,
     })
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .abortSignal(AbortSignal.timeout(EMAIL_DB_TIMEOUT_MS));
   if (recipientError) {
     throw new Error(`Failed to update email recipient: ${recipientError.message}`);
   }

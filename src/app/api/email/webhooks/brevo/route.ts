@@ -21,6 +21,23 @@ import {
   isProductionEmailEnvironment,
 } from "@/lib/email/settings";
 
+// A provider-callback route must never hold a (Fluid) function instance open for
+// the 300s project default. Every DB call in applyEvent is bounded well under
+// this (EMAIL_DB_TIMEOUT_MS in email-sends.ts); Brevo may batch a few events per
+// POST, so 30s is a generous backstop that still fails fast on a degraded DB.
+// See the Jun 2026 Fluid-burn incident.
+export const maxDuration = 30;
+
+// INVARIANT — keep this handler storm-proof (Jun 2026 Fluid-burn incident):
+//   1. Every awaited external call (DB, fetch, …) MUST be bounded by a timeout.
+//      An unbounded await can hang until maxDuration, which Vercel returns as a
+//      504 — a 5xx your catch never sees, and which makes Brevo retry.
+//   2. Internal/DB failures while applying an event MUST resolve to a 2xx
+//      (logged), never a 5xx, so a provider retry can't amplify load into a
+//      self-reinforcing storm. Signature/auth failures stay non-2xx (401/404) —
+//      those are real client errors and must NOT be masked.
+// Adding a new unbounded await — or a 5xx on an internal error — reopens the hole.
+
 function timingSafeMatches(provided: string, configured: string): boolean {
   const providedBuffer = Buffer.from(provided);
   const configuredBuffer = Buffer.from(configured);
@@ -241,9 +258,31 @@ export async function POST(request: Request) {
 
   const provider = createBrevoEmailProvider("webhook-parser-only");
   const events = provider.parseWebhook(payload);
+
+  // Apply each event independently. A DB failure (or a bounded-call timeout)
+  // must NOT surface as a 5xx — Brevo retries 5xx, and a retry under DB pressure
+  // is how a callback route melts a fixed-capacity server. Log loudly and ACK
+  // 2xx; the reconcile cron re-links any event whose recipient write didn't land.
+  let applied = 0;
   for (const event of events) {
-    await applyEvent(event);
+    try {
+      await applyEvent(event);
+      applied += 1;
+    } catch (error) {
+      const email =
+        typeof event.payload?.email === "string" ? event.payload.email : null;
+      console.error(
+        "[brevo-webhook] Failed to apply event — ACKed 2xx to avoid a retry storm",
+        {
+          type: event.type,
+          email,
+          providerMessageId: event.providerMessageId,
+          providerEventId: event.providerEventId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
   }
 
-  return NextResponse.json({ ok: true, events: events.length });
+  return NextResponse.json({ ok: true, events: events.length, applied });
 }

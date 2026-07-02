@@ -4,6 +4,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import type { ContactEvent, ContactEventType } from "@/types/database";
 
+// Bound the DB calls on the email-webhook delivery-status path (called from the
+// storm-proofed Brevo webhook) so a saturated database fails fast instead of
+// hanging until the function's max duration. See the CLAUDE.md storm-proofing
+// invariant and the Jun 2026 Fluid-burn incident.
+const EMAIL_WEBHOOK_DB_TIMEOUT_MS = 5000;
+
 // ---------------------------------------------------------------------------
 // Read
 // ---------------------------------------------------------------------------
@@ -98,6 +104,7 @@ export async function updateEmailSentContactEventDeliveryStatus(input: {
     .eq("type", "custom")
     .eq("metadata->>source", "email_sends")
     .eq("metadata->>recipient_id", input.recipientId)
+    .abortSignal(AbortSignal.timeout(EMAIL_WEBHOOK_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (error) {
@@ -119,7 +126,8 @@ export async function updateEmailSentContactEventDeliveryStatus(input: {
       },
       updated_at: new Date().toISOString(),
     })
-    .eq("id", data.id);
+    .eq("id", data.id)
+    .abortSignal(AbortSignal.timeout(EMAIL_WEBHOOK_DB_TIMEOUT_MS));
 
   if (updateError) {
     throw new Error(

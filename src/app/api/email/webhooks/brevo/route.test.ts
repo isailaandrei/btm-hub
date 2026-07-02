@@ -516,4 +516,70 @@ describe("Brevo webhook route", () => {
       delete process.env.VERCEL_ENV;
     }
   });
+
+  it("ACKs 2xx and logs loudly when applying an event throws (storm-proofing)", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mockCreateBrevoEmailProvider.mockReturnValue({
+      parseWebhook: () => [
+        {
+          type: "delivered",
+          provider: "brevo",
+          providerEventId: "brevo-event-1",
+          providerMessageId: "message-1",
+          occurredAt: "2026-05-01T00:00:00.000Z",
+          rawEvent: "delivered",
+          payload: { event: "delivered", email: "maya@example.com" },
+        },
+      ],
+    });
+    // A DB failure (or a bounded-call timeout) while applying the event must not
+    // surface as a 5xx — Brevo retries 5xx, and a retry under DB pressure is how
+    // a callback route melts a fixed-capacity server. The handler logs and ACKs.
+    mockUpdateRecipientForProviderEvent.mockRejectedValue(
+      new Error("email_send_recipients timeout"),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://localhost/api/email/webhooks/brevo", {
+        method: "POST",
+        headers: { "x-brevo-webhook-token": "secret" },
+        body: JSON.stringify({ event: "delivered" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      events: 1,
+      applied: 0,
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to apply event"),
+      expect.objectContaining({
+        type: "delivered",
+        email: "maya@example.com",
+        providerMessageId: "message-1",
+        error: "email_send_recipients timeout",
+      }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("returns 404 (not a 5xx) when the webhook token is not configured", async () => {
+    mockGetBrevoWebhookToken.mockReturnValue("");
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new Request("http://localhost/api/email/webhooks/brevo", {
+        method: "POST",
+        headers: { "x-brevo-webhook-token": "secret" },
+        body: JSON.stringify({ event: "delivered" }),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+  });
 });
