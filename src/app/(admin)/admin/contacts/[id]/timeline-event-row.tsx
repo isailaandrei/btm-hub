@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ContactEvent } from "@/types/database";
@@ -18,6 +17,7 @@ import {
   resolveEvent,
   unresolveEvent,
 } from "./event-actions";
+import { refreshContactDetailAfterMutation } from "./contact-detail-loader";
 import type { EventAction } from "./timeline-optimistic";
 
 function toDatetimeLocal(iso: string): string {
@@ -45,7 +45,6 @@ export function TimelineEventRow({
   event,
   applyOptimistic,
 }: TimelineEventRowProps) {
-  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [draftBody, setDraftBody] = useState(event.body);
   const [draftHappenedAt, setDraftHappenedAt] = useState(toDatetimeLocal(event.happened_at));
@@ -87,7 +86,7 @@ export function TimelineEventRow({
           happenedAt: happenedAtIso,
           ...(event.type === "custom" ? { customLabel: draftCustomLabel || null } : {}),
         });
-        router.refresh();
+        await refreshContactDetailAfterMutation(event.contact_id);
         setIsEditing(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save");
@@ -101,7 +100,7 @@ export function TimelineEventRow({
       try {
         applyOptimistic({ kind: "delete", id: event.id });
         await deleteEvent(event.id);
-        router.refresh();
+        await refreshContactDetailAfterMutation(event.contact_id);
       } catch (err) {
         setIsConfirmingDelete(false);
         const message = err instanceof Error ? err.message : "Failed to delete";
@@ -122,7 +121,7 @@ export function TimelineEventRow({
           resolvedBy: "optimistic",
         });
         await resolveEvent(event.id);
-        router.refresh();
+        await refreshContactDetailAfterMutation(event.contact_id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to resolve");
       }
@@ -135,7 +134,7 @@ export function TimelineEventRow({
       try {
         applyOptimistic({ kind: "unresolve", id: event.id });
         await unresolveEvent(event.id);
-        router.refresh();
+        await refreshContactDetailAfterMutation(event.contact_id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to reopen");
       }

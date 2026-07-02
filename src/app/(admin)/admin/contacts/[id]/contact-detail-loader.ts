@@ -37,3 +37,21 @@ export function warmContactDetail(
   inFlight.set(contactId, request);
   return request;
 }
+
+/**
+ * Refresh the open contact's cache after a mutation whose write has already
+ * committed (the caller `await`ed the server action). Marks the entry stale so
+ * `warmContactDetail` bypasses its fresh short-circuit and reloads from the
+ * server — independent of Supabase Realtime, so a committed write is never left
+ * looking undone when the websocket is down (fail loud, never fake).
+ *
+ * Call this INSIDE the mutation's `startTransition` and `await` it: the awaited
+ * reload keeps a `useOptimistic` value pinned until authoritative data lands,
+ * so the optimistic row hands off to the real one with no flicker or revert.
+ */
+export function refreshContactDetailAfterMutation(
+  contactId: string,
+): Promise<ContactDetailBootstrapData | null> {
+  contactDetailCacheStore.markStale(contactId);
+  return warmContactDetail(contactId);
+}

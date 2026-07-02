@@ -3,8 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { contactDetailCacheStore } from "../contact-detail-cache";
-import { loadContactDetailAction } from "./contact-detail-actions";
+import { refreshContactDetailAfterMutation } from "./contact-detail-loader";
 
 const REFRESH_DEBOUNCE_MS = 120;
 
@@ -28,16 +27,14 @@ export function ContactDetailRealtime({ contactId }: { contactId: string }) {
     function scheduleReload() {
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
-        void loadContactDetailAction(contactId)
-          .then((data) => {
-            if (data) contactDetailCacheStore.set(contactId, data);
-          })
-          .catch((error) => {
-            console.error(
-              `Failed to refresh contact detail ${contactId} from realtime change`,
-              error,
-            );
-          });
+        // Marks the entry stale then reloads through the shared in-flight dedup,
+        // so a realtime change and a same-tab mutation coalesce into one fetch.
+        void refreshContactDetailAfterMutation(contactId).catch((error) => {
+          console.error(
+            `Failed to refresh contact detail ${contactId} from realtime change`,
+            error,
+          );
+        });
       }, REFRESH_DEBOUNCE_MS);
     }
 
