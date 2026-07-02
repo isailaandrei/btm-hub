@@ -212,13 +212,18 @@ function EmailStudioContent({
   }, [refreshData]);
 
   useEffect(() => {
+    // Fetch only once the studio is actually shown. The panel is kept mounted
+    // (and idle-prewarmed) while hidden to warm its bundle; loading its data
+    // then would run server actions every session for a tab that may never be
+    // opened. ensure* dedupes, so re-entry on visibility toggles is a no-op.
+    if (!isVisible) return;
     startLoadDataTransition(async () => {
       await Promise.all([
         ensureEmailTemplates({ quiet: true }),
         ensureManualRecipients({ quiet: true }),
       ]);
     });
-  }, [ensureEmailTemplates, ensureManualRecipients]);
+  }, [isVisible, ensureEmailTemplates, ensureManualRecipients]);
 
   useEffect(() => {
     if (activeTab !== "sent") return;

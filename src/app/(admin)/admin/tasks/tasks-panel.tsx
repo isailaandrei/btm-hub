@@ -9,7 +9,7 @@ import { TaskBoardView } from "./task-board-view";
 import { useTaskData } from "./task-data-provider";
 import { TaskDetailPanel } from "./task-detail-panel";
 
-export function TasksPanel() {
+export function TasksPanel({ isVisible = true }: { isVisible?: boolean }) {
   const {
     admins,
     groups,
@@ -28,8 +28,12 @@ export function TasksPanel() {
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
 
   useEffect(() => {
+    // Load the board (and open its realtime channel) only when the tab is
+    // actually shown — the panel stays mounted while hidden to warm its bundle,
+    // but idle-prewarming it shouldn't fetch. ensureTasks guards re-entry.
+    if (!isVisible) return;
     ensureTasks();
-  }, [ensureTasks]);
+  }, [isVisible, ensureTasks]);
 
   const sharedError = tasksError;
   const ready = groups && tasks && admins && today;

@@ -196,7 +196,7 @@ export function AdminDashboard({
 
       {(activeTab === "tasks" || visitedTabs.tasks) && (
         <div hidden={activeTab !== "tasks"}>
-          <TasksPanel />
+          <TasksPanel isVisible={activeTab === "tasks"} />
         </div>
       )}
 
