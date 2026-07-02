@@ -44,7 +44,6 @@ export type TagFormState = {
 };
 
 function revalidateAdminTagViews() {
-  revalidatePath("/admin");
   revalidatePath("/admin/contacts/[id]", "page");
 }
 

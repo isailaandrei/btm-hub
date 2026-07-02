@@ -72,7 +72,6 @@ describe("changeStatus", () => {
     });
     expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${VALID_UUID}`);
     expect(mockRevalidatePath).toHaveBeenCalledWith("/profile/applications");
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
   });
 
   it("returns a validation result for invalid statuses", async () => {

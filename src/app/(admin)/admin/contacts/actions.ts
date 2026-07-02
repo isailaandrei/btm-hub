@@ -53,7 +53,6 @@ export async function editContact(
   }
   await updateContact(contactId, fields, options);
   revalidatePath(`/admin/contacts/${contactId}`);
-  revalidatePath("/admin");
 }
 
 export async function assignContactTag(contactId: string, tagId: string) {
@@ -61,7 +60,6 @@ export async function assignContactTag(contactId: string, tagId: string) {
   validateUUID(tagId);
   await assignTag(contactId, tagId);
   revalidatePath(`/admin/contacts/${contactId}`);
-  revalidatePath("/admin");
 }
 
 export async function unassignContactTag(contactId: string, tagId: string) {
@@ -69,7 +67,6 @@ export async function unassignContactTag(contactId: string, tagId: string) {
   validateUUID(tagId);
   await unassignTag(contactId, tagId);
   revalidatePath(`/admin/contacts/${contactId}`);
-  revalidatePath("/admin");
 }
 
 // Resolve the contact's email server-side rather than trusting the client.
@@ -140,14 +137,12 @@ export async function excludeContactFromEmail(contactId: string) {
   const email = await requireContactEmail(contactId);
   await excludeContactEmail({ contactId, email });
   revalidatePath(`/admin/contacts/${contactId}`);
-  revalidatePath("/admin");
 }
 
 export async function allowContactEmail(contactId: string) {
   const email = await requireContactEmail(contactId);
   await liftContactExclusion({ contactId, email });
   revalidatePath(`/admin/contacts/${contactId}`);
-  revalidatePath("/admin");
 }
 
 export async function updatePreferences(patch: Record<string, unknown>) {
@@ -175,7 +170,6 @@ export async function bulkAssignTag(contactIds: string[], tagId: string) {
   for (const id of contactIds) validateUUID(id, "contact");
   validateUUID(tagId, "tag");
   const result = await bulkAssignTags(contactIds, tagId);
-  revalidatePath("/admin");
   return result;
 }
 
@@ -187,7 +181,6 @@ export async function bulkUnassignTag(contactIds: string[], tagId: string) {
   for (const id of contactIds) validateUUID(id, "contact");
   validateUUID(tagId, "tag");
   await bulkUnassignTags(contactIds, tagId);
-  revalidatePath("/admin");
 }
 
 export async function deleteApplication(applicationId: string) {
@@ -196,5 +189,4 @@ export async function deleteApplication(applicationId: string) {
   if (deletedApplication.contact_id) {
     revalidatePath(`/admin/contacts/${deletedApplication.contact_id}`);
   }
-  revalidatePath("/admin");
 }

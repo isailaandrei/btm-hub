@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
@@ -234,7 +233,6 @@ export async function saveEmailManualRecipientAction(input: {
     name: parsed.data.name ?? "",
     notes: parsed.data.notes ?? "",
   });
-  revalidatePath("/admin");
   return { manualRecipient };
 }
 
@@ -581,7 +579,6 @@ export async function createEmailDraftAction(input: {
   }
 
   const send = await createEmailSend(parsed.data);
-  revalidatePath("/admin");
   return { sendId: send.id };
 }
 
@@ -717,7 +714,6 @@ export async function confirmEmailSendAction(
     }
   });
 
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -753,7 +749,6 @@ export async function sendEmailNowAction(input: {
     }
   });
 
-  revalidatePath("/admin");
   return { sendId: queuedSend.id };
 }
 
@@ -774,7 +769,6 @@ export async function retryFailedRecipientsAction(
     });
   }
 
-  revalidatePath("/admin");
   return { requeued };
 }
 
@@ -792,7 +786,6 @@ export async function liftEmailExclusionAction(
   await requireAdmin();
   validateUUID(suppressionId, "exclusion");
   await liftEmailExclusion(suppressionId);
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -806,7 +799,6 @@ export async function excludeContactFromEmailAction(
   const contact = await getContactById(contactId);
   if (!contact) throw new Error("Contact not found");
   await excludeContactEmail({ contactId, email: contact.email });
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -850,7 +842,6 @@ export async function createEmailListAction(input: {
     validateUUID(id, "saved recipient");
   }
   const list = await createEmailList(parsed.data);
-  revalidatePath("/admin");
   return { list };
 }
 
@@ -872,7 +863,6 @@ export async function updateEmailListAction(input: {
     name: parsed.data.name,
     description: parsed.data.description,
   });
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -882,7 +872,6 @@ export async function deleteEmailListAction(
   await requireAdmin();
   validateUUID(listId, "list");
   await deleteEmailList(listId);
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -898,7 +887,6 @@ export async function addEmailListMembersAction(input: {
     validateUUID(id, "saved recipient");
   }
   const result = await addEmailListMembers(input);
-  revalidatePath("/admin");
   return result;
 }
 
@@ -908,7 +896,6 @@ export async function removeEmailListMemberAction(
   await requireAdmin();
   validateUUID(memberId, "list member");
   await removeEmailListMember(memberId);
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -993,7 +980,6 @@ export async function createEmailSegmentAction(input: {
   validateSegmentTagIds(parsed.data.rule);
   assertSegmentNotEmpty(parsed.data.rule);
   const segment = await createEmailSegment(parsed.data);
-  revalidatePath("/admin");
   return { segment };
 }
 
@@ -1012,7 +998,6 @@ export async function updateEmailSegmentAction(input: {
   validateSegmentTagIds(parsed.data.rule);
   assertSegmentNotEmpty(parsed.data.rule);
   await updateEmailSegment({ id: input.id, ...parsed.data });
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -1022,7 +1007,6 @@ export async function deleteEmailSegmentAction(
   await requireAdmin();
   validateUUID(segmentId, "segment");
   await deleteEmailSegment(segmentId);
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -1037,7 +1021,6 @@ export async function deleteEmailSendAction(
     throw new Error("Email not found or it can no longer be removed.");
   }
 
-  revalidatePath("/admin");
   return { ok: true };
 }
 

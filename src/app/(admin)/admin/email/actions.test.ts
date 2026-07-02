@@ -215,7 +215,6 @@ describe("saveEmailManualRecipientAction", () => {
       name: "Future Applicant",
       notes: "",
     });
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
     expect(result).toEqual({ manualRecipient: MANUAL_RECIPIENT });
   });
 });
