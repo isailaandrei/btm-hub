@@ -6,6 +6,19 @@ import { createStreamServerClient } from "@/lib/stream/server";
 
 export const runtime = "nodejs";
 
+// Provider-callback route — keep it storm-proof (CLAUDE.md invariant; Jun 2026
+// Fluid-burn incident):
+//   1. The DB work (thread-context read + notification insert) is bounded by
+//      AbortSignal timeouts in its data functions, so a saturated DB can't hold
+//      this handler open until maxDuration.
+//   2. Internal/DB failures ACK 2xx (logged), never 5xx — Stream retries 5xx, and
+//      a retry under DB pressure amplifies load. Signature failures stay 401.
+// A missing channel->thread mapping is NOT a transient race: the mapping row is
+// inserted + committed before the Stream channel is created (see
+// getOrCreateDirectChatThread), and a channel must exist before any message.new,
+// so retrying can never make the mapping appear — log and ACK rather than 500.
+export const maxDuration = 20;
+
 type StreamWebhookPayload = {
   type?: unknown;
   cid?: unknown;
@@ -66,30 +79,54 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid Stream sender payload" }, { status: 400 });
   }
 
-  const context = await getStreamChatThreadNotificationContext({
-    streamChannelCid: cid,
-    senderId,
-  });
+  try {
+    const context = await getStreamChatThreadNotificationContext({
+      streamChannelCid: cid,
+      senderId,
+    });
 
-  if (!context) {
-    return NextResponse.json(
-      { error: `No app chat thread mapping found for Stream channel ${cid}` },
-      { status: 500 },
+    if (!context) {
+      // No app thread mapping for this channel. The mapping is written before the
+      // Stream channel exists, so this is never a transient race a retry fixes —
+      // a 5xx here would just make Stream retry-storm. Log loudly and ACK 2xx.
+      console.warn(
+        `[stream-webhook] No app chat thread mapping for Stream channel ${cid} — ACKed 2xx (not retryable)`,
+      );
+      return NextResponse.json({ ok: true, notifications: 0, unmapped: true });
+    }
+
+    const bodyPreview = toNotificationPreview(
+      asString(payload.message?.text) ?? "",
+      "text",
     );
+    const streamChannelId = getChannelId(payload, cid);
+
+    await createStreamMessageNotifications({
+      threadId: context.thread.id,
+      recipientIds: context.recipientIds,
+      actorId: senderId,
+      streamMessageId,
+      streamChannelCid: cid,
+      streamChannelId,
+      bodyPreview,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      notifications: context.recipientIds.length,
+    });
+  } catch (error) {
+    // Internal/DB failure (incl. a bounded-call timeout). ACK 2xx so Stream
+    // doesn't retry-storm a fixed-capacity server; log loudly with context.
+    console.error(
+      "[stream-webhook] Failed to process message.new — ACKed 2xx to avoid a retry storm",
+      {
+        cid,
+        senderId,
+        streamMessageId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return NextResponse.json({ ok: true, notifications: 0, deferred: true });
   }
-
-  const bodyPreview = toNotificationPreview(asString(payload.message?.text) ?? "", "text");
-  const streamChannelId = getChannelId(payload, cid);
-
-  await createStreamMessageNotifications({
-    threadId: context.thread.id,
-    recipientIds: context.recipientIds,
-    actorId: senderId,
-    streamMessageId,
-    streamChannelCid: cid,
-    streamChannelId,
-    bodyPreview,
-  });
-
-  return NextResponse.json({ ok: true, notifications: context.recipientIds.length });
 }

@@ -107,7 +107,8 @@ describe("POST /api/stream/webhook", () => {
     await expect(response.json()).resolves.toEqual({ ok: true, notifications: 2 });
   });
 
-  it("fails loudly when a Stream message arrives for an unmapped channel", async () => {
+  it("ACKs 2xx (not a retryable 5xx) and logs when a Stream message arrives for an unmapped channel", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockGetStreamChatThreadNotificationContext.mockResolvedValue(null);
     const { POST } = await import("./route");
 
@@ -127,8 +128,53 @@ describe("POST /api/stream/webhook", () => {
       }),
     );
 
-    expect(response.status).toBe(500);
+    // The mapping is created before the Stream channel exists, so a missing
+    // mapping is not a transient race — retrying can't fix it. Log + ACK 2xx so
+    // Stream doesn't retry-storm a fixed-capacity server.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      notifications: 0,
+    });
     expect(mockCreateStreamMessageNotifications).not.toHaveBeenCalled();
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining("No app chat thread mapping"),
+    );
+    consoleWarn.mockRestore();
+  });
+
+  it("ACKs 2xx and logs when a DB lookup throws (storm-proofing)", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mockGetStreamChatThreadNotificationContext.mockRejectedValue(
+      new Error("chat_threads timeout"),
+    );
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      new Request("http://localhost/api/stream/webhook", {
+        method: "POST",
+        headers: { "x-signature": "signature" },
+        body: JSON.stringify({
+          type: "message.new",
+          cid: "messaging:00000000-0000-4000-8000-000000000099",
+          message: {
+            id: "stream-message-1",
+            text: "Hello",
+            user: { id: "sender-1" },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreateStreamMessageNotifications).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to process message.new"),
+      expect.objectContaining({ error: "chat_threads timeout" }),
+    );
+    consoleError.mockRestore();
   });
 
   it("ignores non-message events", async () => {

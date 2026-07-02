@@ -12,7 +12,7 @@ const USER_B = "00000000-0000-4000-8000-000000000002";
 
 function createQuery(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const method of ["select", "eq", "insert", "upsert", "single", "maybeSingle"]) {
+  for (const method of ["select", "eq", "insert", "upsert", "single", "maybeSingle", "abortSignal"]) {
     query[method] = overrides[method] ?? vi.fn(() => query);
   }
   return query;

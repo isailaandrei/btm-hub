@@ -2,6 +2,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { validateUUID } from "@/lib/validation-helpers";
 import type { ChatThread } from "@/types/database";
 
+// The Stream webhook awaits getStreamChatThreadNotificationContext on every
+// inbound message, so bound its DB reads: a saturated database must fail fast
+// rather than hold the (fixed-capacity) webhook handler open. See the CLAUDE.md
+// storm-proofing invariant and the Jun 2026 Fluid-burn incident.
+const STREAM_WEBHOOK_DB_TIMEOUT_MS = 5000;
+
 const CHAT_THREAD_COLUMNS = `
   id,
   kind,
@@ -186,6 +192,7 @@ export async function getStreamChatThreadNotificationContext({
     .select(CHAT_THREAD_COLUMNS)
     .eq("provider", "stream")
     .eq("provider_channel_cid", streamChannelCid)
+    .abortSignal(AbortSignal.timeout(STREAM_WEBHOOK_DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (threadError && !isNotFoundError(threadError)) {
@@ -197,7 +204,8 @@ export async function getStreamChatThreadNotificationContext({
   const { data: participants, error: participantError } = await supabase
     .from("chat_thread_participants")
     .select("profile_id")
-    .eq("thread_id", (thread as ChatThread).id);
+    .eq("thread_id", (thread as ChatThread).id)
+    .abortSignal(AbortSignal.timeout(STREAM_WEBHOOK_DB_TIMEOUT_MS));
 
   if (participantError) {
     throw new Error(

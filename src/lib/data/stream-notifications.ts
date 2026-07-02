@@ -1,5 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
+// createStreamMessageNotifications runs inside the storm-proofed Stream webhook,
+// so bound its insert: a saturated DB must fail fast rather than hold the handler
+// open. See the CLAUDE.md storm-proofing invariant.
+const STREAM_WEBHOOK_DB_TIMEOUT_MS = 5000;
+
 interface StreamMessageNotificationsInput {
   threadId: string;
   recipientIds: string[];
@@ -38,7 +43,7 @@ export async function createStreamMessageNotifications({
         body_preview: bodyPreview,
       },
     })),
-  );
+  ).abortSignal(AbortSignal.timeout(STREAM_WEBHOOK_DB_TIMEOUT_MS));
 
   if (error) {
     if (error.code === "23505") return;

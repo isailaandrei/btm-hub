@@ -13,7 +13,11 @@ vi.mock("@/lib/supabase/admin", () => ({
 describe("stream notification data helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInsert.mockResolvedValue({ error: null });
+    // insert(...) is bounded by .abortSignal(...) in createStreamMessageNotifications,
+    // so the insert mock must return a chainable whose .abortSignal resolves.
+    mockInsert.mockReturnValue({
+      abortSignal: vi.fn().mockResolvedValue({ error: null }),
+    });
     mockIs.mockResolvedValue({ error: null });
     mockEq.mockReturnValue({ eq: mockEq, is: mockIs });
     mockUpdate.mockReturnValue({ eq: mockEq });
@@ -62,7 +66,11 @@ describe("stream notification data helpers", () => {
   });
 
   it("treats duplicate Stream message notifications as already handled", async () => {
-    mockInsert.mockResolvedValue({ error: { code: "23505", message: "duplicate key" } });
+    mockInsert.mockReturnValue({
+      abortSignal: vi.fn().mockResolvedValue({
+        error: { code: "23505", message: "duplicate key" },
+      }),
+    });
     const { createStreamMessageNotifications } = await import("./stream-notifications");
 
     await expect(
