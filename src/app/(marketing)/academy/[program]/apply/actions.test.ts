@@ -27,18 +27,6 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-vi.mock("@/lib/email/send", () => ({
-  sendEmail: vi.fn().mockResolvedValue({}),
-}));
-
-vi.mock("@/lib/email/templates/application-confirmation", () => ({
-  applicationConfirmationEmail: vi.fn().mockReturnValue({ subject: "t", html: "t" }),
-}));
-
-vi.mock("@/lib/email/templates/admin-new-application", () => ({
-  adminNewApplicationEmail: vi.fn().mockReturnValue({ subject: "t", html: "t" }),
-}));
-
 // Mock schema builder with spy — defaults to real impl, overrideable per test
 const mockBuildFullSchema = vi.fn();
 vi.mock("@/lib/academy/forms/schema-builder", async (importOriginal) => {

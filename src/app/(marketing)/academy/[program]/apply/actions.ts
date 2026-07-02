@@ -11,12 +11,6 @@ import { buildFullSchema } from "@/lib/academy/forms/schema-builder";
 import { getProgram } from "@/lib/academy/programs";
 import type { ProgramSlug } from "@/types/database";
 import { redirect } from "next/navigation";
-// TODO: uncomment when email API keys are configured
-// import { getApplicantName } from "@/lib/data/applications";
-// import { sendEmail } from "@/lib/email/send";
-// import { applicationConfirmationEmail } from "@/lib/email/templates/application-confirmation";
-// import { adminNewApplicationEmail } from "@/lib/email/templates/admin-new-application";
-// const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? "";
 
 export type ApplicationFormState = {
   errors: Record<string, string[]> | null;
@@ -136,31 +130,6 @@ export async function submitAcademyApplication(
       success: false,
     };
   }
-
-  // TODO: comment out when you set the email API KEYS
-  // // Fire-and-forget email notifications
-  // const applicantName = getApplicantName(answers, "Applicant");
-  // const applicantEmail = answers.email as string;
-
-  // if (applicantEmail) {
-  //   const confirmation = applicationConfirmationEmail({
-  //     applicantName,
-  //     programName: program.name,
-  //   });
-  //   sendEmail({ to: applicantEmail, ...confirmation }).catch(() => {});
-  // }
-
-  // if (ADMIN_EMAIL) {
-  //   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://btmacademy.com";
-  //   const adminNotification = adminNewApplicationEmail({
-  //     applicantName,
-  //     applicantEmail: applicantEmail ?? "",
-  //     programName: program.name,
-  //     applicationId,
-  //     baseUrl,
-  //   });
-  //   sendEmail({ to: ADMIN_EMAIL, ...adminNotification }).catch(() => {});
-  // }
 
   redirect(`/academy/${programSlug}/apply/success`);
 }
