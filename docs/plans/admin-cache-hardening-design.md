@@ -203,6 +203,44 @@ confirmed unused by the detail portfolio path (`contact-detail-panel.tsx:208`)
 ~2–3k contacts). IndexedDB/sessionStorage dataset persistence (rejected — see
 T2.1).
 
+---
+
+## What shipped vs. deferred (Jul 2 2026 execution)
+
+Implemented on `feat/admin-cache-hardening` (10 commits): all of Tier 1
+(T1.1–T1.4 + the tag-manager provider-mutator wiring), Tier 2 T2.1/T2.2/T2.3,
+and Tier 3 T3.2/T3.3/T3.4 plus the safe subset of T3.5 (the ~40 no-op
+`revalidatePath("/admin")` deletions). Gates: tsc clean, lint clean, 1004 unit
+tests pass, production build succeeds.
+
+**Deferred to a follow-up pass (perf-only, on surfaces with no reported
+slowness; each carries ripple/risk disproportionate to impact):**
+
+- **T2.4 — slim the sent-emails list payload.** Real win during active sends
+  (the list re-pulls full HTML snapshots every 3s), but the diff is wide: the
+  `select("*")` → explicit-columns change forces `EmailSendListItem` to
+  `Omit<EmailSend, snapshot fields>`, which ripples to `buildEmailSendMetrics` /
+  `buildSentRowSummary` (both typed `EmailSend`), the `SentEmailPreview` (must
+  refetch `html_preview_snapshot` on open via a new action), `email-studio`'s
+  `previewSend` type, and the sent-summary/metrics/ordering test fixtures.
+- **T2.5 — composer shares the provider audience caches.** `email-composer.tsx`
+  re-fetches lists/segments/all-contacts on every Compose (re)activation via raw
+  actions into local state, and a list created in Compose doesn't invalidate the
+  shared cache (Audiences shows stale until manual refresh). Rewire to the
+  provider `ensure*`/`refresh*` + debounce recipient re-resolution.
+- **T3.1 — incremental answer-key fetch.** MED risk on the hot projection path;
+  fetch only missing keys + merge by id instead of re-selecting the full
+  cumulative projection for all rows.
+- **T3.5 (remainder) — per-id `revalidatePath` reclassification.** The no-op
+  `/admin` calls are gone; the nuanced keep/delete of per-`/admin/contacts/[id]`
+  calls (delete tag-assign/unassign + email-exclude/allow + the
+  `tags/actions.ts` `"[id]","page"` call, whose data is NOT in the detail
+  bootstrap; keep editContact / event-actions / application status+delete) was
+  left to avoid misclassifying a meaningful revalidation as a no-op.
+- **T3.6 — narrow `getContacts()` select.** LOW impact (column over-fetch on the
+  email-audience path, not a hot loop) and its return type feeds
+  `resolveEmailEligibility`, so narrowing risks a type ripple.
+
 ## Testing & verification
 
 - Unit (Vitest, co-located; mock Supabase via `createMockSupabaseClient()`):
