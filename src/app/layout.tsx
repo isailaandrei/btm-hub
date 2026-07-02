@@ -18,6 +18,12 @@ const zillaSlab = Zilla_Slab({
 });
 
 export const metadata: Metadata = {
+  // Resolve relative OG/canonical URLs against the deployment's own origin.
+  // Off Vercel there is no implicit VERCEL_URL fallback, so set it explicitly
+  // from NEXT_PUBLIC_SITE_URL (baked at build); localhost is the dev default.
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  ),
   title: "Behind The Mask — Ocean Community Hub",
   description:
     "A community platform for ocean and diving enthusiasts.",
