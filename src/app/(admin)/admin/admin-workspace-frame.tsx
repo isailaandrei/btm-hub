@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { AdminDashboard } from "./admin-dashboard";
 import { contactIdFromPathname } from "./contacts/contact-detail-route";
 import { ContactDetailSkeleton } from "./contacts/[id]/contact-detail-skeleton";
+import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 
 // Lazy-loaded so the heavy contact detail bundle (portfolio gallery, form
 // definitions, timeline) stays out of the contacts-first-paint and only loads
@@ -27,9 +28,11 @@ const ContactDetailPanel = dynamic(
 export function AdminWorkspaceFrame({
   children,
   authorName,
+  initialContactsData,
 }: {
   children: ReactNode;
   authorName: string;
+  initialContactsData?: Promise<AdminContactsInitialData>;
 }) {
   const pathname = usePathname();
   const isDashboardRoute = pathname === "/admin";
@@ -38,7 +41,7 @@ export function AdminWorkspaceFrame({
   return (
     <>
       <div hidden={!isDashboardRoute}>
-        <AdminDashboard />
+        <AdminDashboard initialContactsData={initialContactsData} />
       </div>
       {contactId && (
         <div>
