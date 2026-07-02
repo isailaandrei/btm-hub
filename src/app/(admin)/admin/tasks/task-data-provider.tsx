@@ -158,6 +158,8 @@ export function buildOptimisticTaskPatch(
   return optimisticPatch;
 }
 
+const TASKS_RESYNC_MIN_INTERVAL_MS = 30_000;
+
 export function TaskDataProvider({ children }: { children: ReactNode }) {
   const [admins, setAdmins] = useState<AdminAssigneeProfile[] | null>(null);
   const [groups, setGroups] = useState<TaskGroup[] | null>(null);
@@ -183,6 +185,12 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dateLoadedRef = useRef(false);
+  // Realtime health + resync. `realtimeDegradedRef` gates warn-once and lets
+  // mutations know whether the write will echo back (so an explicit reload would
+  // just double the fetch). `reloadInFlightRef` coalesces overlapping reloads.
+  const realtimeDegradedRef = useRef(false);
+  const reloadInFlightRef = useRef<Promise<boolean> | null>(null);
+  const lastResyncAtRef = useRef(0);
 
   function getSupabase() {
     if (!supabaseRef.current) supabaseRef.current = createClient();
@@ -208,35 +216,47 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     dateLoadedRef.current = true;
   }, []);
 
-  const reloadTasks = useCallback(async () => {
-    const startedAt = startAdminTiming();
-    let activeTasks = 0;
-    let doneTasks = 0;
-    let groups = 0;
-    let status = "ok";
+  const reloadTasks = useCallback((): Promise<boolean> => {
+    // Coalesce overlapping reloads (an explicit refresh, a realtime echo and a
+    // reconnect resync can all fire close together) into one board fetch.
+    if (reloadInFlightRef.current) return reloadInFlightRef.current;
 
-    try {
-      const data = await loadTaskBoardDataAction();
-      activeTasks = data.activeTasks.length;
-      doneTasks = data.doneTasks.length;
-      groups = data.groups.length;
-      applyBoardData(data);
-      tasksFetchState.current = "done";
-      return true;
-    } catch (error) {
-      status = "error";
-      tasksFetchState.current = "idle";
-      setTasksError("Failed to load tasks.");
-      toast.error(error instanceof Error ? error.message : "Failed to load tasks.");
-      return false;
-    } finally {
-      logAdminTiming("admin.tasks.board.client", startedAt, {
-        activeTasks,
-        doneTasks,
-        groups,
-        status,
-      });
-    }
+    const run = async (): Promise<boolean> => {
+      const startedAt = startAdminTiming();
+      let activeTasks = 0;
+      let doneTasks = 0;
+      let groups = 0;
+      let status = "ok";
+
+      try {
+        const data = await loadTaskBoardDataAction();
+        activeTasks = data.activeTasks.length;
+        doneTasks = data.doneTasks.length;
+        groups = data.groups.length;
+        applyBoardData(data);
+        tasksFetchState.current = "done";
+        return true;
+      } catch (error) {
+        status = "error";
+        tasksFetchState.current = "idle";
+        setTasksError("Failed to load tasks.");
+        toast.error(error instanceof Error ? error.message : "Failed to load tasks.");
+        return false;
+      } finally {
+        logAdminTiming("admin.tasks.board.client", startedAt, {
+          activeTasks,
+          doneTasks,
+          groups,
+          status,
+        });
+      }
+    };
+
+    const promise = run().finally(() => {
+      reloadInFlightRef.current = null;
+    });
+    reloadInFlightRef.current = promise;
+    return promise;
   }, [applyBoardData]);
 
   const reloadDateTasks = useCallback(async () => {
@@ -265,10 +285,23 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     }
   }, [applyDateData]);
 
-  const refreshAfterMutation = useCallback(async () => {
+  // Authoritative reconcile — always reloads. The realtime echo, the reconnect
+  // resync and the wake listener use this.
+  const reconcileBoard = useCallback(async () => {
     await reloadTasks();
     if (dateLoadedRef.current) await reloadDateTasks();
   }, [reloadDateTasks, reloadTasks]);
+
+  // Called by mutation handlers after their optimistic patch. When realtime is
+  // healthy the write echoes back through the channel and reconcileBoard runs
+  // via scheduleRefresh — so an explicit reload here would double the board
+  // fetch for every mutation. Reload explicitly only when the channel is
+  // degraded or never started (no echo will arrive). Mirrors the contacts
+  // provider's optimistic + realtime-reconcile model.
+  const refreshAfterMutation = useCallback(async () => {
+    if (channelRef.current && !realtimeDegradedRef.current) return;
+    await reconcileBoard();
+  }, [reconcileBoard]);
 
   const optimisticallyUpdateGroup = useCallback(
     (groupId: string, patch: OptimisticGroupPatch) => {
@@ -299,9 +332,9 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const scheduleRefresh = useCallback(() => {
     clearTimeout(refreshTimeoutRef.current ?? undefined);
     refreshTimeoutRef.current = setTimeout(() => {
-      void refreshAfterMutation();
+      void reconcileBoard();
     }, 200);
-  }, [refreshAfterMutation]);
+  }, [reconcileBoard]);
 
   const ensureRealtime = useCallback(() => {
     if (channelRef.current) return;
@@ -369,13 +402,25 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       )
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          setRealtimeWarning("Task realtime updates are disconnected. Refresh to sync.");
-          toast.warning("Task realtime updates are disconnected.");
+          if (!realtimeDegradedRef.current) {
+            realtimeDegradedRef.current = true;
+            setRealtimeWarning(
+              "Task updates disconnected — reconnecting…",
+            );
+            toast.warning("Task updates disconnected.");
+          }
+        } else if (status === "SUBSCRIBED" && realtimeDegradedRef.current) {
+          // Recovered: clear the (previously sticky) warning and resync, since
+          // postgres_changes did not replay events missed while disconnected.
+          realtimeDegradedRef.current = false;
+          setRealtimeWarning(null);
+          toast.success("Task updates reconnected.");
+          void reconcileBoard();
         }
       });
 
     channelRef.current = channel;
-  }, [scheduleRefresh]);
+  }, [reconcileBoard, scheduleRefresh]);
 
   const ensureTasks = useCallback(() => {
     if (tasksFetchState.current !== "idle") return;
@@ -455,6 +500,26 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     (taskId: string) => loadComments(taskId, true),
     [loadComments],
   );
+
+  // Wake resync: on tab focus / network restore, converge on authoritative task
+  // state (a dropped socket does not replay the gap). Throttled; only once the
+  // board has loaded. Channel recovery resyncs too via the subscribe handler.
+  useEffect(() => {
+    function handleWake() {
+      if (document.visibilityState !== "visible") return;
+      if (tasksFetchState.current !== "done") return;
+      const now = Date.now();
+      if (now - lastResyncAtRef.current < TASKS_RESYNC_MIN_INTERVAL_MS) return;
+      lastResyncAtRef.current = now;
+      void reconcileBoard();
+    }
+    document.addEventListener("visibilitychange", handleWake);
+    window.addEventListener("online", handleWake);
+    return () => {
+      document.removeEventListener("visibilitychange", handleWake);
+      window.removeEventListener("online", handleWake);
+    };
+  }, [reconcileBoard]);
 
   useEffect(() => {
     return () => {

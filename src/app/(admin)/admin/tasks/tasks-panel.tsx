@@ -19,6 +19,7 @@ export function TasksPanel({ isVisible = true }: { isVisible?: boolean }) {
     tasksError,
     realtimeWarning,
     ensureTasks,
+    reloadTasks,
     refreshAfterMutation,
     optimisticallyUpdateGroup,
     optimisticallyUpdateTask,
@@ -56,7 +57,7 @@ export function TasksPanel({ isVisible = true }: { isVisible?: boolean }) {
       {sharedError && (
         <div className="flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive">
           <span>{sharedError}</span>
-          <Button type="button" size="sm" variant="outline" onClick={() => void refreshAfterMutation()}>
+          <Button type="button" size="sm" variant="outline" onClick={() => void reloadTasks()}>
             <RefreshCw />
             Retry
           </Button>

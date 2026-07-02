@@ -22,12 +22,15 @@ const mocks = vi.hoisted(() => ({
   removeChannel: vi.fn(),
   startAdminTiming: vi.fn(() => 0),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
   toastWarning: vi.fn(),
+  subscribeStatusCallback: null as ((status: string) => void) | null,
 }));
 
 vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
+    success: mocks.toastSuccess,
     warning: mocks.toastWarning,
   },
 }));
@@ -41,7 +44,10 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => {
     const channel = {
       on: vi.fn(() => channel),
-      subscribe: vi.fn(() => channel),
+      subscribe: vi.fn((cb?: (status: string) => void) => {
+        if (cb) mocks.subscribeStatusCallback = cb;
+        return channel;
+      }),
     };
 
     return {
@@ -152,6 +158,26 @@ function ToggleShell() {
   );
 }
 
+function MutationConsumer() {
+  const { groups, realtimeWarning, ensureTasks, refreshAfterMutation } =
+    useTaskData();
+
+  useEffect(() => {
+    ensureTasks();
+  }, [ensureTasks]);
+
+  return (
+    <div>
+      <output>
+        {groups ? "loaded" : "loading"}:{realtimeWarning ?? "connected"}
+      </output>
+      <button type="button" onClick={() => void refreshAfterMutation()}>
+        Mutate
+      </button>
+    </div>
+  );
+}
+
 describe("TaskDataProvider", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -198,5 +224,82 @@ describe("TaskDataProvider", () => {
       "1:1:1:2026-05-22",
     );
     expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reload the board on mutation while realtime is healthy", async () => {
+    await act(async () => {
+      root.render(
+        <TaskDataProvider>
+          <MutationConsumer />
+        </TaskDataProvider>,
+      );
+    });
+    await flushAsyncWork();
+    expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(1);
+
+    // Realtime is connected (channelRef set, not degraded): the write echoes
+    // back, so refreshAfterMutation must NOT trigger a second board fetch.
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
+    expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the sticky warning and resyncs when realtime recovers", async () => {
+    await act(async () => {
+      root.render(
+        <TaskDataProvider>
+          <MutationConsumer />
+        </TaskDataProvider>,
+      );
+    });
+    await flushAsyncWork();
+    expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("output")?.textContent).toContain(
+      "connected",
+    );
+
+    // Drop: a warning appears and is not cleared on its own.
+    await act(async () => {
+      mocks.subscribeStatusCallback?.("CHANNEL_ERROR");
+    });
+    expect(container.querySelector("output")?.textContent).toContain(
+      "disconnected",
+    );
+
+    // Recover: warning clears and the board resyncs (postgres_changes cannot
+    // replay the gap).
+    await act(async () => {
+      mocks.subscribeStatusCallback?.("SUBSCRIBED");
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector("output")?.textContent).toContain(
+      "connected",
+    );
+    expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns only once while realtime stays degraded", async () => {
+    await act(async () => {
+      root.render(
+        <TaskDataProvider>
+          <MutationConsumer />
+        </TaskDataProvider>,
+      );
+    });
+    await flushAsyncWork();
+
+    await act(async () => {
+      mocks.subscribeStatusCallback?.("CHANNEL_ERROR");
+      mocks.subscribeStatusCallback?.("TIMED_OUT");
+      mocks.subscribeStatusCallback?.("CHANNEL_ERROR");
+    });
+
+    expect(mocks.toastWarning).toHaveBeenCalledTimes(1);
   });
 });
