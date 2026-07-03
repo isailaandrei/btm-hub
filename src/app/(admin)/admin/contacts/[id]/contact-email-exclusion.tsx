@@ -5,6 +5,7 @@ import { Ban, MailCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import type { EmailSuppressionReason } from "@/types/database";
 import { formatSuppressionReason } from "@/lib/email/suppression-reason";
+import type { RollbackHandle } from "../../admin-optimistic-mutations";
 import {
   allowContactEmail,
   excludeContactFromEmail,
@@ -20,6 +21,7 @@ export function ContactEmailExclusion({
   excluded,
   reason,
   onChanged,
+  onOptimisticChange,
 }: {
   contactId: string;
   excluded: boolean;
@@ -27,17 +29,27 @@ export function ContactEmailExclusion({
   /** Called after a successful toggle so the parent can re-read the status —
    *  the client cache survives revalidatePath, so it won't refresh on its own. */
   onChanged?: () => void;
+  /** Flip the parent's rendered status instantly and get a targeted rollback for
+   *  the failure path. The success path still reconciles via `onChanged`. */
+  onOptimisticChange: (
+    excluded: boolean,
+    reason: EmailSuppressionReason | null,
+  ) => RollbackHandle;
 }) {
   const [isPending, startTransition] = useTransition();
   const [confirmingAllow, setConfirmingAllow] = useState(false);
 
   function handleExclude() {
+    // Server sets reason "do_not_contact" for a manual exclude — mirror it so the
+    // optimistic value matches and the reconcile doesn't flip the reason text.
+    const { rollback } = onOptimisticChange(true, "do_not_contact");
     startTransition(async () => {
       try {
         await excludeContactFromEmail(contactId);
         toast.success("Contact excluded from all email.");
         onChanged?.();
       } catch (error) {
+        rollback();
         toast.error(
           error instanceof Error ? error.message : "Failed to exclude contact.",
         );
@@ -47,12 +59,14 @@ export function ContactEmailExclusion({
 
   function handleAllow() {
     setConfirmingAllow(false);
+    const { rollback } = onOptimisticChange(false, null);
     startTransition(async () => {
       try {
         await allowContactEmail(contactId);
         toast.success("Contact can receive email again.");
         onChanged?.();
       } catch (error) {
+        rollback();
         toast.error(
           error instanceof Error ? error.message : "Failed to update contact.",
         );

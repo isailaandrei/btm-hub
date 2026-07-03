@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
 import { formatRelative } from "@/lib/format-relative";
@@ -131,19 +132,34 @@ export function ContactWhatsAppSection({
     };
   }, [applyMessages, contactId]);
 
-  // Curation runs through its own transition and re-reads on success so the
-  // moved message lands in the right group.
+  // Curation is optimistic: the active/removed groups are derived from
+  // `deactivatedAt`, so patching it locally moves the message instantly. It then
+  // re-reads on success to land the authoritative row, or rolls back to the
+  // exact prior thread and surfaces the error on failure.
   const runMutation = useCallback(
-    (mutation: () => Promise<void>) => {
+    (messageId: string, deactivate: boolean, mutation: () => Promise<void>) => {
+      let previous: ConversationMessage[] | null = null;
+      const nowIso = new Date().toISOString();
+      setMessages((current) => {
+        previous = current;
+        if (!current) return current;
+        return current.map((message) =>
+          message.id === messageId
+            ? { ...message, deactivatedAt: deactivate ? nowIso : null }
+            : message,
+        );
+      });
       startMutation(async () => {
         try {
           await mutation();
           applyMessages(await loadContactWhatsAppMessages(contactId));
         } catch (error) {
+          setMessages(previous);
           console.error(
             `WhatsApp message curation failed for contact ${contactId}`,
             error,
           );
+          toast.error("Couldn't update the message. Please try again.");
         }
       });
     },
@@ -199,7 +215,7 @@ export function ContactWhatsAppSection({
                     action={{
                       label: "Remove",
                       onClick: () =>
-                        runMutation(() =>
+                        runMutation(message.id, true, () =>
                           deactivateContactWhatsAppMessage(message.id),
                         ),
                     }}
@@ -228,7 +244,7 @@ export function ContactWhatsAppSection({
                         action={{
                           label: "Restore",
                           onClick: () =>
-                            runMutation(() =>
+                            runMutation(message.id, false, () =>
                               restoreContactWhatsAppMessage(message.id),
                             ),
                         }}

@@ -7,8 +7,10 @@ import {
   useState,
   useTransition,
 } from "react";
+import type { EmailSuppressionReason } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
+import type { RollbackHandle } from "../../admin-optimistic-mutations";
 import { ContactEmailExclusion } from "./contact-email-exclusion";
 import { loadContactEmailSection } from "../actions";
 
@@ -73,6 +75,25 @@ export function ContactEmailSection({
       }
     });
   }, [applyData, contactId]);
+
+  // Optimistic toggle for the exclusion control: flip the rendered status
+  // immediately and return a targeted rollback (restore the exact prior value)
+  // for the child to call if the server write fails. A successful write
+  // reconciles via the child's `onChanged` re-read (and realtime while mounted).
+  const applyOptimisticExclusion = useCallback(
+    (
+      excluded: boolean,
+      reason: EmailSuppressionReason | null,
+    ): RollbackHandle => {
+      let previous: ContactEmailSectionData | null = null;
+      setData((current) => {
+        previous = current;
+        return { excluded, reason };
+      });
+      return { rollback: () => setData(previous) };
+    },
+    [],
+  );
 
   useEffect(() => {
     if (data || isPending || loadError) return;
@@ -176,6 +197,7 @@ export function ContactEmailSection({
             excluded={data.excluded}
             reason={data.reason}
             onChanged={loadData}
+            onOptimisticChange={applyOptimisticExclusion}
           />
         ) : (
           <div className="flex flex-col gap-2">

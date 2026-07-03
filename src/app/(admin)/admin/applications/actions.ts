@@ -14,7 +14,7 @@ import { VersionConflictError } from "@/lib/optimistic-concurrency";
 import { STATUSES } from "./constants";
 
 export type ChangeStatusResult =
-  | { ok: true }
+  | { ok: true; updatedAt: string }
   | {
       ok: false;
       reason: "invalid_status" | "invalid_version" | "conflict";
@@ -55,6 +55,9 @@ export async function changeStatus(
       revalidatePath(`/admin/contacts/${application.contact_id}`);
     }
     revalidatePath("/profile/applications");
+    // Return the new version so an optimistic client can commit its rendered
+    // value and hold the fresh concurrency token for the next change.
+    return { ok: true, updatedAt: application.updated_at };
   } catch (error) {
     if (error instanceof VersionConflictError) {
       return {
@@ -66,7 +69,6 @@ export async function changeStatus(
     }
     throw error;
   }
-  return { ok: true };
 }
 
 export async function addTag(applicationId: string, tag: string) {

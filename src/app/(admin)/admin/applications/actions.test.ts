@@ -51,7 +51,11 @@ describe("changeStatus", () => {
   beforeEach(() => {
     mockUpdateStatus.mockReset();
     mockRevalidatePath.mockReset();
-    mockUpdateStatus.mockResolvedValue({ id: VALID_UUID, contact_id: VALID_UUID });
+    mockUpdateStatus.mockResolvedValue({
+      id: VALID_UUID,
+      contact_id: VALID_UUID,
+      updated_at: "2024-06-01T00:00:00Z",
+    });
   });
 
   it("throws for invalid UUID", async () => {
@@ -66,7 +70,7 @@ describe("changeStatus", () => {
   it("returns success and passes the expected version to updateApplicationStatus", async () => {
     await expect(
       changeStatus(VALID_UUID, "accepted", "2024-01-01T00:00:00Z"),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({ ok: true, updatedAt: "2024-06-01T00:00:00Z" });
     expect(mockUpdateStatus).toHaveBeenCalledWith(VALID_UUID, "accepted", {
       expectedUpdatedAt: "2024-01-01T00:00:00Z",
     });

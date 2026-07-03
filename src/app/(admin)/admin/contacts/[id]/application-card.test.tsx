@@ -92,4 +92,56 @@ describe("ApplicationCard", () => {
     expect(container.textContent).toContain("Lots");
     expect(container.querySelector("[data-testid='status-selector']")).not.toBeNull();
   });
+
+  it("prefetches the detail in the background so expanding is instant", async () => {
+    // Force the setTimeout fallback in scheduleIdle so fake timers can drive it
+    // deterministically (jsdom has no requestIdleCallback).
+    delete (window as unknown as Record<string, unknown>).requestIdleCallback;
+    vi.useFakeTimers();
+    try {
+      const summary = {
+        id: applicationDetail.id,
+        answers: { phone: "+1 555 0100" },
+        contact_id: applicationDetail.contact_id,
+        program: applicationDetail.program,
+        status: applicationDetail.status,
+        submitted_at: applicationDetail.submitted_at,
+        updated_at: applicationDetail.updated_at,
+      };
+
+      await act(async () => {
+        root.render(
+          <ApplicationCard
+            application={summary}
+            contactId={applicationDetail.contact_id!}
+            defaultOpen={false}
+          />,
+        );
+      });
+
+      // Nothing loads synchronously on mount.
+      expect(loadContactApplication).not.toHaveBeenCalled();
+
+      // The background prefetch fires once the idle-fallback delay elapses...
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(loadContactApplication).toHaveBeenCalledTimes(1);
+      expect(loadContactApplication).toHaveBeenCalledWith(applicationDetail.id);
+      // ...but the collapsed card still shows no answers.
+      expect(container.textContent).not.toContain("Lots");
+
+      // Expanding reveals the prefetched detail with no second load.
+      await act(async () => {
+        container.querySelector("button")?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true }),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(loadContactApplication).toHaveBeenCalledTimes(1);
+      expect(container.textContent).toContain("Lots");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

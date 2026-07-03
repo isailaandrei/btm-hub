@@ -5,6 +5,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 
 const mockLoad = vi.fn();
 const mockDeactivate = vi.fn();
@@ -14,6 +15,10 @@ const channelStub = {
   on: vi.fn(() => channelStub),
   subscribe: vi.fn(() => channelStub),
 };
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 vi.mock("../actions", () => ({
   loadContactWhatsAppMessages: mockLoad,
@@ -230,6 +235,34 @@ describe("ContactWhatsAppSection", () => {
     expect(mockLoad).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("All messages removed");
     expect(container.textContent).toContain("Show removed (1)");
+  });
+
+  it("optimistically moves a message and rolls back if the mutation fails", async () => {
+    mockLoad.mockResolvedValue([makeMessage()]);
+    mockDeactivate.mockRejectedValueOnce(new Error("nope"));
+
+    await act(async () => {
+      root.render(<ContactWhatsAppSection contactId={CONTACT_ID} />);
+    });
+    await flushAsyncWork();
+
+    const removeButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Remove",
+    );
+    if (!removeButton) throw new Error("Missing Remove button");
+
+    await act(async () => {
+      removeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
+    // The failed mutation reverts the optimistic move: the message is back in
+    // the active thread, the error is surfaced, and no re-read was issued.
+    expect(mockDeactivate).toHaveBeenCalledWith("m1");
+    expect(container.textContent).toContain("Hey there");
+    expect(container.textContent).not.toContain("All messages removed");
+    expect(vi.mocked(toast.error)).toHaveBeenCalled();
+    expect(mockLoad).toHaveBeenCalledTimes(1);
   });
 
   it("restores a removed message from the collapsible area", async () => {

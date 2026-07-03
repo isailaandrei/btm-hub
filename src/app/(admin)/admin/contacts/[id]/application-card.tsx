@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { getFormDefinition } from "@/lib/academy/forms";
-import type { Application } from "@/types/database";
+import type { Application, ApplicationStatus } from "@/types/database";
 import type { ContactDetailApplicationSummary } from "@/lib/data/contact-detail";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
@@ -10,6 +10,29 @@ import { STATUS_BADGE_CLASS } from "../../applications/constants";
 import { StatusSelector } from "../../applications/[id]/StatusSelector";
 import { DeleteApplicationButton } from "./delete-buttons";
 import { loadContactApplication } from "./application-actions";
+import { refreshContactDetailAfterMutation } from "./contact-detail-loader";
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (
+    callback: () => void,
+    options?: { timeout: number },
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+/** Run `callback` when the browser is idle (or after a short delay as a
+ *  fallback), returning a cancel function. Used to warm collapsed application
+ *  details without competing with the initial render / section loads. */
+function scheduleIdle(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const idleWindow = window as IdleWindow;
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    const id = idleWindow.requestIdleCallback(callback, { timeout: 2000 });
+    return () => idleWindow.cancelIdleCallback?.(id);
+  }
+  const id = window.setTimeout(callback, 200);
+  return () => window.clearTimeout(id);
+}
 
 function formatValue(value: unknown): string {
   if (value == null || value === "") return "—";
@@ -34,6 +57,7 @@ export function ApplicationCard({
     useState<Application | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const prefetchStartedRef = useRef(false);
   const formDef = getFormDefinition(application.program);
 
   function loadDetailIfNeeded() {
@@ -57,12 +81,39 @@ export function ApplicationCard({
     setOpen((current) => !current);
   }
 
+  function handleStatusCommitted(status: ApplicationStatus, updatedAt: string) {
+    setApplicationDetail((current) =>
+      current ? { ...current, status, updated_at: updatedAt } : current,
+    );
+    // Socket-independent refresh of the cached bootstrap so the collapsed
+    // header badge (rendered from bootstrap data) reflects the new status even
+    // if realtime is down. Best-effort; it never rejects.
+    void refreshContactDetailAfterMutation(contactId);
+  }
+
   useEffect(() => {
     if (open) loadDetailIfNeeded();
     // `loadDetailIfNeeded` closes over transient loading state; this effect is
     // only for the initial/default-open case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Warm the collapsed application's detail in the background shortly after
+  // mount, so expanding it (which admins usually do) is instant. Best-effort and
+  // idle-scheduled: it never blocks the initial render or the panel's section
+  // loads, and a failure is swallowed — opening runs the normal loader, which
+  // surfaces errors + retry. `current ?? detail` never clobbers a fresher value.
+  useEffect(() => {
+    if (defaultOpen || prefetchStartedRef.current) return;
+    prefetchStartedRef.current = true;
+    return scheduleIdle(() => {
+      loadContactApplication(application.id)
+        .then((detail) => setApplicationDetail((current) => current ?? detail))
+        .catch(() => {
+          // Best-effort: opening the card will load and surface any error.
+        });
+    });
+  }, [application.id, defaultOpen]);
 
   return (
     <Card className="min-w-0">
@@ -128,6 +179,7 @@ export function ApplicationCard({
                   applicationId={applicationDetail.id}
                   currentStatus={applicationDetail.status}
                   currentUpdatedAt={applicationDetail.updated_at}
+                  onStatusCommitted={handleStatusCommitted}
                 />
               </div>
 
