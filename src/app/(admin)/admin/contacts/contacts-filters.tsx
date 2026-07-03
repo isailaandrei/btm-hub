@@ -124,7 +124,7 @@ export const ContactsFilters = memo(function ContactsFilters({
                     tagFilterCount > 0 ? "text-foreground" : "text-muted-foreground"
                   } disabled:cursor-not-allowed disabled:opacity-50`}
                 >
-                  Filters
+                  Tags
                   {tagFilterCount > 0 && (
                     <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
                       {tagFilterCount}

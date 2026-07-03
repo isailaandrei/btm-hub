@@ -108,7 +108,7 @@ describe("ContactsFilters", () => {
     );
 
     expect(filterRow?.textContent).toContain("Pending");
-    expect(filterRow?.textContent).toContain("Filters");
+    expect(filterRow?.textContent).toContain("Tags");
     expect(filterRow?.textContent).not.toContain("Columns");
     expect(filterRow?.textContent).not.toContain("Sync");
 
@@ -143,7 +143,7 @@ describe("ContactsFilters", () => {
       (button) => button.textContent?.includes("Pending"),
     );
     const filtersButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("Filters"),
+      (button) => button.textContent?.includes("Tags"),
     );
     const columnsButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent?.includes("Columns"),
@@ -159,7 +159,7 @@ describe("ContactsFilters", () => {
     renderFilters();
 
     const filtersButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("Filters"),
+      (button) => button.textContent?.includes("Tags"),
     );
     expect(filtersButton).toBeDefined();
 
