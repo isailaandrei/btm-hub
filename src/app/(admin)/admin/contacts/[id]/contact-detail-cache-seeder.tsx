@@ -21,10 +21,13 @@ export function ContactDetailCacheSeeder({
   // Lazy initializer runs once, synchronously, before paint. Guard to the
   // client: this component is SSR'd too, and the store is a module singleton —
   // writing during server render would pollute a process-wide cache shared
-  // across requests.
+  // across requests. Use `seed` (not `set`): this runs DURING render, and
+  // `set`'s synchronous notify would `setState` an already-subscribed
+  // ContactDetailPanel mid-render (React "update while rendering" warning).
+  // `seed` writes synchronously but defers the subscriber notify to a microtask.
   useState(() => {
     if (typeof window !== "undefined") {
-      contactDetailCacheStore.set(data.contact.id, data);
+      contactDetailCacheStore.seed(data.contact.id, data);
     }
     return null;
   });

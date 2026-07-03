@@ -123,4 +123,24 @@ describe("contactDetailCacheStore", () => {
     }
     expect(store.has("pinned")).toBe(true);
   });
+
+  it("seed writes synchronously but defers the subscriber notification", async () => {
+    const store = createContactDetailCacheStore();
+    const listener = vi.fn();
+    store.subscribe(ID_A, listener);
+
+    store.seed(ID_A, makeData("Seeded"));
+
+    // Written synchronously — a getSnapshot during render sees it immediately,
+    // so the panel paints with no flash.
+    expect(store.get(ID_A)?.data.contact.name).toBe("Seeded");
+    expect(store.get(ID_A)?.status).toBe("fresh");
+    // But the listener is NOT called synchronously — calling it during the
+    // seeder's render would setState a subscribed panel mid-render.
+    expect(listener).not.toHaveBeenCalled();
+
+    // It fires on the next microtask, after the render commit.
+    await Promise.resolve();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });

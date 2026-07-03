@@ -33,6 +33,19 @@ export interface ContactDetailCacheStore {
     data: ContactDetailBootstrapData,
     loadedAt?: number,
   ): void;
+  /**
+   * Like `set`, but SAFE TO CALL DURING RENDER: the entry is written
+   * synchronously (so a subscriber's `getSnapshot` reads it immediately) while
+   * the subscriber notification is deferred to a microtask, past the render
+   * commit. The server-route seeder runs during render, and a synchronous
+   * notify there would `setState` a subscribed panel mid-render (a React
+   * "update while rendering a different component" violation).
+   */
+  seed(
+    contactId: string,
+    data: ContactDetailBootstrapData,
+    loadedAt?: number,
+  ): void;
   /** Keep cached data but flag it for stale-while-revalidate on next open. */
   markStale(contactId: string): void;
   /** Subscribe to changes for a single contact id. Returns an unsubscribe fn. */
@@ -86,6 +99,18 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
       entries.set(contactId, { data, loadedAt: stamp, status: "fresh" });
       evictIfNeeded();
       notify(contactId);
+    },
+    seed(contactId, data, loadedAt) {
+      const stamp = loadedAt ?? Date.now();
+      const existing = entries.get(contactId);
+      if (existing && existing.loadedAt > stamp) return;
+      entries.set(contactId, { data, loadedAt: stamp, status: "fresh" });
+      evictIfNeeded();
+      // Write synchronously above (getSnapshot sees it), but defer the notify to
+      // a microtask so it lands AFTER the render commit — the seeder calls this
+      // during render, where a synchronous notify would setState a subscribed
+      // panel mid-render.
+      queueMicrotask(() => notify(contactId));
     },
     markStale(contactId) {
       const existing = entries.get(contactId);
