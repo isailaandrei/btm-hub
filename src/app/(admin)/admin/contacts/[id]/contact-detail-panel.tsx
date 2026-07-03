@@ -10,7 +10,10 @@ import {
   useTransition,
 } from "react";
 import type { Contact } from "@/types/database";
-import type { ContactDetailBootstrapData } from "@/lib/data/contact-detail";
+import type {
+  ContactDetailBootstrapData,
+  ContactDetailSectionsData,
+} from "@/lib/data/contact-detail";
 import { createSoftNavClickHandler } from "../../admin-soft-nav";
 import { useAdminContactsData } from "../../admin-data-provider";
 import { contactDetailCacheStore } from "../contact-detail-cache";
@@ -85,12 +88,34 @@ export function ContactDetailPanel({
   }, [entry, isPending, load, loadError, notFound]);
 
   const data = entry?.data ?? null;
-  // Server-seeded section data (deep link / refresh only — see
-  // ContactDetailSectionsData). Client-loaded cache entries have no sections;
-  // the section components then lazy-load exactly as before. useState-based
+  // Section data from the session cache: a fresh server seed (deep link) or
+  // slices written back / carried over from an earlier visit. useState-based
   // initial props are safe here: the panel is keyed by contactId in
   // AdminWorkspaceFrame, so sections remount per contact.
   const sections = data?.sections ?? null;
+  // Cached (non-seed) sections may have changed while unmounted — email status
+  // has no realtime coverage then — so sections render them instantly but
+  // revalidate in the background (see ContactDetailSectionsSource).
+  const revalidateSections = entry?.sectionsSource === "cached";
+  // Write-backs: a section's client-side load lands in the session cache so a
+  // revisit in the same session paints it instantly.
+  const onEmailStatusLoaded = useCallback(
+    (slice: NonNullable<ContactDetailSectionsData["emailStatus"]>) =>
+      contactDetailCacheStore.mergeSections(contactId, { emailStatus: slice }),
+    [contactId],
+  );
+  const onTagSectionLoaded = useCallback(
+    (slice: NonNullable<ContactDetailSectionsData["tagSection"]>) =>
+      contactDetailCacheStore.mergeSections(contactId, { tagSection: slice }),
+    [contactId],
+  );
+  const onWhatsAppLoaded = useCallback(
+    (slice: NonNullable<ContactDetailSectionsData["whatsappMessages"]>) =>
+      contactDetailCacheStore.mergeSections(contactId, {
+        whatsappMessages: slice,
+      }),
+    [contactId],
+  );
   const providerContact = useMemo(
     () => contacts?.find((contact) => contact.id === contactId) ?? null,
     [contacts, contactId],
@@ -209,6 +234,8 @@ export function ContactDetailPanel({
           <ContactWhatsAppSection
             contactId={contactId}
             initialMessages={sections?.whatsappMessages ?? null}
+            revalidateInitialData={revalidateSections}
+            onMessagesLoaded={onWhatsAppLoaded}
           />
         </div>
 
@@ -216,10 +243,15 @@ export function ContactDetailPanel({
           <ContactTagsSection
             contactId={contactId}
             initialData={sections?.tagSection ?? null}
+            revalidateInitialData={revalidateSections}
+            onDataLoaded={onTagSectionLoaded}
           />
           <ContactEmailSection
             contactId={contactId}
+            contactEmail={contact?.email ?? null}
             initialData={sections?.emailStatus ?? null}
+            revalidateInitialData={revalidateSections}
+            onDataLoaded={onEmailStatusLoaded}
           />
           <PortfolioSectionClient profileId={contact?.profile_id ?? null} />
         </div>

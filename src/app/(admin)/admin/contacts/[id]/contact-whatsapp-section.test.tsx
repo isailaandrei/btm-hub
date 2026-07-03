@@ -110,6 +110,42 @@ describe("ContactWhatsAppSection", () => {
     expect(channelStub.subscribe).toHaveBeenCalled();
   });
 
+  it("revalidates cached initialMessages once in the background and writes back", async () => {
+    const seeded = [makeMessage({ body: "Cached hello" })] as Parameters<
+      typeof ContactWhatsAppSection
+    >[0]["initialMessages"];
+    const fresh = [makeMessage({ id: "m2", body: "Fresh hello" })];
+    let resolveLoad!: (value: unknown) => void;
+    mockLoad.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    const onMessagesLoaded = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <ContactWhatsAppSection
+          contactId={CONTACT_ID}
+          initialMessages={seeded}
+          revalidateInitialData
+          onMessagesLoaded={onMessagesLoaded}
+        />,
+      );
+    });
+    // Revalidation is in flight — the cached thread stays painted (no skeleton).
+    expect(mockLoad).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Cached hello");
+
+    await act(async () => {
+      resolveLoad(fresh);
+    });
+    await flushAsyncWork();
+
+    expect(onMessagesLoaded).toHaveBeenCalledWith(fresh);
+    expect(container.textContent).toContain("Fresh hello");
+  });
+
   it("subscribes to realtime changes filtered on the contact", async () => {
     mockLoad.mockResolvedValue([]);
 

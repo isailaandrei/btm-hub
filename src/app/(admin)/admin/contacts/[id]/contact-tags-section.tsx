@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAdminContactsData } from "../../admin-data-provider";
 import { ContactTagManager, type ContactTagRow } from "./contact-tag-manager";
@@ -60,14 +67,20 @@ function buildRowsFromAdminCache({
 export function ContactTagsSection({
   contactId,
   initialData = null,
+  revalidateInitialData = false,
+  onDataLoaded,
 }: {
   contactId: string;
   /**
-   * Server-seeded tag data from the deep-link bootstrap. Only the initial
-   * value: once `AdminDataProvider` finishes its own load, `cachedData` takes
-   * precedence (same as today), and mutations keep flowing through it.
+   * Server-seeded or session-cached tag data. Only the initial value: once
+   * `AdminDataProvider` finishes its own load, `cachedData` takes precedence
+   * (same as today), and mutations keep flowing through it.
    */
   initialData?: ContactTagSectionData | null;
+  /** True when `initialData` is session-cached rather than a fresh seed. */
+  revalidateInitialData?: boolean;
+  /** Session-cache write-back — called with every successful server load. */
+  onDataLoaded?: (data: ContactTagSectionData) => void;
 }) {
   const { contactTags, tagCategories, tags } = useAdminContactsData();
   const [serverData, setServerData] = useState<ContactTagSectionData | null>(
@@ -97,19 +110,38 @@ export function ContactTagsSection({
     startTransition(async () => {
       try {
         setLoadError(null);
-        setServerData(await loadContactTagSectionData(contactId));
+        const next = await loadContactTagSectionData(contactId);
+        setServerData(next);
+        onDataLoaded?.(next);
       } catch (error) {
         setLoadError(
           error instanceof Error ? error.message : "Failed to load tags.",
         );
       }
     });
-  }, [contactId]);
+  }, [contactId, onDataLoaded]);
 
   useEffect(() => {
     if (cachedData || serverData || isPending || loadError) return;
     loadData();
   }, [cachedData, isPending, loadData, loadError, serverData]);
+
+  // Stale-while-revalidate for cached initial data — but only while the live
+  // AdminDataProvider hasn't loaded: once it has, `cachedData` is the source
+  // of truth and a server re-read would be redundant.
+  const revalidatedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !revalidateInitialData ||
+      !initialData ||
+      cachedData ||
+      revalidatedRef.current
+    ) {
+      return;
+    }
+    revalidatedRef.current = true;
+    loadData();
+  }, [cachedData, initialData, loadData, revalidateInitialData]);
 
   return (
     <Card className="overflow-visible">

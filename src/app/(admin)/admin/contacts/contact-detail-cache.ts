@@ -1,4 +1,7 @@
-import type { ContactDetailBootstrapData } from "@/lib/data/contact-detail";
+import type {
+  ContactDetailBootstrapData,
+  ContactDetailSectionsData,
+} from "@/lib/data/contact-detail";
 
 /**
  * Session-persistent client cache for contact detail bootstrap data.
@@ -12,11 +15,25 @@ import type { ContactDetailBootstrapData } from "@/lib/data/contact-detail";
 
 export type ContactDetailCacheStatus = "fresh" | "stale";
 
+/**
+ * Where an entry's `data.sections` came from:
+ * - `"seed"` — this page load's server bootstrap; fresh by construction, so a
+ *   mounting panel can render it WITHOUT background revalidation.
+ * - `"cached"` — carried over from an earlier visit or written back by a
+ *   section's client load; sections without full realtime coverage (email
+ *   status has none while unmounted) may have changed since, so a mounting
+ *   panel renders it instantly but ALWAYS revalidates in the background
+ *   (stale-while-revalidate — same guarantee class as the core bootstrap).
+ */
+export type ContactDetailSectionsSource = "seed" | "cached";
+
 export interface ContactDetailCacheEntry {
   data: ContactDetailBootstrapData;
   status: ContactDetailCacheStatus;
   /** Monotonic-ish write stamp (ms epoch). Newer or equal writes win. */
   loadedAt: number;
+  /** Present iff `data.sections` is — see ContactDetailSectionsSource. */
+  sectionsSource?: ContactDetailSectionsSource;
 }
 
 type Listener = () => void;
@@ -48,6 +65,18 @@ export interface ContactDetailCacheStore {
   ): void;
   /** Keep cached data but flag it for stale-while-revalidate on next open. */
   markStale(contactId: string): void;
+  /**
+   * Write back one or more section slices from a client-side load, so a
+   * revisit in the same session renders them instantly (then revalidates —
+   * merged sections are always `"cached"`). If the core bootstrap hasn't
+   * landed yet (React serializes Server Actions, so a section's load can
+   * resolve before the panel's core load), the slices are buffered and folded
+   * into the next `set`/`seed` for this contact.
+   */
+  mergeSections(
+    contactId: string,
+    sections: Partial<ContactDetailSectionsData>,
+  ): void;
   /** Subscribe to changes for a single contact id. Returns an unsubscribe fn. */
   subscribe(contactId: string, listener: Listener): () => void;
   /** Drop all cached entries (listeners are preserved). */
@@ -59,9 +88,46 @@ export interface ContactDetailCacheStore {
  *  active listener) is never evicted. */
 const MAX_CACHE_ENTRIES = 50;
 
+const EMPTY_SECTIONS: ContactDetailSectionsData = {
+  emailStatus: null,
+  tagSection: null,
+  whatsappMessages: null,
+};
+
 export function createContactDetailCacheStore(): ContactDetailCacheStore {
   const entries = new Map<string, ContactDetailCacheEntry>();
   const listeners = new Map<string, Set<Listener>>();
+  /** Section write-backs that arrived before the core bootstrap (see mergeSections). */
+  const pendingSections = new Map<string, Partial<ContactDetailSectionsData>>();
+
+  /**
+   * Fold section data into an incoming core write. A payload that brings its
+   * own sections is a fresh server seed and wins outright; a core-only payload
+   * (client loaders, realtime refreshes) must NOT drop sections the session
+   * already has — they're carried over as `"cached"`, together with any
+   * buffered write-backs.
+   */
+  function foldSections(
+    contactId: string,
+    data: ContactDetailBootstrapData,
+    existing: ContactDetailCacheEntry | undefined,
+  ): { data: ContactDetailBootstrapData; sectionsSource?: ContactDetailSectionsSource } {
+    const pending = pendingSections.get(contactId);
+    pendingSections.delete(contactId);
+
+    if (data.sections) return { data, sectionsSource: "seed" };
+
+    const carried = existing?.data.sections;
+    if (!carried && !pending) return { data };
+
+    return {
+      data: {
+        ...data,
+        sections: { ...EMPTY_SECTIONS, ...carried, ...pending },
+      },
+      sectionsSource: "cached",
+    };
+  }
 
   function notify(contactId: string): void {
     const set = listeners.get(contactId);
@@ -96,7 +162,13 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
       // Last-write-wins by `loadedAt`: a stale realtime reload that resolves
       // after a newer write must not clobber it.
       if (existing && existing.loadedAt > stamp) return;
-      entries.set(contactId, { data, loadedAt: stamp, status: "fresh" });
+      const folded = foldSections(contactId, data, existing);
+      entries.set(contactId, {
+        data: folded.data,
+        loadedAt: stamp,
+        sectionsSource: folded.sectionsSource,
+        status: "fresh",
+      });
       evictIfNeeded();
       notify(contactId);
     },
@@ -104,7 +176,13 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
       const stamp = loadedAt ?? Date.now();
       const existing = entries.get(contactId);
       if (existing && existing.loadedAt > stamp) return;
-      entries.set(contactId, { data, loadedAt: stamp, status: "fresh" });
+      const folded = foldSections(contactId, data, existing);
+      entries.set(contactId, {
+        data: folded.data,
+        loadedAt: stamp,
+        sectionsSource: folded.sectionsSource,
+        status: "fresh",
+      });
       evictIfNeeded();
       // Write synchronously above (getSnapshot sees it), but defer the notify to
       // a microtask so it lands AFTER the render commit — the seeder calls this
@@ -116,6 +194,35 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
       const existing = entries.get(contactId);
       if (!existing || existing.status === "stale") return;
       entries.set(contactId, { ...existing, status: "stale" });
+      notify(contactId);
+    },
+    mergeSections(contactId, sections) {
+      const existing = entries.get(contactId);
+      if (!existing) {
+        pendingSections.set(contactId, {
+          ...pendingSections.get(contactId),
+          ...sections,
+        });
+        // Same FIFO bound as the entry map: a buffer only outlives a moment if
+        // the core load failed, so don't let those orphans accumulate.
+        if (pendingSections.size > MAX_CACHE_ENTRIES) {
+          const oldest = pendingSections.keys().next().value;
+          if (oldest !== undefined) pendingSections.delete(oldest);
+        }
+        return;
+      }
+      entries.set(contactId, {
+        ...existing,
+        data: {
+          ...existing.data,
+          sections: {
+            ...EMPTY_SECTIONS,
+            ...existing.data.sections,
+            ...sections,
+          },
+        },
+        sectionsSource: "cached",
+      });
       notify(contactId);
     },
     subscribe(contactId, listener) {
@@ -134,6 +241,7 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
     },
     clear() {
       entries.clear();
+      pendingSections.clear();
     },
   };
 }

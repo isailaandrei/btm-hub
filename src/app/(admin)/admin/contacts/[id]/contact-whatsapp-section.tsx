@@ -28,10 +28,16 @@ const REALTIME_DEBOUNCE_MS = 150;
 export function ContactWhatsAppSection({
   contactId,
   initialMessages = null,
+  revalidateInitialData = false,
+  onMessagesLoaded,
 }: {
   contactId: string;
-  /** Server-seeded thread from the deep-link bootstrap; null → lazy-load. */
+  /** Server-seeded or session-cached thread; null → lazy-load. */
   initialMessages?: ConversationMessage[] | null;
+  /** True when `initialMessages` is session-cached rather than a fresh seed. */
+  revalidateInitialData?: boolean;
+  /** Session-cache write-back — called with every successfully loaded thread. */
+  onMessagesLoaded?: (messages: ConversationMessage[]) => void;
 }) {
   const [messages, setMessages] = useState<ConversationMessage[] | null>(
     initialMessages,
@@ -41,11 +47,19 @@ export function ContactWhatsAppSection({
   const [isMutating, startMutation] = useTransition();
   const [showRemoved, setShowRemoved] = useState(false);
 
+  const applyMessages = useCallback(
+    (next: ConversationMessage[]) => {
+      setMessages(next);
+      onMessagesLoaded?.(next);
+    },
+    [onMessagesLoaded],
+  );
+
   const loadData = useCallback(() => {
     startTransition(async () => {
       try {
         setLoadError(null);
-        setMessages(await loadContactWhatsAppMessages(contactId));
+        applyMessages(await loadContactWhatsAppMessages(contactId));
       } catch (error) {
         setLoadError(
           error instanceof Error
@@ -54,12 +68,24 @@ export function ContactWhatsAppSection({
         );
       }
     });
-  }, [contactId]);
+  }, [applyMessages, contactId]);
 
   useEffect(() => {
     if (messages || isPending || loadError) return;
     loadData();
   }, [messages, isPending, loadData, loadError]);
+
+  // Stale-while-revalidate for cached initial data: messages that arrived
+  // while this contact wasn't on screen aren't covered by the mounted realtime
+  // channel below, so reconcile once in the background.
+  const revalidatedRef = useRef(false);
+  useEffect(() => {
+    if (!revalidateInitialData || !initialMessages || revalidatedRef.current) {
+      return;
+    }
+    revalidatedRef.current = true;
+    loadData();
+  }, [initialMessages, loadData, revalidateInitialData]);
 
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -73,7 +99,7 @@ export function ContactWhatsAppSection({
       refreshTimeoutRef.current = setTimeout(() => {
         void loadContactWhatsAppMessages(contactId)
           .then((next) => {
-            if (active) setMessages(next);
+            if (active) applyMessages(next);
           })
           .catch((error) => {
             console.error(
@@ -103,7 +129,7 @@ export function ContactWhatsAppSection({
       clearTimeout(refreshTimeoutRef.current);
       void supabase.removeChannel(channel);
     };
-  }, [contactId]);
+  }, [applyMessages, contactId]);
 
   // Curation runs through its own transition and re-reads on success so the
   // moved message lands in the right group.
@@ -112,7 +138,7 @@ export function ContactWhatsAppSection({
       startMutation(async () => {
         try {
           await mutation();
-          setMessages(await loadContactWhatsAppMessages(contactId));
+          applyMessages(await loadContactWhatsAppMessages(contactId));
         } catch (error) {
           console.error(
             `WhatsApp message curation failed for contact ${contactId}`,
@@ -121,7 +147,7 @@ export function ContactWhatsAppSection({
         }
       });
     },
-    [contactId],
+    [applyMessages, contactId],
   );
 
   const { active, removed } = useMemo(() => {

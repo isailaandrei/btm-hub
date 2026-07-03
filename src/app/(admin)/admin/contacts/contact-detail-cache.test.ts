@@ -143,4 +143,68 @@ describe("contactDetailCacheStore", () => {
     await Promise.resolve();
     expect(listener).toHaveBeenCalledTimes(1);
   });
+
+  it("a payload with sections is a fresh seed; a core-only write preserves cached sections", () => {
+    const store = createContactDetailCacheStore();
+    const seeded = {
+      ...makeData("Ada"),
+      sections: {
+        emailStatus: { excluded: true, reason: "manual" },
+        tagSection: null,
+        whatsappMessages: [],
+      },
+    } as ContactDetailBootstrapData;
+
+    store.seed(ID_A, seeded, 1000);
+    expect(store.get(ID_A)?.sectionsSource).toBe("seed");
+
+    // A later core-only refresh (client loader / realtime) must not drop the
+    // sections — they carry over as "cached" so the next open revalidates.
+    store.set(ID_A, makeData("Ada v2"), 2000);
+    const entry = store.get(ID_A);
+    expect(entry?.data.contact.name).toBe("Ada v2");
+    expect(entry?.data.sections?.emailStatus).toEqual({
+      excluded: true,
+      reason: "manual",
+    });
+    expect(entry?.sectionsSource).toBe("cached");
+  });
+
+  it("mergeSections writes a slice back into an existing entry and notifies", () => {
+    const store = createContactDetailCacheStore();
+    const listener = vi.fn();
+    store.set(ID_A, makeData("Ada"));
+    store.subscribe(ID_A, listener);
+
+    store.mergeSections(ID_A, {
+      emailStatus: { excluded: false, reason: null },
+    });
+
+    const entry = store.get(ID_A);
+    expect(entry?.data.sections?.emailStatus).toEqual({
+      excluded: false,
+      reason: null,
+    });
+    expect(entry?.data.sections?.whatsappMessages).toBeNull();
+    expect(entry?.sectionsSource).toBe("cached");
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("buffers section write-backs that arrive before the core and folds them into the next write", () => {
+    const store = createContactDetailCacheStore();
+
+    // React serializes Server Actions — a section's load can resolve before
+    // the panel's core load has landed in the store.
+    store.mergeSections(ID_A, {
+      whatsappMessages: [] as NonNullable<
+        NonNullable<ContactDetailBootstrapData["sections"]>["whatsappMessages"]
+      >,
+    });
+    expect(store.get(ID_A)).toBeUndefined();
+
+    store.set(ID_A, makeData("Ada"));
+    const entry = store.get(ID_A);
+    expect(entry?.data.sections?.whatsappMessages).toEqual([]);
+    expect(entry?.sectionsSource).toBe("cached");
+  });
 });

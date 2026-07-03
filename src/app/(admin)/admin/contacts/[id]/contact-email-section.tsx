@@ -1,7 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/client";
 import { ContactEmailExclusion } from "./contact-email-exclusion";
 import { loadContactEmailSection } from "../actions";
 
@@ -9,29 +16,54 @@ type ContactEmailSectionData = Awaited<
   ReturnType<typeof loadContactEmailSection>
 >;
 
+const REALTIME_DEBOUNCE_MS = 150;
+
 /**
- * Email (do-not-email) section of the contact detail panel. Mirrors
- * `ContactTagsSection`: renders server-seeded data when the deep-link
- * bootstrap provides it (`initialData`), otherwise lazy-loads its own status
- * via a server action, shows a skeleton/error+retry, and re-reads after a
- * toggle since `revalidatePath` doesn't refresh the cache.
+ * Email (do-not-email) section of the contact detail panel. Renders
+ * server-seeded data when the deep-link bootstrap provides it (`initialData`),
+ * otherwise lazy-loads its own status via a server action with a
+ * skeleton/error+retry. Cached (non-seed) data renders instantly and is
+ * revalidated in the background (`revalidateInitialData`) — suppressions can
+ * change while this contact isn't on screen. While mounted, a Supabase
+ * Realtime channel on `email_suppressions` keeps the status live across
+ * admins: rows are matched by contact_id OR email (pipeline
+ * bounces/unsubscribes may be keyed by email only), so the channel binds both
+ * filters. Successful loads are written back to the session cache via
+ * `onDataLoaded` so a revisit paints instantly.
  */
 export function ContactEmailSection({
   contactId,
+  contactEmail = null,
   initialData = null,
+  revalidateInitialData = false,
+  onDataLoaded,
 }: {
   contactId: string;
+  /** Needed for the email-keyed realtime binding; null skips that binding. */
+  contactEmail?: string | null;
   initialData?: ContactEmailSectionData | null;
+  /** True when `initialData` is session-cached rather than a fresh server seed. */
+  revalidateInitialData?: boolean;
+  /** Session-cache write-back — called with every successfully loaded status. */
+  onDataLoaded?: (data: ContactEmailSectionData) => void;
 }) {
   const [data, setData] = useState<ContactEmailSectionData | null>(initialData);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const applyData = useCallback(
+    (next: ContactEmailSectionData) => {
+      setData(next);
+      onDataLoaded?.(next);
+    },
+    [onDataLoaded],
+  );
+
   const loadData = useCallback(() => {
     startTransition(async () => {
       try {
         setLoadError(null);
-        setData(await loadContactEmailSection(contactId));
+        applyData(await loadContactEmailSection(contactId));
       } catch (error) {
         setLoadError(
           error instanceof Error
@@ -40,12 +72,85 @@ export function ContactEmailSection({
         );
       }
     });
-  }, [contactId]);
+  }, [applyData, contactId]);
 
   useEffect(() => {
     if (data || isPending || loadError) return;
     loadData();
   }, [data, isPending, loadData, loadError]);
+
+  // Stale-while-revalidate for cached initial data: it renders immediately
+  // above, and one background re-read reconciles anything that changed while
+  // this contact wasn't on screen (there is no unmounted realtime coverage).
+  const revalidatedRef = useRef(false);
+  useEffect(() => {
+    if (!revalidateInitialData || !initialData || revalidatedRef.current) {
+      return;
+    }
+    revalidatedRef.current = true;
+    loadData();
+  }, [initialData, loadData, revalidateInitialData]);
+
+  // Live cross-admin updates while mounted: another admin's toggle (or a
+  // pipeline bounce/unsubscribe) re-reads the status. Debounced like the
+  // sibling WhatsApp section; reloads bypass the transition so the current
+  // status stays rendered while the fresh one is fetched.
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    let active = true;
+    const supabase = createClient();
+
+    function scheduleReload() {
+      clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = setTimeout(() => {
+        void loadContactEmailSection(contactId)
+          .then((next) => {
+            if (active) applyData(next);
+          })
+          .catch((error) => {
+            console.error(
+              `Failed to refresh email status for contact ${contactId} from realtime change`,
+              error,
+            );
+          });
+      }, REALTIME_DEBOUNCE_MS);
+    }
+
+    const channel = supabase
+      .channel(`contact-email-suppressions-${contactId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "email_suppressions",
+          filter: `contact_id=eq.${contactId}`,
+        },
+        scheduleReload,
+      );
+    if (contactEmail) {
+      // Same normalization as the suppression writes (normalizeEmail).
+      channel.on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "email_suppressions",
+          filter: `email=eq.${contactEmail.trim().toLowerCase()}`,
+        },
+        scheduleReload,
+      );
+    }
+    channel.subscribe();
+
+    return () => {
+      active = false;
+      clearTimeout(refreshTimeoutRef.current);
+      void supabase.removeChannel(channel);
+    };
+  }, [applyData, contactId, contactEmail]);
 
   return (
     <Card>
