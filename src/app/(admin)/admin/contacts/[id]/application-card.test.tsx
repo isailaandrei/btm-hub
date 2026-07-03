@@ -93,6 +93,40 @@ describe("ApplicationCard", () => {
     expect(container.querySelector("[data-testid='status-selector']")).not.toBeNull();
   });
 
+  it("exposes a subtle Export PDF link in the header without expanding", async () => {
+    await act(async () => {
+      root.render(
+        <ApplicationCard
+          application={{
+            id: applicationDetail.id,
+            answers: { phone: "+1 555 0100" },
+            contact_id: applicationDetail.contact_id,
+            program: applicationDetail.program,
+            status: applicationDetail.status,
+            submitted_at: applicationDetail.submitted_at,
+            updated_at: applicationDetail.updated_at,
+          }}
+          contactId={applicationDetail.contact_id!}
+          defaultOpen={false}
+        />,
+      );
+    });
+
+    // Reachable straight from the collapsed header — no expand, no scroll.
+    const exportLink = container.querySelector(
+      `a[href='/print/applications/${applicationDetail.id}']`,
+    );
+    expect(exportLink).not.toBeNull();
+    expect(exportLink?.getAttribute("target")).toBe("_blank");
+    expect(exportLink?.getAttribute("rel")).toContain("noopener");
+    expect(exportLink?.getAttribute("aria-label")).toBe(
+      "Export this application as a PDF",
+    );
+    expect(exportLink?.textContent).toContain("PDF");
+    // Rendering the collapsed card must not force a detail load.
+    expect(loadContactApplication).not.toHaveBeenCalled();
+  });
+
   it("prefetches the detail in the background so expanding is instant", async () => {
     // Force the setTimeout fallback in scheduleIdle so fake timers can drive it
     // deterministically (jsdom has no requestIdleCallback).

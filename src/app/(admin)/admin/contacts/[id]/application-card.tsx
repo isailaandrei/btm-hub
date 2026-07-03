@@ -118,12 +118,13 @@ export function ApplicationCard({
   return (
     <Card className="min-w-0">
       <CardHeader className="p-0">
-        <button
-          type="button"
-          onClick={handleToggle}
-          className="flex w-full min-w-0 items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/30"
-        >
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <div className="flex w-full min-w-0 items-center">
+          <button
+            type="button"
+            onClick={handleToggle}
+            aria-expanded={open}
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/30"
+          >
             <span className="font-medium capitalize text-foreground">
               {application.program}
             </span>
@@ -140,22 +141,61 @@ export function ApplicationCard({
                 day: "numeric",
               })}
             </span>
-          </div>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          </button>
+
+          {/* Subtle secondary action: export a shareable PDF without expanding
+              the card or scrolling to the footer. Opens the standalone print
+              route in a new tab. */}
+          <a
+            href={`/print/applications/${application.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Export this application as a PDF"
+            title="Export as PDF"
+            className="mr-1 inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" x2="12" y1="15" y2="3" />
+            </svg>
+            <span>PDF</span>
+          </a>
+
+          <button
+            type="button"
+            onClick={handleToggle}
+            aria-label={open ? "Collapse application" : "Expand application"}
+            aria-expanded={open}
+            className="shrink-0 px-4 py-4 transition-colors hover:bg-muted/30"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+        </div>
       </CardHeader>
 
       {open && (

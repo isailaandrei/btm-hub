@@ -33,7 +33,7 @@ export async function updateSession(request: NextRequest) {
   const hasVerifiedSession = Boolean(verifiedClaims?.claims.sub);
 
   // Redirect unauthenticated users from protected routes
-  const protectedPaths = ["/profile", "/settings", "/dashboard", "/admin", "/community"];
+  const protectedPaths = ["/profile", "/settings", "/dashboard", "/admin", "/community", "/print"];
   const isProtectedRoute = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
