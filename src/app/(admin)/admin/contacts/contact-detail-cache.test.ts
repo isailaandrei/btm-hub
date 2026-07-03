@@ -99,4 +99,48 @@ describe("contactDetailCacheStore", () => {
     store.clear();
     expect(store.has(ID_A)).toBe(false);
   });
+
+  it("evicts oldest entries beyond the cap (FIFO)", () => {
+    const store = createContactDetailCacheStore();
+    // 60 > MAX_CACHE_ENTRIES (50): the earliest-inserted entries are evicted.
+    for (let i = 0; i < 60; i++) {
+      store.set(`id-${i}`, makeData(`Contact ${i}`));
+    }
+    expect(store.has("id-0")).toBe(false);
+    expect(store.has("id-9")).toBe(false);
+    expect(store.has("id-10")).toBe(true);
+    expect(store.has("id-59")).toBe(true);
+  });
+
+  it("never evicts an entry that has an active subscriber", () => {
+    const store = createContactDetailCacheStore();
+    store.set("pinned", makeData("Pinned"));
+    // The on-screen contact keeps a subscriber; it must survive eviction even
+    // though it is the oldest entry.
+    store.subscribe("pinned", () => {});
+    for (let i = 0; i < 60; i++) {
+      store.set(`id-${i}`, makeData(`Contact ${i}`));
+    }
+    expect(store.has("pinned")).toBe(true);
+  });
+
+  it("seed writes synchronously but defers the subscriber notification", async () => {
+    const store = createContactDetailCacheStore();
+    const listener = vi.fn();
+    store.subscribe(ID_A, listener);
+
+    store.seed(ID_A, makeData("Seeded"));
+
+    // Written synchronously — a getSnapshot during render sees it immediately,
+    // so the panel paints with no flash.
+    expect(store.get(ID_A)?.data.contact.name).toBe("Seeded");
+    expect(store.get(ID_A)?.status).toBe("fresh");
+    // But the listener is NOT called synchronously — calling it during the
+    // seeder's render would setState a subscribed panel mid-render.
+    expect(listener).not.toHaveBeenCalled();
+
+    // It fires on the next microtask, after the render commit.
+    await Promise.resolve();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });

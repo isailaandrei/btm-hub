@@ -125,6 +125,7 @@ export function ContactTagsSection({ contactId }: { contactId: string }) {
             categories={data.categories}
             allTags={data.allTags}
             onDataMayHaveChanged={cachedData ? undefined : loadData}
+            persistToProvider={Boolean(cachedData)}
           />
         ) : (
           <div className="flex flex-wrap gap-2">

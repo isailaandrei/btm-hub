@@ -9,7 +9,7 @@ import { TaskBoardView } from "./task-board-view";
 import { useTaskData } from "./task-data-provider";
 import { TaskDetailPanel } from "./task-detail-panel";
 
-export function TasksPanel() {
+export function TasksPanel({ isVisible = true }: { isVisible?: boolean }) {
   const {
     admins,
     groups,
@@ -19,6 +19,7 @@ export function TasksPanel() {
     tasksError,
     realtimeWarning,
     ensureTasks,
+    reloadTasks,
     refreshAfterMutation,
     optimisticallyUpdateGroup,
     optimisticallyUpdateTask,
@@ -28,8 +29,12 @@ export function TasksPanel() {
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
 
   useEffect(() => {
+    // Load the board (and open its realtime channel) only when the tab is
+    // actually shown — the panel stays mounted while hidden to warm its bundle,
+    // but idle-prewarming it shouldn't fetch. ensureTasks guards re-entry.
+    if (!isVisible) return;
     ensureTasks();
-  }, [ensureTasks]);
+  }, [isVisible, ensureTasks]);
 
   const sharedError = tasksError;
   const ready = groups && tasks && admins && today;
@@ -52,7 +57,7 @@ export function TasksPanel() {
       {sharedError && (
         <div className="flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive">
           <span>{sharedError}</span>
-          <Button type="button" size="sm" variant="outline" onClick={() => void refreshAfterMutation()}>
+          <Button type="button" size="sm" variant="outline" onClick={() => void reloadTasks()}>
             <RefreshCw />
             Retry
           </Button>

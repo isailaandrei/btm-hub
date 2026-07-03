@@ -17,10 +17,8 @@ vi.mock("./event-actions", () => ({
   unresolveEvent: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    refresh: mockRefresh,
-  }),
+vi.mock("./contact-detail-loader", () => ({
+  refreshContactDetailAfterMutation: mockRefresh,
 }));
 
 const { TimelineEventRow } = await import("./timeline-event-row");
@@ -53,7 +51,7 @@ describe("TimelineEventRow", () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true;
     mockDeleteEvent.mockReset().mockResolvedValue({});
-    mockRefresh.mockReset();
+    mockRefresh.mockReset().mockResolvedValue(null);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);

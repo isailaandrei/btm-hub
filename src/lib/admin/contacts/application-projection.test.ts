@@ -2,8 +2,78 @@ import { describe, expect, it } from "vitest";
 import {
   buildApplicationProjectionSelect,
   getSafeApplicationAnswerKeys,
+  mergeProjectedApplicationAnswers,
+  prependContactListApplication,
   reassembleProjectedApplications,
+  type ContactListApplication,
 } from "./application-projection";
+
+function app(
+  id: string,
+  overrides: Partial<ContactListApplication> = {},
+): ContactListApplication {
+  return {
+    id,
+    contact_id: "c1",
+    program: "photography" as ContactListApplication["program"],
+    submitted_at: "2026-06-01T10:00:00.000Z",
+    answers: {},
+    ...overrides,
+  };
+}
+
+describe("prependContactListApplication", () => {
+  it("prepends a new application", () => {
+    const result = prependContactListApplication([app("a")], app("b"), 100);
+    expect(result.map((a) => a.id)).toEqual(["b", "a"]);
+  });
+
+  it("is idempotent by id — a re-delivered INSERT replaces, never duplicates", () => {
+    const result = prependContactListApplication(
+      [app("a"), app("b")],
+      app("b", { submitted_at: "2026-07-01T00:00:00.000Z" }),
+      100,
+    );
+    expect(result.map((a) => a.id)).toEqual(["b", "a"]);
+    expect(result.filter((a) => a.id === "b")).toHaveLength(1);
+    expect(result[0].submitted_at).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  it("caps the array at the limit, keeping the most recent", () => {
+    const existing = [app("a"), app("b"), app("c")];
+    const result = prependContactListApplication(existing, app("d"), 3);
+    expect(result.map((a) => a.id)).toEqual(["d", "a", "b"]);
+  });
+
+  it("tolerates a null previous list", () => {
+    expect(prependContactListApplication(null, app("a"), 5)).toEqual([app("a")]);
+  });
+});
+
+describe("mergeProjectedApplicationAnswers", () => {
+  it("merges answers for rows present in both, keyed by id", () => {
+    const previous = [app("a", { answers: { phone: "123", budget: "5k" } })];
+    const next = [app("a", { answers: { phone: "999" } })];
+    const result = mergeProjectedApplicationAnswers(previous, next);
+    expect(result).toHaveLength(1);
+    expect(result[0].answers).toEqual({ phone: "999", budget: "5k" });
+  });
+
+  it("drops rows present only in previous (next is authoritative — no delete resurrection)", () => {
+    // `previous` holds a row absent from the fresh SELECT `next`. While realtime
+    // is degraded that most often means it was deleted server-side, so the merge
+    // must NOT re-append it (which would resurrect a deleted application).
+    const previous = [app("a"), app("deleted-server-side")];
+    const next = [app("a")];
+    const result = mergeProjectedApplicationAnswers(previous, next);
+    expect(result.map((a) => a.id)).toEqual(["a"]);
+  });
+
+  it("includes rows present only in next", () => {
+    const result = mergeProjectedApplicationAnswers([app("a")], [app("a"), app("b")]);
+    expect(result.map((a) => a.id).sort()).toEqual(["a", "b"]);
+  });
+});
 
 describe("application contact-list projection", () => {
   it("keeps only field-registry answer keys with safe SQL identifier characters", () => {

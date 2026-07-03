@@ -206,14 +206,13 @@ describe("deleteApplication", () => {
     });
   });
 
-  it("revalidates the deleted application's contact detail path and /admin", async () => {
+  it("revalidates the deleted application's contact detail path", async () => {
     await deleteApplication(VALID_UUID);
 
     expect(mockDeleteApplication).toHaveBeenCalledWith(VALID_UUID);
     expect(mockRevalidatePath).toHaveBeenCalledWith(
       "/admin/contacts/660e8400-e29b-41d4-a716-446655440001",
     );
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
   });
 });
 

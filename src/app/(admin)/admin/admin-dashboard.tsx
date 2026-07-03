@@ -67,7 +67,7 @@ const IDLE_PREWARM_TABS: AdminPanelTab[] = ["email", "tasks", "tags"];
 export function AdminDashboard({
   initialContactsData,
 }: {
-  initialContactsData?: Promise<AdminContactsInitialData>;
+  initialContactsData?: Promise<AdminContactsInitialData | undefined>;
 }) {
   const searchParams = useSearchParams();
   const aiEnabled = isLocalAdminAiEnabled();
@@ -196,7 +196,7 @@ export function AdminDashboard({
 
       {(activeTab === "tasks" || visitedTabs.tasks) && (
         <div hidden={activeTab !== "tasks"}>
-          <TasksPanel />
+          <TasksPanel isVisible={activeTab === "tasks"} />
         </div>
       )}
 

@@ -158,6 +158,8 @@ export function buildOptimisticTaskPatch(
   return optimisticPatch;
 }
 
+const TASKS_RESYNC_MIN_INTERVAL_MS = 30_000;
+
 export function TaskDataProvider({ children }: { children: ReactNode }) {
   const [admins, setAdmins] = useState<AdminAssigneeProfile[] | null>(null);
   const [groups, setGroups] = useState<TaskGroup[] | null>(null);
@@ -183,6 +185,11 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dateLoadedRef = useRef(false);
+  // Realtime health + resync. `realtimeDegradedRef` drives the warn-once toast
+  // and the recovery resync in the subscribe status handler (mutations no longer
+  // branch on it — refreshAfterMutation always reloads).
+  const realtimeDegradedRef = useRef(false);
+  const lastResyncAtRef = useRef(0);
 
   function getSupabase() {
     if (!supabaseRef.current) supabaseRef.current = createClient();
@@ -208,7 +215,13 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     dateLoadedRef.current = true;
   }, []);
 
-  const reloadTasks = useCallback(async () => {
+  // Each call issues a fresh board fetch. It must NOT coalesce onto an
+  // already-in-flight reload: a post-mutation reconcile that inherited a fetch
+  // whose SELECT predated the write would apply pre-commit data and silently
+  // revert the committed change (with no realtime echo to correct it while the
+  // socket is degraded). Overlapping reloads settle to the last writer, which is
+  // acceptable — all post-mutation fetches see the committed state.
+  const reloadTasks = useCallback(async (): Promise<boolean> => {
     const startedAt = startAdminTiming();
     let activeTasks = 0;
     let doneTasks = 0;
@@ -265,10 +278,25 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     }
   }, [applyDateData]);
 
-  const refreshAfterMutation = useCallback(async () => {
+  // Authoritative reconcile — always reloads. The realtime echo, the reconnect
+  // resync and the wake listener use this.
+  const reconcileBoard = useCallback(async () => {
     await reloadTasks();
     if (dateLoadedRef.current) await reloadDateTasks();
   }, [reloadDateTasks, reloadTasks]);
+
+  // Called by mutation handlers on BOTH the success and error paths, and it
+  // always reloads. The error paths (persistPatch/moveToGroup/deleteTask catch
+  // blocks) rely on it to revert a failed optimistic patch to server truth — and
+  // a failed write produces NO realtime echo, so skipping the reload when the
+  // channel merely looks connected would leave a fake success on screen (a
+  // fail-loud violation). It also covers a write committed before the channel
+  // finishes its subscribe handshake, which likewise never echoes. On a
+  // successful write the realtime echo may reload a second time; that redundancy
+  // is acceptable and reloadTasks' in-flight guard coalesces overlapping reloads.
+  const refreshAfterMutation = useCallback(async () => {
+    await reconcileBoard();
+  }, [reconcileBoard]);
 
   const optimisticallyUpdateGroup = useCallback(
     (groupId: string, patch: OptimisticGroupPatch) => {
@@ -299,9 +327,9 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const scheduleRefresh = useCallback(() => {
     clearTimeout(refreshTimeoutRef.current ?? undefined);
     refreshTimeoutRef.current = setTimeout(() => {
-      void refreshAfterMutation();
+      void reconcileBoard();
     }, 200);
-  }, [refreshAfterMutation]);
+  }, [reconcileBoard]);
 
   const ensureRealtime = useCallback(() => {
     if (channelRef.current) return;
@@ -369,13 +397,25 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       )
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          setRealtimeWarning("Task realtime updates are disconnected. Refresh to sync.");
-          toast.warning("Task realtime updates are disconnected.");
+          if (!realtimeDegradedRef.current) {
+            realtimeDegradedRef.current = true;
+            setRealtimeWarning(
+              "Task updates disconnected — reconnecting…",
+            );
+            toast.warning("Task updates disconnected.");
+          }
+        } else if (status === "SUBSCRIBED" && realtimeDegradedRef.current) {
+          // Recovered: clear the (previously sticky) warning and resync, since
+          // postgres_changes did not replay events missed while disconnected.
+          realtimeDegradedRef.current = false;
+          setRealtimeWarning(null);
+          toast.success("Task updates reconnected.");
+          void reconcileBoard();
         }
       });
 
     channelRef.current = channel;
-  }, [scheduleRefresh]);
+  }, [reconcileBoard, scheduleRefresh]);
 
   const ensureTasks = useCallback(() => {
     if (tasksFetchState.current !== "idle") return;
@@ -455,6 +495,26 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     (taskId: string) => loadComments(taskId, true),
     [loadComments],
   );
+
+  // Wake resync: on tab focus / network restore, converge on authoritative task
+  // state (a dropped socket does not replay the gap). Throttled; only once the
+  // board has loaded. Channel recovery resyncs too via the subscribe handler.
+  useEffect(() => {
+    function handleWake() {
+      if (document.visibilityState !== "visible") return;
+      if (tasksFetchState.current !== "done") return;
+      const now = Date.now();
+      if (now - lastResyncAtRef.current < TASKS_RESYNC_MIN_INTERVAL_MS) return;
+      lastResyncAtRef.current = now;
+      void reconcileBoard();
+    }
+    document.addEventListener("visibilitychange", handleWake);
+    window.addEventListener("online", handleWake);
+    return () => {
+      document.removeEventListener("visibilitychange", handleWake);
+      window.removeEventListener("online", handleWake);
+    };
+  }, [reconcileBoard]);
 
   useEffect(() => {
     return () => {

@@ -176,6 +176,7 @@ export function ContactDetailPanel({
                 <ApplicationCard
                   key={application.id}
                   application={application}
+                  contactId={contactId}
                   defaultOpen={false}
                 />
               ))

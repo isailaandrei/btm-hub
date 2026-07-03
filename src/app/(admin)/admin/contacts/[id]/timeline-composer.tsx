@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Clock } from "lucide-react";
 import type { ContactEvent, ContactEventType } from "@/types/database";
 import {
@@ -11,6 +10,7 @@ import {
 } from "./event-types";
 import { EVENT_TYPE_DISPLAY } from "./event-type-display";
 import { createEvent } from "./event-actions";
+import { refreshContactDetailAfterMutation } from "./contact-detail-loader";
 import type { EventAction } from "./timeline-optimistic";
 
 function nowIsoLocalInput(): string {
@@ -51,7 +51,6 @@ export function TimelineComposer({
   onDismiss,
   onAdded,
 }: TimelineComposerProps) {
-  const router = useRouter();
   const [type, setType] = useState<ContactEventType>("note");
   const [body, setBody] = useState("");
   const [customLabel, setCustomLabel] = useState("");
@@ -106,7 +105,7 @@ export function TimelineComposer({
           customLabel: type === "custom" ? customLabel.trim() : null,
           happenedAt: happenedAtIso,
         });
-        router.refresh();
+        await refreshContactDetailAfterMutation(contactId);
         setBody("");
         setCustomLabel("");
         setHappenedAt(nowIsoLocalInput());

@@ -72,6 +72,7 @@ describe("ApplicationCard", () => {
             submitted_at: applicationDetail.submitted_at,
             updated_at: applicationDetail.updated_at,
           }}
+          contactId={applicationDetail.contact_id!}
           defaultOpen={false}
         />,
       );

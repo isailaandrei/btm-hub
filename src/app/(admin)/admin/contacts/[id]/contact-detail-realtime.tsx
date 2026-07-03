@@ -3,8 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { contactDetailCacheStore } from "../contact-detail-cache";
-import { loadContactDetailAction } from "./contact-detail-actions";
+import { refreshContactDetailAfterMutation } from "./contact-detail-loader";
 
 const REFRESH_DEBOUNCE_MS = 120;
 
@@ -28,16 +27,11 @@ export function ContactDetailRealtime({ contactId }: { contactId: string }) {
     function scheduleReload() {
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
-        void loadContactDetailAction(contactId)
-          .then((data) => {
-            if (data) contactDetailCacheStore.set(contactId, data);
-          })
-          .catch((error) => {
-            console.error(
-              `Failed to refresh contact detail ${contactId} from realtime change`,
-              error,
-            );
-          });
+        // Mark stale + force a fresh reload so a realtime change is never
+        // satisfied by a pre-change in-flight fetch. Best-effort:
+        // refreshContactDetailAfterMutation logs its own errors and never
+        // rejects, and the stale flag drives the panel's own reload.
+        void refreshContactDetailAfterMutation(contactId);
       }, REFRESH_DEBOUNCE_MS);
     }
 

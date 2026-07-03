@@ -8,9 +8,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assignContactTag, unassignContactTag } from "../actions";
 import { ContactTagManager } from "./contact-tag-manager";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    refresh: vi.fn(),
+const rollbackSpy = vi.fn();
+const mockAddOptimisticContactTags = vi.fn(() => ({ rollback: rollbackSpy }));
+const mockRemoveOptimisticContactTags = vi.fn(() => ({ rollback: rollbackSpy }));
+
+vi.mock("../../admin-data-provider", () => ({
+  useAdminContactsData: () => ({
+    addOptimisticContactTags: mockAddOptimisticContactTags,
+    removeOptimisticContactTags: mockRemoveOptimisticContactTags,
   }),
 }));
 
@@ -93,6 +98,70 @@ describe("ContactTagManager", () => {
     expect(assignContactTag).toHaveBeenCalledWith("contact-1", "tag-1");
     expect(getButton("Second").disabled).toBe(false);
     expect(getButton("Add tag to Status").disabled).toBe(false);
+  });
+
+  it("persists an assignment through the provider mutator when provider-backed", async () => {
+    vi.mocked(assignContactTag).mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <ContactTagManager
+          contactId="contact-1"
+          contactTagRows={[]}
+          categories={[category]}
+          allTags={tags}
+          persistToProvider
+        />,
+      );
+    });
+
+    act(() => {
+      getButton("Add tag to Status").click();
+    });
+
+    await act(async () => {
+      getButton("First").click();
+      await Promise.resolve();
+    });
+
+    expect(mockAddOptimisticContactTags).toHaveBeenCalledWith(
+      ["contact-1"],
+      "tag-1",
+    );
+    expect(assignContactTag).toHaveBeenCalledWith("contact-1", "tag-1");
+    expect(rollbackSpy).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the provider mutator when the assignment fails", async () => {
+    vi.mocked(assignContactTag).mockRejectedValue(new Error("nope"));
+
+    act(() => {
+      root.render(
+        <ContactTagManager
+          contactId="contact-1"
+          contactTagRows={[]}
+          categories={[category]}
+          allTags={tags}
+          persistToProvider
+        />,
+      );
+    });
+
+    act(() => {
+      getButton("Add tag to Status").click();
+    });
+
+    await act(async () => {
+      getButton("First").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockAddOptimisticContactTags).toHaveBeenCalledWith(
+      ["contact-1"],
+      "tag-1",
+    );
+    expect(rollbackSpy).toHaveBeenCalled();
   });
 
   function getButton(name: string): HTMLButtonElement {

@@ -1,21 +1,22 @@
 "use client";
 
 import { useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { deleteApplication } from "../actions";
+import { refreshContactDetailAfterMutation } from "./contact-detail-loader";
 
 interface DeleteApplicationButtonProps {
   applicationId: string;
+  contactId: string;
   program: string;
 }
 
 export function DeleteApplicationButton({
   applicationId,
+  contactId,
   program,
 }: DeleteApplicationButtonProps) {
   const [isPending, startTransition] = useTransition();
-  const router = useRouter();
 
   function handleDelete() {
     if (
@@ -28,7 +29,7 @@ export function DeleteApplicationButton({
     startTransition(async () => {
       try {
         await deleteApplication(applicationId);
-        router.refresh();
+        await refreshContactDetailAfterMutation(contactId);
         toast.success(`${program} application deleted.`);
       } catch {
         toast.error("Failed to delete application.");

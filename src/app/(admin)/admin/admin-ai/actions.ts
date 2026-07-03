@@ -52,7 +52,6 @@ function buildThreadTitle(question: string): string {
 
 function revalidateAdminAiViews(scope: "global" | "contact", contactId?: string) {
   if (scope === "global") {
-    revalidatePath("/admin");
     return;
   }
 

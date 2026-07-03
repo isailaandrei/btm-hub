@@ -47,6 +47,7 @@ import {
   buildApplicationProjectionSelect,
   getApplicationProjectionAnswerKeys,
   mergeProjectedApplicationAnswers,
+  prependContactListApplication,
   reassembleProjectedApplications,
   type ContactListApplication,
 } from "@/lib/admin/contacts/application-projection";
@@ -127,6 +128,12 @@ const TAG_SELECT =
 const CONTACT_ACTIVITY_SUMMARY_SELECT =
   "contact_id, last_event_type, last_event_custom_label, last_event_at, awaiting_applicant, awaiting_btm, latest_app_submitted_at";
 const TAGS_REFETCH_DEBOUNCE_MS = 200;
+// Supabase `postgres_changes` does not replay events missed while the socket was
+// down, so after a drop/reconnect (laptop sleep, network blip) the in-memory
+// store silently diverges. We resync on recovery and on tab wake, throttled so
+// rapid focus toggles can't stampede refetches.
+const REALTIME_RESYNC_MIN_INTERVAL_MS = 30_000;
+const REALTIME_DEGRADED_TOAST_ID = "admin-realtime-degraded";
 
 function sortContactsByName(items: Contact[]): Contact[] {
   return [...items].sort((left, right) =>
@@ -230,11 +237,61 @@ export function AdminDataProvider({
   const requestedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
   const loadedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
   const applicationsChannelStartedRef = useRef(false);
+  // Realtime-health / resync state. `degradedChannelsRef` tracks WHICH channels
+  // are currently down — each channel gets its own status handler keyed by name
+  // (postgres_changes does not replay events missed while a channel was down, so
+  // recovery must refetch). Keying by channel means a late-recovering channel's
+  // gap isn't lost, and a freshly-created channel's initial SUBSCRIBED can't be
+  // mistaken for a recovery. `resyncRef` is assigned after the resync callback
+  // exists, breaking the callback-ordering cycle.
+  const degradedChannelsRef = useRef<Set<string>>(new Set());
+  const lastResyncAtRef = useRef(0);
+  const resyncRef = useRef<(options?: { force?: boolean }) => void>(() => {});
 
   function getSupabase() {
     if (!supabaseRef.current) supabaseRef.current = createClient();
     return supabaseRef.current;
   }
+
+  // Build a per-channel subscribe status handler. Warn once (persistent toast)
+  // while ANY channel is down; clear the warning and resync only when the LAST
+  // degraded channel recovers — not when the first one to resubscribe reports
+  // SUBSCRIBED while others are still down. Stable, so it never churns wiring.
+  const makeChannelStatusHandler = useCallback(
+    (channelKey: string) => (status: string) => {
+      const degraded = degradedChannelsRef.current;
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        const wasHealthy = degraded.size === 0;
+        degraded.add(channelKey);
+        if (wasHealthy) {
+          toast.warning("Live updates interrupted — reconnecting…", {
+            id: REALTIME_DEGRADED_TOAST_ID,
+            duration: Infinity,
+          });
+        }
+      } else if (status === "SUBSCRIBED") {
+        const wasDegraded = degraded.delete(channelKey);
+        if (wasDegraded && degraded.size === 0) {
+          toast.dismiss(REALTIME_DEGRADED_TOAST_ID);
+          toast.success("Live updates restored.");
+          // Force past the wake throttle: recovery is a definite "we missed
+          // events" signal that must converge even if a wake resync just ran.
+          resyncRef.current({ force: true });
+        }
+      } else if (status === "CLOSED") {
+        // A channel closed (teardown / server-initiated close) rather than
+        // reconnecting. Drop it from the degraded set so it can't permanently
+        // block the "all recovered" check for the remaining channels; if it was
+        // the last degraded one, clear the stuck warning. No resync — nothing
+        // reconnected, and a closed channel won't deliver events anyway.
+        const wasDegraded = degraded.delete(channelKey);
+        if (wasDegraded && degraded.size === 0) {
+          toast.dismiss(REALTIME_DEGRADED_TOAST_ID);
+        }
+      }
+    },
+    [],
+  );
 
   // Flag a cached contact-detail entry stale when a realtime change touches
   // data the detail bootstrap covers (contact / applications / events). The
@@ -378,16 +435,19 @@ export function AdminDataProvider({
             const next = payload.new as Application;
             scheduleContactActivitySummaryRefetch(next.contact_id);
             markContactDetailStale(next.contact_id);
-            setApplications((prev) => [
-              {
-                id: next.id,
-                contact_id: next.contact_id,
-                program: next.program,
-                submitted_at: next.submitted_at,
-                answers: next.answers,
-              },
-              ...(prev ?? []),
-            ]);
+            setApplications((prev) =>
+              prependContactListApplication(
+                prev,
+                {
+                  id: next.id,
+                  contact_id: next.contact_id,
+                  program: next.program,
+                  submitted_at: next.submitted_at,
+                  answers: next.answers,
+                },
+                MAX_ADMIN_APPLICATIONS,
+              ),
+            );
           },
         )
         .on(
@@ -429,7 +489,7 @@ export function AdminDataProvider({
             );
           },
         )
-        .subscribe();
+        .subscribe(makeChannelStatusHandler("admin-applications"));
 
       channelsRef.current.push(channel);
 
@@ -448,7 +508,11 @@ export function AdminDataProvider({
     }
 
     fetchApplications();
-  }, [markContactDetailStale, scheduleContactActivitySummaryRefetch]);
+  }, [
+    makeChannelStatusHandler,
+    markContactDetailStale,
+    scheduleContactActivitySummaryRefetch,
+  ]);
 
   const ensureAnswerKeys = useCallback((answerKeys: Iterable<string>) => {
     requestApplicationAnswerKeys(answerKeys);
@@ -756,7 +820,7 @@ export function AdminDataProvider({
             );
           },
         )
-        .subscribe();
+        .subscribe(makeChannelStatusHandler("admin-contacts"));
 
       const contactTagsChannel = supabase
         .channel("admin-contact-tags")
@@ -781,7 +845,7 @@ export function AdminDataProvider({
             );
           },
         )
-        .subscribe();
+        .subscribe(makeChannelStatusHandler("admin-contact-tags"));
 
       const tagCategoriesChannel = supabase
         .channel("admin-tag-categories")
@@ -791,15 +855,19 @@ export function AdminDataProvider({
           async () => {
             clearTimeout(tagCategoriesRefetchTimeoutRef.current ?? undefined);
             tagCategoriesRefetchTimeoutRef.current = setTimeout(async () => {
-              const { data } = await supabase
+              const { data, error } = await supabase
                 .from("tag_categories")
                 .select(TAG_CATEGORY_SELECT)
                 .order("sort_order");
+              if (error) {
+                toast.error("Failed to refresh tag categories.");
+                return;
+              }
               if (data) setTagCategories(data);
             }, TAGS_REFETCH_DEBOUNCE_MS);
           },
         )
-        .subscribe();
+        .subscribe(makeChannelStatusHandler("admin-tag-categories"));
 
       const tagsChannel = supabase
         .channel("admin-tags")
@@ -809,15 +877,19 @@ export function AdminDataProvider({
           async () => {
             clearTimeout(tagsRefetchTimeoutRef.current ?? undefined);
             tagsRefetchTimeoutRef.current = setTimeout(async () => {
-              const { data } = await supabase
+              const { data, error } = await supabase
                 .from("tags")
                 .select(TAG_SELECT)
                 .order("sort_order");
+              if (error) {
+                toast.error("Failed to refresh tags.");
+                return;
+              }
               if (data) setTags(data);
             }, TAGS_REFETCH_DEBOUNCE_MS);
           },
         )
-        .subscribe();
+        .subscribe(makeChannelStatusHandler("admin-tags"));
 
       const contactEventsChannel = supabase
         .channel("admin-contact-events")
@@ -848,7 +920,7 @@ export function AdminDataProvider({
             markContactDetailStale(contactId);
           },
         )
-        .subscribe();
+        .subscribe(makeChannelStatusHandler("admin-contact-events"));
 
       channelsRef.current.push(contactsChannel, contactTagsChannel, tagCategoriesChannel, tagsChannel, contactEventsChannel);
 
@@ -861,11 +933,101 @@ export function AdminDataProvider({
     }
 
     fetchContacts();
-  }, [markContactDetailStale, scheduleContactActivitySummaryRefetch]);
+  }, [
+    makeChannelStatusHandler,
+    markContactDetailStale,
+    scheduleContactActivitySummaryRefetch,
+  ]);
+
+  // Re-pull the contacts datasets WITHOUT re-subscribing (the channels persist
+  // and auto-recover). Full replace is intentional: after a realtime gap this
+  // is the only way to converge on authoritative state. On error we keep the
+  // prior data and surface it (fail loud, never fake).
+  const resyncContactsData = useCallback(async () => {
+    const supabase = getSupabase();
+    const [
+      { data: contactsData, error: contactsErr },
+      { data: tagCategoriesData, error: tagCategoriesErr },
+      { data: tagsData, error: tagsErr },
+      { data: contactTagsData, error: contactTagsErr },
+      { data: contactActivitySummariesData, error: contactActivitySummariesErr },
+    ] = await Promise.all([
+      supabase.from("contacts").select(CONTACT_SELECT).order("name"),
+      supabase
+        .from("tag_categories")
+        .select(TAG_CATEGORY_SELECT)
+        .order("sort_order"),
+      supabase.from("tags").select(TAG_SELECT).order("sort_order"),
+      supabase.from("contact_tags").select("*"),
+      supabase
+        .from("contact_activity_summary")
+        .select(CONTACT_ACTIVITY_SUMMARY_SELECT),
+    ]);
+
+    const fetchError =
+      contactsErr ?? tagCategoriesErr ?? tagsErr ?? contactTagsErr ?? contactActivitySummariesErr;
+    if (fetchError) {
+      toast.error("Failed to resync contacts after reconnecting.");
+      return;
+    }
+
+    setContacts(contactsData ?? []);
+    setTagCategories(tagCategoriesData ?? []);
+    setTags(tagsData ?? []);
+    setContactTags(contactTagsData ?? []);
+    setContactActivitySummaries(
+      (contactActivitySummariesData ?? []) as unknown as ContactActivitySummary[],
+    );
+  }, []);
+
+  // Resync every dataset that has been loaded. The wake path is throttled so a
+  // wake burst (visibility + online firing together) does one refetch; channel
+  // recovery passes `force` to bypass that throttle, since a wake resync fired
+  // while the socket was still reconnecting must not swallow the recovery
+  // convergence (the gap between the wake fetch and the resubscribe is exactly
+  // what postgres_changes won't replay).
+  const resyncAdminData = useCallback((options?: { force?: boolean }) => {
+    const now = Date.now();
+    if (
+      !options?.force &&
+      now - lastResyncAtRef.current < REALTIME_RESYNC_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
+    lastResyncAtRef.current = now;
+    if (contactsFetchState.current === "done") void resyncContactsData();
+    // Safe: with the channel already started, this refetches without
+    // re-subscribing (see startApplicationsFetch).
+    if (appsFetchState.current === "done") startApplicationsFetch("replace");
+  }, [resyncContactsData, startApplicationsFetch]);
+
+  useEffect(() => {
+    resyncRef.current = resyncAdminData;
+  }, [resyncAdminData]);
+
+  // Wake resync: on tab focus / network restore, converge on authoritative
+  // state (postgres_changes doesn't replay the gap). Throttled inside
+  // resyncAdminData; channel recovery uses the same path.
+  useEffect(() => {
+    function handleWake() {
+      if (document.visibilityState !== "visible") return;
+      resyncRef.current();
+    }
+    document.addEventListener("visibilitychange", handleWake);
+    window.addEventListener("online", handleWake);
+    return () => {
+      document.removeEventListener("visibilitychange", handleWake);
+      window.removeEventListener("online", handleWake);
+    };
+  }, []);
 
   // Cleanup only the channels that were actually created
   useEffect(() => {
     return () => {
+      // Dismiss the persistent (duration: Infinity) degraded toast on unmount —
+      // otherwise, leaving /admin while a channel is down strands it on screen
+      // across the whole app (the <Toaster> lives in the root layout).
+      toast.dismiss(REALTIME_DEGRADED_TOAST_ID);
       const supabase = supabaseRef.current;
       if (!supabase) return;
       clearTimeout(tagCategoriesRefetchTimeoutRef.current ?? undefined);

@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import {
   createEmailAsset,
@@ -66,6 +65,5 @@ export async function uploadEmailAssetAction(
     sizeBytes: file.size,
   });
 
-  revalidatePath("/admin");
   return asset;
 }

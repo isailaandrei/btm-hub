@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import {
@@ -77,7 +76,6 @@ export async function publishTemplateVersionAction(input: {
     previewText: parsed.data.previewText,
   });
 
-  revalidatePath("/admin");
   return { ok: true, versionId: version.id };
 }
 
@@ -111,7 +109,6 @@ export async function createAndPublishTemplateAction(input: {
     updated_at: new Date().toISOString(),
   };
 
-  revalidatePath("/admin");
   return { ok: true, template: publishedTemplate, versionId: version.id };
 }
 
@@ -179,7 +176,6 @@ export async function renameTemplateAction(input: {
     templateId: parsed.data.templateId,
     name: parsed.data.name,
   });
-  revalidatePath("/admin");
   return { ok: true, name: parsed.data.name };
 }
 
@@ -190,7 +186,6 @@ export async function deleteTemplateAction(
   validateUUID(templateId, "template");
 
   await archiveEmailTemplate(templateId);
-  revalidatePath("/admin");
   return { ok: true };
 }
 

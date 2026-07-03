@@ -41,7 +41,6 @@ describe("addCategory", () => {
   it("trims the name and passes through valid colors", async () => {
     await addCategory("  Program Interest  ", "blue");
     expect(mockCreateTagCategory).toHaveBeenCalledWith("Program Interest", "blue");
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin/contacts/[id]", "page");
   });
 

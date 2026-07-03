@@ -12,7 +12,9 @@ export function DeferredContactsPanel({
   initialContactsData,
   onSendEmail,
 }: {
-  initialContactsData?: Promise<AdminContactsInitialData>;
+  // Resolves to undefined when the server bootstrap failed (layout catches the
+  // rejection) — the panel then falls back to the provider's client fetch.
+  initialContactsData?: Promise<AdminContactsInitialData | undefined>;
   onSendEmail?: (contactIds: string[]) => void;
 }) {
   const {

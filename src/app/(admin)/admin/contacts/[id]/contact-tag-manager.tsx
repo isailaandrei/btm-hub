@@ -7,10 +7,10 @@ import {
   useState,
   useTransition,
 } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { TAG_COLOR_CLASSES } from "../../constants";
+import { useAdminContactsData } from "../../admin-data-provider";
 import { assignContactTag, unassignContactTag } from "../actions";
 import { AddTagForm } from "../../tags/add-tag-form";
 
@@ -55,6 +55,14 @@ interface ContactTagManagerProps {
     sort_order: number;
   }>;
   onDataMayHaveChanged?: () => void;
+  /**
+   * When these rows are derived from `AdminDataProvider` (the common case), route
+   * optimistic writes through the provider's mutators so the change persists past
+   * the transition and reconciles via realtime — independent of the websocket.
+   * When false (a cold-provider server-data fallback), use the local optimistic
+   * layer and let `onDataMayHaveChanged` refetch.
+   */
+  persistToProvider?: boolean;
 }
 
 export function ContactTagManager({
@@ -63,9 +71,11 @@ export function ContactTagManager({
   categories,
   allTags,
   onDataMayHaveChanged,
+  persistToProvider = false,
 }: ContactTagManagerProps) {
   const [, startTransition] = useTransition();
-  const router = useRouter();
+  const { addOptimisticContactTags, removeOptimisticContactTags } =
+    useAdminContactsData();
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Per-category dropdown open state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -120,12 +130,15 @@ export function ContactTagManager({
     if (pendingTagIds.has(tagId)) return;
     markTagPending(tagId);
     startTransition(async () => {
+      const handle = persistToProvider
+        ? removeOptimisticContactTags([contactId], tagId)
+        : null;
+      if (!persistToProvider) applyOptimistic({ kind: "remove", tagId });
       try {
-        applyOptimistic({ kind: "remove", tagId });
         await unassignContactTag(contactId, tagId);
-        router.refresh();
         onDataMayHaveChanged?.();
       } catch {
+        handle?.rollback();
         toast.error("Failed to remove tag. Please try again.");
       } finally {
         clearTagPending(tagId);
@@ -162,10 +175,12 @@ export function ContactTagManager({
 
     markTagPending(tagId);
     startTransition(async () => {
+      const handle = persistToProvider
+        ? addOptimisticContactTags([contactId], tagId)
+        : null;
+      if (!persistToProvider) applyOptimistic({ kind: "add", row: optimisticRow });
       try {
-        applyOptimistic({ kind: "add", row: optimisticRow });
         await assignContactTag(contactId, tagId);
-        router.refresh();
         onDataMayHaveChanged?.();
         // Close dropdown if no more available tags in this category after assignment
         const remaining = allTags.filter(
@@ -173,6 +188,7 @@ export function ContactTagManager({
         );
         if (remaining.length === 0) setOpenDropdown(null);
       } catch {
+        handle?.rollback();
         toast.error("Failed to assign tag. Please try again.");
       } finally {
         clearTagPending(tagId);
@@ -263,7 +279,6 @@ export function ContactTagManager({
                       placeholder="Create new..."
                       compact
                       onSuccess={() => {
-                        router.refresh();
                         onDataMayHaveChanged?.();
                       }}
                     />

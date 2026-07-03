@@ -20,10 +20,15 @@ function formatValue(value: unknown): string {
 
 interface ApplicationCardProps {
   application: ContactDetailApplicationSummary;
+  contactId: string;
   defaultOpen: boolean;
 }
 
-export function ApplicationCard({ application, defaultOpen }: ApplicationCardProps) {
+export function ApplicationCard({
+  application,
+  contactId,
+  defaultOpen,
+}: ApplicationCardProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [applicationDetail, setApplicationDetail] =
     useState<Application | null>(null);
@@ -168,6 +173,7 @@ export function ApplicationCard({ application, defaultOpen }: ApplicationCardPro
               <div className="mt-6 border-t border-border pt-4">
                 <DeleteApplicationButton
                   applicationId={applicationDetail.id}
+                  contactId={contactId}
                   program={applicationDetail.program}
                 />
               </div>

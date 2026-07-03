@@ -66,7 +66,6 @@ export async function changeStatus(
     }
     throw error;
   }
-  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -78,13 +77,11 @@ export async function addTag(applicationId: string, tag: string) {
   // memory facts view — contact-level tags (contact_tags) are. Skip the
   // memory sync.
   await addApplicationTag(applicationId, trimmed);
-  revalidatePath("/admin");
 }
 
 export async function removeTag(applicationId: string, tag: string) {
   validateUUID(applicationId);
   await removeApplicationTag(applicationId, tag);
-  revalidatePath("/admin");
 }
 
 export async function addNote(applicationId: string, text: string) {
@@ -98,6 +95,5 @@ export async function addNote(applicationId: string, text: string) {
     profile.display_name ?? profile.email,
     trimmed,
   );
-  revalidatePath("/admin");
   if (application.contact_id) revalidatePath(`/admin/contacts/${application.contact_id}`);
 }

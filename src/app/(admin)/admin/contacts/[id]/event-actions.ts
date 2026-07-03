@@ -99,7 +99,6 @@ export async function createEvent(args: CreateEventArgs) {
     authorName: profile.display_name ?? profile.email,
   });
   revalidatePath(`/admin/contacts/${args.contactId}`);
-  revalidatePath("/admin");
   return created;
 }
 
@@ -150,7 +149,6 @@ export async function updateEvent(
   }
   const updated = await updateContactEvent(eventId, parsed.data);
   revalidatePath(`/admin/contacts/${updated.contact_id}`);
-  revalidatePath("/admin");
   return updated;
 }
 
@@ -158,7 +156,6 @@ export async function deleteEvent(eventId: string) {
   validateUUID(eventId, "event");
   const deleted = await deleteContactEvent(eventId);
   revalidatePath(`/admin/contacts/${deleted.contact_id}`);
-  revalidatePath("/admin");
   return deleted;
 }
 
@@ -167,7 +164,6 @@ export async function resolveEvent(eventId: string) {
   const profile = await requireAdmin();
   const result = await resolveContactEvent(eventId, profile.id);
   revalidatePath(`/admin/contacts/${result.contact_id}`);
-  revalidatePath("/admin");
   return result;
 }
 
@@ -175,7 +171,6 @@ export async function unresolveEvent(eventId: string) {
   validateUUID(eventId, "event");
   const result = await unresolveContactEvent(eventId);
   revalidatePath(`/admin/contacts/${result.contact_id}`);
-  revalidatePath("/admin");
   return result;
 }
 

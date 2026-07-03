@@ -100,7 +100,6 @@ const {
   getEmailSendDiagnosticsAction,
   loadEmailManualRecipientsAction,
   loadEmailSendsAction,
-  loadEmailStudioDataAction,
   loadEmailTemplatesAction,
   getComposeRecipientsAction,
   previewEmailAction,
@@ -193,19 +192,6 @@ beforeEach(() => {
   mockRevalidatePath.mockReset();
 });
 
-describe("loadEmailStudioDataAction", () => {
-  it("loads email studio data on demand after an admin check", async () => {
-    const result = await loadEmailStudioDataAction();
-
-    expect(mockRequireAdmin).toHaveBeenCalled();
-    expect(result).toEqual({
-      templates: [{ id: "template-1" }],
-      templateVersionsById: {},
-      sends: [{ id: "send-1" }],
-    });
-  });
-});
-
 describe("loadEmailManualRecipientsAction", () => {
   it("loads saved manual recipients after an admin check", async () => {
     const result = await loadEmailManualRecipientsAction();
@@ -229,7 +215,6 @@ describe("saveEmailManualRecipientAction", () => {
       name: "Future Applicant",
       notes: "",
     });
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
     expect(result).toEqual({ manualRecipient: MANUAL_RECIPIENT });
   });
 });

@@ -33,6 +33,19 @@ export interface ContactDetailCacheStore {
     data: ContactDetailBootstrapData,
     loadedAt?: number,
   ): void;
+  /**
+   * Like `set`, but SAFE TO CALL DURING RENDER: the entry is written
+   * synchronously (so a subscriber's `getSnapshot` reads it immediately) while
+   * the subscriber notification is deferred to a microtask, past the render
+   * commit. The server-route seeder runs during render, and a synchronous
+   * notify there would `setState` a subscribed panel mid-render (a React
+   * "update while rendering a different component" violation).
+   */
+  seed(
+    contactId: string,
+    data: ContactDetailBootstrapData,
+    loadedAt?: number,
+  ): void;
   /** Keep cached data but flag it for stale-while-revalidate on next open. */
   markStale(contactId: string): void;
   /** Subscribe to changes for a single contact id. Returns an unsubscribe fn. */
@@ -40,6 +53,11 @@ export interface ContactDetailCacheStore {
   /** Drop all cached entries (listeners are preserved). */
   clear(): void;
 }
+
+/** Cap on cached contact-detail entries. Bounds memory over a long session
+ *  where many contacts are opened/hovered; the on-screen contact (which has an
+ *  active listener) is never evicted. */
+const MAX_CACHE_ENTRIES = 50;
 
 export function createContactDetailCacheStore(): ContactDetailCacheStore {
   const entries = new Map<string, ContactDetailCacheEntry>();
@@ -49,6 +67,17 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
     const set = listeners.get(contactId);
     if (!set) return;
     for (const listener of set) listener();
+  }
+
+  // FIFO eviction (Map iterates in insertion order) that skips any entry with an
+  // active subscriber, so the currently-displayed contact is never dropped.
+  function evictIfNeeded(): void {
+    if (entries.size <= MAX_CACHE_ENTRIES) return;
+    for (const key of entries.keys()) {
+      if (entries.size <= MAX_CACHE_ENTRIES) break;
+      if ((listeners.get(key)?.size ?? 0) > 0) continue;
+      entries.delete(key);
+    }
   }
 
   return {
@@ -68,7 +97,20 @@ export function createContactDetailCacheStore(): ContactDetailCacheStore {
       // after a newer write must not clobber it.
       if (existing && existing.loadedAt > stamp) return;
       entries.set(contactId, { data, loadedAt: stamp, status: "fresh" });
+      evictIfNeeded();
       notify(contactId);
+    },
+    seed(contactId, data, loadedAt) {
+      const stamp = loadedAt ?? Date.now();
+      const existing = entries.get(contactId);
+      if (existing && existing.loadedAt > stamp) return;
+      entries.set(contactId, { data, loadedAt: stamp, status: "fresh" });
+      evictIfNeeded();
+      // Write synchronously above (getSnapshot sees it), but defer the notify to
+      // a microtask so it lands AFTER the render commit — the seeder calls this
+      // during render, where a synchronous notify would setState a subscribed
+      // panel mid-render.
+      queueMicrotask(() => notify(contactId));
     },
     markStale(contactId) {
       const existing = entries.get(contactId);

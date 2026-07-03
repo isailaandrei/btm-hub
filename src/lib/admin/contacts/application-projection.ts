@@ -74,6 +74,29 @@ export function reassembleProjectedApplications(
   });
 }
 
+/**
+ * Prepend a realtime-inserted application, deduped by id and capped. Idempotent:
+ * a double-delivered INSERT (or one overlapping the fetch->subscribe snapshot)
+ * replaces the existing row instead of duplicating it — no colliding React keys,
+ * no double-counted rows — and the cap keeps a long session's prepends bounded.
+ */
+export function prependContactListApplication(
+  previous: ContactListApplication[] | null,
+  incoming: ContactListApplication,
+  cap: number,
+): ContactListApplication[] {
+  const withoutDuplicate = (previous ?? []).filter((app) => app.id !== incoming.id);
+  return [incoming, ...withoutDuplicate].slice(0, cap);
+}
+
+// The merge fetch's `next` is a fresh authoritative SELECT, so it is the source
+// of truth for which applications EXIST — rows are keyed by id and their answer
+// maps merged. Rows present only in `previous` are intentionally dropped: while
+// realtime is degraded a server-side DELETE is not echoed, so a previous-only
+// row is most often a deleted application, and re-appending it would resurrect
+// deleted data on the contacts table. (A just-INSERTed row that raced this
+// SELECT is briefly dropped instead, but that self-heals on the next full
+// refetch / realtime INSERT — the safer failure of the two.)
 export function mergeProjectedApplicationAnswers(
   previous: ContactListApplication[] | null,
   next: ContactListApplication[],
