@@ -28,7 +28,19 @@ export default async function AdminLayout({
   // default tab's first paint comes from the server instead of a cold client
   // round-trip after hydration. Awaiting here would block the whole shell.
   // cache()-wrapped, so this is deduped within the request.
-  const initialContactsData = getAdminContactsInitialData(profile.preferences);
+  //
+  // Catch to `undefined` so a transient bootstrap failure does NOT reject the
+  // use()'d promise — an unhandled rejection there escapes <Suspense> and the
+  // (admin)/error boundary would replace the ENTIRE admin shell. Resolving to
+  // undefined instead makes the contacts panel fall back to its own client
+  // fetch (which has scoped error handling + retry), leaving the other tabs
+  // usable, exactly as before this bootstrap was streamed.
+  const initialContactsData = getAdminContactsInitialData(
+    profile.preferences,
+  ).catch((error) => {
+    console.error("Admin contacts bootstrap failed; client fetch will run", error);
+    return undefined;
+  });
 
   return (
     <div className="theme-admin min-h-svh bg-sidebar text-foreground">

@@ -32,7 +32,7 @@ export function AdminWorkspaceFrame({
 }: {
   children: ReactNode;
   authorName: string;
-  initialContactsData?: Promise<AdminContactsInitialData>;
+  initialContactsData?: Promise<AdminContactsInitialData | undefined>;
 }) {
   const pathname = usePathname();
   const isDashboardRoute = pathname === "/admin";
