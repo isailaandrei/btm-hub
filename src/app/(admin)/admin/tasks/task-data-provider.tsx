@@ -292,14 +292,16 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     if (dateLoadedRef.current) await reloadDateTasks();
   }, [reloadDateTasks, reloadTasks]);
 
-  // Called by mutation handlers after their optimistic patch. When realtime is
-  // healthy the write echoes back through the channel and reconcileBoard runs
-  // via scheduleRefresh — so an explicit reload here would double the board
-  // fetch for every mutation. Reload explicitly only when the channel is
-  // degraded or never started (no echo will arrive). Mirrors the contacts
-  // provider's optimistic + realtime-reconcile model.
+  // Called by mutation handlers on BOTH the success and error paths, and it
+  // always reloads. The error paths (persistPatch/moveToGroup/deleteTask catch
+  // blocks) rely on it to revert a failed optimistic patch to server truth — and
+  // a failed write produces NO realtime echo, so skipping the reload when the
+  // channel merely looks connected would leave a fake success on screen (a
+  // fail-loud violation). It also covers a write committed before the channel
+  // finishes its subscribe handshake, which likewise never echoes. On a
+  // successful write the realtime echo may reload a second time; that redundancy
+  // is acceptable and reloadTasks' in-flight guard coalesces overlapping reloads.
   const refreshAfterMutation = useCallback(async () => {
-    if (channelRef.current && !realtimeDegradedRef.current) return;
     await reconcileBoard();
   }, [reconcileBoard]);
 

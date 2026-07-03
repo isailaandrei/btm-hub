@@ -226,7 +226,7 @@ describe("TaskDataProvider", () => {
     expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(1);
   });
 
-  it("does not reload the board on mutation while realtime is healthy", async () => {
+  it("reloads the board on refreshAfterMutation so a failed optimistic patch reverts", async () => {
     await act(async () => {
       root.render(
         <TaskDataProvider>
@@ -237,8 +237,11 @@ describe("TaskDataProvider", () => {
     await flushAsyncWork();
     expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(1);
 
-    // Realtime is connected (channelRef set, not degraded): the write echoes
-    // back, so refreshAfterMutation must NOT trigger a second board fetch.
+    // refreshAfterMutation must ALWAYS reload: its error-path callers rely on it
+    // to revert an optimistic patch after a failed write, and a failed write
+    // produces no realtime echo — so a "skip when connected" gate would leave a
+    // fake success on screen. (The realtime echo may add a redundant reload on
+    // the success path; correctness of the revert wins.)
     await act(async () => {
       container
         .querySelector("button")
@@ -246,7 +249,7 @@ describe("TaskDataProvider", () => {
     });
     await flushAsyncWork();
 
-    expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(1);
+    expect(mocks.loadTaskBoardDataAction).toHaveBeenCalledTimes(2);
   });
 
   it("clears the sticky warning and resyncs when realtime recovers", async () => {
