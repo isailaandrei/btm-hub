@@ -11,18 +11,26 @@ import { loadContactDetailAction } from "./contact-detail-actions";
  * A fresh cache entry short-circuits with the cached data — a `stale` entry is
  * refreshed (stale-while-revalidate). Errors propagate to the caller so the
  * panel can surface them; best-effort callers (prefetch) should `.catch()`.
+ *
+ * `options.force` skips both the in-flight dedup and the fresh short-circuit and
+ * issues a NEW load, superseding any in-flight one. Callers that know data has
+ * just changed (a committed mutation, a realtime event) use it so they never
+ * coalesce onto a load whose SELECT predates that change.
  */
 const inFlight = new Map<string, Promise<ContactDetailBootstrapData | null>>();
 
 export function warmContactDetail(
   contactId: string,
+  options?: { force?: boolean },
 ): Promise<ContactDetailBootstrapData | null> {
-  const existing = inFlight.get(contactId);
-  if (existing) return existing;
+  if (!options?.force) {
+    const existing = inFlight.get(contactId);
+    if (existing) return existing;
 
-  const entry = contactDetailCacheStore.get(contactId);
-  if (entry && entry.status === "fresh") {
-    return Promise.resolve(entry.data);
+    const entry = contactDetailCacheStore.get(contactId);
+    if (entry && entry.status === "fresh") {
+      return Promise.resolve(entry.data);
+    }
   }
 
   // Stamp at request time, not resolution time, so last-write-wins is real: a
@@ -35,7 +43,10 @@ export function warmContactDetail(
       return data;
     })
     .finally(() => {
-      inFlight.delete(contactId);
+      // Only clear if this load is still the current in-flight one: a forced
+      // reload can supersede an older in-flight load, and the older load's
+      // settlement must not delete the newer entry.
+      if (inFlight.get(contactId) === request) inFlight.delete(contactId);
     });
 
   inFlight.set(contactId, request);
@@ -57,5 +68,10 @@ export function refreshContactDetailAfterMutation(
   contactId: string,
 ): Promise<ContactDetailBootstrapData | null> {
   contactDetailCacheStore.markStale(contactId);
-  return warmContactDetail(contactId);
+  // Force a NEW post-commit load. A plain warmContactDetail could coalesce onto
+  // an in-flight load whose SELECT ran BEFORE this (already-committed) mutation
+  // and then write that pre-mutation data back as `fresh` — reverting the
+  // optimistic value and caching stale state. Forcing supersedes any such
+  // in-flight load, and its later request-time stamp wins last-write-wins.
+  return warmContactDetail(contactId, { force: true });
 }
