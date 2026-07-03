@@ -87,6 +87,23 @@ describe("contact-detail loader", () => {
     expect(contactDetailCacheStore.get(ID)?.status).toBe("fresh");
   });
 
+  it("refreshContactDetailAfterMutation never rejects when the reload fails (a committed write must not look failed)", async () => {
+    // A committed write's caller awaits this inside its try/catch; a reload
+    // failure must NOT propagate and be reported as a write failure.
+    contactDetailCacheStore.set(ID, bootstrap("before"));
+    mockLoad.mockRejectedValueOnce(new Error("reload boom"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      refreshContactDetailAfterMutation(ID),
+    ).resolves.toBeUndefined();
+
+    // Entry left stale so the panel's own loader retries + surfaces a persistent
+    // failure at the panel level; the reload failure is logged, not swallowed.
+    expect(contactDetailCacheStore.get(ID)?.status).toBe("stale");
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
   it("a stale in-flight load that resolves after a forced reload never wins", async () => {
     const preCommit = deferred<ContactDetailBootstrapData>();
     const postCommit = deferred<ContactDetailBootstrapData>();

@@ -27,14 +27,11 @@ export function ContactDetailRealtime({ contactId }: { contactId: string }) {
     function scheduleReload() {
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
-        // Marks the entry stale then reloads through the shared in-flight dedup,
-        // so a realtime change and a same-tab mutation coalesce into one fetch.
-        void refreshContactDetailAfterMutation(contactId).catch((error) => {
-          console.error(
-            `Failed to refresh contact detail ${contactId} from realtime change`,
-            error,
-          );
-        });
+        // Mark stale + force a fresh reload so a realtime change is never
+        // satisfied by a pre-change in-flight fetch. Best-effort:
+        // refreshContactDetailAfterMutation logs its own errors and never
+        // rejects, and the stale flag drives the panel's own reload.
+        void refreshContactDetailAfterMutation(contactId);
       }, REFRESH_DEBOUNCE_MS);
     }
 

@@ -54,24 +54,38 @@ export function warmContactDetail(
 }
 
 /**
- * Refresh the open contact's cache after a mutation whose write has already
+ * Refresh the open contact's cache after a mutation whose write has ALREADY
  * committed (the caller `await`ed the server action). Marks the entry stale so
  * `warmContactDetail` bypasses its fresh short-circuit and reloads from the
  * server — independent of Supabase Realtime, so a committed write is never left
  * looking undone when the websocket is down (fail loud, never fake).
  *
+ * BEST-EFFORT: it never rejects. The write already succeeded, so a reload
+ * failure must NOT surface as a write failure in the caller's try/catch — that
+ * would report a committed write as "Failed to…" and invite a duplicate
+ * resubmit. On a reload failure we log and rely on the `markStale` above: the
+ * panel's own `useSyncExternalStore` loader re-fires on the stale entry and
+ * surfaces any persistent load failure at the panel level (fail loud there).
+ *
  * Call this INSIDE the mutation's `startTransition` and `await` it: the awaited
  * reload keeps a `useOptimistic` value pinned until authoritative data lands,
- * so the optimistic row hands off to the real one with no flicker or revert.
+ * so on success the optimistic row hands off to the real one with no flicker.
  */
-export function refreshContactDetailAfterMutation(
+export async function refreshContactDetailAfterMutation(
   contactId: string,
-): Promise<ContactDetailBootstrapData | null> {
+): Promise<void> {
   contactDetailCacheStore.markStale(contactId);
-  // Force a NEW post-commit load. A plain warmContactDetail could coalesce onto
-  // an in-flight load whose SELECT ran BEFORE this (already-committed) mutation
-  // and then write that pre-mutation data back as `fresh` — reverting the
-  // optimistic value and caching stale state. Forcing supersedes any such
-  // in-flight load, and its later request-time stamp wins last-write-wins.
-  return warmContactDetail(contactId, { force: true });
+  try {
+    // Force a NEW post-commit load. A plain warmContactDetail could coalesce
+    // onto an in-flight load whose SELECT ran BEFORE this (already-committed)
+    // mutation and write that pre-mutation data back as `fresh` — reverting the
+    // optimistic value and caching stale state. Forcing supersedes any such
+    // in-flight load, and its later request-time stamp wins last-write-wins.
+    await warmContactDetail(contactId, { force: true });
+  } catch (error) {
+    console.error(
+      `Post-mutation contact-detail refresh failed for ${contactId}`,
+      error,
+    );
+  }
 }
