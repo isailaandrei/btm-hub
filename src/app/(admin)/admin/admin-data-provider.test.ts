@@ -71,6 +71,21 @@ describe("AdminDataProvider realtime resilience", () => {
     expect(source).toContain("options?.force");
   });
 
+  it("handles CLOSED and dismisses the persistent degraded toast on unmount (no stuck toast)", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    // A CLOSED channel must be removed from the degraded set (else it blocks the
+    // "all recovered" check forever and strands the warning).
+    expect(source).toContain('status === "CLOSED"');
+    // The Infinity-duration toast is dismissed in more than one place: on
+    // recovery AND on unmount (the cleanup effect), so leaving /admin while
+    // degraded can't strand it app-wide.
+    const dismissCount = source.split(
+      "toast.dismiss(REALTIME_DEGRADED_TOAST_ID)",
+    ).length - 1;
+    expect(dismissCount).toBeGreaterThanOrEqual(3);
+  });
+
   it("surfaces realtime refetch failures instead of silently keeping stale tags", () => {
     const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
 

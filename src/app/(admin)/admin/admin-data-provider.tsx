@@ -278,6 +278,16 @@ export function AdminDataProvider({
           // events" signal that must converge even if a wake resync just ran.
           resyncRef.current({ force: true });
         }
+      } else if (status === "CLOSED") {
+        // A channel closed (teardown / server-initiated close) rather than
+        // reconnecting. Drop it from the degraded set so it can't permanently
+        // block the "all recovered" check for the remaining channels; if it was
+        // the last degraded one, clear the stuck warning. No resync — nothing
+        // reconnected, and a closed channel won't deliver events anyway.
+        const wasDegraded = degraded.delete(channelKey);
+        if (wasDegraded && degraded.size === 0) {
+          toast.dismiss(REALTIME_DEGRADED_TOAST_ID);
+        }
       }
     },
     [],
@@ -1014,6 +1024,10 @@ export function AdminDataProvider({
   // Cleanup only the channels that were actually created
   useEffect(() => {
     return () => {
+      // Dismiss the persistent (duration: Infinity) degraded toast on unmount —
+      // otherwise, leaving /admin while a channel is down strands it on screen
+      // across the whole app (the <Toaster> lives in the root layout).
+      toast.dismiss(REALTIME_DEGRADED_TOAST_ID);
       const supabase = supabaseRef.current;
       if (!supabase) return;
       clearTimeout(tagCategoriesRefetchTimeoutRef.current ?? undefined);
