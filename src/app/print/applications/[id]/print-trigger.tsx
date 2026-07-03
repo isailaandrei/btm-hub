@@ -4,19 +4,14 @@ import { useEffect, useRef } from "react";
 
 /**
  * Drives the browser's print / "Save as PDF" flow for the standalone print
- * route:
- *  - sets `document.title`, which browsers use as the default PDF filename;
- *  - auto-opens the print dialog once on mount (the route is only ever reached
- *    via the admin "Export PDF" action, so printing is the intent);
- *  - renders an on-screen toolbar (hidden when printing) so the admin can
- *    re-open the dialog if they dismissed it.
+ * route: auto-opens the print dialog once on mount (the route is only ever
+ * reached via the admin "Export PDF" action, so printing is the intent) and
+ * renders an on-screen toolbar (hidden when printing) so the admin can re-open
+ * the dialog if they dismissed it. The default PDF filename comes from the
+ * page's <title> (set in generateMetadata), not from here.
  */
-export function PrintTrigger({ title }: { title: string }) {
+export function PrintTrigger() {
   const printedRef = useRef(false);
-
-  useEffect(() => {
-    document.title = title;
-  }, [title]);
 
   useEffect(() => {
     // Guard against React's dev double-invoke and refreshes re-triggering print.
