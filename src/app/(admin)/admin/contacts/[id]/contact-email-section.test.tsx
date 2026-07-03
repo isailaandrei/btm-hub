@@ -51,6 +51,21 @@ describe("ContactEmailSection", () => {
     container.remove();
   });
 
+  it("renders server-seeded initialData without firing its load action", async () => {
+    await act(async () => {
+      root.render(
+        <ContactEmailSection
+          contactId={CONTACT_ID}
+          initialData={{ excluded: true, reason: "manual" }}
+        />,
+      );
+    });
+    await flushAsyncWork();
+
+    expect(mockLoad).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Excluded from all email");
+  });
+
   it("loads its own status on mount", async () => {
     mockLoad.mockResolvedValue({ excluded: false, reason: null });
 

@@ -85,6 +85,12 @@ export function ContactDetailPanel({
   }, [entry, isPending, load, loadError, notFound]);
 
   const data = entry?.data ?? null;
+  // Server-seeded section data (deep link / refresh only — see
+  // ContactDetailSectionsData). Client-loaded cache entries have no sections;
+  // the section components then lazy-load exactly as before. useState-based
+  // initial props are safe here: the panel is keyed by contactId in
+  // AdminWorkspaceFrame, so sections remount per contact.
+  const sections = data?.sections ?? null;
   const providerContact = useMemo(
     () => contacts?.find((contact) => contact.id === contactId) ?? null,
     [contacts, contactId],
@@ -200,12 +206,21 @@ export function ContactDetailPanel({
             <ContactDetailTimelineSkeleton />
           )}
 
-          <ContactWhatsAppSection contactId={contactId} />
+          <ContactWhatsAppSection
+            contactId={contactId}
+            initialMessages={sections?.whatsappMessages ?? null}
+          />
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
-          <ContactTagsSection contactId={contactId} />
-          <ContactEmailSection contactId={contactId} />
+          <ContactTagsSection
+            contactId={contactId}
+            initialData={sections?.tagSection ?? null}
+          />
+          <ContactEmailSection
+            contactId={contactId}
+            initialData={sections?.emailStatus ?? null}
+          />
           <PortfolioSectionClient profileId={contact?.profile_id ?? null} />
         </div>
       </div>

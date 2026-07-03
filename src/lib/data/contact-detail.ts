@@ -1,10 +1,23 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
+import { normalizePhoneNumber } from "@/lib/conversations/phone";
+import {
+  getContactById,
+  getContactTags,
+  getTagCategories,
+  getTags,
+} from "./contacts";
+import { getActiveSuppressionForContact } from "./email-suppressions";
+import {
+  listContactConversationMessages,
+  type ContactConversationMessage,
+} from "./conversations";
 import type {
   Application,
   Contact,
   ContactEvent,
+  EmailSuppressionReason,
 } from "@/types/database";
 
 export const CONTACT_DETAIL_TIMELINE_PAGE_SIZE = 25;
@@ -26,9 +39,37 @@ export interface ContactEventsPage {
   nextCursor: string | null;
 }
 
+/**
+ * Optional pre-fetched data for the detail panel's lazy sections. Seeded only
+ * by the server route (deep link / refresh) so a cold entry paints complete in
+ * one round-trip instead of a serial chain of mount-time server actions —
+ * React runs Server Actions one-at-a-time per client, so N lazy sections cost
+ * N sequential round-trips on a cold open (docs/plans/deep-link-batching.md).
+ *
+ * A `null` slice means "not preloaded" (the query failed and was logged, or the
+ * entry came from the client-side loader, which skips sections): the section
+ * lazy-loads exactly as before, keeping its own visible error/retry UX.
+ * Portfolio is deliberately NOT here — it is the heaviest payload and rarely
+ * the reason a contact is opened (see PortfolioSectionClient).
+ */
+export interface ContactDetailSectionsData {
+  emailStatus: {
+    excluded: boolean;
+    reason: EmailSuppressionReason | null;
+  } | null;
+  tagSection: {
+    allTags: Awaited<ReturnType<typeof getTags>>;
+    categories: Awaited<ReturnType<typeof getTagCategories>>;
+    contactTagRows: Awaited<ReturnType<typeof getContactTags>>;
+  } | null;
+  whatsappMessages: ContactConversationMessage[] | null;
+}
+
 export interface ContactDetailBootstrapData extends ContactEventsPage {
   applications: ContactDetailApplicationSummary[];
   contact: Contact;
+  /** Present only on server-route (deep-link) bootstraps — see ContactDetailSectionsData. */
+  sections?: ContactDetailSectionsData;
 }
 
 type ContactDetailBootstrapPayload = {
@@ -205,6 +246,94 @@ export const getContactDetailBootstrap = cache(
     return result;
   },
 );
+
+/**
+ * Best-effort section preload: a failing slice must never fail the whole page
+ * (the section then lazy-loads and surfaces its own error+retry), but the
+ * failure is logged loudly — never silently faked as empty data.
+ */
+async function loadDetailSection<T>(
+  section: string,
+  contactId: string,
+  fn: () => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await fn();
+  } catch (error) {
+    console.error(
+      `[contact-detail] Failed to preload the ${section} section — the panel will lazy-load it instead`,
+      {
+        contactId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return null;
+  }
+}
+
+/**
+ * Deep-link bootstrap for the whole contact page: the core bootstrap plus the
+ * lazy sections' data, fetched in PARALLEL server-side (a handful of ~ms-range
+ * queries) instead of the panel's serial mount-time action chain. Client-side
+ * loaders (`loadContactDetailAction`) intentionally keep returning the core
+ * bootstrap only — in-app opens already render instantly from the session
+ * cache and the sections' own actions remain the refresh path.
+ *
+ * The slice bodies mirror `loadContactEmailSection` / `loadContactTagSectionData`
+ * / `loadContactWhatsAppMessages` (the sections' server actions) — keep them in
+ * sync. `getContactById` is `cache()`-wrapped, so the email and WhatsApp slices
+ * share one contact fetch per request.
+ */
+export async function getContactDetailPageBootstrap(
+  contactId: string,
+): Promise<ContactDetailBootstrapData | null> {
+  const startedAt = startAdminTiming();
+
+  const [bootstrap, emailStatus, tagSection, whatsappMessages] =
+    await Promise.all([
+      getContactDetailBootstrap(contactId),
+      loadDetailSection("email", contactId, async () => {
+        const contact = await getContactById(contactId);
+        if (!contact) return null;
+        const suppression = await getActiveSuppressionForContact({
+          contactId,
+          email: contact.email,
+        });
+        return {
+          excluded: Boolean(suppression),
+          reason: suppression?.reason ?? null,
+        };
+      }),
+      loadDetailSection("tags", contactId, async () => {
+        const [contactTagRows, categories, allTags] = await Promise.all([
+          getContactTags(contactId),
+          getTagCategories(),
+          getTags(),
+        ]);
+        return { allTags, categories, contactTagRows };
+      }),
+      loadDetailSection("whatsapp", contactId, async () => {
+        const contact = await getContactById(contactId);
+        if (!contact) return null;
+        const phoneE164 = normalizePhoneNumber(contact.phone)?.e164 ?? null;
+        return listContactConversationMessages({ contactId, phoneE164 });
+      }),
+    ]);
+
+  if (!bootstrap) return null;
+
+  logAdminTiming("admin.contact.detail.page-bootstrap.server", startedAt, {
+    contactId,
+    emailStatus: emailStatus ? "seeded" : "skipped",
+    tagSection: tagSection ? "seeded" : "skipped",
+    whatsappMessages: whatsappMessages ? whatsappMessages.length : "skipped",
+  });
+
+  return {
+    ...bootstrap,
+    sections: { emailStatus, tagSection, whatsappMessages },
+  };
+}
 
 export async function getContactDetailApplication(
   applicationId: string,

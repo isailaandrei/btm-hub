@@ -89,6 +89,27 @@ describe("ContactWhatsAppSection", () => {
     expect(container.textContent).toContain("Hey there");
   });
 
+  it("renders server-seeded initialMessages without firing its load action (realtime still subscribes)", async () => {
+    const seeded = [makeMessage({ body: "Seeded hello" })] as Parameters<
+      typeof ContactWhatsAppSection
+    >[0]["initialMessages"];
+
+    await act(async () => {
+      root.render(
+        <ContactWhatsAppSection
+          contactId={CONTACT_ID}
+          initialMessages={seeded}
+        />,
+      );
+    });
+    await flushAsyncWork();
+
+    expect(mockLoad).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Seeded hello");
+    // The realtime channel is the refresh path and must stay active.
+    expect(channelStub.subscribe).toHaveBeenCalled();
+  });
+
   it("subscribes to realtime changes filtered on the contact", async () => {
     mockLoad.mockResolvedValue([]);
 

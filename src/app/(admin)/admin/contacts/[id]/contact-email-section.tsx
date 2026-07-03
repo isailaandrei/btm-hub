@@ -11,12 +11,19 @@ type ContactEmailSectionData = Awaited<
 
 /**
  * Email (do-not-email) section of the contact detail panel. Mirrors
- * `ContactTagsSection`: lazy-loads its own status via a server action (the
- * session-cache panel doesn't carry it), shows a skeleton/error+retry, and
- * re-reads after a toggle since `revalidatePath` doesn't refresh the cache.
+ * `ContactTagsSection`: renders server-seeded data when the deep-link
+ * bootstrap provides it (`initialData`), otherwise lazy-loads its own status
+ * via a server action, shows a skeleton/error+retry, and re-reads after a
+ * toggle since `revalidatePath` doesn't refresh the cache.
  */
-export function ContactEmailSection({ contactId }: { contactId: string }) {
-  const [data, setData] = useState<ContactEmailSectionData | null>(null);
+export function ContactEmailSection({
+  contactId,
+  initialData = null,
+}: {
+  contactId: string;
+  initialData?: ContactEmailSectionData | null;
+}) {
+  const [data, setData] = useState<ContactEmailSectionData | null>(initialData);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 

@@ -57,10 +57,21 @@ function buildRowsFromAdminCache({
     });
 }
 
-export function ContactTagsSection({ contactId }: { contactId: string }) {
+export function ContactTagsSection({
+  contactId,
+  initialData = null,
+}: {
+  contactId: string;
+  /**
+   * Server-seeded tag data from the deep-link bootstrap. Only the initial
+   * value: once `AdminDataProvider` finishes its own load, `cachedData` takes
+   * precedence (same as today), and mutations keep flowing through it.
+   */
+  initialData?: ContactTagSectionData | null;
+}) {
   const { contactTags, tagCategories, tags } = useAdminContactsData();
   const [serverData, setServerData] = useState<ContactTagSectionData | null>(
-    null,
+    initialData,
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();

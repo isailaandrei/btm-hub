@@ -3,13 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const CONTACT_ID = "550e8400-e29b-41d4-a716-446655440001";
 
-const mockGetContactDetailBootstrap = vi.fn();
+const mockGetContactDetailPageBootstrap = vi.fn();
 const mockGetProfile = vi.fn();
 const mockListAdminAiThreadSummaries = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
 
 vi.mock("@/lib/data/contact-detail", () => ({
-  getContactDetailBootstrap: mockGetContactDetailBootstrap,
+  getContactDetailPageBootstrap: mockGetContactDetailPageBootstrap,
 }));
 
 vi.mock("@/lib/data/profiles", () => ({
@@ -34,8 +34,8 @@ vi.mock("next/navigation", async (importOriginal) => ({
 const { default: ContactDetailPage } = await import("./page");
 
 describe("ContactDetailPage", () => {
-  it("loads the contact detail bootstrap without fetching hidden AI data", async () => {
-    mockGetContactDetailBootstrap.mockResolvedValue({
+  it("loads the contact page bootstrap (detail + sections) without fetching hidden AI data", async () => {
+    mockGetContactDetailPageBootstrap.mockResolvedValue({
       applications: [],
       contact: {
         id: CONTACT_ID,
@@ -47,6 +47,11 @@ describe("ContactDetailPage", () => {
       events: [],
       hasMore: false,
       nextCursor: null,
+      sections: {
+        emailStatus: { excluded: false, reason: null },
+        tagSection: { allTags: [], categories: [], contactTagRows: [] },
+        whatsappMessages: [],
+      },
     });
     mockGetProfile.mockResolvedValue({
       id: "admin-1",
@@ -64,7 +69,7 @@ describe("ContactDetailPage", () => {
       params: Promise.resolve({ id: CONTACT_ID }),
     });
 
-    expect(mockGetContactDetailBootstrap).toHaveBeenCalledWith(CONTACT_ID);
+    expect(mockGetContactDetailPageBootstrap).toHaveBeenCalledWith(CONTACT_ID);
     expect(mockListAdminAiThreadSummaries).not.toHaveBeenCalled();
     expect(mockGetAdminAiProviderAvailability).not.toHaveBeenCalled();
   });
@@ -77,7 +82,7 @@ describe("ContactDetailPage", () => {
     ).rejects.toThrow("NEXT_NOT_FOUND");
 
     expect(notFound).toHaveBeenCalled();
-    expect(mockGetContactDetailBootstrap).not.toHaveBeenCalledWith(
+    expect(mockGetContactDetailPageBootstrap).not.toHaveBeenCalledWith(
       "not-a-uuid",
     );
   });

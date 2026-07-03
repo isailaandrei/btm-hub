@@ -25,8 +25,17 @@ const REALTIME_DEBOUNCE_MS = 150;
  * the thread and the admin-AI knowledge base); removed messages collapse into a
  * restorable "Removed" area.
  */
-export function ContactWhatsAppSection({ contactId }: { contactId: string }) {
-  const [messages, setMessages] = useState<ConversationMessage[] | null>(null);
+export function ContactWhatsAppSection({
+  contactId,
+  initialMessages = null,
+}: {
+  contactId: string;
+  /** Server-seeded thread from the deep-link bootstrap; null → lazy-load. */
+  initialMessages?: ConversationMessage[] | null;
+}) {
+  const [messages, setMessages] = useState<ConversationMessage[] | null>(
+    initialMessages,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isMutating, startMutation] = useTransition();
