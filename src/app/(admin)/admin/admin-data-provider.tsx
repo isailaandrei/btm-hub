@@ -237,39 +237,51 @@ export function AdminDataProvider({
   const requestedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
   const loadedApplicationAnswerKeysRef = useRef<Set<string>>(new Set());
   const applicationsChannelStartedRef = useRef(false);
-  // Realtime-health / resync state. `realtimeDegradedRef` guards a warn-once so
-  // all channels sharing a drop surface a single toast. `resyncRef` is assigned
-  // after the resync callback exists, breaking the callback-ordering cycle so
-  // channel-status handlers and the wake listener can trigger a resync.
-  const realtimeDegradedRef = useRef(false);
+  // Realtime-health / resync state. `degradedChannelsRef` tracks WHICH channels
+  // are currently down — each channel gets its own status handler keyed by name
+  // (postgres_changes does not replay events missed while a channel was down, so
+  // recovery must refetch). Keying by channel means a late-recovering channel's
+  // gap isn't lost, and a freshly-created channel's initial SUBSCRIBED can't be
+  // mistaken for a recovery. `resyncRef` is assigned after the resync callback
+  // exists, breaking the callback-ordering cycle.
+  const degradedChannelsRef = useRef<Set<string>>(new Set());
   const lastResyncAtRef = useRef(0);
-  const resyncRef = useRef<() => void>(() => {});
+  const resyncRef = useRef<(options?: { force?: boolean }) => void>(() => {});
 
   function getSupabase() {
     if (!supabaseRef.current) supabaseRef.current = createClient();
     return supabaseRef.current;
   }
 
-  // Per-channel status handler: warn once (persistently) when live updates drop,
-  // clear the warning and resync on recovery. Shared across every channel; the
-  // ref guard makes the warn/resync fire once per degradation episode, not once
-  // per channel. Stable (reads only refs), so it never churns channel wiring.
-  const handleChannelStatus = useCallback((status: string) => {
-    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-      if (!realtimeDegradedRef.current) {
-        realtimeDegradedRef.current = true;
-        toast.warning("Live updates interrupted — reconnecting…", {
-          id: REALTIME_DEGRADED_TOAST_ID,
-          duration: Infinity,
-        });
+  // Build a per-channel subscribe status handler. Warn once (persistent toast)
+  // while ANY channel is down; clear the warning and resync only when the LAST
+  // degraded channel recovers — not when the first one to resubscribe reports
+  // SUBSCRIBED while others are still down. Stable, so it never churns wiring.
+  const makeChannelStatusHandler = useCallback(
+    (channelKey: string) => (status: string) => {
+      const degraded = degradedChannelsRef.current;
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        const wasHealthy = degraded.size === 0;
+        degraded.add(channelKey);
+        if (wasHealthy) {
+          toast.warning("Live updates interrupted — reconnecting…", {
+            id: REALTIME_DEGRADED_TOAST_ID,
+            duration: Infinity,
+          });
+        }
+      } else if (status === "SUBSCRIBED") {
+        const wasDegraded = degraded.delete(channelKey);
+        if (wasDegraded && degraded.size === 0) {
+          toast.dismiss(REALTIME_DEGRADED_TOAST_ID);
+          toast.success("Live updates restored.");
+          // Force past the wake throttle: recovery is a definite "we missed
+          // events" signal that must converge even if a wake resync just ran.
+          resyncRef.current({ force: true });
+        }
       }
-    } else if (status === "SUBSCRIBED" && realtimeDegradedRef.current) {
-      realtimeDegradedRef.current = false;
-      toast.dismiss(REALTIME_DEGRADED_TOAST_ID);
-      toast.success("Live updates restored.");
-      resyncRef.current();
-    }
-  }, []);
+    },
+    [],
+  );
 
   // Flag a cached contact-detail entry stale when a realtime change touches
   // data the detail bootstrap covers (contact / applications / events). The
@@ -467,7 +479,7 @@ export function AdminDataProvider({
             );
           },
         )
-        .subscribe(handleChannelStatus);
+        .subscribe(makeChannelStatusHandler("admin-applications"));
 
       channelsRef.current.push(channel);
 
@@ -487,7 +499,7 @@ export function AdminDataProvider({
 
     fetchApplications();
   }, [
-    handleChannelStatus,
+    makeChannelStatusHandler,
     markContactDetailStale,
     scheduleContactActivitySummaryRefetch,
   ]);
@@ -798,7 +810,7 @@ export function AdminDataProvider({
             );
           },
         )
-        .subscribe(handleChannelStatus);
+        .subscribe(makeChannelStatusHandler("admin-contacts"));
 
       const contactTagsChannel = supabase
         .channel("admin-contact-tags")
@@ -823,7 +835,7 @@ export function AdminDataProvider({
             );
           },
         )
-        .subscribe(handleChannelStatus);
+        .subscribe(makeChannelStatusHandler("admin-contact-tags"));
 
       const tagCategoriesChannel = supabase
         .channel("admin-tag-categories")
@@ -845,7 +857,7 @@ export function AdminDataProvider({
             }, TAGS_REFETCH_DEBOUNCE_MS);
           },
         )
-        .subscribe(handleChannelStatus);
+        .subscribe(makeChannelStatusHandler("admin-tag-categories"));
 
       const tagsChannel = supabase
         .channel("admin-tags")
@@ -867,7 +879,7 @@ export function AdminDataProvider({
             }, TAGS_REFETCH_DEBOUNCE_MS);
           },
         )
-        .subscribe(handleChannelStatus);
+        .subscribe(makeChannelStatusHandler("admin-tags"));
 
       const contactEventsChannel = supabase
         .channel("admin-contact-events")
@@ -898,7 +910,7 @@ export function AdminDataProvider({
             markContactDetailStale(contactId);
           },
         )
-        .subscribe(handleChannelStatus);
+        .subscribe(makeChannelStatusHandler("admin-contact-events"));
 
       channelsRef.current.push(contactsChannel, contactTagsChannel, tagCategoriesChannel, tagsChannel, contactEventsChannel);
 
@@ -912,7 +924,7 @@ export function AdminDataProvider({
 
     fetchContacts();
   }, [
-    handleChannelStatus,
+    makeChannelStatusHandler,
     markContactDetailStale,
     scheduleContactActivitySummaryRefetch,
   ]);
@@ -958,11 +970,20 @@ export function AdminDataProvider({
     );
   }, []);
 
-  // Resync every dataset that has been loaded, throttled so a wake burst
-  // (visibility + online + channel recovery firing together) does one refetch.
-  const resyncAdminData = useCallback(() => {
+  // Resync every dataset that has been loaded. The wake path is throttled so a
+  // wake burst (visibility + online firing together) does one refetch; channel
+  // recovery passes `force` to bypass that throttle, since a wake resync fired
+  // while the socket was still reconnecting must not swallow the recovery
+  // convergence (the gap between the wake fetch and the resubscribe is exactly
+  // what postgres_changes won't replay).
+  const resyncAdminData = useCallback((options?: { force?: boolean }) => {
     const now = Date.now();
-    if (now - lastResyncAtRef.current < REALTIME_RESYNC_MIN_INTERVAL_MS) return;
+    if (
+      !options?.force &&
+      now - lastResyncAtRef.current < REALTIME_RESYNC_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
     lastResyncAtRef.current = now;
     if (contactsFetchState.current === "done") void resyncContactsData();
     // Safe: with the channel already started, this refetches without

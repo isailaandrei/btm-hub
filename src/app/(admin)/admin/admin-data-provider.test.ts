@@ -42,7 +42,10 @@ describe("AdminDataProvider realtime resilience", () => {
     const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
 
     expect(source).not.toContain(".subscribe();");
-    expect(source).toContain(".subscribe(handleChannelStatus)");
+    // Each channel gets its own keyed status handler (per-channel degradation
+    // tracking), never a bare subscribe.
+    expect(source).toContain(".subscribe(makeChannelStatusHandler(");
+    expect(source).toContain("degradedChannelsRef");
     expect(source).toContain('status === "CHANNEL_ERROR"');
     expect(source).toContain('status === "TIMED_OUT"');
   });
@@ -55,6 +58,17 @@ describe("AdminDataProvider realtime resilience", () => {
     expect(source).toContain('addEventListener("visibilitychange"');
     expect(source).toContain('addEventListener("online"');
     expect(source).toContain("REALTIME_RESYNC_MIN_INTERVAL_MS");
+  });
+
+  it("resyncs only when the LAST degraded channel recovers, and forces past the wake throttle", () => {
+    const source = readFileSync(ADMIN_DATA_PROVIDER_PATH, "utf8");
+
+    // Recovery gated on the whole degraded set draining, not the first channel.
+    expect(source).toContain("degraded.size === 0");
+    // Recovery bypasses the wake throttle so a wake resync mid-reconnect can't
+    // swallow the convergence.
+    expect(source).toContain("resyncRef.current({ force: true })");
+    expect(source).toContain("options?.force");
   });
 
   it("surfaces realtime refetch failures instead of silently keeping stale tags", () => {
