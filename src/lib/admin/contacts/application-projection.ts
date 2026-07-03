@@ -89,14 +89,21 @@ export function prependContactListApplication(
   return [incoming, ...withoutDuplicate].slice(0, cap);
 }
 
+// The merge fetch's `next` is a fresh authoritative SELECT, so it is the source
+// of truth for which applications EXIST — rows are keyed by id and their answer
+// maps merged. Rows present only in `previous` are intentionally dropped: while
+// realtime is degraded a server-side DELETE is not echoed, so a previous-only
+// row is most often a deleted application, and re-appending it would resurrect
+// deleted data on the contacts table. (A just-INSERTed row that raced this
+// SELECT is briefly dropped instead, but that self-heals on the next full
+// refetch / realtime INSERT — the safer failure of the two.)
 export function mergeProjectedApplicationAnswers(
   previous: ContactListApplication[] | null,
   next: ContactListApplication[],
 ): ContactListApplication[] {
   const previousById = new Map((previous ?? []).map((app) => [app.id, app]));
-  const nextIds = new Set(next.map((app) => app.id));
 
-  const merged = next.map((app) => {
+  return next.map((app) => {
     const existing = previousById.get(app.id);
     if (!existing) return app;
 
@@ -109,14 +116,6 @@ export function mergeProjectedApplicationAnswers(
       },
     };
   });
-
-  // Keep rows present only in `previous` — e.g. a realtime INSERT that landed
-  // AFTER this merge fetch's SELECT snapshot. Deriving the result solely from
-  // `next` would silently drop such a row until the next full refetch. Order is
-  // irrelevant: the provider regroups applications by contact for display.
-  const onlyInPrevious = (previous ?? []).filter((app) => !nextIds.has(app.id));
-
-  return [...merged, ...onlyInPrevious];
 }
 
 export function getContactsTableApplicationAnswerKeys({

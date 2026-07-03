@@ -185,11 +185,10 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dateLoadedRef = useRef(false);
-  // Realtime health + resync. `realtimeDegradedRef` gates warn-once and lets
-  // mutations know whether the write will echo back (so an explicit reload would
-  // just double the fetch). `reloadInFlightRef` coalesces overlapping reloads.
+  // Realtime health + resync. `realtimeDegradedRef` drives the warn-once toast
+  // and the recovery resync in the subscribe status handler (mutations no longer
+  // branch on it — refreshAfterMutation always reloads).
   const realtimeDegradedRef = useRef(false);
-  const reloadInFlightRef = useRef<Promise<boolean> | null>(null);
   const lastResyncAtRef = useRef(0);
 
   function getSupabase() {
@@ -216,47 +215,41 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     dateLoadedRef.current = true;
   }, []);
 
-  const reloadTasks = useCallback((): Promise<boolean> => {
-    // Coalesce overlapping reloads (an explicit refresh, a realtime echo and a
-    // reconnect resync can all fire close together) into one board fetch.
-    if (reloadInFlightRef.current) return reloadInFlightRef.current;
+  // Each call issues a fresh board fetch. It must NOT coalesce onto an
+  // already-in-flight reload: a post-mutation reconcile that inherited a fetch
+  // whose SELECT predated the write would apply pre-commit data and silently
+  // revert the committed change (with no realtime echo to correct it while the
+  // socket is degraded). Overlapping reloads settle to the last writer, which is
+  // acceptable — all post-mutation fetches see the committed state.
+  const reloadTasks = useCallback(async (): Promise<boolean> => {
+    const startedAt = startAdminTiming();
+    let activeTasks = 0;
+    let doneTasks = 0;
+    let groups = 0;
+    let status = "ok";
 
-    const run = async (): Promise<boolean> => {
-      const startedAt = startAdminTiming();
-      let activeTasks = 0;
-      let doneTasks = 0;
-      let groups = 0;
-      let status = "ok";
-
-      try {
-        const data = await loadTaskBoardDataAction();
-        activeTasks = data.activeTasks.length;
-        doneTasks = data.doneTasks.length;
-        groups = data.groups.length;
-        applyBoardData(data);
-        tasksFetchState.current = "done";
-        return true;
-      } catch (error) {
-        status = "error";
-        tasksFetchState.current = "idle";
-        setTasksError("Failed to load tasks.");
-        toast.error(error instanceof Error ? error.message : "Failed to load tasks.");
-        return false;
-      } finally {
-        logAdminTiming("admin.tasks.board.client", startedAt, {
-          activeTasks,
-          doneTasks,
-          groups,
-          status,
-        });
-      }
-    };
-
-    const promise = run().finally(() => {
-      reloadInFlightRef.current = null;
-    });
-    reloadInFlightRef.current = promise;
-    return promise;
+    try {
+      const data = await loadTaskBoardDataAction();
+      activeTasks = data.activeTasks.length;
+      doneTasks = data.doneTasks.length;
+      groups = data.groups.length;
+      applyBoardData(data);
+      tasksFetchState.current = "done";
+      return true;
+    } catch (error) {
+      status = "error";
+      tasksFetchState.current = "idle";
+      setTasksError("Failed to load tasks.");
+      toast.error(error instanceof Error ? error.message : "Failed to load tasks.");
+      return false;
+    } finally {
+      logAdminTiming("admin.tasks.board.client", startedAt, {
+        activeTasks,
+        doneTasks,
+        groups,
+        status,
+      });
+    }
   }, [applyBoardData]);
 
   const reloadDateTasks = useCallback(async () => {

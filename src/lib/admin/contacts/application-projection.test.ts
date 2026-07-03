@@ -59,11 +59,14 @@ describe("mergeProjectedApplicationAnswers", () => {
     expect(result[0].answers).toEqual({ phone: "999", budget: "5k" });
   });
 
-  it("preserves rows present only in previous (a realtime insert mid-fetch)", () => {
-    const previous = [app("a"), app("realtime-inserted")];
+  it("drops rows present only in previous (next is authoritative — no delete resurrection)", () => {
+    // `previous` holds a row absent from the fresh SELECT `next`. While realtime
+    // is degraded that most often means it was deleted server-side, so the merge
+    // must NOT re-append it (which would resurrect a deleted application).
+    const previous = [app("a"), app("deleted-server-side")];
     const next = [app("a")];
     const result = mergeProjectedApplicationAnswers(previous, next);
-    expect(result.map((a) => a.id).sort()).toEqual(["a", "realtime-inserted"]);
+    expect(result.map((a) => a.id)).toEqual(["a"]);
   });
 
   it("includes rows present only in next", () => {
