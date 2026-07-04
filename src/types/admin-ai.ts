@@ -119,6 +119,12 @@ export type AdminAiShortlistEntry = {
   whyFit: string[];
   concerns: string[];
   citations: AdminAiCitation[];
+  /**
+   * Model's judged likelihood (0-100) that this contact matches the query.
+   * Required in the model contract; optional here only so pre-normalization test
+   * fixtures need not restate it. The orchestrator sorts by it deterministically.
+   */
+  matchStrength?: number;
 };
 
 export type AdminAiContactAssessment = {
@@ -127,8 +133,31 @@ export type AdminAiContactAssessment = {
   citations: AdminAiCitation[];
 };
 
+/**
+ * A contact that met the query's bar but ranked below the top-10 shortlist.
+ * Lightweight: a one-line reason, no citations.
+ */
+export type AdminAiAdditionalMatch = {
+  contactId: string;
+  contactName: string;
+  reason: string;
+  /** Judged likelihood (0-100); see `AdminAiShortlistEntry.matchStrength`. */
+  matchStrength?: number;
+};
+
 export type AdminAiResponse = {
+  /**
+   * The interpretive bar the model applied to the question (what counts as a
+   * match, what was excluded). Required in the model contract and always set by
+   * `normalizeProviderResponse` (defaulting to `[]`); optional here only so
+   * pre-normalization test fixtures need not restate it. An empty array is only
+   * correct for purely factual questions.
+   */
+  assumptions?: string[];
+  /** Judged top matches, ranked strongest-first, max 10. */
   shortlist?: AdminAiShortlistEntry[];
+  /** Further contacts that met the bar but ranked below the shortlist. */
+  additionalMatches?: AdminAiAdditionalMatch[];
   contactAssessment?: AdminAiContactAssessment;
   uncertainty: string[];
 };

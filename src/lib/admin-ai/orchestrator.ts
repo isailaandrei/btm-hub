@@ -13,10 +13,24 @@ import { EvidenceAliasRegistry } from "./evidence-alias";
 import { isAdminAiEvidenceEnabled } from "./feature-flags";
 import {
   applyHardConstraintsToResponse,
+  applyPlannedConstraints,
   extractHardConstraints,
   filterRecordsByHardConstraints,
+  filterResponseToAllowedContacts,
+  type AdminAiHardConstraints,
+  type PlannedFilterResult,
 } from "./hard-constraints";
-import { getAdminAiProvider } from "./provider";
+import {
+  runConstraintPlanner,
+  type PlannerRun,
+} from "./constraint-planner";
+import {
+  getAdminAiProvider,
+  getAdminAiScanMode,
+  type AdminAiProvider,
+} from "./provider";
+import { MAP_CHUNK_SIZE, runMapScan, type MapScanResult } from "./map-scan";
+import type { PlannerOutput } from "./schemas";
 import { adminAiResponseSchema } from "./schemas";
 import { retrieveConversationEvidence } from "@/lib/conversations/retrieval";
 import {
@@ -29,10 +43,12 @@ import {
   type ContactCardRecord,
 } from "@/lib/data/contact-cards";
 import type {
+  AdminAiAdditionalMatch,
   AdminAiCitationDraft,
   AdminAiQueryPlan,
   AdminAiResponse,
   AdminAiScope,
+  AdminAiStructuredFilter,
   EvidenceItem,
 } from "@/types/admin-ai";
 
@@ -77,7 +93,7 @@ function buildInsufficientEvidenceResponse(
       ? "The current CRM evidence for this contact is too thin to support a reliable synthesis."
       : "The current CRM evidence is too thin to support a reliable shortlist for this question.";
   const uncertainty = options?.extra ? [base, options.extra] : [base];
-  return { uncertainty };
+  return { assumptions: [], uncertainty };
 }
 
 function discloseChatRetrievalUnavailable(
@@ -89,22 +105,51 @@ function discloseChatRetrievalUnavailable(
     : response;
 }
 
+function contactCountLabel(count: number): string {
+  return count === 1 ? "contact was" : "contacts were";
+}
+
 function discloseHardConstraintPrefilter(input: {
   response: AdminAiResponse;
   droppedContactCount: number;
-  budgetMin?: number;
+  droppedDeclinedContactCount: number;
+  constraints: AdminAiHardConstraints;
 }): AdminAiResponse {
-  if (input.droppedContactCount === 0) return input.response;
-  const budgetText =
-    input.budgetMin === undefined
-      ? "the deterministic hard filters"
-      : `the deterministic budget filter (${formatMoney(input.budgetMin)} minimum)`;
-  const contactLabel =
-    input.droppedContactCount === 1 ? "contact was" : "contacts were";
-  return appendUncertainty(
-    input.response,
-    `${input.droppedContactCount} ${contactLabel} excluded by ${budgetText} before synthesis because the available CRM data did not satisfy the user's hard constraint.`,
-  );
+  const { budgetMin, tagCategory, otherTagCategories } = input.constraints;
+  let response = input.response;
+
+  if (input.droppedContactCount > 0) {
+    const label = contactCountLabel(input.droppedContactCount);
+    if (tagCategory) {
+      const others =
+        otherTagCategories && otherTagCategories.length > 0
+          ? ` (other matched tag categories were not applied: ${otherTagCategories.join(", ")})`
+          : "";
+      response = appendUncertainty(
+        response,
+        `${input.droppedContactCount} ${label} excluded because they carry no '${tagCategory}' tag${others}.`,
+      );
+    } else {
+      const budgetText =
+        budgetMin === undefined
+          ? "the deterministic hard filters"
+          : `the deterministic budget filter (${formatMoney(budgetMin)} minimum)`;
+      response = appendUncertainty(
+        response,
+        `${input.droppedContactCount} ${label} excluded by ${budgetText} before synthesis because the available CRM data did not satisfy the user's hard constraint.`,
+      );
+    }
+  }
+
+  if (tagCategory && input.droppedDeclinedContactCount > 0) {
+    const label = contactCountLabel(input.droppedDeclinedContactCount);
+    response = appendUncertainty(
+      response,
+      `${input.droppedDeclinedContactCount} ${label} excluded because their only '${tagCategory}' tag is 'Declined'. To review declined contacts, use the Tags filter in the Contacts panel.`,
+    );
+  }
+
+  return response;
 }
 
 export function describeAssistantResponse(response: AdminAiResponse): string {
@@ -114,11 +159,63 @@ export function describeAssistantResponse(response: AdminAiResponse): string {
     const tail = names.length > 3 ? `, +${names.length - 3} more` : "";
     const label =
       names.length === 1 ? "Shortlisted 1 contact" : `Shortlisted ${names.length} contacts`;
-    return `${label}: ${preview}${tail}.`;
+    const additionalCount = response.additionalMatches?.length ?? 0;
+    const additionalLabel =
+      additionalCount > 0
+        ? ` (+${additionalCount} more ${additionalCount === 1 ? "match" : "matches"})`
+        : "";
+    return `${label}${additionalLabel}: ${preview}${tail}.`;
   }
   if (response.contactAssessment) return "Contact assessment returned.";
   if (response.uncertainty.length > 0) return response.uncertainty[0]!;
   return "Admin AI response.";
+}
+
+const SHORTLIST_CAP = 10;
+
+function byMatchStrengthDesc(
+  a: { matchStrength?: number },
+  b: { matchStrength?: number },
+): number {
+  return (b.matchStrength ?? 0) - (a.matchStrength ?? 0);
+}
+
+/**
+ * Code-enforced ranking. The model is asked to rank the shortlist by
+ * `matchStrength`, but has been observed emitting corpus (created_at) order and
+ * overflowing the 10-entry cap. Sort deterministically (Array.sort is stable),
+ * cap the shortlist at 10, and push the overflow to the FRONT of
+ * additionalMatches so order and cap hold regardless of model behavior.
+ */
+export function enforceShortlistRanking(response: AdminAiResponse): AdminAiResponse {
+  const shortlist = response.shortlist;
+  if (!shortlist || shortlist.length === 0) {
+    if (!response.additionalMatches || response.additionalMatches.length === 0) {
+      return response;
+    }
+    return {
+      ...response,
+      additionalMatches: [...response.additionalMatches].sort(byMatchStrengthDesc),
+    };
+  }
+
+  const ranked = [...shortlist].sort(byMatchStrengthDesc);
+  const kept = ranked.slice(0, SHORTLIST_CAP);
+  const overflow: AdminAiAdditionalMatch[] = ranked
+    .slice(SHORTLIST_CAP)
+    .map((entry) => ({
+      contactId: entry.contactId,
+      contactName: entry.contactName,
+      reason: entry.whyFit[0] ?? "",
+      matchStrength: entry.matchStrength,
+    }));
+  const combined = [...overflow, ...(response.additionalMatches ?? [])];
+  return {
+    ...response,
+    shortlist: kept,
+    additionalMatches:
+      combined.length > 0 ? combined.sort(byMatchStrengthDesc) : undefined,
+  };
 }
 
 function buildCardQueryPlan(input: {
@@ -131,7 +228,7 @@ function buildCardQueryPlan(input: {
     contactId: input.scope === "contact" ? input.contactId : undefined,
     structuredFilters: [],
     textFocus: input.question.trim() ? [input.question.trim()] : [],
-    requestedLimit: input.scope === "contact" ? 1 : 25,
+    requestedLimit: input.scope === "contact" ? 1 : 10,
   };
 
   return plan;
@@ -378,6 +475,215 @@ function renderRecords(
   };
 }
 
+const PLANNER_UNAVAILABLE_NOTE =
+  "AI constraint planning was unavailable for this answer; only basic deterministic filters were applied.";
+
+/**
+ * A prefilter outcome shared by both global-scope paths (constraint planner and
+ * the legacy deterministic filters) so downstream synthesis, disclosure, the
+ * response safety net, `structuredFilters`, and metadata are path-agnostic.
+ */
+type GlobalPrefilter = {
+  records: ContactCardRecord[];
+  structuredFilters: AdminAiStructuredFilter[];
+  disclose: (response: AdminAiResponse) => AdminAiResponse;
+  enforce: (response: AdminAiResponse) => {
+    response: AdminAiResponse;
+    droppedContactIds: string[];
+  };
+  metadata: Record<string, unknown> | null;
+};
+
+function nullPrefilter(records: ContactCardRecord[]): GlobalPrefilter {
+  return {
+    records,
+    structuredFilters: [],
+    disclose: (response) => response,
+    enforce: (response) => ({ response, droppedContactIds: [] }),
+    metadata: null,
+  };
+}
+
+function planToStructuredFilters(plan: PlannerOutput): AdminAiStructuredFilter[] {
+  const filters: AdminAiStructuredFilter[] = [];
+  if (plan.tagConstraint) {
+    filters.push({
+      field: plan.tagConstraint.category,
+      op: "in",
+      value: plan.tagConstraint.includeStatuses,
+    });
+  }
+  if (plan.budgetMin !== null) {
+    filters.push({ field: "budget", op: "eq", value: String(plan.budgetMin) });
+  }
+  for (const fieldConstraint of plan.fieldConstraints) {
+    filters.push({
+      field: fieldConstraint.field,
+      op: fieldConstraint.op,
+      value: fieldConstraint.value,
+    });
+  }
+  return filters;
+}
+
+function legacyToStructuredFilters(
+  constraints: AdminAiHardConstraints,
+): AdminAiStructuredFilter[] {
+  const filters: AdminAiStructuredFilter[] = [];
+  if (constraints.tagCategory) {
+    filters.push({ field: constraints.tagCategory, op: "in", value: [] });
+  }
+  if (constraints.budgetMin !== undefined) {
+    filters.push({
+      field: "budget",
+      op: "eq",
+      value: String(constraints.budgetMin),
+    });
+  }
+  return filters;
+}
+
+function disclosePlannerPrefilter(
+  response: AdminAiResponse,
+  plan: PlannerOutput,
+  applied: PlannedFilterResult,
+  droppedParts: string[],
+): AdminAiResponse {
+  let result = response;
+  if (plan.tagConstraint && applied.droppedByTag.length > 0) {
+    const statuses =
+      plan.tagConstraint.includeStatuses.length > 0
+        ? `[${plan.tagConstraint.includeStatuses.join(", ")}]`
+        : "[any status except Declined]";
+    result = appendUncertainty(
+      result,
+      `Applied filter: '${plan.tagConstraint.category}' tags ${statuses} — ${applied.droppedByTag.length} contact(s) excluded.`,
+    );
+  }
+  if (plan.budgetMin !== null && applied.droppedByBudget.length > 0) {
+    result = appendUncertainty(
+      result,
+      `Applied filter: budget at least ${formatMoney(plan.budgetMin)} — ${applied.droppedByBudget.length} contact(s) excluded.`,
+    );
+  }
+  if (plan.fieldConstraints.length > 0 && applied.droppedByField.length > 0) {
+    const fields = plan.fieldConstraints
+      .map((fieldConstraint) => `${fieldConstraint.field} ${fieldConstraint.op} '${fieldConstraint.value}'`)
+      .join("; ");
+    result = appendUncertainty(
+      result,
+      `Applied field filter(s) (${fields}) — ${applied.droppedByField.length} contact(s) excluded.`,
+    );
+  }
+  if (droppedParts.length > 0) {
+    result = appendUncertainty(
+      result,
+      `Some planned filters were ignored as unrecognized: ${droppedParts.join("; ")}.`,
+    );
+  }
+  return result;
+}
+
+function buildPlannerPrefilter(
+  records: ContactCardRecord[],
+  run: PlannerRun,
+): GlobalPrefilter {
+  const applied = applyPlannedConstraints(records, run.plan);
+  const allowedContactIds = new Set(
+    applied.records.map((record) => record.contact.id),
+  );
+  return {
+    records: applied.records,
+    structuredFilters: planToStructuredFilters(run.plan),
+    disclose: (response) =>
+      disclosePlannerPrefilter(response, run.plan, applied, run.droppedParts),
+    enforce: (response) =>
+      filterResponseToAllowedContacts(response, allowedContactIds),
+    metadata: {
+      planner: {
+        plan: run.plan,
+        droppedParts: run.droppedParts,
+        droppedByTag: applied.droppedByTag.length,
+        droppedByBudget: applied.droppedByBudget.length,
+        droppedByField: applied.droppedByField.length,
+      },
+    },
+  };
+}
+
+function buildLegacyPrefilter(
+  records: ContactCardRecord[],
+  question: string,
+): GlobalPrefilter {
+  const filter = filterRecordsByHardConstraints(
+    records,
+    extractHardConstraints(question, records),
+  );
+  const allowedContactIds = new Set(
+    filter.records.map((record) => record.contact.id),
+  );
+  const hasConstraints =
+    filter.constraints.budgetMin !== undefined ||
+    filter.constraints.tagCategory !== undefined;
+  return {
+    records: filter.records,
+    structuredFilters: legacyToStructuredFilters(filter.constraints),
+    disclose: (response) => {
+      // We are on the legacy path because the planner was unavailable — disclose
+      // the degraded mode (fail loud, one sanctioned fallback).
+      let result = appendUncertainty(response, PLANNER_UNAVAILABLE_NOTE);
+      if (hasConstraints) {
+        result = discloseHardConstraintPrefilter({
+          response: result,
+          droppedContactCount: filter.droppedContactIds.length,
+          droppedDeclinedContactCount: filter.droppedDeclinedContactIds.length,
+          constraints: filter.constraints,
+        });
+      }
+      return result;
+    },
+    enforce: (response) => {
+      if (!hasConstraints) return { response, droppedContactIds: [] };
+      return applyHardConstraintsToResponse({
+        response,
+        allowedContactIds,
+        constraints: filter.constraints,
+      });
+    },
+    metadata: {
+      plannerUnavailable: true,
+      ...(hasConstraints
+        ? {
+            hardConstraints: {
+              ...filter.constraints,
+              prefilteredContactCount: filter.droppedContactIds.length,
+              droppedContactIds: filter.droppedContactIds,
+              droppedDeclinedContactIds: filter.droppedDeclinedContactIds,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+async function computeGlobalPrefilter(input: {
+  provider: AdminAiProvider;
+  scope: AdminAiScope;
+  records: ContactCardRecord[];
+  question: string;
+}): Promise<GlobalPrefilter> {
+  if (input.scope !== "global") return nullPrefilter(input.records);
+  const run = input.provider.isConfigured()
+    ? await runConstraintPlanner({
+        provider: input.provider,
+        records: input.records,
+        question: input.question,
+      })
+    : null;
+  if (run) return buildPlannerPrefilter(input.records, run);
+  return buildLegacyPrefilter(input.records, input.question);
+}
+
 async function runCardSynthesis(input: {
   scope: AdminAiScope;
   question: string;
@@ -386,26 +692,17 @@ async function runCardSynthesis(input: {
   records: ContactCardRecord[];
 }): Promise<RunAdminAiAnalysisResult> {
   const includeEvidence = isAdminAiEvidenceEnabled();
-  const hardConstraintFilter =
-    input.scope === "global"
-      ? filterRecordsByHardConstraints(
-          input.records,
-          extractHardConstraints(input.question),
-        )
-      : {
-          constraints: {},
-          records: input.records,
-          droppedContactIds: [],
-        };
-  const hasHardConstraints =
-    hardConstraintFilter.constraints.budgetMin !== undefined;
-  const allowedHardConstraintContactIds = new Set(
-    hardConstraintFilter.records.map((record) => record.contact.id),
-  );
-  const { cards, evidence, evidenceAliases } = renderRecords(hardConstraintFilter.records, {
+  const provider = getAdminAiProvider();
+  const prefilter = await computeGlobalPrefilter({
+    provider,
+    scope: input.scope,
+    records: input.records,
+    question: input.question,
+  });
+  input.queryPlan.structuredFilters = prefilter.structuredFilters;
+  const { cards, evidence, evidenceAliases } = renderRecords(prefilter.records, {
     includeEvidence,
   });
-  const provider = getAdminAiProvider();
   if (!provider.isConfigured()) {
     const reason = provider.getUnavailableReason() ?? "Admin AI is unavailable.";
     const assistantMessageId = await persistFailedAssistantMessage({
@@ -450,13 +747,15 @@ async function runCardSynthesis(input: {
   }
   const allowedEvidence = includeEvidence ? [...evidence, ...chatEvidence] : [];
 
+  const prefilterApplied = prefilter.structuredFilters.length > 0;
+
   adminAiDebugLog("raw-cards-assembled", {
     scope: input.scope,
     cardCount: cards.length,
     evidenceCount: allowedEvidence.length,
     evidenceEnabled: includeEvidence,
-    hardConstraints: hardConstraintFilter.constraints,
-    hardConstraintDroppedCount: hardConstraintFilter.droppedContactIds.length,
+    structuredFilters: prefilter.structuredFilters,
+    prefilterDroppedCount: input.records.length - prefilter.records.length,
     chatEvidenceCount: chatEvidence.length,
     chatRetrievalUnavailable,
     promptCacheKey: input.scope === "global" ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY : null,
@@ -466,7 +765,7 @@ async function runCardSynthesis(input: {
     const response = discloseChatRetrievalUnavailable(
       buildInsufficientEvidenceResponse(input.scope, {
         extra:
-          hasHardConstraints
+          prefilterApplied
             ? "No contacts matched the deterministic hard filters for this question."
             : input.scope === "contact"
             ? "No raw application, note, tag, or conversation evidence is available for this contact."
@@ -483,14 +782,69 @@ async function runCardSynthesis(input: {
   }
 
   try {
+    // Map stage (global scope + map_reduce mode only): run a chunked recall
+    // pass and narrow the corpus to the surfaced candidates before synthesis.
+    // Single mode and contact scope skip this and stay byte-identical.
+    let synthesisCards = cards;
+    let synthesisChatEvidence = chatEvidence;
+    let scanMetadata: MapScanResult["scanMetadata"] | null = null;
+    let mapReduceMode = false;
+
+    if (input.scope === "global" && getAdminAiScanMode() === "map_reduce") {
+      mapReduceMode = true;
+      if (!provider.completeJson) {
+        throw new Error(
+          "map_reduce scan mode currently requires ADMIN_AI_PROVIDER=deepseek",
+        );
+      }
+      if (cards.length <= MAP_CHUNK_SIZE) {
+        // Small (often tag-prefiltered) cohort: the map stage can only drop
+        // members it fails to re-flag, so skip it and let reduce judge every
+        // card directly. Also cheaper for small questions.
+        adminAiDebugLog("map-skipped-small-corpus", { cardCount: cards.length });
+      } else {
+        const mapResult = await runMapScan({
+          provider,
+          cards,
+          question: input.question,
+        });
+        scanMetadata = mapResult.scanMetadata;
+        if (mapResult.candidateIds.size === 0) {
+          const insufficient = discloseChatRetrievalUnavailable(
+            buildInsufficientEvidenceResponse("global", {
+              extra: `A full chunked scan of all ${cards.length} eligible contacts found no candidates for this question.`,
+            }),
+            chatRetrievalUnavailable,
+          );
+          return persistInsufficientResponse({
+            threadId: input.threadId,
+            queryPlan: input.queryPlan,
+            response: insufficient,
+            reason: "map_scan_no_candidates",
+          });
+        }
+        const { candidateIds } = mapResult;
+        synthesisCards = cards.filter((card) => candidateIds.has(card.contactId));
+        synthesisChatEvidence = chatEvidence.filter((item) =>
+          candidateIds.has(item.contactId),
+        );
+      }
+    }
+
     const timer = startAdminAiDebugTimer("raw-card-synthesis", {
       scope: input.scope,
-      cardCount: cards.length,
+      cardCount: synthesisCards.length,
       evidenceCount: allowedEvidence.length,
     });
-    const promptCacheKey =
-      input.scope === "global" ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY : null;
-    const aliasedChatEvidence = chatEvidence.map((item) => ({
+    // In map_reduce mode the card set is question-dependent (candidate subset, or
+    // a tag-prefiltered cohort when the map was skipped), so the shared global
+    // prompt-cache key would poison the prefix match — send none.
+    const promptCacheKey = mapReduceMode
+      ? null
+      : input.scope === "global"
+        ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY
+        : null;
+    const aliasedChatEvidence = synthesisChatEvidence.map((item) => ({
       ...item,
       evidenceId: evidenceAliases.register(item.evidenceId),
     }));
@@ -498,7 +852,7 @@ async function runCardSynthesis(input: {
       question: input.question,
       scope: input.scope,
       queryPlan: input.queryPlan,
-      cards,
+      cards: synthesisCards,
       // Send only conversation-retrieval evidence to the model. Card-derived
       // evidence ids are already inline in the card text, and duplicating the
       // full items here once made global prompts exceed provider size limits
@@ -509,9 +863,11 @@ async function runCardSynthesis(input: {
       promptCacheKey,
     });
 
-    let response = translateCitationAliases(
-      adminAiResponseSchema.parse(rawResponse),
-      evidenceAliases,
+    let response = enforceShortlistRanking(
+      translateCitationAliases(
+        adminAiResponseSchema.parse(rawResponse),
+        evidenceAliases,
+      ),
     );
     let citations: AdminAiCitationDraft[] = [];
     let droppedEvidenceIds: string[] = [];
@@ -587,24 +943,11 @@ async function runCardSynthesis(input: {
       }
     }
 
-    let hardConstraintDroppedShortlistContactIds: string[] = [];
-    if (hasHardConstraints && input.scope === "global") {
-      const constrained = applyHardConstraintsToResponse({
-        response,
-        allowedContactIds: allowedHardConstraintContactIds,
-        constraints: hardConstraintFilter.constraints,
-      });
-      response = constrained.response;
-      hardConstraintDroppedShortlistContactIds = constrained.droppedContactIds;
-    }
-
-    if (hasHardConstraints && input.scope === "global") {
-      response = discloseHardConstraintPrefilter({
-        response,
-        droppedContactCount: hardConstraintFilter.droppedContactIds.length,
-        budgetMin: hardConstraintFilter.constraints.budgetMin,
-      });
-    }
+    // Response safety net + disclosure are path-agnostic (planner or legacy).
+    const enforced = prefilter.enforce(response);
+    response = enforced.response;
+    const prefilterDroppedShortlistContactIds = enforced.droppedContactIds;
+    response = prefilter.disclose(response);
 
     response = discloseChatRetrievalUnavailable(
       response,
@@ -614,7 +957,7 @@ async function runCardSynthesis(input: {
     const mergedMetadata: Record<string, unknown> = {
       ...modelMetadata,
       rawCards: {
-        cardCount: cards.length,
+        cardCount: synthesisCards.length,
         evidenceCount: allowedEvidence.length,
         evidenceEnabled: includeEvidence,
         chatEvidenceCount: chatEvidence.length,
@@ -623,17 +966,10 @@ async function runCardSynthesis(input: {
         droppedEvidenceIds,
         droppedShortlistContactIds: droppedContactIds,
       },
-      ...(hasHardConstraints
-        ? {
-            hardConstraints: {
-              ...hardConstraintFilter.constraints,
-              prefilteredContactCount:
-                hardConstraintFilter.droppedContactIds.length,
-              droppedContactIds: hardConstraintFilter.droppedContactIds,
-              droppedShortlistContactIds:
-                hardConstraintDroppedShortlistContactIds,
-            },
-          }
+      ...(scanMetadata ? { scan: scanMetadata } : {}),
+      ...(prefilter.metadata ?? {}),
+      ...(prefilterDroppedShortlistContactIds.length > 0
+        ? { prefilterDroppedShortlistContactIds }
         : {}),
       ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
     };

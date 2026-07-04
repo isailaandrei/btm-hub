@@ -4,6 +4,7 @@ import type { ContactCardRecord } from "@/lib/data/contact-cards";
 
 vi.mock("./provider", () => ({
   getAdminAiProvider: vi.fn(),
+  getAdminAiScanMode: vi.fn(() => "single"),
 }));
 
 vi.mock("@/lib/data/admin-ai", () => ({
@@ -81,6 +82,32 @@ function makeEvidence(evidenceId = `application_answer:${APPLICATION_ID}:ultimat
 
 function enableEvidence() {
   vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "1");
+}
+
+// Distinct filler records to push a cohort past MAP_CHUNK_SIZE (30) so the map
+// stage actually runs (small corpora are intentionally skipped).
+function makeFillerRecords(count: number): ContactCardRecord[] {
+  return Array.from({ length: count }, (_, i) =>
+    makeRecord(`${String(i).padStart(8, "0")}-2222-4222-8222-222222222222`),
+  );
+}
+
+function makeTaggedRecord(
+  contactId: string,
+  categoryName: string,
+  tagName = "Potential Candidate",
+): ContactCardRecord {
+  return {
+    ...makeRecord(contactId),
+    contactTags: [
+      {
+        tagId: `${contactId}-tag`,
+        tagName,
+        categoryName,
+        assignedAt: "2026-03-02T00:00:00Z",
+      },
+    ],
+  };
 }
 
 describe("runAdminAiAnalysis (raw cards)", () => {
@@ -228,7 +255,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
         queryPlan: expect.objectContaining({
-          requestedLimit: 25,
+          requestedLimit: 10,
         }),
       }),
     );
@@ -245,9 +272,13 @@ describe("runAdminAiAnalysis (raw cards)", () => {
       expect.objectContaining({
         budgetMin: 6000,
         prefilteredContactCount: 2,
-        droppedShortlistContactIds: [OTHER_CONTACT_ID],
       }),
     );
+    expect(result.modelMetadata?.prefilterDroppedShortlistContactIds).toEqual([
+      OTHER_CONTACT_ID,
+    ]);
+    // No completeJson on this mock provider → planner unavailable → legacy path.
+    expect(result.modelMetadata?.plannerUnavailable).toBe(true);
   });
 
   it("runs global analysis over rendered eligible contact cards and persists grounded citations", async () => {
@@ -774,5 +805,500 @@ describe("runAdminAiAnalysis (raw cards)", () => {
       reason: "ungrounded_raw_card_contact_assessment",
     });
     expect(dataMod.createAdminAiCitations).not.toHaveBeenCalled();
+  });
+});
+
+describe("runAdminAiAnalysis (map-reduce scan)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("synthesizes over ONLY the candidate cards the map stage surfaced", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+    // >30 records so the map stage runs (small corpora are skipped).
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+      ...makeFillerRecords(34),
+    ]);
+
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        candidates: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            evidenceSummary: "Call note: has her own project in mind.",
+          },
+        ],
+      },
+      modelMetadata: { provider: "deepseek", usage: { completion_tokens: 5 } },
+    });
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["Fit"],
+            concerns: [],
+            citations: [],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { model: "deepseek-v4-pro" },
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who has their own projects in mind?",
+    });
+
+    expect(result.status).toBe("complete");
+    expect(completeJson).toHaveBeenCalled();
+
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+      promptCacheKey: unknown;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+    expect(generateArg.promptCacheKey).toBeNull();
+
+    const persisted = vi.mocked(dataMod.createAdminAiMessage).mock
+      .calls[0]![0] as { modelMetadata: { scan?: { mode?: string } } };
+    expect(persisted.modelMetadata.scan?.mode).toBe("map_reduce");
+  });
+
+  it("returns an insufficient response when the scan finds no candidates", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+    // 35 records so the map stage runs and can return zero candidates.
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue(
+      makeFillerRecords(35),
+    );
+    const generate = vi.fn();
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson: vi.fn().mockResolvedValue({
+        json: { candidates: [] },
+        modelMetadata: { provider: "deepseek", usage: null },
+      }),
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who has their own projects in mind?",
+    });
+
+    expect(result.status).toBe("complete");
+    expect(generate).not.toHaveBeenCalled();
+    expect(result.modelMetadata).toEqual({
+      source: "system",
+      reason: "map_scan_no_candidates",
+    });
+    expect(
+      result.response?.uncertainty.some((u) =>
+        u.includes("A full chunked scan of all 35 eligible contacts"),
+      ),
+    ).toBe(true);
+  });
+
+  it("skips the map stage when the corpus fits in one chunk", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+    // 2 records (<= MAP_CHUNK_SIZE) — the map stage is skipped, reduce sees all.
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+      makeRecord(OTHER_CONTACT_ID),
+    ]);
+    // completeJson serves the planner (empty plan → no-op) then would serve the
+    // map stage — which is skipped here, so it is called exactly once (planner).
+    const completeJson = vi.fn().mockResolvedValue({
+      json: { tagConstraint: null, budgetMin: null, fieldConstraints: [], notes: "" },
+      modelMetadata: {},
+    });
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["Fit"],
+            concerns: [],
+            citations: [],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { model: "deepseek-v4-pro" },
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who has their own projects in mind?",
+    });
+
+    // Called once for the planner; the map stage was skipped (would add calls).
+    expect(completeJson).toHaveBeenCalledTimes(1);
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+      promptCacheKey: unknown;
+    };
+    expect(generateArg.cards.map((c) => c.contactId).sort()).toEqual(
+      [CONTACT_ID, OTHER_CONTACT_ID].sort(),
+    );
+    // map_reduce mode still suppresses the shared global prompt-cache key.
+    expect(generateArg.promptCacheKey).toBeNull();
+  });
+
+  it("throws and persists a failed message when the provider lacks completeJson", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: vi.fn(),
+      // No completeJson — an OpenAI-style provider cannot run the map scan.
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({
+      id: "assistant-failed",
+    });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    await expect(
+      runAdminAiAnalysis({
+        scope: "global",
+        threadId: "thread-1",
+        question: "who has their own projects in mind?",
+      }),
+    ).rejects.toThrow(/requires ADMIN_AI_PROVIDER=deepseek/);
+
+    expect(dataMod.createAdminAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+});
+
+describe("describeAssistantResponse", () => {
+  it("summarizes shortlist size plus additional-match totals", async () => {
+    const { describeAssistantResponse } = await import("./orchestrator");
+    const summary = describeAssistantResponse({
+      assumptions: [],
+      shortlist: Array.from({ length: 10 }, (_, i) => ({
+        contactId: `id-${i}`,
+        contactName: `C${i}`,
+        whyFit: [],
+        concerns: [],
+        citations: [],
+      })),
+      additionalMatches: Array.from({ length: 23 }, (_, i) => ({
+        contactId: `a-${i}`,
+        contactName: `A${i}`,
+        reason: "meets bar",
+      })),
+      uncertainty: [],
+    });
+
+    expect(summary).toBe(
+      "Shortlisted 10 contacts (+23 more matches): C0, C1, C2, +7 more.",
+    );
+  });
+});
+
+describe("runAdminAiAnalysis (ranking + tag prefilter)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("sorts the shortlist by matchStrength and overflows past 10 into additionalMatches", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+
+    // 12 entries with deliberately unsorted matchStrength (model emitted them
+    // out of order — code must enforce ranking + the 10-entry cap).
+    const strengths = [30, 90, 10, 80, 50, 70, 40, 100, 20, 60, 5, 85];
+    const shortlist = strengths.map((s, i) => ({
+      contactId: `${String(i).padStart(8, "0")}-3333-4333-8333-333333333333`,
+      contactName: `C${s}`,
+      whyFit: [`why ${s}`],
+      concerns: [],
+      citations: [],
+      matchStrength: s,
+    }));
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who fits?",
+    });
+
+    expect(result.response?.shortlist?.map((e) => e.matchStrength)).toEqual([
+      100, 90, 85, 80, 70, 60, 50, 40, 30, 20,
+    ]);
+    expect(result.response?.shortlist?.length).toBe(10);
+    expect(
+      result.response?.additionalMatches?.map((m) => m.matchStrength),
+    ).toEqual([10, 5]);
+  });
+
+  it("prefilters to a named tag cohort and discloses the excluded contacts", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeTaggedRecord(CONTACT_ID, "26 Coral Catch"),
+      makeTaggedRecord(OTHER_CONTACT_ID, "Some Other Cohort 2027"),
+    ]);
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist: [] } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who is a potential candidate for 26 Coral Catch?",
+    });
+
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+    expect(
+      result.response?.uncertainty.some((u) =>
+        u.includes("carry no '26 Coral Catch' tag"),
+      ),
+    ).toBe(true);
+  });
+
+  it("excludes a declined-only cohort member and discloses the reason", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeTaggedRecord(CONTACT_ID, "26 Coral Catch", "Interested"),
+      makeTaggedRecord(OTHER_CONTACT_ID, "26 Coral Catch", "Declined"),
+    ]);
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist: [] } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who is a potential candidate for 26 Coral Catch?",
+    });
+
+    // The declined-only member was not sent to synthesis.
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+    expect(
+      result.response?.uncertainty.some((u) =>
+        u.includes("their only '26 Coral Catch' tag is 'Declined'"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("runAdminAiAnalysis (constraint planner)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("applies a planned tag constraint end-to-end and populates structuredFilters", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeTaggedRecord(CONTACT_ID, "26 Coral Catch", "Interested"),
+      makeTaggedRecord(OTHER_CONTACT_ID, "26 Coral Catch", "Declined"),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: {
+          category: "26 Coral Catch",
+          includeStatuses: ["Interested"],
+        },
+        budgetMin: null,
+        fieldConstraints: [],
+        notes: "cohort",
+      },
+      modelMetadata: {},
+    });
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist: [] } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who is interested in 26 Coral Catch?",
+    });
+
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+      queryPlan: { structuredFilters: unknown[] };
+    };
+    // Only the Interested cohort member reached synthesis; the Declined one was
+    // dropped by the planned constraint.
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+    expect(generateArg.queryPlan.structuredFilters).toEqual([
+      { field: "26 Coral Catch", op: "in", value: ["Interested"] },
+    ]);
+
+    const persisted = vi.mocked(dataMod.createAdminAiMessage).mock
+      .calls[0]![0] as { modelMetadata: { planner?: unknown } };
+    expect(persisted.modelMetadata.planner).toBeDefined();
+  });
+
+  it("falls back to legacy filters with a disclosed note when the planner fails", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeTaggedRecord(CONTACT_ID, "26 Coral Catch", "Interested"),
+      makeTaggedRecord(OTHER_CONTACT_ID, "26 Coral Catch", "Declined"),
+    ]);
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist: [] } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson: vi.fn().mockRejectedValue(new Error("planner down")),
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who is interested in 26 Coral Catch?",
+    });
+
+    expect(result.response?.uncertainty).toContain(
+      "AI constraint planning was unavailable for this answer; only basic deterministic filters were applied.",
+    );
+    // Legacy tag filter still applied: the Declined-only member was dropped.
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
   });
 });

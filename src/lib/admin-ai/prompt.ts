@@ -29,12 +29,25 @@ export function buildAdminAiSystemPrompt(
       ? "Answer only from the supplied raw contact cards, conversation facts, conversation digests, and evidence."
       : "Answer only from the supplied raw contact cards, conversation facts, and conversation digests.",
     "The cards are verbatim CRM records, not summaries. Do not invent contacts or details outside them.",
+    "Card note lines labeled `Contact note`, `Call note`, or `Message log` are admin-authored CRM entries (with author and date) and are reliable evidence about the contact. They carry the same weight as application answers: a single decisive call note or message log qualifies a contact exactly as an application answer would.",
     "Surface discrepancies and conflicts explicitly; do not resolve conflicting values away.",
     "Separate grounded facts from inferences.",
     "Be conservative. If evidence is weak, say so.",
     "Hard constraints are exclusionary. Explicit user requirements such as budget minimums, program, status, gender, location, certification, or required experience are filters, not ranking preferences.",
+    "Contact tags are written as `Category: Tag` (for example `26 Coral Catch: Potential Candidate`). The category names a program, trip, or cohort; the tag names the contact's status within it.",
+    "When the question targets a named program, trip, or cohort, tags in the matching tag category are the authoritative cohort marker: only contacts carrying a tag in that category qualify. Negative statuses such as `Declined` do not count as interested or potential.",
     "Do not include candidates who fail a hard constraint or whose data is missing for a required hard constraint.",
-    "Return fewer results, or an empty shortlist, rather than padding the answer with near misses.",
+    "Return fewer results, or an empty shortlist, rather than padding the answer with near misses. An empty shortlist plus an explanation in `uncertainty` is the correct answer when nobody qualifies.",
+    "First state your interpretive assumptions in `assumptions`: how you read the question's bar (what counts as a match, what you excluded). Be specific enough that a reader can spot a mismatch with their intent.",
+    "Rank the `shortlist` by likelihood of matching the query, strongest evidence first, maximum 10 entries.",
+    "Every further contact that genuinely meets the bar goes into `additionalMatches` (up to 40) with a one-line reason — never silently drop a qualifying contact.",
+    "Prefer a tighter shortlist under a clearly stated bar over an inclusive one; borderline candidates that do NOT meet the bar are named in `uncertainty`, not in additionalMatches.",
+    "Tier by strength: the `shortlist` holds STRONG fits only; moderate fits go to `additionalMatches`; weak or vague ones go to neither (mention the count in `uncertainty` if notable).",
+    "Specific, quotable evidence supports a match: concrete facts, named things, explicit statements. Generic enthusiasm or broad aspiration is not evidence. When in doubt between moderate and weak, choose weak.",
+    "Score every shortlist and additionalMatches entry with `matchStrength` 0-100 — your judged likelihood it matches the question. Scores must be comparable across entries.",
+    "Never place a candidate in the shortlist if you describe them as borderline or unverified anywhere in your answer — borderline belongs in `uncertainty`.",
+    "Every shortlist entry must include `concerns`; return an empty concerns array only when the evidence genuinely shows none — missing budget, availability, cohort-tag, or logistics information is itself a concern worth naming.",
+    "Give each shortlist entry at least two `whyFit` items when the evidence supports them; do not compress justifications as the shortlist grows.",
   ];
 
   const evidenceInstructions = includeEvidence
@@ -83,6 +96,7 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
         card: card.text,
       })),
       responseContract: {
+        assumptions: ["string"],
         shortlist: [
           {
             contactId: "uuid",
@@ -92,6 +106,15 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
             citations: includeEvidence
               ? [{ evidenceId: "string", claimKey: "string" }]
               : [],
+            matchStrength: 0,
+          },
+        ],
+        additionalMatches: [
+          {
+            contactId: "uuid",
+            contactName: "string",
+            reason: "string",
+            matchStrength: 0,
           },
         ],
         contactAssessment: {
@@ -141,6 +164,10 @@ export function buildAdminAiResponseJsonSchema(
     type: "object",
     additionalProperties: false,
     properties: {
+      assumptions: {
+        type: "array",
+        items: { type: "string" },
+      },
       shortlist: {
         type: "array",
         items: {
@@ -152,6 +179,7 @@ export function buildAdminAiResponseJsonSchema(
             whyFit: { type: "array", items: { type: "string" } },
             concerns: { type: "array", items: { type: "string" } },
             citations: citationArraySchema(includeEvidence),
+            matchStrength: { type: "integer", minimum: 0, maximum: 100 },
           },
           required: [
             "contactId",
@@ -159,7 +187,23 @@ export function buildAdminAiResponseJsonSchema(
             "whyFit",
             "concerns",
             "citations",
+            "matchStrength",
           ],
+        },
+      },
+      additionalMatches: {
+        type: "array",
+        maxItems: 40,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            contactId: { type: "string", format: "uuid" },
+            contactName: { type: "string" },
+            reason: { type: "string" },
+            matchStrength: { type: "integer", minimum: 0, maximum: 100 },
+          },
+          required: ["contactId", "contactName", "reason", "matchStrength"],
         },
       },
       contactAssessment: {
@@ -182,7 +226,13 @@ export function buildAdminAiResponseJsonSchema(
         items: { type: "string" },
       },
     },
-    required: ["shortlist", "contactAssessment", "uncertainty"],
+    required: [
+      "assumptions",
+      "shortlist",
+      "additionalMatches",
+      "contactAssessment",
+      "uncertainty",
+    ],
   } as const;
 }
 
@@ -192,16 +242,34 @@ export const ADMIN_AI_RESPONSE_JSON_SCHEMA = buildAdminAiResponseJsonSchema({
 
 export function normalizeProviderResponse(
   payload: {
+    assumptions?: string[];
     shortlist: AdminAiResponse["shortlist"] | [];
+    additionalMatches?: Array<{
+      contactId: string;
+      contactName: string;
+      reason: string;
+    }>;
     contactAssessment: AdminAiResponse["contactAssessment"] | null;
     uncertainty: string[];
   },
   scope: AdminAiScope,
 ): AdminAiResponse {
   return {
+    assumptions: Array.isArray(payload.assumptions) ? payload.assumptions : [],
     shortlist:
       Array.isArray(payload.shortlist) && payload.shortlist.length > 0
         ? payload.shortlist
+        : undefined,
+    // Strip any stray fields (e.g. a model sneaking citations in) — additional
+    // matches are lightweight name + reason only.
+    additionalMatches:
+      Array.isArray(payload.additionalMatches) &&
+      payload.additionalMatches.length > 0
+        ? payload.additionalMatches.map((match) => ({
+            contactId: match.contactId,
+            contactName: match.contactName,
+            reason: match.reason,
+          }))
         : undefined,
     contactAssessment:
       scope === "global" ? undefined : payload.contactAssessment ?? undefined,

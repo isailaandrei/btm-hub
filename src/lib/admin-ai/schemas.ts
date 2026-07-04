@@ -139,12 +139,18 @@ const adminAiCitationSchema = z.object({
   claimKey: z.string().min(1),
 });
 
+// `matchStrength` is required in the model contract; `.default(0)` keeps
+// pre-normalization test fixtures (and any model that omits it) parseable while
+// still enforcing the 0-100 bound when present. The orchestrator sorts by it.
+const matchStrengthSchema = z.number().int().min(0).max(100).default(0);
+
 const adminAiShortlistEntrySchema = z.object({
   contactId: uuidSchema,
   contactName: z.string(),
   whyFit: z.array(z.string()),
   concerns: z.array(z.string()),
   citations: z.array(adminAiCitationSchema),
+  matchStrength: matchStrengthSchema,
 });
 
 const adminAiContactAssessmentSchema = z.object({
@@ -153,12 +159,76 @@ const adminAiContactAssessmentSchema = z.object({
   citations: z.array(adminAiCitationSchema),
 });
 
+const adminAiAdditionalMatchSchema = z.object({
+  contactId: uuidSchema,
+  contactName: z.string(),
+  reason: z.string(),
+  matchStrength: matchStrengthSchema,
+});
+
 /** Schema for `AdminAiResponse` — the structured LLM output. */
 export const adminAiResponseSchema = z.object({
+  // Normalized to `[]` when absent; empty is only correct for factual questions.
+  assumptions: z.array(z.string()).default([]),
   shortlist: z.array(adminAiShortlistEntrySchema).optional(),
+  additionalMatches: z.array(adminAiAdditionalMatchSchema).optional(),
   contactAssessment: adminAiContactAssessmentSchema.optional(),
   uncertainty: z.array(z.string()),
 });
+
+// ---------------------------------------------------------------------------
+// Constraint planner schema
+// ---------------------------------------------------------------------------
+
+/**
+ * Output of the constraint planner: only constraints the question makes explicit
+ * and exclusionary. Tolerant defaults keep a partial object parseable; the caller
+ * validates every name against the live catalog and falls back to the legacy
+ * deterministic filters on any failure (the single sanctioned degraded mode).
+ */
+export const plannerOutputSchema = z.object({
+  tagConstraint: z
+    .object({
+      category: z.string(),
+      includeStatuses: z.array(z.string()),
+    })
+    .nullable()
+    .default(null),
+  budgetMin: z.number().nullable().default(null),
+  fieldConstraints: z
+    .array(
+      z.object({
+        field: z.string(),
+        op: z.enum(["contains", "eq"]),
+        value: z.string(),
+      }),
+    )
+    .default([]),
+  notes: z.string().default(""),
+});
+
+export type PlannerOutput = z.infer<typeof plannerOutputSchema>;
+
+// ---------------------------------------------------------------------------
+// Map-scan extraction schema
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-chunk extraction contract for the map stage of the map-reduce scan. Each
+ * candidate names a contact whose card holds evidence plausibly relevant to the
+ * question, with the decisive evidence quoted for the reduce stage.
+ */
+export const mapExtractionSchema = z.object({
+  candidates: z.array(
+    z.object({
+      contactId: uuidSchema,
+      contactName: z.string(),
+      evidenceSummary: z.string(),
+    }),
+  ),
+});
+
+export type MapExtraction = z.infer<typeof mapExtractionSchema>;
 
 // Re-export the structured allowlist for convenience so consumers of the
 // schemas can reason about which fields are accepted without importing

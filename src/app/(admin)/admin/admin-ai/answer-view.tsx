@@ -37,20 +37,43 @@ export function AnswerView({
     return <p className="text-sm text-foreground">{message.content}</p>;
   }
 
+  const additionalMatches = response.additionalMatches ?? [];
+  const assumptions = response.assumptions ?? [];
+
   return (
     <div className="space-y-4">
+      {assumptions.length > 0 && (
+        <section className="rounded-md border border-border bg-muted/40 p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Assumptions made
+          </p>
+          {renderList(assumptions)}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Not what you meant? Rephrase your question with more specifics.
+          </p>
+        </section>
+      )}
+
       {response.shortlist && response.shortlist.length > 0 && (
         <section className="space-y-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Shortlist
           </p>
-          {response.shortlist.map((entry) => (
+          {response.shortlist.map((entry, index) => (
             <div
               key={entry.contactId}
               className="rounded-md border border-border bg-background p-3"
             >
-              <p className="text-sm font-medium text-foreground">
-                {entry.contactName}
+              <p className="flex items-baseline justify-between gap-2 text-sm font-medium text-foreground">
+                <span>
+                  <span className="text-muted-foreground">{index + 1}.</span>{" "}
+                  {entry.contactName}
+                </span>
+                {typeof entry.matchStrength === "number" && (
+                  <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground">
+                    match {entry.matchStrength}
+                  </span>
+                )}
               </p>
               {entry.whyFit.length > 0 && (
                 <div className="mt-2">
@@ -67,6 +90,23 @@ export function AnswerView({
             </div>
           ))}
         </section>
+      )}
+
+      {additionalMatches.length > 0 && (
+        <details className="rounded-md border border-border bg-background">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
+            Show {additionalMatches.length} more{" "}
+            {additionalMatches.length === 1 ? "match" : "matches"}
+          </summary>
+          <ul className="space-y-2 border-t border-border px-3 py-2 text-sm text-foreground">
+            {additionalMatches.map((match) => (
+              <li key={match.contactId}>
+                <span className="font-medium">{match.contactName}</span>
+                <span className="text-muted-foreground"> — {match.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {response.contactAssessment && (
