@@ -130,6 +130,16 @@ function setupClient(overrides: SetupClientOverrides = {}) {
         author_name: "Admin",
         body: "Prefers WhatsApp.",
         created_at: "2026-03-04T00:00:00Z",
+        type: "note",
+      },
+      {
+        id: "call-1",
+        contact_id: CONTACT_ID,
+        author_id: "admin-1",
+        author_name: "Flo",
+        body: "Very interested in the community aspect.",
+        created_at: "2026-03-05T00:00:00Z",
+        type: "call",
       },
     ],
     contact_tags: [
@@ -137,7 +147,11 @@ function setupClient(overrides: SetupClientOverrides = {}) {
         contact_id: CONTACT_ID,
         tag_id: "tag-1",
         assigned_at: "2026-03-05T00:00:00Z",
-        tags: { id: "tag-1", name: "Scholarship" },
+        tags: {
+          id: "tag-1",
+          name: "Scholarship",
+          tag_categories: { name: "26 Coral Catch" },
+        },
       },
     ],
     conversation_digests: [
@@ -245,13 +259,31 @@ describe("contact card data loader", () => {
     expect(queries.applications.not).toHaveBeenCalledWith("contact_id", "is", null);
     expect(queries.contacts.in).toHaveBeenCalledWith("id", [CONTACT_ID]);
     expect(queries.contact_events.in).toHaveBeenCalledWith("contact_id", [CONTACT_ID]);
+    expect(queries.contact_events.in).toHaveBeenCalledWith("type", [
+      "note",
+      "call",
+      "message",
+    ]);
     expect(queries.contact_tags.in).toHaveBeenCalledWith("contact_id", [CONTACT_ID]);
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       contact: { id: CONTACT_ID },
       applications: [{ id: APP_ID }, { id: OTHER_APP_ID }],
-      contactNotes: [{ id: "note-1", text: "Prefers WhatsApp." }],
-      contactTags: [{ tagId: "tag-1", tagName: "Scholarship" }],
+      contactNotes: [
+        { id: "note-1", text: "Prefers WhatsApp.", eventType: "note" },
+        {
+          id: "call-1",
+          text: "Very interested in the community aspect.",
+          eventType: "call",
+        },
+      ],
+      contactTags: [
+        {
+          tagId: "tag-1",
+          tagName: "Scholarship",
+          categoryName: "26 Coral Catch",
+        },
+      ],
       conversationDigests: [{ id: "digest-1", summary: "Discussed budget." }],
       conversationFacts: [{ id: "fact-1", valueText: "$3-5k" }],
     });

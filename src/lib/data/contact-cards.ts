@@ -10,6 +10,12 @@ import type {
 export type ContactCardTag = {
   tagId: string;
   tagName: string;
+  /**
+   * Tag-category name (e.g. "26 Coral Catch"). Categories name programs /
+   * cohorts / trips; the same tag name ("Potential Candidate", "Interested")
+   * repeats across categories, so a bare tag name is ambiguous without it.
+   */
+  categoryName: string | null;
   assignedAt: string | null;
 };
 
@@ -61,16 +67,28 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+type JoinedTag = {
+  id: string;
+  name: string;
+  tag_categories?: Array<{ name: string }> | { name: string } | null;
+};
+
 type ContactTagJoinRow = {
   contact_id: string;
   tag_id: string;
   assigned_at: string | null;
-  tags: Array<{ id: string; name: string }> | { id: string; name: string } | null;
+  tags: JoinedTag[] | JoinedTag | null;
 };
 
-function readJoinedTagName(row: ContactTagJoinRow): string | null {
-  if (Array.isArray(row.tags)) return row.tags[0]?.name ?? null;
-  return row.tags?.name ?? null;
+function readJoinedTag(
+  row: ContactTagJoinRow,
+): { name: string; categoryName: string | null } | null {
+  const tag = Array.isArray(row.tags) ? row.tags[0] : row.tags;
+  if (!tag?.name) return null;
+  const category = Array.isArray(tag.tag_categories)
+    ? tag.tag_categories[0]
+    : tag.tag_categories;
+  return { name: tag.name, categoryName: category?.name ?? null };
 }
 
 function groupByContactId<T extends { contact_id: string | null }>(
@@ -126,14 +144,14 @@ async function loadChunkRows(
           .order("submitted_at", { ascending: false }),
     supabase
       .from("contact_events")
-      .select("id, contact_id, author_id, author_name, body, created_at")
+      .select("id, contact_id, author_id, author_name, body, created_at, type")
       .in("contact_id", chunkIds)
-      .eq("type", "note")
+      .in("type", ["note", "call", "message"])
       .neq("body", "")
       .order("created_at", { ascending: true }),
     supabase
       .from("contact_tags")
-      .select("contact_id, tag_id, assigned_at, tags(id, name)")
+      .select("contact_id, tag_id, assigned_at, tags(id, name, tag_categories(name))")
       .in("contact_id", chunkIds)
       .order("assigned_at", { ascending: true }),
     supabase
@@ -235,6 +253,7 @@ async function loadRecordsForContactIds(
     author_name: string;
     body: string;
     created_at: string;
+    type: "note" | "call" | "message";
   }>).map((row) => ({
     id: row.id,
     contact_id: row.contact_id,
@@ -242,22 +261,21 @@ async function loadRecordsForContactIds(
     author_name: row.author_name,
     text: row.body,
     created_at: row.created_at,
+    eventType: row.type,
   }));
-  const tags = ((tagData ?? []) as ContactTagJoinRow[])
-    .map((row) => ({
-      contactId: row.contact_id,
-      tagId: row.tag_id,
-      tagName: readJoinedTagName(row),
-      assignedAt: row.assigned_at,
-    }))
-    .filter(
-      (row): row is {
-        contactId: string;
-        tagId: string;
-        tagName: string;
-        assignedAt: string | null;
-      } => Boolean(row.tagName),
-    );
+  const tags = ((tagData ?? []) as ContactTagJoinRow[]).flatMap((row) => {
+    const joined = readJoinedTag(row);
+    if (!joined) return [];
+    return [
+      {
+        contactId: row.contact_id,
+        tagId: row.tag_id,
+        tagName: joined.name,
+        categoryName: joined.categoryName,
+        assignedAt: row.assigned_at,
+      },
+    ];
+  });
 
   const applicationsByContact = groupByContactId(applications);
   const notesByContact = groupByContactId(notes);
@@ -266,6 +284,7 @@ async function loadRecordsForContactIds(
     const item: ContactCardTag = {
       tagId: tag.tagId,
       tagName: tag.tagName,
+      categoryName: tag.categoryName,
       assignedAt: tag.assignedAt,
     };
     const bucket = tagsByContact.get(tag.contactId);

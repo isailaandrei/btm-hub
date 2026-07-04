@@ -268,6 +268,15 @@ function appendAdminNote(
   );
 }
 
+// Admin timeline entries share the `contact_note` evidence source type (the
+// citations table constrains source_type), but each event type gets its own
+// human label so the model can tell a logged call from a free-text note.
+const CONTACT_NOTE_LABELS: Record<ContactNote["eventType"], string> = {
+  note: "Contact note",
+  call: "Call note",
+  message: "Message log",
+};
+
 function appendContactNote(
   lines: string[],
   evidence: EvidenceItem[],
@@ -277,8 +286,14 @@ function appendContactNote(
 ): void {
   const text = formatValue(note.text);
   if (!text) return;
+  const sourceLabel = CONTACT_NOTE_LABELS[note.eventType];
+  const date = isoDate(note.created_at) ?? "unknown";
+  const author = note.author_name?.trim();
+  const attribution = author ? `${author}, ${date}` : date;
   const evidenceId = `contact_note:${note.id}`;
-  lines.push(`- Contact note: ${text} [${registry.register(evidenceId)}]`);
+  lines.push(
+    `- ${sourceLabel} (${attribution}): ${text} [${registry.register(evidenceId)}]`,
+  );
   evidence.push(
     evidenceItem({
       evidenceId,
@@ -286,7 +301,7 @@ function appendContactNote(
       applicationId: null,
       sourceType: "contact_note",
       sourceId: note.id,
-      sourceLabel: "Contact note",
+      sourceLabel,
       sourceTimestamp: note.created_at,
       program: null,
       text,
@@ -367,13 +382,18 @@ export function renderContactCard(
   }
 
   if (record.contactTags.length > 0) {
+    // Qualify each tag with its category — categories name programs/cohorts
+    // ("26 Coral Catch") while tag names repeat across them ("Potential
+    // Candidate"), so a bare tag name is ambiguous cohort evidence.
+    const tagLabel = (tag: (typeof record.contactTags)[number]) =>
+      tag.categoryName ? `${tag.categoryName}: ${tag.tagName}` : tag.tagName;
     lines.push(
       `Tags: ${record.contactTags
         .map((tag) => {
           const evidenceId = `contact_tag:${tag.tagId}`;
-          return `${tag.tagName} [${registry.register(evidenceId)}]`;
+          return `${tagLabel(tag)} [${registry.register(evidenceId)}]`;
         })
-        .join(", ")}`,
+        .join("; ")}`,
     );
     for (const tag of record.contactTags) {
       const evidenceId = `contact_tag:${tag.tagId}`;
@@ -387,7 +407,7 @@ export function renderContactCard(
           sourceLabel: "Contact tag",
           sourceTimestamp: tag.assignedAt,
           program: null,
-          text: tag.tagName,
+          text: tagLabel(tag),
         }),
       );
     }

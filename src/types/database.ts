@@ -120,6 +120,7 @@ export interface ContactNote {
   author_name: string;
   text: string;
   created_at: string;
+  eventType: "note" | "call" | "message";
 }
 
 export type ContactEventType =

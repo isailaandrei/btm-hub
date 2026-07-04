@@ -7,6 +7,7 @@ const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
 const APPLICATION_ID = "22222222-2222-4222-8222-222222222222";
 const NOTE_ID = "33333333-3333-4333-8333-333333333333";
 const TAG_ID = "44444444-4444-4444-8444-444444444444";
+const CALL_ID = "55555555-5555-4555-8555-555555555555";
 
 function makeRecord(): ContactCardRecord {
   return {
@@ -52,12 +53,23 @@ function makeRecord(): ContactCardRecord {
         author_name: "Admin",
         text: "Prefers WhatsApp.",
         created_at: "2026-03-06T00:00:00Z",
+        eventType: "note",
+      },
+      {
+        id: CALL_ID,
+        contact_id: CONTACT_ID,
+        author_id: "admin-1",
+        author_name: "Flo",
+        text: "Very interested in the community aspect.",
+        created_at: "2026-03-08T00:00:00Z",
+        eventType: "call",
       },
     ],
     contactTags: [
       {
         tagId: TAG_ID,
         tagName: "Scholarship",
+        categoryName: "26 Coral Catch",
         assignedAt: "2026-03-07T00:00:00Z",
       },
     ],
@@ -102,8 +114,13 @@ describe("renderContactCard", () => {
     expect(card.text).toContain(
       "Admin note: Strong reel, needs scholarship follow-up. [e4]",
     );
-    expect(card.text).toContain("Contact note: Prefers WhatsApp. [e7]");
-    expect(card.text).toContain("Tags: Scholarship [e8]");
+    expect(card.text).toContain(
+      "Contact note (Admin, 2026-03-06): Prefers WhatsApp. [e7]",
+    );
+    expect(card.text).toContain(
+      "Call note (Flo, 2026-03-08): Very interested in the community aspect. [e8]",
+    );
+    expect(card.text).toContain("Tags: 26 Coral Catch: Scholarship [e9]");
     expect(card.text).not.toContain("Tag: Scholarship [");
     expect(card.text).not.toContain("[application_answer:");
     expect(card.text).not.toContain("[application_structured_field:");
@@ -123,6 +140,13 @@ describe("renderContactCard", () => {
           evidenceId: `application_answer:${APPLICATION_ID}:non_registry_goal`,
           sourceLabel: "Non registry goal",
           text: "Build a traveling youth workshop.",
+        }),
+        expect.objectContaining({
+          evidenceId: `contact_note:${CALL_ID}`,
+          sourceType: "contact_note",
+          sourceId: CALL_ID,
+          sourceLabel: "Call note",
+          text: "Very interested in the community aspect.",
         }),
       ]),
     );
