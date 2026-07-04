@@ -6,7 +6,8 @@ import {
   type AdminAiSynthesisInput,
 } from "./prompt";
 import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
-import { parseOptionalBooleanEnv } from "./env";
+import { deepSeekAdminAiProvider } from "./deepseek-provider";
+import { printAdminAiRequestPayload } from "./payload-print";
 import type { AdminAiResponse } from "@/types/admin-ai";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
@@ -20,10 +21,27 @@ const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
 export interface AdminAiProvider {
   isConfigured(): boolean;
   getUnavailableReason(): string | null;
+  /**
+   * The synthesis model id this provider would use for the next request.
+   * Optional so lightweight test doubles need not implement it; both shipped
+   * providers (OpenAI, DeepSeek) always do, and availability reporting prefers
+   * it (see `getAdminAiProviderAvailability`).
+   */
+  getModel?(): string;
   generate(input: AdminAiSynthesisInput): Promise<{
     response: AdminAiResponse;
     modelMetadata: Record<string, unknown>;
   }>;
+  /**
+   * Low-level JSON completion used by the map stage of the map-reduce scan.
+   * Parses the model's response as JSON of any shape (callers Zod-validate);
+   * optional so only providers that support the scan implement it (DeepSeek).
+   */
+  completeJson?(input: {
+    systemPrompt: string;
+    userPrompt: string;
+    scope: string;
+  }): Promise<{ json: unknown; modelMetadata: Record<string, unknown> }>;
 };
 
 export type AdminAiProviderAvailability = {
@@ -57,29 +75,6 @@ function getSynthesisModel(): string {
 
 function getGlobalPromptCacheRetention(): string | null {
   return process.env.OPENAI_GLOBAL_PROMPT_CACHE_RETENTION?.trim() || null;
-}
-
-function shouldPrintOpenAiRequestPayload(): boolean {
-  const explicit = parseOptionalBooleanEnv(
-    process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD,
-  );
-  if (explicit !== null) return explicit;
-  return false;
-}
-
-function printOpenAiRequestPayload(input: {
-  model: string;
-  schemaName: string;
-  requestBodyJson: string;
-}): void {
-  if (!shouldPrintOpenAiRequestPayload()) return;
-  console.info("[admin-ai][openai-request-payload] begin", {
-    model: input.model,
-    schemaName: input.schemaName,
-    chars: input.requestBodyJson.length,
-  });
-  console.info(input.requestBodyJson);
-  console.info("[admin-ai][openai-request-payload] end");
 }
 
 function extractResponseText(payload: OpenAiResponsesPayload): string {
@@ -121,6 +116,8 @@ async function parseErrorResponse(response: Response): Promise<string> {
 async function callOpenAi(input: {
   apiKey: string;
   model: string;
+  scope: string;
+  includeEvidence: boolean;
   systemPrompt: string;
   userPrompt: string;
   schemaName: string;
@@ -159,8 +156,14 @@ async function callOpenAi(input: {
       },
     };
     const requestBodyJson = JSON.stringify(requestBody);
-    printOpenAiRequestPayload({
+    await printAdminAiRequestPayload({
+      provider: "openai",
       model: input.model,
+      scope: input.scope,
+      includeEvidence: input.includeEvidence,
+      systemPrompt: input.systemPrompt,
+      userPrompt: input.userPrompt,
+      schema: input.schema,
       schemaName: input.schemaName,
       requestBodyJson,
     });
@@ -199,7 +202,25 @@ async function callOpenAi(input: {
     });
     throw new Error(`OpenAI admin AI request failed: ${message}`);
   }
-  const payload = (await response.json()) as OpenAiResponsesPayload;
+  // The body read sits outside the fetch try/catch above; the AbortSignal can
+  // fire HERE during `response.json()`, so map that timeout to the descriptive
+  // error too rather than leaking the raw "operation was aborted" message.
+  let payload: OpenAiResponsesPayload;
+  try {
+    payload = (await response.json()) as OpenAiResponsesPayload;
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      timer.end({ status: "timeout", timeoutMs: OPENAI_REQUEST_TIMEOUT_MS });
+      throw new Error(
+        `OpenAI admin AI request timed out after ${OPENAI_REQUEST_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    timer.end({
+      status: "body_read_error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
   const rawText = extractResponseText(payload);
   timer.end({
     status: "ok",
@@ -219,6 +240,10 @@ const openAiAdminAiProvider: AdminAiProvider = {
     return this.isConfigured() ? null : PROVIDER_UNAVAILABLE_REASON;
   },
 
+  getModel() {
+    return getSynthesisModel();
+  },
+
   async generate(input) {
     const apiKey = getApiKey();
     if (!apiKey) {
@@ -228,6 +253,8 @@ const openAiAdminAiProvider: AdminAiProvider = {
     const { payload, rawText } = await callOpenAi({
       apiKey,
       model,
+      scope: input.scope,
+      includeEvidence: input.includeEvidence ?? true,
       systemPrompt: buildAdminAiSystemPrompt(input.scope, {
         includeEvidence: input.includeEvidence ?? true,
       }),
@@ -242,7 +269,13 @@ const openAiAdminAiProvider: AdminAiProvider = {
     });
 
     const rawResponse = JSON.parse(rawText) as {
+      assumptions?: string[];
       shortlist: AdminAiResponse["shortlist"] | [];
+      additionalMatches?: Array<{
+        contactId: string;
+        contactName: string;
+        reason: string;
+      }>;
       contactAssessment: AdminAiResponse["contactAssessment"] | null;
       uncertainty: string[];
     };
@@ -266,8 +299,31 @@ const openAiAdminAiProvider: AdminAiProvider = {
   },
 };
 
+function getSelectedProviderName(): string {
+  return process.env.ADMIN_AI_PROVIDER?.trim().toLowerCase() || "openai";
+}
+
+export type AdminAiScanMode = "single" | "map_reduce";
+
+export function getAdminAiScanMode(): AdminAiScanMode {
+  const selected = process.env.ADMIN_AI_SCAN_MODE?.trim().toLowerCase() || "single";
+  if (selected === "single") return "single";
+  if (selected === "map_reduce") return "map_reduce";
+  // Fail loud (never fake): an unknown scan mode is a misconfiguration.
+  throw new Error(
+    `Unknown ADMIN_AI_SCAN_MODE "${process.env.ADMIN_AI_SCAN_MODE}". Expected "single" or "map_reduce".`,
+  );
+}
+
 export function getAdminAiProvider(): AdminAiProvider {
-  return openAiAdminAiProvider;
+  const selected = getSelectedProviderName();
+  if (selected === "openai") return openAiAdminAiProvider;
+  if (selected === "deepseek") return deepSeekAdminAiProvider;
+  // Fail loud (never fake): an unknown provider is a misconfiguration, not a
+  // reason to silently fall back to a default and bill the wrong API.
+  throw new Error(
+    `Unknown ADMIN_AI_PROVIDER "${process.env.ADMIN_AI_PROVIDER}". Expected "openai" or "deepseek".`,
+  );
 }
 
 export function getAdminAiProviderAvailability(): AdminAiProviderAvailability {
@@ -277,6 +333,9 @@ export function getAdminAiProviderAvailability(): AdminAiProviderAvailability {
   return {
     isConfigured,
     unavailableReason: provider.getUnavailableReason(),
-    model: isConfigured ? getSynthesisModel() : null,
+    // Report the ACTIVE provider's model. Both shipped providers implement
+    // getModel(); the getSynthesisModel() fallback only guards test doubles
+    // that omit it (they never reach this configured branch in practice).
+    model: isConfigured ? provider.getModel?.() ?? getSynthesisModel() : null,
   };
 }

@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAdminAiProvider } from "./provider";
 import type { AdminAiQueryPlan } from "@/types/admin-ai";
 
+// The payload-print path dumps raw prompts to disk; keep tests hermetic.
+vi.mock("node:fs/promises", () => ({
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+}));
+
 const CONTACT_ID = "11111111-1111-4111-8111-111111111111";
 const APPLICATION_ID = "22222222-2222-4222-8222-222222222222";
 const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -330,7 +336,7 @@ describe("openAiAdminAiProvider.generate", () => {
     );
   });
 
-  it("prints the exact OpenAI request JSON immediately before sending when enabled", async () => {
+  it("prints an exact token/segment/cache breakdown immediately before sending when enabled", async () => {
     process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD = "1";
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const fetchMock = makeOkFetchMock("global");
@@ -340,15 +346,14 @@ describe("openAiAdminAiProvider.generate", () => {
 
     const sentBody = String(fetchMock.mock.calls[0]?.[1]?.body ?? "");
     expect(sentBody).toContain("\"model\":\"gpt-5-mini\"");
-    expect(infoSpy).toHaveBeenCalledWith(
-      "[admin-ai][openai-request-payload] begin",
-      expect.objectContaining({
-        model: "gpt-5-mini",
-        chars: sentBody.length,
-      }),
-    );
-    expect(infoSpy).toHaveBeenCalledWith(sentBody);
-    expect(infoSpy).toHaveBeenCalledWith("[admin-ai][openai-request-payload] end");
+
+    const report = infoSpy.mock.calls
+      .map((call) => String(call[0]))
+      .find((text) => text.includes("ADMIN-AI OPENAI REQUEST"));
+    expect(report).toBeDefined();
+    expect(report).toContain("gpt-5-mini");
+    expect(report).toContain("PROMPT-CACHE SPLIT");
+    expect(report).toContain("STABLE PREFIX");
   });
 
   it("does not print the full OpenAI request by default, even in development", async () => {

@@ -68,6 +68,11 @@ e2e/screenshots
 /scripts/*
 !/scripts/admin-ai-memory/
 !/scripts/admin-ai-memory/**
+# Admin-AI tooling (gated live suites; run via RUN_* env flags)
+!/scripts/admin-ai-live-lib.ts
+!/scripts/admin-ai-eval.test.ts
+!/scripts/analyze-admin-ai-payload.test.ts
+!/scripts/deepseek-smoke.test.ts
 
 #wiki
 /wiki
@@ -94,3 +99,5 @@ supabase/snippets/
 # Playwright MCP debug artifacts
 .playwright-mcp/
 dev-server.log
+# Admin AI request dumps (raw prompts built from real contact data — PII)
+.admin-ai-debug/
