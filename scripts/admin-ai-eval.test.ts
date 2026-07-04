@@ -1,0 +1,700 @@
+/**
+ * Admin-AI live eval harness — a repeatable scorecard for the admin AI so every
+ * future prompt/architecture change is measured, not vibed.
+ *
+ * Run: RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-ai-eval.test.ts
+ *
+ * Gated behind RUN_ADMIN_AI_EVAL so the normal suite never runs it. It hits the
+ * live DB (.env.development.local service-role key) and the real DeepSeek API,
+ * bypassing ALL persistence (no admin_ai_threads/messages writes). Ground truth
+ * is computed at RUNTIME from the loaded records — never hardcoded (contact ids
+ * are the join key; the one id constant below is a documented canary).
+ *
+ * Env is forced within the run (saved/restored): ADMIN_AI_PROVIDER=deepseek,
+ * ADMIN_AI_SCAN_MODE=map_reduce, DEEPSEEK_THINKING off. Each question is one
+ * serial it() (600s timeout) and is independent — a scored assertion failing
+ * fails only that question. Full JSON is written to .admin-ai-debug/.
+ */
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  createLiveSupabaseClient,
+  loadEligible,
+  loadEnv,
+  renderRecordsForLive,
+  type LiveSupabaseClient,
+} from "./admin-ai-live-lib";
+import { deepSeekAdminAiProvider } from "@/lib/admin-ai/deepseek-provider";
+import { runConstraintPlanner } from "@/lib/admin-ai/constraint-planner";
+import {
+  applyPlannedConstraints,
+  extractHardConstraints,
+  filterRecordsByHardConstraints,
+} from "@/lib/admin-ai/hard-constraints";
+import { MAP_CHUNK_SIZE, runMapScan } from "@/lib/admin-ai/map-scan";
+import { enforceShortlistRanking } from "@/lib/admin-ai/orchestrator";
+import { adminAiResponseSchema } from "@/lib/admin-ai/schemas";
+import type { ContactCardRecord } from "@/lib/data/contact-cards";
+import type { AdminAiResponse } from "@/types/admin-ai";
+
+// deepseek-v4-pro prices, USD per 1M tokens (single source of truth).
+const PRICE_PER_M = {
+  inputMiss: 0.435,
+  inputHit: 0.003625,
+  output: 0.87,
+};
+
+const YANG_YANG_ID = "6b21215b-c67a-4e71-84f0-f343fd5601a1";
+const CORAL = "26 Coral Catch";
+const SCUBASPA = "26 Maldives Academy ScubaSpa";
+
+type UsageAgg = { hit: number; miss: number; output: number };
+
+type EvalResult = {
+  key: string;
+  question: string;
+  truthCount: number | null;
+  recall: number | null;
+  shortlistPrecision: number | null;
+  forbiddenViolations: string[];
+  expectEmpty: boolean | null;
+  expectEmptyPass: boolean | null;
+  shortlistCount: number;
+  additionalCount: number;
+  cardsSent: number;
+  mapUsed: boolean;
+  latencyMs: number;
+  costUsd: number;
+  advisory: string[];
+};
+
+type PipelineOutput = {
+  response: AdminAiResponse;
+  usage: UsageAgg;
+  latencyMs: number;
+  cardsSent: number;
+  mapUsed: boolean;
+};
+
+const gateEnabled = process.env.RUN_ADMIN_AI_EVAL === "1";
+
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function accumulateUsage(agg: UsageAgg, usage: unknown): void {
+  if (!usage || typeof usage !== "object") return;
+  const u = usage as Record<string, unknown>;
+  agg.hit += num(u.prompt_cache_hit_tokens);
+  agg.miss += num(u.prompt_cache_miss_tokens);
+  agg.output += num(u.completion_tokens);
+}
+
+function costUsd(agg: UsageAgg): number {
+  return (
+    (agg.miss * PRICE_PER_M.inputMiss +
+      agg.hit * PRICE_PER_M.inputHit +
+      agg.output * PRICE_PER_M.output) /
+    1_000_000
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Runtime ground-truth helpers (computed from the loaded eligible records)
+// ---------------------------------------------------------------------------
+
+function tagsInCategory(record: ContactCardRecord, category: string) {
+  const target = category.toLowerCase();
+  return (record.contactTags ?? []).filter(
+    (tag) => tag.categoryName?.toLowerCase() === target,
+  );
+}
+
+function idsWithTagInCategory(
+  records: ContactCardRecord[],
+  category: string,
+  tagNames: string[],
+): string[] {
+  const wanted = new Set(tagNames.map((n) => n.toLowerCase()));
+  return records
+    .filter((record) =>
+      tagsInCategory(record, category).some((tag) =>
+        wanted.has((tag.tagName ?? "").toLowerCase()),
+      ),
+    )
+    .map((record) => record.contact.id);
+}
+
+function declinedOnlyIds(
+  records: ContactCardRecord[],
+  category: string,
+): string[] {
+  return records
+    .filter((record) => {
+      const tags = tagsInCategory(record, category);
+      return (
+        tags.length > 0 &&
+        tags.every((tag) => (tag.tagName ?? "").toLowerCase() === "declined")
+      );
+    })
+    .map((record) => record.contact.id);
+}
+
+function recordAnswerText(record: ContactCardRecord): string {
+  return record.applications
+    .flatMap((app) => Object.values((app.answers ?? {}) as Record<string, unknown>))
+    .filter((v): v is string => typeof v === "string")
+    .join(" ");
+}
+
+function recordNoteText(record: ContactCardRecord): string {
+  return (record.contactNotes ?? [])
+    .map((note) => (note as { text?: string }).text ?? "")
+    .join(" ");
+}
+
+function idsMatching(
+  records: ContactCardRecord[],
+  test: (record: ContactCardRecord) => boolean,
+): string[] {
+  return records.filter(test).map((record) => record.contact.id);
+}
+
+// ---------------------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------------------
+
+function unionIds(response: AdminAiResponse): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of response.shortlist ?? []) ids.add(entry.contactId);
+  for (const match of response.additionalMatches ?? []) ids.add(match.contactId);
+  return ids;
+}
+
+function shortlistIds(response: AdminAiResponse): string[] {
+  return (response.shortlist ?? []).map((entry) => entry.contactId);
+}
+
+function recall(found: Set<string>, truth: string[]): number | null {
+  if (truth.length === 0) return null;
+  const hits = truth.filter((id) => found.has(id)).length;
+  return hits / truth.length;
+}
+
+function shortlistPrecision(response: AdminAiResponse, truth: string[]): number | null {
+  const sl = shortlistIds(response);
+  if (sl.length === 0) return null;
+  const truthSet = new Set(truth);
+  return sl.filter((id) => truthSet.has(id)).length / sl.length;
+}
+
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+
+function pad(value: string, width: number): string {
+  return value.length >= width ? value : value + " ".repeat(width - value.length);
+}
+
+function fmtPct(value: number | null): string {
+  return value === null ? "  n/a" : `${(value * 100).toFixed(0)}%`;
+}
+
+function printScorecard(results: EvalResult[]): void {
+  const lines: string[] = [];
+  lines.push("=".repeat(96));
+  lines.push("ADMIN-AI EVAL SCORECARD · provider=deepseek · scan=map_reduce");
+  lines.push("=".repeat(96));
+  lines.push(
+    `${pad("QUESTION", 18)}${pad("RECALL", 8)}${pad("SL-PREC", 9)}${pad("FORBID", 8)}${pad("EMPTY", 7)}${pad("SL/ADD", 8)}${pad("CARDS", 7)}${pad("MAP", 5)}${pad("LAT(s)", 8)}${pad("COST$", 9)}`,
+  );
+  lines.push("-".repeat(96));
+  for (const r of results) {
+    const empty =
+      r.expectEmpty === null ? "-" : r.expectEmptyPass ? "pass" : "FAIL";
+    lines.push(
+      `${pad(r.key, 18)}${pad(fmtPct(r.recall), 8)}${pad(fmtPct(r.shortlistPrecision), 9)}${pad(String(r.forbiddenViolations.length), 8)}${pad(empty, 7)}${pad(`${r.shortlistCount}/${r.additionalCount}`, 8)}${pad(String(r.cardsSent), 7)}${pad(r.mapUsed ? "yes" : "no", 5)}${pad((r.latencyMs / 1000).toFixed(1), 8)}${pad(r.costUsd.toFixed(4), 9)}`,
+    );
+    for (const note of r.advisory) lines.push(`    · ${note}`);
+  }
+  lines.push("-".repeat(96));
+  const totalCost = results.reduce((n, r) => n + r.costUsd, 0);
+  lines.push(`TOTAL COST: $${totalCost.toFixed(4)} over ${results.length} questions`);
+  lines.push("=".repeat(96));
+  console.info(`\n${lines.join("\n")}\n`);
+}
+
+function writeResults(results: EvalResult[]): void {
+  const dir = path.join(process.cwd(), ".admin-ai-debug");
+  mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dir, `eval-${stamp}.json`);
+  writeFileSync(file, JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 2), "utf8");
+  console.info(`[admin-ai-eval] wrote ${file}`);
+}
+
+// ---------------------------------------------------------------------------
+// Suite
+// ---------------------------------------------------------------------------
+
+describe.runIf(gateEnabled)("admin-ai eval", () => {
+  const env: Record<string, string> = (() => {
+    try {
+      return loadEnv(".env.development.local");
+    } catch {
+      return {};
+    }
+  })();
+  const apiKey = env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "";
+  const hasKey = Boolean(apiKey);
+
+  let supabase: LiveSupabaseClient;
+  let records: ContactCardRecord[] = [];
+  const results: EvalResult[] = [];
+  const savedEnv: Record<string, string | undefined> = {};
+  const forcedKeys = [
+    "ADMIN_AI_PROVIDER",
+    "ADMIN_AI_SCAN_MODE",
+    "DEEPSEEK_THINKING",
+    "DEEPSEEK_API_KEY",
+    "DEEPSEEK_MODEL",
+    "DEEPSEEK_BASE_URL",
+  ];
+
+  beforeAll(async () => {
+    if (!hasKey) return;
+    for (const key of forcedKeys) savedEnv[key] = process.env[key];
+    process.env.ADMIN_AI_PROVIDER = "deepseek";
+    process.env.ADMIN_AI_SCAN_MODE = "map_reduce";
+    delete process.env.DEEPSEEK_THINKING;
+    process.env.DEEPSEEK_API_KEY = apiKey;
+    if (env.DEEPSEEK_MODEL) process.env.DEEPSEEK_MODEL = env.DEEPSEEK_MODEL;
+    if (env.DEEPSEEK_BASE_URL) process.env.DEEPSEEK_BASE_URL = env.DEEPSEEK_BASE_URL;
+
+    supabase = createLiveSupabaseClient(env);
+    records = await loadEligible(supabase);
+  }, 600_000);
+
+  afterAll(() => {
+    if (!hasKey) return;
+    for (const key of forcedKeys) {
+      const original = savedEnv[key];
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
+    if (results.length > 0) {
+      writeResults(results);
+      printScorecard(results);
+    }
+  });
+
+  // Runs the REAL pipeline with NO persistence, mirroring runCardSynthesis:
+  // prefilter → render (evidence off) → skip map when small else runMapScan →
+  // generate → zod parse → code-side matchStrength sort.
+  async function runPipeline(question: string): Promise<PipelineOutput> {
+    const start = Date.now();
+    const usage: UsageAgg = { hit: 0, miss: 0, output: 0 };
+
+    // Same prefilter order as the orchestrator: constraint planner first, legacy
+    // deterministic filters as the disclosed fallback.
+    const planned = await runConstraintPlanner({
+      provider: deepSeekAdminAiProvider,
+      records,
+      question,
+    });
+    const prefilteredRecords = planned
+      ? applyPlannedConstraints(records, planned.plan).records
+      : filterRecordsByHardConstraints(records, extractHardConstraints(question, records))
+          .records;
+    const cards = renderRecordsForLive(prefilteredRecords, {
+      includeEvidence: false,
+    });
+
+    let candidateCards = cards;
+    let mapUsed = false;
+    if (cards.length > MAP_CHUNK_SIZE) {
+      mapUsed = true;
+      const scan = await runMapScan({
+        provider: deepSeekAdminAiProvider,
+        cards,
+        question,
+      });
+      accumulateUsage(usage, scan.scanMetadata.usage);
+      candidateCards = cards.filter((card) => scan.candidateIds.has(card.contactId));
+    }
+
+    if (candidateCards.length === 0) {
+      return {
+        response: { assumptions: [], uncertainty: ["No candidates after scan."] },
+        usage,
+        latencyMs: Date.now() - start,
+        cardsSent: 0,
+        mapUsed,
+      };
+    }
+
+    const { response: rawResponse, modelMetadata } = await deepSeekAdminAiProvider.generate({
+      question,
+      scope: "global",
+      queryPlan: {
+        mode: "global_search",
+        structuredFilters: [],
+        textFocus: question.trim() ? [question.trim()] : [],
+        requestedLimit: 10,
+      },
+      cards: candidateCards,
+      evidence: [],
+      includeEvidence: false,
+      promptCacheKey: null,
+    });
+    accumulateUsage(usage, modelMetadata.usage);
+
+    const response = enforceShortlistRanking(adminAiResponseSchema.parse(rawResponse));
+    return {
+      response,
+      usage,
+      latencyMs: Date.now() - start,
+      cardsSent: candidateCards.length,
+      mapUsed,
+    };
+  }
+
+  function record(base: Omit<EvalResult, "costUsd">, usage: UsageAgg): EvalResult {
+    const full: EvalResult = { ...base, costUsd: costUsd(usage) };
+    results.push(full);
+    return full;
+  }
+
+  function skipIfNoKey(ctx: { skip: () => void }): boolean {
+    if (hasKey) return false;
+    console.warn(
+      "[admin-ai-eval] DEEPSEEK_API_KEY missing from .env.development.local — skipping",
+    );
+    ctx.skip();
+    return true;
+  }
+
+  it("cohort-recall: interested/potential for 26 Coral Catch", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question =
+      "Which contacts are interested in or potential candidates for the 26 Coral Catch?";
+    const truth = idsWithTagInCategory(records, CORAL, [
+      "Interested",
+      "Potential Candidate",
+    ]);
+    const forbidden = declinedOnlyIds(records, CORAL);
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const violations = forbidden.filter((id) => union.has(id));
+    const r = record(
+      {
+        key: "cohort-recall",
+        question,
+        truthCount: truth.length,
+        recall: recall(union, truth),
+        shortlistPrecision: shortlistPrecision(out.response, truth),
+        forbiddenViolations: violations,
+        expectEmpty: null,
+        expectEmptyPass: null,
+        shortlistCount: out.response.shortlist?.length ?? 0,
+        additionalCount: out.response.additionalMatches?.length ?? 0,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory: [],
+      },
+      out.usage,
+    );
+
+    expect(violations, "declined-only members must appear nowhere").toEqual([]);
+    expect(r.recall, "recall over shortlist∪additionalMatches").toBe(1);
+    const truthSet = new Set(truth);
+    expect(
+      shortlistIds(out.response).filter((id) => !truthSet.has(id)),
+      "every shortlisted contact must be a real cohort member",
+    ).toEqual([]);
+  }, 600_000);
+
+  it("cohort-big: potential candidates for 26 Maldives Academy ScubaSpa", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question =
+      "Who are potential candidates for the 26 Maldives Academy ScubaSpa?";
+    const truth = idsWithTagInCategory(records, SCUBASPA, ["Potential Candidate"]);
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const r = record(
+      {
+        key: "cohort-big",
+        question,
+        truthCount: truth.length,
+        recall: recall(union, truth),
+        shortlistPrecision: shortlistPrecision(out.response, truth),
+        forbiddenViolations: [],
+        expectEmpty: null,
+        expectEmptyPass: null,
+        shortlistCount: out.response.shortlist?.length ?? 0,
+        additionalCount: out.response.additionalMatches?.length ?? 0,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory: [`top-10 + ${out.response.additionalMatches?.length ?? 0} overflow`],
+      },
+      out.usage,
+    );
+
+    expect(r.recall, "union recall over the full cohort must be 1.0").toBe(1);
+  }, 600_000);
+
+  it("status-trap: who is joining 26 Maldives Academy ScubaSpa", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question = "Who is joining the 26 Maldives Academy ScubaSpa?";
+    const joiners = idsWithTagInCategory(records, SCUBASPA, ["Joining"]);
+    const potentialOnly = idsWithTagInCategory(records, SCUBASPA, [
+      "Potential Candidate",
+    ]).filter((id) => !joiners.includes(id));
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const slSet = new Set(shortlistIds(out.response));
+    const pcOnlyInShortlist = potentialOnly.filter((id) => slSet.has(id));
+    const advisory = [
+      `${pcOnlyInShortlist.length} potential-candidate-only member(s) leaked into the shortlist (status semantics are model territory post-Part-A)`,
+    ];
+    const r = record(
+      {
+        key: "status-trap",
+        question,
+        truthCount: joiners.length,
+        recall: recall(union, joiners),
+        shortlistPrecision: shortlistPrecision(out.response, joiners),
+        forbiddenViolations: [],
+        expectEmpty: null,
+        expectEmptyPass: null,
+        shortlistCount: out.response.shortlist?.length ?? 0,
+        additionalCount: out.response.additionalMatches?.length ?? 0,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory,
+      },
+      out.usage,
+    );
+
+    // Assert recall of the joiners; PC-only leakage is documented, not asserted.
+    expect(
+      joiners.filter((id) => !union.has(id)),
+      "all joiners must surface somewhere",
+    ).toEqual([]);
+    void r;
+  }, 600_000);
+
+  it("structured-fact: contacts who speak Spanish", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question = "Which contacts speak Spanish?";
+    // `languages` is the applications.answers JSONB key (FIELD_REGISTRY).
+    const truth = idsMatching(records, (rec) =>
+      /spanish|espa[nñ]ol/i.test(recordAnswerText(rec)),
+    );
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const r = record(
+      {
+        key: "structured-fact",
+        question,
+        truthCount: truth.length,
+        recall: recall(union, truth),
+        shortlistPrecision: shortlistPrecision(out.response, truth),
+        forbiddenViolations: [],
+        expectEmpty: null,
+        expectEmptyPass: null,
+        shortlistCount: out.response.shortlist?.length ?? 0,
+        additionalCount: out.response.additionalMatches?.length ?? 0,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory: [],
+      },
+      out.usage,
+    );
+
+    expect(truth.length, "truth set of Spanish speakers should be non-empty").toBeGreaterThan(0);
+    expect(r.recall, "union recall over Spanish speakers must be 1.0").toBe(1);
+  }, 600_000);
+
+  it("note-canary: personal project idea about ocean-animal perception", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question =
+      "Who has mentioned a personal project idea about how ocean animals perceive or experience the ocean?";
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    record(
+      {
+        key: "note-canary",
+        question,
+        truthCount: 1,
+        recall: union.has(YANG_YANG_ID) ? 1 : 0,
+        shortlistPrecision: null,
+        forbiddenViolations: [],
+        expectEmpty: null,
+        expectEmptyPass: null,
+        shortlistCount: out.response.shortlist?.length ?? 0,
+        additionalCount: out.response.additionalMatches?.length ?? 0,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory: [`Yang Yang ${union.has(YANG_YANG_ID) ? "surfaced" : "MISSED"}`],
+      },
+      out.usage,
+    );
+
+    expect(
+      union.has(YANG_YANG_ID),
+      "Yang Yang's call-note idea must surface in shortlist∪additionalMatches",
+    ).toBe(true);
+  }, 600_000);
+
+  it("negative-control: professional filming under polar ice", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question =
+      "Which contacts have professional experience filming under polar ice?";
+    const polarRe = /\bpolar\b|under (?:the )?ice|ice[- ]?dive|diving under ice/i;
+    const truth = idsMatching(
+      records,
+      (rec) => polarRe.test(recordAnswerText(rec)) || polarRe.test(recordNoteText(rec)),
+    );
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const shortlistCount = out.response.shortlist?.length ?? 0;
+    const additionalCount = out.response.additionalMatches?.length ?? 0;
+    const expectEmpty = truth.length === 0;
+    const emptyPass = shortlistCount === 0 && additionalCount === 0;
+    const violations = expectEmpty ? [] : truth.filter((id) => !union.has(id));
+
+    record(
+      {
+        key: "negative-control",
+        question,
+        truthCount: truth.length,
+        recall: expectEmpty ? null : recall(union, truth),
+        shortlistPrecision: null,
+        forbiddenViolations: violations,
+        expectEmpty,
+        expectEmptyPass: expectEmpty ? emptyPass : null,
+        shortlistCount,
+        additionalCount,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory: expectEmpty
+          ? ["truth empty — expecting no matches"]
+          : [`truth non-empty (${truth.length}) — scored as mustInclude`],
+      },
+      out.usage,
+    );
+
+    if (expectEmpty) {
+      expect(
+        emptyPass,
+        "no truth → shortlist AND additionalMatches must be empty",
+      ).toBe(true);
+    } else {
+      expect(violations, "all real matches must surface").toEqual([]);
+    }
+  }, 600_000);
+
+  it("declined-recall: who declined 26 Coral Catch (planner retires the limitation)", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question = "Who declined the 26 Coral Catch?";
+    const declined = idsWithTagInCategory(records, CORAL, ["Declined"]);
+    const nonDeclined = idsWithTagInCategory(records, CORAL, [
+      "Interested",
+      "Potential Candidate",
+    ]).filter((id) => !declined.includes(id));
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const slSet = new Set(shortlistIds(out.response));
+    const nonDeclinedInShortlist = nonDeclined.filter((id) => slSet.has(id));
+    record(
+      {
+        key: "declined-recall",
+        question,
+        truthCount: declined.length,
+        recall: recall(union, declined),
+        shortlistPrecision: shortlistPrecision(out.response, declined),
+        forbiddenViolations: nonDeclinedInShortlist,
+        expectEmpty: null,
+        expectEmptyPass: null,
+        shortlistCount: out.response.shortlist?.length ?? 0,
+        additionalCount: out.response.additionalMatches?.length ?? 0,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory: [
+          "planner should emit includeStatuses ['Declined'] so declined members are reachable",
+        ],
+      },
+      out.usage,
+    );
+
+    expect(
+      declined.filter((id) => !union.has(id)),
+      "all declined members must surface (planner retires the old exclusion)",
+    ).toEqual([]);
+    expect(
+      nonDeclinedInShortlist,
+      "non-declined cohort members must not be in the shortlist",
+    ).toEqual([]);
+  }, 600_000);
+
+  it("broad-advisory: people with their own project initiatives (structural only)", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question =
+      "Are there any people in our contacts who have their own projects in mind? Something they could do if we assist them, but it's their initiative?";
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const strengths = (out.response.shortlist ?? []).map((e) => e.matchStrength ?? 0);
+    const nonIncreasing = strengths.every(
+      (s, i) => i === 0 || s <= strengths[i - 1]!,
+    );
+    record(
+      {
+        key: "broad-advisory",
+        question,
+        truthCount: null,
+        recall: null,
+        shortlistPrecision: null,
+        forbiddenViolations: [],
+        expectEmpty: null,
+        expectEmptyPass: null,
+        shortlistCount: out.response.shortlist?.length ?? 0,
+        additionalCount: out.response.additionalMatches?.length ?? 0,
+        cardsSent: out.cardsSent,
+        mapUsed: out.mapUsed,
+        latencyMs: out.latencyMs,
+        advisory: [
+          "ADVISORY (no ground truth — structural checks only)",
+          `Yang Yang ${union.has(YANG_YANG_ID) ? "appears" : "absent"} in the union`,
+        ],
+      },
+      out.usage,
+    );
+
+    expect(
+      (out.response.assumptions ?? []).length,
+      "assumptions must be stated for a bar-ambiguous question",
+    ).toBeGreaterThan(0);
+    expect(
+      out.response.shortlist?.length ?? 0,
+      "shortlist must respect the 10-entry cap",
+    ).toBeLessThanOrEqual(10);
+    expect(nonIncreasing, "matchStrength must be non-increasing across the shortlist").toBe(true);
+  }, 600_000);
+});
