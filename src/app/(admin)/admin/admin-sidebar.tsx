@@ -17,6 +17,7 @@ import {
   Mail,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
   Tags,
   Users,
 } from "lucide-react";
@@ -46,16 +47,26 @@ type AdminSidebarUser = {
   avatarUrl: string | null;
 };
 
-const workspaceItems: Array<{
+type WorkspaceNavItem = {
   item: AdminPanelTab;
   label: string;
   icon: ComponentType<{ className?: string }>;
-}> = [
+};
+
+const workspaceItems: WorkspaceNavItem[] = [
   { item: "contacts", label: "Contacts", icon: ContactRound },
   { item: "email", label: "Email", icon: Mail },
   { item: "tasks", label: "Tasks", icon: CheckSquare },
   { item: "tags", label: "Tags", icon: Tags },
 ];
+
+// Dev-only AI Agent panel — reuses the same `?tab=ai` route the dashboard and
+// header already handle; the link is the only piece that was missing.
+const adminAiNavItem: WorkspaceNavItem = {
+  item: "ai",
+  label: "AI Agent",
+  icon: Sparkles,
+};
 
 type AdminPanelLinkProps = Omit<ComponentPropsWithoutRef<typeof Link>, "href"> & {
   shallow: boolean;
@@ -115,6 +126,9 @@ export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const aiEnabled = isLocalAdminAiEnabled();
+  const workspaceNav = aiEnabled
+    ? [...workspaceItems, adminAiNavItem]
+    : workspaceItems;
   const rawTab = searchParams.get("tab");
   const tab =
     rawTab === "email" ||
@@ -167,7 +181,7 @@ export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
           <SidebarGroupLabel>Workspace</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {workspaceItems.map((entry) => {
+              {workspaceNav.map((entry) => {
                   const Icon = entry.icon;
                   return (
                     <SidebarMenuItem key={entry.item}>
