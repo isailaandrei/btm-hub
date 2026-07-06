@@ -26,7 +26,11 @@ describe("buildAdminAiSystemPrompt", () => {
   it("instructs the top-10 ranked + assumptions + additionalMatches contract", () => {
     const prompt = buildAdminAiSystemPrompt("global");
 
-    expect(prompt).toContain("state your interpretive assumptions in `assumptions`");
+    expect(prompt).toContain(
+      "`assumptions` holds ONLY genuine interpretive judgment calls",
+    );
+    expect(prompt).toContain("at most 4 entries");
+    expect(prompt).toContain("NEVER put in `assumptions`");
     expect(prompt).toContain(
       "Rank the `shortlist` by likelihood of matching the query",
     );
