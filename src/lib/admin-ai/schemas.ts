@@ -204,6 +204,9 @@ export const plannerOutputSchema = z.object({
       }),
     )
     .default([]),
+  // True when the question is a pure roster of the extracted constraints; the
+  // orchestrator then guarantees every prefiltered member appears in the answer.
+  enumerationOnly: z.boolean().default(false),
   notes: z.string().default(""),
 });
 

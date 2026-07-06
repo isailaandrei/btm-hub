@@ -154,6 +154,15 @@ function recordNoteText(record: ContactCardRecord): string {
     .join(" ");
 }
 
+// The `languages` answer field specifically — NOT all answers — so an essay
+// mention like "filmed in Spanish waters" does not count as a speaker.
+function recordLanguagesText(record: ContactCardRecord): string {
+  return record.applications
+    .map((app) => (app.answers as Record<string, unknown>)?.languages)
+    .filter((v): v is string => typeof v === "string")
+    .join(" ");
+}
+
 function idsMatching(
   records: ContactCardRecord[],
   test: (record: ContactCardRecord) => boolean,
@@ -494,9 +503,10 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
   it("structured-fact: contacts who speak Spanish", async (ctx) => {
     if (skipIfNoKey(ctx)) return;
     const question = "Which contacts speak Spanish?";
-    // `languages` is the applications.answers JSONB key (FIELD_REGISTRY).
+    // Truth is the `languages` answer field only (FIELD_REGISTRY key), not any
+    // essay that happens to mention Spanish.
     const truth = idsMatching(records, (rec) =>
-      /spanish|espa[nñ]ol/i.test(recordAnswerText(rec)),
+      /spanish|espa[nñ]ol/i.test(recordLanguagesText(rec)),
     );
 
     const out = await runPipeline(question);

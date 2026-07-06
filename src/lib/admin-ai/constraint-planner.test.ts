@@ -59,7 +59,12 @@ describe("buildPlannerCatalog", () => {
 
     const coral = catalog.tagCategories.find((c) => c.name === "26 Coral Catch");
     expect(coral?.tags.sort()).toEqual(["Declined", "Interested"]);
-    expect(catalog.fields.some((f) => f.key === "program")).toBe(true);
+    // Only option-backed fields survive; every catalog field has options.
+    expect(catalog.fields.length).toBeGreaterThan(0);
+    expect(catalog.fields.every((f) => (f.options?.length ?? 0) > 0)).toBe(true);
+    // Free-text `languages` and unbacked meta columns are excluded.
+    expect(catalog.fields.some((f) => f.key === "languages")).toBe(false);
+    expect(catalog.fields.some((f) => f.key === "program")).toBe(false);
     expect(catalog.fields.some((f) => f.key === "tag_ids")).toBe(false);
     expect(catalog.fields.some((f) => f.key === "tag_names")).toBe(false);
   });
@@ -79,7 +84,10 @@ describe("plannerOutputSchema", () => {
       plannerOutputSchema.safeParse({
         tagConstraint: { category: "X", includeStatuses: ["Interested"] },
         budgetMin: 6000,
-        fieldConstraints: [{ field: "program", op: "eq", value: "freediving" }],
+        fieldConstraints: [
+          { field: "certification_level", op: "eq", value: "Advanced Freediver" },
+        ],
+        enumerationOnly: true,
         notes: "n",
       }).success,
     ).toBe(true);
@@ -87,6 +95,7 @@ describe("plannerOutputSchema", () => {
       tagConstraint: null,
       budgetMin: null,
       fieldConstraints: [],
+      enumerationOnly: false,
       notes: "",
     });
   });
@@ -103,10 +112,16 @@ describe("plannerOutputSchema", () => {
 describe("validatePlan", () => {
   const catalog: PlannerCatalog = {
     tagCategories: [{ name: "26 Coral Catch", tags: ["Interested", "Declined"] }],
-    fields: [{ key: "program", label: "Program" }],
+    fields: [
+      {
+        key: "certification_level",
+        label: "Certification Level",
+        options: ["Advanced Freediver", "Beginner"],
+      },
+    ],
   };
 
-  it("drops unknown categories/statuses/fields and keeps canonical casing", () => {
+  it("keeps canonical casing and an option-matched field, drops unknown tags/fields", () => {
     const { plan, droppedParts } = validatePlan(
       plannerOutputSchema.parse({
         tagConstraint: {
@@ -114,7 +129,7 @@ describe("validatePlan", () => {
           includeStatuses: ["Interested", "Joining"],
         },
         fieldConstraints: [
-          { field: "program", op: "eq", value: "freediving" },
+          { field: "certification_level", op: "contains", value: "advanced" },
           { field: "nonsense", op: "eq", value: "x" },
         ],
       }),
@@ -126,10 +141,38 @@ describe("validatePlan", () => {
       includeStatuses: ["Interested"],
     });
     expect(plan.fieldConstraints).toEqual([
-      { field: "program", op: "eq", value: "freediving" },
+      { field: "certification_level", op: "contains", value: "advanced" },
     ]);
     expect(droppedParts.some((p) => p.includes("Joining"))).toBe(true);
     expect(droppedParts.some((p) => p.includes("nonsense"))).toBe(true);
+  });
+
+  it("drops a field-constraint whose value is not a recognized option", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "certification_level", op: "contains", value: "spanish" },
+        ],
+      }),
+      catalog,
+    );
+    expect(plan.fieldConstraints).toEqual([]);
+    expect(
+      droppedParts.some((p) => p.includes("not a recognized option")),
+    ).toBe(true);
+  });
+
+  it("drops a free-text / unknown field with an evidence-scan disclosure", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [{ field: "languages", op: "contains", value: "spanish" }],
+      }),
+      catalog,
+    );
+    expect(plan.fieldConstraints).toEqual([]);
+    expect(
+      droppedParts.some((p) => p.includes("left to the evidence scan")),
+    ).toBe(true);
   });
 });
 

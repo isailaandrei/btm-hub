@@ -44,16 +44,22 @@ export function buildPlannerCatalog(records: ContactCardRecord[]): PlannerCatalo
     tags: [...tags],
   }));
 
+  // Only OPTION-BACKED fields (a fixed option list) are planner-filterable.
+  // Free-text fields (languages, essays) and unbacked meta columns are omitted
+  // entirely — paraphrase-blind substring filters over prose destroy recall, so
+  // those criteria are left to the evidence scan.
   const fields = ADMIN_AI_STRUCTURED_FIELDS.filter(
     (key) => !NON_FIELD_META_KEYS.has(key),
-  ).map((key) => {
-    const options = getAdminAiFieldOptions(key);
-    return {
+  )
+    .map((key) => ({
       key,
       label: getAdminAiFieldLabel(key),
-      ...(options && options.length > 0 ? { options } : {}),
-    };
-  });
+      options: getAdminAiFieldOptions(key),
+    }))
+    .filter(
+      (field): field is { key: string; label: string; options: string[] } =>
+        Array.isArray(field.options) && field.options.length > 0,
+    );
 
   return { tagCategories, fields };
 }
@@ -63,12 +69,14 @@ export function buildPlannerSystemPrompt(): string {
     "You are a query-constraint planner for a CRM admin AI.",
     "Extract ONLY the constraints the question makes EXPLICIT and exclusionary. When a detail is a ranking preference, a nice-to-have, or unstated, it is NOT a constraint.",
     "Use ONLY category names, tag names, and field keys that appear in the supplied catalog, copied verbatim (exact casing). Never invent names.",
-    'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string"}], "notes": "string"}.',
+    'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string"}], "enumerationOnly": boolean, "notes": "string"}.',
     'Tag rules: "interested / potential candidates for X" → includeStatuses ["Interested","Potential Candidate"]; "who is joining X" → ["Joining"]; "who declined X" → ["Declined"]; a cohort named with NO status qualifier → includeStatuses [] (code applies the default).',
     "Budget: set budgetMin only when the question states an explicit minimum spend.",
-    "Field constraints: emit one only when the question demands a specific value of a catalog field; use `eq` for an exact option and `contains` for a substring.",
+    "Field constraints: emit one ONLY for an option-backed catalog field whose value matches one of its options; use `eq` for an exact option and `contains` for a substring of an option.",
+    "Free-text criteria — languages spoken, topics or experiences mentioned, anything described in prose — are NOT constraints; the evidence scan handles them. Never emit a fieldConstraint for a field that is not in the catalog.",
     "Ranking preferences such as 'most experienced' or 'strongest' are NOT constraints — leave them out.",
-    "When the question names nothing explicit and exclusionary, return tagConstraint null, budgetMin null, and an empty fieldConstraints array.",
+    "Set `enumerationOnly` true when the question asks for nothing beyond the extracted constraints — a pure roster (e.g. 'who is interested / potential for X?' with a tagConstraint). Set it false when the question adds ranking or judgment beyond the constraints (e.g. 'who in X has the most experience?').",
+    "When the question names nothing explicit and exclusionary, return tagConstraint null, budgetMin null, an empty fieldConstraints array, and enumerationOnly false.",
     "Put a one-line explanation of your reading in `notes`.",
   ].join(" ");
 }
@@ -120,11 +128,27 @@ export function validatePlan(
 
   const fieldConstraints: PlannerOutput["fieldConstraints"] = [];
   for (const constraint of plan.fieldConstraints) {
+    const label = `field filter '${constraint.field} ${constraint.op} ${constraint.value}'`;
     const field = catalog.fields.find(
       (f) => f.key.toLowerCase() === constraint.field.toLowerCase(),
     );
     if (!field) {
-      droppedParts.push(`field '${constraint.field}' (unknown)`);
+      droppedParts.push(
+        `${label} dropped: field is free-text or unknown — left to the evidence scan`,
+      );
+      continue;
+    }
+    // The value must case-insensitively match one of the field's options
+    // (exact or a substring of an option) — otherwise it is not a real option
+    // filter and the evidence scan should handle it.
+    const value = constraint.value.trim().toLowerCase();
+    const matchesOption = (field.options ?? []).some((option) =>
+      option.toLowerCase().includes(value),
+    );
+    if (!matchesOption) {
+      droppedParts.push(
+        `${label} dropped: '${constraint.value}' is not a recognized option of '${field.key}'`,
+      );
       continue;
     }
     fieldConstraints.push({ ...constraint, field: field.key });

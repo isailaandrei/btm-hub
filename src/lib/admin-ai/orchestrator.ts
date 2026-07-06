@@ -491,6 +491,9 @@ type GlobalPrefilter = {
     response: AdminAiResponse;
     droppedContactIds: string[];
   };
+  // Guarantees enumeration completeness: appends any prefiltered member missing
+  // from the answer. Identity except on a pure-enumeration planner tag path.
+  completeEnumeration: (response: AdminAiResponse) => AdminAiResponse;
   metadata: Record<string, unknown> | null;
 };
 
@@ -500,6 +503,7 @@ function nullPrefilter(records: ContactCardRecord[]): GlobalPrefilter {
     structuredFilters: [],
     disclose: (response) => response,
     enforce: (response) => ({ response, droppedContactIds: [] }),
+    completeEnumeration: (response) => response,
     metadata: null,
   };
 }
@@ -584,6 +588,57 @@ function disclosePlannerPrefilter(
   return result;
 }
 
+// For a pure-enumeration tag question, the prefiltered records ARE the answer.
+// Append any member the reduce tier dropped to the END of additionalMatches so
+// recall is 1.0 by construction; ranking of what's already there stays model
+// territory.
+function buildEnumerationCompleter(
+  records: ContactCardRecord[],
+  plan: PlannerOutput,
+): (response: AdminAiResponse) => AdminAiResponse {
+  if (!plan.enumerationOnly || !plan.tagConstraint) {
+    return (response) => response;
+  }
+  const tagConstraint = plan.tagConstraint;
+  const wanted =
+    tagConstraint.includeStatuses.length > 0
+      ? new Set(tagConstraint.includeStatuses.map((status) => status.toLowerCase()))
+      : null;
+  const rosters = records.map((record) => {
+    const matches = (record.contactTags ?? []).filter((tag) => {
+      if (tag.categoryName?.toLowerCase() !== tagConstraint.category.toLowerCase()) {
+        return false;
+      }
+      const name = (tag.tagName ?? "").toLowerCase();
+      return wanted ? wanted.has(name) : name !== "declined";
+    });
+    return {
+      contactId: record.contact.id,
+      contactName: record.contact.name ?? "",
+      status: matches.map((tag) => tag.tagName).join(", "),
+    };
+  });
+
+  return (response) => {
+    const present = new Set<string>();
+    for (const entry of response.shortlist ?? []) present.add(entry.contactId);
+    for (const match of response.additionalMatches ?? []) present.add(match.contactId);
+    const missing = rosters.filter((entry) => !present.has(entry.contactId));
+    if (missing.length === 0) return response;
+    adminAiDebugLog("enumeration-completeness-appended", { count: missing.length });
+    const appended: AdminAiAdditionalMatch[] = missing.map((entry) => ({
+      contactId: entry.contactId,
+      contactName: entry.contactName,
+      reason: `Carries '${tagConstraint.category}: ${entry.status}' tag`,
+      matchStrength: 1,
+    }));
+    return {
+      ...response,
+      additionalMatches: [...(response.additionalMatches ?? []), ...appended],
+    };
+  };
+}
+
 function buildPlannerPrefilter(
   records: ContactCardRecord[],
   run: PlannerRun,
@@ -599,6 +654,7 @@ function buildPlannerPrefilter(
       disclosePlannerPrefilter(response, run.plan, applied, run.droppedParts),
     enforce: (response) =>
       filterResponseToAllowedContacts(response, allowedContactIds),
+    completeEnumeration: buildEnumerationCompleter(applied.records, run.plan),
     metadata: {
       planner: {
         plan: run.plan,
@@ -650,6 +706,7 @@ function buildLegacyPrefilter(
         constraints: filter.constraints,
       });
     },
+    completeEnumeration: (response) => response,
     metadata: {
       plannerUnavailable: true,
       ...(hasConstraints
@@ -948,6 +1005,9 @@ async function runCardSynthesis(input: {
     response = enforced.response;
     const prefilterDroppedShortlistContactIds = enforced.droppedContactIds;
     response = prefilter.disclose(response);
+    // Enumeration completeness runs AFTER the code-sort so appended members land
+    // at the end of additionalMatches (recall 1.0 by construction).
+    response = prefilter.completeEnumeration(response);
 
     response = discloseChatRetrievalUnavailable(
       response,

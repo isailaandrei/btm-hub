@@ -15,6 +15,7 @@ function plan(partial: Partial<PlannerOutput>): PlannerOutput {
     tagConstraint: null,
     budgetMin: null,
     fieldConstraints: [],
+    enumerationOnly: false,
     notes: "",
     ...partial,
   };

@@ -1301,4 +1301,86 @@ describe("runAdminAiAnalysis (constraint planner)", () => {
     };
     expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
   });
+
+  async function runEnumerationCase(enumerationOnly: boolean) {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    // 3 prefiltered Interested members.
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeTaggedRecord(CONTACT_ID, "26 Coral Catch", "Interested"),
+      makeTaggedRecord(OTHER_CONTACT_ID, "26 Coral Catch", "Interested"),
+      makeTaggedRecord(MISSING_BUDGET_CONTACT_ID, "26 Coral Catch", "Interested"),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: { category: "26 Coral Catch", includeStatuses: ["Interested"] },
+        budgetMin: null,
+        fieldConstraints: [],
+        enumerationOnly,
+        notes: "",
+      },
+      modelMetadata: {},
+    });
+    // Reduce returns only 2 of the 3 prefiltered members.
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+          {
+            contactId: OTHER_CONTACT_ID,
+            contactName: "Ivo Santos",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 80,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    return runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who is interested in 26 Coral Catch?",
+    });
+  }
+
+  it("appends prefiltered members the reduce dropped when enumerationOnly is true", async () => {
+    const result = await runEnumerationCase(true);
+    const appended = result.response?.additionalMatches?.find(
+      (m) => m.contactId === MISSING_BUDGET_CONTACT_ID,
+    );
+    expect(appended?.reason).toBe("Carries '26 Coral Catch: Interested' tag");
+    expect(appended?.matchStrength).toBe(1);
+  });
+
+  it("does not append missing members when enumerationOnly is false", async () => {
+    const result = await runEnumerationCase(false);
+    const union = new Set([
+      ...(result.response?.shortlist ?? []).map((e) => e.contactId),
+      ...(result.response?.additionalMatches ?? []).map((m) => m.contactId),
+    ]);
+    expect(union.has(MISSING_BUDGET_CONTACT_ID)).toBe(false);
+  });
 });
