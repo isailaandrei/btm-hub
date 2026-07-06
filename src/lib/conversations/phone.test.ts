@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildContactDigitIndex,
   buildContactPhoneIndex,
+  matchContactByDigits,
   matchContactByPhone,
+  normalizePhoneDigits,
   normalizePhoneNumber,
 } from "./phone";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
@@ -128,6 +131,106 @@ describe("contact phone matching", () => {
           via: expect.stringMatching(/^application:/),
         },
       ],
+    });
+  });
+});
+
+describe("normalizePhoneDigits", () => {
+  it("strips formatting to a bare digit string", () => {
+    expect(normalizePhoneDigits("+351 939 054 063")).toBe("351939054063");
+    expect(normalizePhoneDigits("939-054-063")).toBe("939054063");
+    expect(normalizePhoneDigits("  939 054 063 ")).toBe("939054063");
+  });
+
+  it("drops a leading 00 international prefix", () => {
+    expect(normalizePhoneDigits("00351939054063")).toBe("351939054063");
+  });
+
+  it("keeps a single national leading zero (only 00 is a prefix)", () => {
+    expect(normalizePhoneDigits("0939054063")).toBe("0939054063");
+  });
+
+  it("returns null when there are no digits", () => {
+    expect(normalizePhoneDigits("no digits")).toBeNull();
+    expect(normalizePhoneDigits(null)).toBeNull();
+    expect(normalizePhoneDigits("")).toBeNull();
+  });
+});
+
+describe("digit-suffix phone matching", () => {
+  it("matches on exact normalized digits across formatting and 00-prefix variance", () => {
+    const index = buildContactDigitIndex([
+      makeRecord({ contactId: CONTACT_ID, contactPhone: "+351939054063" }),
+    ]);
+
+    expect(matchContactByDigits(index, "00351 939 054 063")).toEqual({
+      status: "matched",
+      e164: "351939054063",
+      contactId: CONTACT_ID,
+      matchedVia: "contact.phone",
+    });
+  });
+
+  it("matches a national number by unique 9-digit suffix", () => {
+    const index = buildContactDigitIndex([
+      makeRecord({ contactId: CONTACT_ID, contactPhone: "+351939054063" }),
+    ]);
+
+    // National form (leading 0, no country code) never equals the stored E.164
+    // digits but shares the last 9 — a unique suffix, so it matches.
+    expect(matchContactByDigits(index, "0939054063")).toEqual({
+      status: "matched",
+      e164: "0939054063",
+      contactId: CONTACT_ID,
+      matchedVia: "suffix9:contact.phone",
+    });
+  });
+
+  it("refuses a suffix match when two contacts share the tail, warning instead", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const index = buildContactDigitIndex([
+      makeRecord({ contactId: CONTACT_ID, contactPhone: "+351939054063" }),
+      makeRecord({ contactId: OTHER_CONTACT_ID, contactPhone: "+1939054063" }),
+    ]);
+
+    expect(matchContactByDigits(index, "0939054063")).toEqual({
+      status: "unmatched",
+      e164: "0939054063",
+    });
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("still resolves an exact match even when the suffix is shared", () => {
+    const index = buildContactDigitIndex([
+      makeRecord({ contactId: CONTACT_ID, contactPhone: "+351939054063" }),
+      makeRecord({ contactId: OTHER_CONTACT_ID, contactPhone: "+1939054063" }),
+    ]);
+
+    expect(matchContactByDigits(index, "351939054063")).toMatchObject({
+      status: "matched",
+      contactId: CONTACT_ID,
+    });
+  });
+
+  it("never matches numbers shorter than 9 digits", () => {
+    const index = buildContactDigitIndex([
+      makeRecord({ contactId: CONTACT_ID, contactPhone: "+351939054063" }),
+    ]);
+
+    expect(matchContactByDigits(index, "12345678")).toEqual({
+      status: "unmatched",
+      e164: "12345678",
+    });
+  });
+
+  it("returns unmatched for an unknown number", () => {
+    const index = buildContactDigitIndex([
+      makeRecord({ contactId: CONTACT_ID, contactPhone: "+351939054063" }),
+    ]);
+
+    expect(matchContactByDigits(index, "+15551234567")).toEqual({
+      status: "unmatched",
+      e164: "15551234567",
     });
   });
 });

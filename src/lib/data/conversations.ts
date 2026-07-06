@@ -91,6 +91,8 @@ export type ConversationDigestInput = {
   contentHash: string;
   generatorModel: string;
   generatorVersion: string;
+  /** Noise-marker windows (no CRM signal): empty summary, filtered from cards. */
+  isNoise: boolean;
 };
 
 export type ConversationEmbeddingInput = {
@@ -356,6 +358,7 @@ export async function upsertConversationDigest(
           content_hash: input.contentHash,
           generator_model: input.generatorModel,
           generator_version: input.generatorVersion,
+          is_noise: input.isNoise,
         },
       ],
       { onConflict: "content_hash" },

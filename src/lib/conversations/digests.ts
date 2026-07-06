@@ -19,6 +19,30 @@ import type { ConversationDirection, ConversationSource } from "./ingestion/adap
 export const DIGEST_GENERATOR_VERSION = "conversation-digest-v1";
 export const DIGEST_WINDOW_SESSION_GAP_MS = 30 * 60 * 1000;
 
+// Per-invocation cap so a large backlog drains across cron runs rather than
+// running to the function's max duration on the first call.
+export const DEFAULT_MAX_DIGEST_WINDOWS_PER_RUN = 40;
+
+// Below this total participant text (sum of trimmed message bodies), a window
+// carries no CRM signal — greetings, media-only, empty — and is classified as
+// noise WITHOUT a model call. Media-only windows (empty bodies) sum to 0.
+export const NOISE_MIN_TOTAL_BODY_CHARS = 40;
+
+// Marker stored as the generator model for code-level noise windows (no model
+// was called), distinguishing them from model-classified noise.
+const NOISE_GATE_MARKER = "noise-gate";
+
+export function windowTotalBodyChars(messages: DigestWindowMessage[]): number {
+  return messages.reduce((sum, message) => sum + message.body.trim().length, 0);
+}
+
+/** True when a window is trivially small / body-empty — noise without a model call. */
+export function isTriviallyNoisyWindow(
+  messages: DigestWindowMessage[],
+): boolean {
+  return windowTotalBodyChars(messages) < NOISE_MIN_TOTAL_BODY_CHARS;
+}
+
 export type DigestWindowMessage = {
   id: string;
   contactId: string;
@@ -83,14 +107,18 @@ export type ConversationDigestProcessSummary = {
   digestsCreated: number;
   factsCreated: number;
   embeddingsCreated: number;
+  /** Windows classified noise (empty summary marker) — code-level or model-level. */
+  noiseWindows: number;
+  /** Quiesced windows this run did NOT process (cap hit / more batches remain). */
+  remainingWindows: number;
 };
 
-type DigestWindowWorkItem = {
+export type DigestWindowWorkItem = {
   window: DigestWindow;
   messages: DigestWindowMessage[];
 };
 
-function splitMessagesIntoDigestWindows(
+export function splitMessagesIntoDigestWindows(
   messages: DigestWindowMessage[],
   now: number,
 ): DigestWindowWorkItem[] {
@@ -145,27 +173,62 @@ function splitMessagesIntoDigestWindows(
 export async function processConversationDigestWindows(input?: {
   limit?: number;
   embeddingLimit?: number;
+  maxWindows?: number;
   now?: number;
 }): Promise<ConversationDigestProcessSummary> {
   const now = input?.now ?? Date.now();
-  const messages = await listUndigestedConversationMessages({
-    limit: input?.limit ?? 500,
-  });
+  const limit = input?.limit ?? 500;
+  const maxWindows = input?.maxWindows ?? DEFAULT_MAX_DIGEST_WINDOWS_PER_RUN;
+  const messages = await listUndigestedConversationMessages({ limit });
+  // splitMessagesIntoDigestWindows only emits QUIESCED windows (last message
+  // older than the session gap relative to `now`), so a still-live session is
+  // never digested mid-flight.
   const windows = splitMessagesIntoDigestWindows(messages, now);
   const summary: ConversationDigestProcessSummary = {
     processedWindows: 0,
     digestsCreated: 0,
     factsCreated: 0,
     embeddingsCreated: 0,
+    noiseWindows: 0,
+    remainingWindows: 0,
   };
 
-  for (const item of windows) {
-    const { window, messages: windowMessages } = item;
+  let index = 0;
+  for (; index < windows.length; index += 1) {
+    if (summary.processedWindows >= maxWindows) break;
+    const { window, messages: windowMessages } = windows[index]!;
     if (await conversationDigestExists(window.contentHash)) continue;
+
+    // Code-level noise gate: trivially small / body-empty windows are recorded
+    // as noise markers (empty summary, is_noise = true) with NO model call, no
+    // facts, and no per-window embeddings. The content hash still advances the
+    // watermark so the window is never reprocessed.
+    if (isTriviallyNoisyWindow(windowMessages)) {
+      await upsertConversationDigest({
+        contactId: window.contactId,
+        source: window.source,
+        windowStart: window.windowStart,
+        windowEnd: window.windowEnd,
+        firstMessageId: window.firstMessageId,
+        lastMessageId: window.lastMessageId,
+        summary: "",
+        sourceMessageCount: window.sourceMessageCount,
+        contentHash: window.contentHash,
+        generatorModel: NOISE_GATE_MARKER,
+        generatorVersion: DIGEST_GENERATOR_VERSION,
+        isNoise: true,
+      });
+      summary.processedWindows += 1;
+      summary.noiseWindows += 1;
+      continue;
+    }
 
     const extraction = await extractConversationDigest({
       transcript: window.transcript,
     });
+    // Model-level noise: an empty summary means the model found no signal — same
+    // handling as the code-level gate (marker row, no facts).
+    const isNoise = extraction.summary.trim() === "";
 
     await upsertConversationDigest({
       contactId: window.contactId,
@@ -179,23 +242,40 @@ export async function processConversationDigestWindows(input?: {
       contentHash: window.contentHash,
       generatorModel: extraction.model,
       generatorVersion: DIGEST_GENERATOR_VERSION,
+      isNoise,
     });
-
-    const sourceMessageIds = windowMessages.map((message) => message.id);
-    const facts = buildConversationFactInputs({
-      contactId: window.contactId,
-      sourceMessageIds,
-      observedAt: window.windowEnd,
-      extractorModel: extraction.model,
-      facts: extraction.facts,
-    });
-    await appendConversationFacts(facts);
 
     summary.processedWindows += 1;
-    summary.digestsCreated += 1;
-    summary.factsCreated += facts.length;
+    if (isNoise) {
+      summary.noiseWindows += 1;
+    } else {
+      summary.digestsCreated += 1;
+      const facts = buildConversationFactInputs({
+        contactId: window.contactId,
+        sourceMessageIds: windowMessages.map((message) => message.id),
+        observedAt: window.windowEnd,
+        extractorModel: extraction.model,
+        facts: extraction.facts,
+      });
+      await appendConversationFacts(facts);
+      summary.factsCreated += facts.length;
+    }
   }
 
+  // Windows we did NOT reach this run (cap hit). Skipped-existing windows are
+  // already done and don't count. If we cleared the whole batch but it filled
+  // the fetch limit, more messages likely remain beyond it — signal one more run
+  // (the next run advances the watermark and drains them).
+  const unreached = windows.length - index;
+  if (unreached > 0) {
+    summary.remainingWindows = unreached;
+  } else if (summary.processedWindows > 0 && messages.length >= limit) {
+    summary.remainingWindows = 1;
+  } else {
+    summary.remainingWindows = 0;
+  }
+
+  // Embeddings backlog is independent of digest windows; bound it per run too.
   const messagesMissingEmbeddings = await listMessagesMissingEmbeddings({
     embeddingModel: DEFAULT_EMBEDDING_MODEL,
     embeddingVersion: DEFAULT_MESSAGE_EMBEDDING_VERSION,

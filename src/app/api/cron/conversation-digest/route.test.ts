@@ -4,6 +4,7 @@ const mockProcessConversationDigestWindows = vi.fn();
 
 vi.mock("@/lib/conversations/digests", () => ({
   processConversationDigestWindows: mockProcessConversationDigestWindows,
+  DEFAULT_MAX_DIGEST_WINDOWS_PER_RUN: 40,
 }));
 
 describe("GET /api/cron/conversation-digest", () => {
@@ -50,5 +51,9 @@ describe("GET /api/cron/conversation-digest", () => {
       },
     });
     expect(mockProcessConversationDigestWindows).toHaveBeenCalledTimes(1);
+    // The route bounds each invocation to the per-run window cap.
+    expect(mockProcessConversationDigestWindows).toHaveBeenCalledWith({
+      maxWindows: 40,
+    });
   });
 });

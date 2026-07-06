@@ -103,7 +103,7 @@ export async function loadRecords(
           .in("contact_id", ids).order("assigned_at", { ascending: true }),
         supabase.from("conversation_digests")
           .select("id, contact_id, source, window_start, window_end, summary, source_message_count")
-          .in("contact_id", ids).order("window_end", { ascending: false }),
+          .in("contact_id", ids).eq("is_noise", false).order("window_end", { ascending: false }),
         supabase.from("conversation_facts")
           .select("id, contact_id, source, field_key, value_text, confidence, observed_at, conflict_group")
           .in("contact_id", ids).is("invalidated_at", null)

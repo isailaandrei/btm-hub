@@ -305,6 +305,11 @@ describe("contact card data loader", () => {
       CONTACT_ID,
       OTHER_CONTACT_ID,
     ]);
+    // Noise-marker digests (empty summary) are excluded from cards.
+    expect(queries.conversation_digests.eq).toHaveBeenCalledWith(
+      "is_noise",
+      false,
+    );
     expect(client.from).toHaveBeenCalledTimes(6);
   });
 

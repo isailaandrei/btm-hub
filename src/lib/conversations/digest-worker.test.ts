@@ -96,6 +96,8 @@ describe("processConversationDigestWindows", () => {
       digestsCreated: 1,
       factsCreated: 1,
       embeddingsCreated: 1,
+      noiseWindows: 0,
+      remainingWindows: 0,
     });
 
     expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
@@ -103,6 +105,7 @@ describe("processConversationDigestWindows", () => {
         contactId: "contact-1",
         summary: "Discussed budget and travel.",
         sourceMessageCount: 2,
+        isNoise: false,
       }),
     );
     expect(mockExtractConversationDigest).toHaveBeenCalledWith({
@@ -140,6 +143,8 @@ describe("processConversationDigestWindows", () => {
       digestsCreated: 0,
       factsCreated: 0,
       embeddingsCreated: 1,
+      noiseWindows: 0,
+      remainingWindows: 0,
     });
 
     expect(mockExtractConversationDigest).not.toHaveBeenCalled();
@@ -153,14 +158,15 @@ describe("processConversationDigestWindows", () => {
         id: "message-1",
         contactId: "contact-1",
         direction: "inbound",
-        body: "Earlier closed message.",
+        // >= 40 chars so it is a signal window, isolating the quiescence check.
+        body: "Confirmed my budget of $8k for the closed session.",
         happenedAt: "2026-06-11T09:00:00Z",
       },
       {
         id: "message-2",
         contactId: "contact-1",
         direction: "inbound",
-        body: "Still active conversation.",
+        body: "Still active conversation continues here.",
         happenedAt: "2026-06-11T10:45:00Z",
       },
     ]);
@@ -182,6 +188,8 @@ describe("processConversationDigestWindows", () => {
       digestsCreated: 1,
       factsCreated: 1,
       embeddingsCreated: 0,
+      noiseWindows: 0,
+      remainingWindows: 0,
     });
 
     expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
@@ -191,5 +199,114 @@ describe("processConversationDigestWindows", () => {
         sourceMessageCount: 1,
       }),
     );
+  });
+
+  it("classifies a trivially small window as noise WITHOUT a model call", async () => {
+    mockListUndigestedConversationMessages.mockResolvedValue([
+      {
+        id: "message-1",
+        contactId: "contact-1",
+        direction: "inbound",
+        body: "hi",
+        happenedAt: "2026-06-11T10:00:00Z",
+      },
+      {
+        id: "message-2",
+        contactId: "contact-1",
+        direction: "outbound",
+        body: "thanks 👍",
+        happenedAt: "2026-06-11T10:05:00Z",
+      },
+    ]);
+    mockListMessagesMissingEmbeddings.mockResolvedValue([]);
+    mockBuildConversationEmbeddingRows.mockResolvedValue({
+      rows: [],
+      model: "text-embedding-3-small",
+      version: "message-v1",
+      usage: null,
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    const summary = await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T11:00:00Z"),
+    });
+
+    expect(summary).toMatchObject({
+      processedWindows: 1,
+      digestsCreated: 0,
+      factsCreated: 0,
+      noiseWindows: 1,
+    });
+    // Noise is decided in code — the model is never called.
+    expect(mockExtractConversationDigest).not.toHaveBeenCalled();
+    expect(mockAppendConversationFacts).not.toHaveBeenCalled();
+    expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: "",
+        isNoise: true,
+        generatorModel: "noise-gate",
+      }),
+    );
+  });
+
+  it("records an empty-summary model result as a noise row with no facts", async () => {
+    // Default messages are long enough to reach the model; it finds no signal.
+    mockExtractConversationDigest.mockResolvedValue({
+      summary: "",
+      facts: [],
+      model: "gpt-test",
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    const summary = await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T11:00:00Z"),
+    });
+
+    expect(mockExtractConversationDigest).toHaveBeenCalledTimes(1);
+    expect(summary).toMatchObject({
+      processedWindows: 1,
+      digestsCreated: 0,
+      factsCreated: 0,
+      noiseWindows: 1,
+    });
+    expect(mockAppendConversationFacts).not.toHaveBeenCalled();
+    expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: "",
+        isNoise: true,
+        generatorModel: "gpt-test",
+      }),
+    );
+  });
+
+  it("honors the per-invocation window cap and reports remainingWindows", async () => {
+    // Three distinct contacts => three single-message quiesced windows.
+    mockListUndigestedConversationMessages.mockResolvedValue(
+      [0, 1, 2].map((i) => ({
+        id: `message-${i}`,
+        contactId: `contact-${i}`,
+        direction: "inbound" as const,
+        body: "A real budget conversation with enough content here.",
+        happenedAt: "2026-06-11T10:00:00Z",
+      })),
+    );
+    mockListMessagesMissingEmbeddings.mockResolvedValue([]);
+    mockBuildConversationEmbeddingRows.mockResolvedValue({
+      rows: [],
+      model: "text-embedding-3-small",
+      version: "message-v1",
+      usage: null,
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    const summary = await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T11:00:00Z"),
+      maxWindows: 2,
+    });
+
+    expect(summary.processedWindows).toBe(2);
+    expect(summary.remainingWindows).toBe(1);
+    // The cap stops further model calls this run.
+    expect(mockExtractConversationDigest).toHaveBeenCalledTimes(2);
   });
 });

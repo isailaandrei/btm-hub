@@ -73,6 +73,9 @@ e2e/screenshots
 !/scripts/admin-ai-eval.test.ts
 !/scripts/analyze-admin-ai-payload.test.ts
 !/scripts/deepseek-smoke.test.ts
+# WhatsApp ingestion tooling (gated live suites; run via RUN_* env flags)
+!/scripts/whatsapp-match-backfill.test.ts
+!/scripts/conversation-digest-backlog.test.ts
 
 #wiki
 /wiki

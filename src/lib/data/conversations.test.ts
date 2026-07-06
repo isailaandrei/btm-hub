@@ -292,11 +292,12 @@ describe("conversation data layer", () => {
       contentHash: "hash-1",
       generatorModel: "fixture",
       generatorVersion: "v1",
+      isNoise: false,
     });
 
     expect(client.from).toHaveBeenCalledWith("conversation_digests");
     expect(query.upsert).toHaveBeenCalledWith(
-      [expect.objectContaining({ content_hash: "hash-1" })],
+      [expect.objectContaining({ content_hash: "hash-1", is_noise: false })],
       { onConflict: "content_hash" },
     );
   });

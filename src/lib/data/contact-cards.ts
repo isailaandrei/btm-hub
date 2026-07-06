@@ -160,6 +160,8 @@ async function loadChunkRows(
         "id, contact_id, source, window_start, window_end, summary, source_message_count",
       )
       .in("contact_id", chunkIds)
+      // Noise-marker digests (empty summary) never render into cards.
+      .eq("is_noise", false)
       .order("window_end", { ascending: false }),
     // Intentionally read the append-only ledger instead of a current-facts view:
     // raw contact cards must surface conflicts, not collapse them away.

@@ -7,8 +7,8 @@ import {
   YCloudWhatsAppAdapter,
 } from "@/lib/conversations/ingestion/ycloud-whatsapp";
 import {
-  buildContactPhoneIndex,
-  matchContactByPhone,
+  buildContactDigitIndex,
+  matchContactByDigits,
   type ContactPhoneMatch,
 } from "@/lib/conversations/phone";
 import { loadContactPhoneIndexRecords } from "@/lib/data/contact-phone-index";
@@ -168,8 +168,8 @@ async function ingestMessage(message: NormalizedConversationMessage) {
 
   try {
     const records = await loadContactPhoneIndexRecords();
-    const match = matchContactByPhone(
-      buildContactPhoneIndex(records),
+    const match = matchContactByDigits(
+      buildContactDigitIndex(records),
       customerIdentifier,
     );
     const contact = contactFieldsForMatch(match);
