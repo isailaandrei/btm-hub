@@ -149,6 +149,9 @@ async function callDeepSeek(input: {
   userPrompt: string;
   thinking: ThinkingConfig;
   maxTokens: number;
+  // Sampling temperature. Omitted (undefined) leaves the API default (1.0) for
+  // synthesis; extraction/planning callers pass 0 for deterministic output.
+  temperature?: number;
   printPayload: boolean;
 }): Promise<{ payload: DeepSeekChatCompletion; content: string }> {
   const timer = startAdminAiDebugTimer("deepseek-call", {
@@ -185,6 +188,11 @@ async function callDeepSeek(input: {
       ],
       response_format: { type: "json_object" },
       max_tokens: input.maxTokens,
+      // Only sent when a caller sets it (extraction/planning → 0). Synthesis
+      // omits it so the API's tuned default stands.
+      ...(input.temperature !== undefined
+        ? { temperature: input.temperature }
+        : {}),
       stream: false,
       thinking: input.thinking.enabled
         ? { type: "enabled" }
@@ -311,6 +319,7 @@ async function requestDeepSeekJson<T>(input: {
   includeEvidence: boolean;
   thinking: ThinkingConfig;
   maxTokens: number;
+  temperature?: number;
   printPayload: boolean;
   parse: (content: string) => T | null;
 }): Promise<{ payload: DeepSeekChatCompletion; parsed: T; model: string }> {
@@ -329,6 +338,7 @@ async function requestDeepSeekJson<T>(input: {
     userPrompt: input.userPrompt,
     thinking: input.thinking,
     maxTokens: input.maxTokens,
+    temperature: input.temperature,
     printPayload: input.printPayload,
   };
 
@@ -414,6 +424,11 @@ export const deepSeekAdminAiProvider: AdminAiProvider = {
       // DEEPSEEK_THINKING — extraction must stay cheap and terse.
       thinking: { enabled: false, reasoningEffort: null },
       maxTokens: DEEPSEEK_MAP_MAX_OUTPUT_TOKENS,
+      // Deterministic sampling for mechanical extraction/planning (map scan,
+      // rescue scan, constraint planner). The API default (1.0) causes
+      // run-to-run variance on what is a classification task — a card can be
+      // selected one run and passed over the next.
+      temperature: 0,
       // Per-chunk payload printing is intentionally not wired for map calls.
       printPayload: false,
       parse: parseJsonContent,

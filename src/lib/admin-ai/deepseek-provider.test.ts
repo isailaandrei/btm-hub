@@ -158,6 +158,8 @@ describe("deepSeekAdminAiProvider", () => {
     expect(body).not.toHaveProperty("reasoning_effort");
     // Cache key is OpenAI-only; DeepSeek caching is automatic and unkeyed.
     expect(body).not.toHaveProperty("prompt_cache_key");
+    // Synthesis omits temperature so the API's tuned default (1.0) stands.
+    expect(body).not.toHaveProperty("temperature");
 
     const systemMessage = body.messages?.find((m) => m.role === "system");
     const userMessage = body.messages?.find((m) => m.role === "user");
@@ -388,6 +390,8 @@ describe("deepSeekAdminAiProvider", () => {
       // Map calls explicitly disable reasoning even when DEEPSEEK_THINKING=1.
       expect(body.thinking).toEqual({ type: "disabled" });
       expect(body).not.toHaveProperty("reasoning_effort");
+      // Deterministic extraction: temperature pinned to 0.
+      expect(body.temperature).toBe(0);
       const systemMessage = body.messages?.find((m) => m.role === "system");
       const userMessage = body.messages?.find((m) => m.role === "user");
       expect(systemMessage?.content).toBe("You extract candidates. Return JSON.");

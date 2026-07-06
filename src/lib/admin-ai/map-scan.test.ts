@@ -87,6 +87,12 @@ describe("buildMapExtractionSystemPrompt", () => {
     expect(prompt).toContain("NO contact in this batch is a full match");
     expect(prompt).toContain("missingAspect");
   });
+
+  it("prefers near-misses matching the question's distinctive terms over topical overlap", () => {
+    const prompt = buildMapExtractionSystemPrompt();
+    expect(prompt).toContain("RAREST and most DISTINCTIVE terms");
+    expect(prompt).toContain("generic topical overlap");
+  });
 });
 
 describe("mapExtractionSchema nearMisses", () => {

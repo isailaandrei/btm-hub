@@ -63,6 +63,7 @@ export function buildMapExtractionSystemPrompt(): string {
     "`evidenceSummary` MUST contain the decisive statement quoted verbatim from the card; name its source line label too (for example `Call note` or `Ultimate Vision`).",
     "When — and ONLY when — NO contact in this batch is a full match AND the question states a RARE, highly specific, or multi-part criterion, you MAY record up to 3 `nearMisses`: contacts whose card holds real PARTIAL evidence toward the question.",
     "Each near-miss MUST quote the real partial evidence verbatim in `evidenceSummary` and name the specific aspect of the question it does NOT satisfy in `missingAspect`. Never invent evidence or overstate a partial match.",
+    "When selecting near-misses, prefer candidates whose evidence matches the question's RAREST and most DISTINCTIVE terms — a named environment, place, specialty, or activity — over candidates who merely match its common theme: a card containing the question's distinctive term is always a stronger near-miss than generic topical overlap.",
     "If ANY contact in this batch is a full match, or the question is broad or common, return `nearMisses` empty.",
     'Return valid JSON matching this contract: {"candidates":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string"}],"nearMisses":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string","missingAspect":"string"}]}.',
     'Return {"candidates":[],"nearMisses":[]} when no contact in this batch has a specific quotable statement relevant to the question.',
