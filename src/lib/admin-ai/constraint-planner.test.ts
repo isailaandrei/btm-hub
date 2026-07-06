@@ -199,8 +199,9 @@ describe("validatePlan", () => {
       category: "26 Coral Catch",
       includeStatuses: ["Interested"],
     });
+    // Op is normalized to `contains` at grounding regardless of what was emitted.
     expect(plan.fieldConstraints).toEqual([
-      { field: "certification_level", op: "eq", value: "Advanced Freediver" },
+      { field: "certification_level", op: "contains", value: "Advanced Freediver" },
     ]);
     expect(droppedParts.some((p) => p.includes("Joining"))).toBe(true);
     expect(droppedParts.some((p) => p.includes("nonsense"))).toBe(true);
@@ -339,9 +340,10 @@ describe("validatePlan", () => {
       }),
       catalog,
     );
-    // A whole option — trimmed, case-insensitive — grounds.
+    // A whole option — trimmed, case-insensitive — grounds; op normalized to
+    // `contains` even though the planner emitted `eq`.
     expect(whole.plan.fieldConstraints).toEqual([
-      { field: "certification_level", op: "eq", value: "  advanced freediver  " },
+      { field: "certification_level", op: "contains", value: "  advanced freediver  " },
     ]);
     const substring = validatePlan(
       plannerOutputSchema.parse({
@@ -389,7 +391,8 @@ describe("validatePlan", () => {
       dropped.droppedParts.some((p) => p.includes("not an exact vocabulary item")),
     ).toBe(true);
 
-    // The whole option copied verbatim still grounds (legitimate set membership).
+    // The whole option copied verbatim still grounds (legitimate set membership);
+    // the emitted `eq` is normalized to `contains`.
     const grounded = validatePlan(
       plannerOutputSchema.parse({
         fieldConstraints: [
@@ -399,7 +402,21 @@ describe("validatePlan", () => {
       optionCatalog,
     );
     expect(grounded.plan.fieldConstraints).toEqual([
-      { field: "equipment_owned", op: "eq", value: "Professional video camera" },
+      { field: "equipment_owned", op: "contains", value: "Professional video camera" },
+    ]);
+  });
+
+  it("normalizes a grounded constraint's op to contains regardless of the emitted op", () => {
+    const emittedEq = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "certification_level", op: "eq", value: "Beginner" },
+        ],
+      }),
+      catalog,
+    );
+    expect(emittedEq.plan.fieldConstraints).toEqual([
+      { field: "certification_level", op: "contains", value: "Beginner" },
     ]);
   });
 

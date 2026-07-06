@@ -67,6 +67,10 @@ type EvalResult = {
   candidateIds: string[];
   nearMissCandidateCount: number;
   nearMissModeUsed: boolean;
+  // Evidence rescue scan over field/budget-dropped contacts (JSON-only forensics).
+  rescueScanUsed: boolean;
+  rescuedCandidateCount: number;
+  rescuedIds: string[];
   idRepairs: number;
   idDrops: number;
   appendedByEnumeration: number;
@@ -345,6 +349,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     | "candidateIds"
     | "nearMissCandidateCount"
     | "nearMissModeUsed"
+    | "rescueScanUsed"
+    | "rescuedCandidateCount"
+    | "rescuedIds"
     | "idRepairs"
     | "idDrops"
     | "appendedByEnumeration"
@@ -375,6 +382,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       candidateIds: d.candidateIds,
       nearMissCandidateCount: d.nearMissCandidateCount,
       nearMissModeUsed: d.nearMissModeUsed,
+      rescueScanUsed: d.rescueScanUsed,
+      rescuedCandidateCount: d.rescuedCandidateCount,
+      rescuedIds: d.rescuedIds,
       idRepairs: d.idRepairs,
       idDrops: d.idDrops,
       appendedByEnumeration: d.appendedByEnumeration,
@@ -529,6 +539,13 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
 
     expect(truth.length, "truth set of Spanish speakers should be non-empty").toBeGreaterThan(0);
     expect(r.recall, "union recall over Spanish speakers must be 1.0").toBe(1);
+    // The languages field constraint drops the non-Spanish-field contacts, so the
+    // evidence rescue scan must have run over that pool (structural check only —
+    // no ground truth on rescued content).
+    expect(
+      out.diagnostics.rescueScanUsed,
+      "field constraint drops contacts, so the rescue scan must run",
+    ).toBe(true);
   }, 600_000);
 
   it("note-canary: personal project idea about ocean-animal perception", async (ctx) => {

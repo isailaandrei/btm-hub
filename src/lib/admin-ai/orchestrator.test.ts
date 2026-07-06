@@ -1738,3 +1738,381 @@ describe("runGlobalSynthesis (id integrity + drift-proof)", () => {
     );
   });
 });
+
+describe("runGlobalSynthesis (evidence rescue scan)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const QUERY_PLAN = {
+    mode: "global_search" as const,
+    structuredFilters: [],
+    textFocus: ["spanish"],
+    requestedLimit: 10,
+  };
+
+  function langRecord(
+    id: string,
+    languages: string[],
+    vision = "vision",
+  ): ContactCardRecord {
+    return makeRecord(id, { languages, ultimate_vision: vision });
+  }
+
+  function spanishFiller(i: number): ContactCardRecord {
+    return langRecord(
+      `${String(i).padStart(8, "0")}-7777-4777-8777-777777777777`,
+      ["Spanish"],
+    );
+  }
+
+  type MapUsage = Record<string, number> | null;
+
+  // completeJson serves 3 roles: the planner (userPrompt carries "catalog") and
+  // the map scans (userPrompt carries "rawContactCards"). A map chunk flags any
+  // card whose id is in `flag`.
+  function makeProvider(opts: {
+    planner: unknown;
+    flag?: Set<string>;
+    mapUsage?: MapUsage;
+    generate: ReturnType<typeof vi.fn>;
+  }) {
+    const flag = opts.flag ?? new Set<string>();
+    const completeJson = vi.fn(async ({ userPrompt }: { userPrompt: string }) => {
+      if (userPrompt.includes('"catalog"')) {
+        return { json: opts.planner, modelMetadata: {} };
+      }
+      const parsed = JSON.parse(userPrompt) as {
+        rawContactCards: Array<{ contactId: string; contactName: string }>;
+      };
+      const candidates = parsed.rawContactCards
+        .filter((card) => flag.has(card.contactId))
+        .map((card) => ({ ...card, evidenceSummary: "Call note: mentions Spanish." }));
+      return {
+        json: { candidates, nearMisses: [] },
+        modelMetadata: { provider: "deepseek", usage: opts.mapUsage ?? null },
+      };
+    });
+    return {
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      completeJson,
+      generate: opts.generate,
+    };
+  }
+
+  function plannerJson(
+    fieldConstraints: Array<{ field: string; op: string; value: string }>,
+    tagConstraint: unknown = null,
+  ) {
+    return {
+      tagConstraint,
+      budgetMin: null,
+      fieldConstraints,
+      enumerationOnly: false,
+      notes: "",
+    };
+  }
+
+  function scannedMapIds(
+    completeJson: ReturnType<typeof vi.fn>,
+  ): string[] {
+    return completeJson.mock.calls
+      .map((call) => call[0].userPrompt as string)
+      .filter((prompt) => prompt.includes('"rawContactCards"'))
+      .flatMap((prompt) =>
+        (
+          JSON.parse(prompt).rawContactCards as Array<{ contactId: string }>
+        ).map((card) => card.contactId),
+      );
+  }
+
+  it("rescue-scans field-dropped contacts and merges them into synthesis, the allowed set, the analysisNote, and metadata", async () => {
+    const providerMod = await import("./provider");
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["languages lists Spanish"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+        ],
+        additionalMatches: [
+          {
+            contactId: OTHER_CONTACT_ID,
+            contactName: "Ivo Santos",
+            reason: "Spanish evidenced in a call note (structured field unconfirmed)",
+            matchStrength: 40,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { usage: null },
+    });
+    const provider = makeProvider({
+      planner: plannerJson([{ field: "languages", op: "contains", value: "Spanish" }]),
+      flag: new Set([OTHER_CONTACT_ID]),
+      mapUsage: {
+        prompt_cache_hit_tokens: 3,
+        prompt_cache_miss_tokens: 2,
+        completion_tokens: 7,
+      },
+      generate,
+    });
+    // Confirmed: CONTACT_ID speaks Spanish (survives). Rescue: OTHER_CONTACT_ID's
+    // field lists only English but a note mentions Spanish.
+    const records = [
+      langRecord(CONTACT_ID, ["Spanish"]),
+      langRecord(OTHER_CONTACT_ID, ["English"], "I filmed a doc narrated in Spanish."),
+    ];
+
+    const { runGlobalSynthesis } = await import("./orchestrator");
+    const result = await runGlobalSynthesis({
+      provider: provider as never,
+      records,
+      question: "Which contacts speak Spanish?",
+      queryPlan: { ...QUERY_PLAN },
+      includeEvidence: false,
+    });
+
+    expect(result.status).toBe("complete");
+    expect(result.diagnostics.rescueScanUsed).toBe(true);
+    expect(result.diagnostics.rescuedIds).toEqual([OTHER_CONTACT_ID]);
+    expect(result.diagnostics.rescuedCandidateCount).toBe(1);
+    // Rescue-scan usage accumulated (main scan skipped: only 1 confirmed card).
+    expect(result.diagnostics.usage.completion_tokens).toBe(7);
+    // Confirmed card first, rescued card after; the disclosure note is present.
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+      analysisNote?: string;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([
+      CONTACT_ID,
+      OTHER_CONTACT_ID,
+    ]);
+    expect(generateArg.analysisNote).toMatch(/did NOT satisfy the deterministic filter/);
+    // Rescued id survived the id-repair safety net (it was in the sent corpus).
+    const union = new Set([
+      ...(result.response.shortlist ?? []).map((e) => e.contactId),
+      ...(result.response.additionalMatches ?? []).map((m) => m.contactId),
+    ]);
+    expect(union.has(OTHER_CONTACT_ID)).toBe(true);
+    // Persisted metadata records the rescue.
+    expect((result.modelMetadata as { rescue?: unknown }).rescue).toEqual({
+      poolSize: 1,
+      candidateCount: 1,
+    });
+  });
+
+  it("runs the main and rescue scans together when the confirmed corpus also needs mapping", async () => {
+    const providerMod = await import("./provider");
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { usage: null },
+    });
+    const provider = makeProvider({
+      planner: plannerJson([{ field: "languages", op: "contains", value: "Spanish" }]),
+      // Main flags CONTACT_ID (confirmed); rescue flags OTHER_CONTACT_ID (dropped).
+      flag: new Set([CONTACT_ID, OTHER_CONTACT_ID]),
+      generate,
+    });
+    // 34 Spanish fillers + CONTACT_ID => 35 confirmed (>30 so the main scan runs);
+    // OTHER_CONTACT_ID (English) is the single field-dropped rescue-pool card.
+    const records = [
+      langRecord(CONTACT_ID, ["Spanish"]),
+      ...Array.from({ length: 34 }, (_, i) => spanishFiller(i)),
+      langRecord(OTHER_CONTACT_ID, ["English"], "Note: fluent Spanish speaker."),
+    ];
+
+    const { runGlobalSynthesis } = await import("./orchestrator");
+    const result = await runGlobalSynthesis({
+      provider: provider as never,
+      records,
+      question: "Which contacts speak Spanish?",
+      queryPlan: { ...QUERY_PLAN },
+      includeEvidence: false,
+    });
+
+    expect(result.diagnostics.mapUsed).toBe(true);
+    expect(result.diagnostics.rescueScanUsed).toBe(true);
+    expect(result.diagnostics.rescuedIds).toEqual([OTHER_CONTACT_ID]);
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+    };
+    // Only the confirmed candidate (CONTACT_ID) plus the rescued card reach reduce.
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([
+      CONTACT_ID,
+      OTHER_CONTACT_ID,
+    ]);
+  });
+
+  it("does not rescue tag-dropped contacts (rescue pool excludes tag drops)", async () => {
+    const providerMod = await import("./provider");
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["interested"],
+            concerns: [],
+            citations: [],
+            matchStrength: 80,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { usage: null },
+    });
+    const provider = makeProvider({
+      planner: plannerJson([], {
+        category: "26 Coral Catch",
+        includeStatuses: ["Interested"],
+      }),
+      flag: new Set([OTHER_CONTACT_ID]),
+      generate,
+    });
+    const records = [
+      makeTaggedRecord(CONTACT_ID, "26 Coral Catch", "Interested"),
+      makeTaggedRecord(OTHER_CONTACT_ID, "26 Coral Catch", "Declined"),
+    ];
+
+    const { runGlobalSynthesis } = await import("./orchestrator");
+    const result = await runGlobalSynthesis({
+      provider: provider as never,
+      records,
+      question: "who is interested in 26 Coral Catch?",
+      queryPlan: { ...QUERY_PLAN },
+      includeEvidence: false,
+    });
+
+    expect(result.diagnostics.rescueScanUsed).toBe(false);
+    expect(result.diagnostics.rescuedIds).toEqual([]);
+    // The Declined (tag-dropped) contact was never scanned nor sent to the reduce.
+    expect(scannedMapIds(provider.completeJson)).not.toContain(OTHER_CONTACT_ID);
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+  });
+
+  it("runs no rescue scan when the field/budget pool is empty", async () => {
+    const providerMod = await import("./provider");
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 70,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { usage: null },
+    });
+    const provider = makeProvider({
+      planner: plannerJson([]),
+      generate,
+    });
+    // No constraints → nothing dropped → empty rescue pool.
+    const records = [
+      langRecord(CONTACT_ID, ["Spanish"]),
+      langRecord(OTHER_CONTACT_ID, ["English"]),
+    ];
+
+    const { runGlobalSynthesis } = await import("./orchestrator");
+    const result = await runGlobalSynthesis({
+      provider: provider as never,
+      records,
+      question: "who are the contacts?",
+      queryPlan: { ...QUERY_PLAN },
+      includeEvidence: false,
+    });
+
+    expect(result.diagnostics.rescueScanUsed).toBe(false);
+    expect(result.diagnostics.rescuedIds).toEqual([]);
+    expect(
+      (result.modelMetadata as { rescue?: unknown }).rescue,
+    ).toBeUndefined();
+  });
+
+  it("runs no rescue scan in single mode even when a field filter drops contacts", async () => {
+    const providerMod = await import("./provider");
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["languages lists Spanish"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { usage: null },
+    });
+    const provider = makeProvider({
+      planner: plannerJson([{ field: "languages", op: "contains", value: "Spanish" }]),
+      flag: new Set([OTHER_CONTACT_ID]),
+      generate,
+    });
+    const records = [
+      langRecord(CONTACT_ID, ["Spanish"]),
+      langRecord(OTHER_CONTACT_ID, ["English"], "Note: fluent Spanish speaker."),
+    ];
+
+    const { runGlobalSynthesis } = await import("./orchestrator");
+    const result = await runGlobalSynthesis({
+      provider: provider as never,
+      records,
+      question: "Which contacts speak Spanish?",
+      queryPlan: { ...QUERY_PLAN },
+      includeEvidence: false,
+    });
+
+    expect(result.diagnostics.rescueScanUsed).toBe(false);
+    // The field-dropped contact is prefiltered out and NOT rescued in single mode.
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+  });
+});

@@ -445,13 +445,18 @@ async function persistInsufficientResponse(input: {
 
 function renderRecords(
   records: ContactCardRecord[],
-  options: { includeEvidence: boolean },
+  options: {
+    includeEvidence: boolean;
+    // Reuse an existing registry so a second card batch (the rescue pool) shares
+    // alias space with the confirmed cards — citation resolution spans both.
+    evidenceAliases?: EvidenceAliasRegistry;
+  },
 ): {
   cards: RenderedContactCard[];
   evidence: EvidenceItem[];
   evidenceAliases: EvidenceAliasRegistry;
 } {
-  const evidenceAliases = new EvidenceAliasRegistry();
+  const evidenceAliases = options.evidenceAliases ?? new EvidenceAliasRegistry();
   const cards = records.map((record) =>
     renderContactCard(record, evidenceAliases),
   );
@@ -476,6 +481,19 @@ function renderRecords(
 const PLANNER_UNAVAILABLE_NOTE =
   "AI constraint planning was unavailable for this answer; only basic deterministic filters were applied.";
 
+// Code-driven disclosure injected into the reduce when the confirmed scan found
+// only partial matches (near-miss tier).
+const NEAR_MISS_ANALYSIS_NOTE =
+  "A full chunked scan found NO contact fully matching the question; the supplied cards are the closest PARTIAL matches only. Do not shortlist anyone unless they genuinely meet the full bar of the question. Name the closest candidates and the specific aspect each one is missing in `uncertainty` or `additionalMatches`.";
+
+// Code-driven disclosure injected into the reduce when contacts excluded by a
+// deterministic field/budget filter were rescued because OTHER evidence suggests
+// they may qualify. Admin makes the final call.
+function buildRescueAnalysisNote(rescuedNames: string[]): string {
+  const names = rescuedNames.join(", ");
+  return `Contacts [${names}] did NOT satisfy the deterministic filter(s) via structured data, but a scan of their other evidence (notes, call logs, messages, essay answers) suggests they may qualify. Field-confirmed contacts are authoritative. Include rescued contacts only with explicit uncertainty stating that the structured field does not confirm them — the admin makes the final decision.`;
+}
+
 /**
  * A prefilter outcome shared by both global-scope paths (constraint planner and
  * the legacy deterministic filters) so downstream synthesis, disclosure, the
@@ -483,6 +501,10 @@ const PLANNER_UNAVAILABLE_NOTE =
  */
 type GlobalPrefilter = {
   records: ContactCardRecord[];
+  // Records dropped by FIELD or BUDGET constraints (never by TAG — tag
+  // membership is authoritative DB semantics other evidence cannot override).
+  // Fed to the evidence rescue scan. Empty unless the planner path ran.
+  rescuePool: ContactCardRecord[];
   structuredFilters: AdminAiStructuredFilter[];
   plan: PlannerOutput | null;
   droppedParts: string[];
@@ -500,6 +522,7 @@ type GlobalPrefilter = {
 function nullPrefilter(records: ContactCardRecord[]): GlobalPrefilter {
   return {
     records,
+    rescuePool: [],
     structuredFilters: [],
     plan: null,
     droppedParts: [],
@@ -660,8 +683,13 @@ function buildPlannerPrefilter(
   run: PlannerRun,
 ): GlobalPrefilter {
   const applied = applyPlannedConstraints(records, run.plan);
+  // Rescue pool = contacts dropped by FIELD or BUDGET (not TAG). Sequential
+  // filtering means these two lists are exactly the non-tag drops.
+  const rescueIds = new Set([...applied.droppedByField, ...applied.droppedByBudget]);
+  const rescuePool = records.filter((record) => rescueIds.has(record.contact.id));
   return {
     records: applied.records,
+    rescuePool,
     structuredFilters: planToStructuredFilters(run.plan),
     plan: run.plan,
     droppedParts: run.droppedParts,
@@ -694,6 +722,9 @@ function buildLegacyPrefilter(
     filter.constraints.tagCategory !== undefined;
   return {
     records: filter.records,
+    // No rescue on the legacy fallback path: it cannot separate budget-only
+    // drops from tag drops, and rescue is a planner-path capability.
+    rescuePool: [],
     structuredFilters: legacyToStructuredFilters(filter.constraints),
     plan: null,
     droppedParts: [],
@@ -839,6 +870,11 @@ export type GlobalSynthesisDiagnostics = {
   // and whether the reduce actually ran over them (full union was empty).
   nearMissCandidateCount: number;
   nearMissModeUsed: boolean;
+  // Evidence rescue scan (field/budget-dropped contacts re-scanned for other
+  // evidence): whether it ran, how many it rescued, and which ids.
+  rescueScanUsed: boolean;
+  rescuedCandidateCount: number;
+  rescuedIds: string[];
   appendedByEnumeration: number;
   idRepairs: number;
   idDrops: number;
@@ -894,6 +930,9 @@ export async function runGlobalSynthesis(input: {
     candidateIds: [],
     nearMissCandidateCount: 0,
     nearMissModeUsed: false,
+    rescueScanUsed: false,
+    rescuedCandidateCount: 0,
+    rescuedIds: [],
     appendedByEnumeration: 0,
     idRepairs: 0,
     idDrops: 0,
@@ -904,6 +943,20 @@ export async function runGlobalSynthesis(input: {
   const { cards, evidence, evidenceAliases } = renderRecords(prefilter.records, {
     includeEvidence,
   });
+
+  // Evidence rescue pool: contacts a FIELD/BUDGET filter excluded, re-scanned for
+  // OTHER evidence they may qualify on. Gated to map_reduce with a
+  // completeJson-capable provider and a non-empty pool (same guard as the main
+  // map). Rendered with the shared alias registry so rescued citations resolve.
+  const mapReduceMode = getAdminAiScanMode() === "map_reduce";
+  const rescueEligible =
+    mapReduceMode &&
+    Boolean(provider.completeJson) &&
+    prefilter.rescuePool.length > 0;
+  const rescue = rescueEligible
+    ? renderRecords(prefilter.rescuePool, { includeEvidence, evidenceAliases })
+    : null;
+  const rescueCards = rescue?.cards ?? [];
 
   let chatEvidence: EvidenceItem[] = [];
   let chatRetrievalUnavailable = false;
@@ -921,8 +974,9 @@ export async function runGlobalSynthesis(input: {
       console.warn("[admin-ai] conversation evidence retrieval unavailable", { error: message });
     }
   }
-  const allowedEvidence = includeEvidence ? [...evidence, ...chatEvidence] : [];
-  const mapReduceMode = getAdminAiScanMode() === "map_reduce";
+  const allowedEvidence = includeEvidence
+    ? [...evidence, ...(rescue?.evidence ?? []), ...chatEvidence]
+    : [];
 
   adminAiDebugLog("raw-cards-assembled", {
     scope: "global",
@@ -936,7 +990,10 @@ export async function runGlobalSynthesis(input: {
     promptCacheKey: ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY,
   });
 
-  if (cards.length === 0 || (includeEvidence && allowedEvidence.length === 0)) {
+  if (
+    (cards.length === 0 && rescueCards.length === 0) ||
+    (includeEvidence && allowedEvidence.length === 0)
+  ) {
     const response = discloseChatRetrievalUnavailable(
       buildInsufficientEvidenceResponse("global", {
         extra: prefilter.structuredFilters.length > 0
@@ -967,6 +1024,8 @@ export async function runGlobalSynthesis(input: {
   let mapUsed = false;
   let nearMissCandidateCount = 0;
   let nearMissModeUsed = false;
+  let rescueScanUsed = false;
+  let rescuedIds: string[] = [];
   let analysisNote: string | undefined;
   if (mapReduceMode) {
     if (!provider.completeJson) {
@@ -974,15 +1033,63 @@ export async function runGlobalSynthesis(input: {
         "map_reduce scan mode currently requires ADMIN_AI_PROVIDER=deepseek",
       );
     }
-    if (cards.length <= MAP_CHUNK_SIZE) {
+    const runMain = cards.length > MAP_CHUNK_SIZE;
+    const runRescue = rescueCards.length > 0;
+
+    if (!runMain && !runRescue) {
       adminAiDebugLog("map-skipped-small-corpus", { cardCount: cards.length });
     } else {
-      mapUsed = true;
-      const mapResult = await runMapScan({ provider, cards, question });
-      scanMetadata = mapResult.scanMetadata;
-      nearMissCandidateCount = mapResult.nearMissIds.size;
-      accumulatePipelineUsage(usage, mapResult.scanMetadata.usage);
-      if (mapResult.candidateIds.size === 0 && mapResult.nearMissIds.size === 0) {
+      // Main scan (confirmed cards) and rescue scan (field/budget-dropped cards)
+      // run CONCURRENTLY so latency stays flat. The main scan is skipped when the
+      // confirmed corpus fits in one chunk; the rescue scan runs whenever the
+      // pool is non-empty.
+      const [mainResult, rescueResult] = await Promise.all([
+        runMain ? runMapScan({ provider, cards, question }) : Promise.resolve(null),
+        runRescue
+          ? runMapScan({ provider, cards: rescueCards, question })
+          : Promise.resolve(null),
+      ]);
+
+      if (mainResult) {
+        mapUsed = true;
+        scanMetadata = mainResult.scanMetadata;
+        nearMissCandidateCount = mainResult.nearMissIds.size;
+        accumulatePipelineUsage(usage, mainResult.scanMetadata.usage);
+      }
+      if (rescueResult) {
+        rescueScanUsed = true;
+        accumulatePipelineUsage(usage, rescueResult.scanMetadata.usage);
+      }
+
+      // Confirmed candidate cards.
+      let confirmedCards: RenderedContactCard[];
+      if (!mainResult) {
+        // Small confirmed corpus: every confirmed card goes to the reduce.
+        confirmedCards = cards;
+      } else if (mainResult.candidateIds.size > 0) {
+        const { candidateIds } = mainResult;
+        confirmedCards = cards.filter((card) => candidateIds.has(card.contactId));
+      } else if (mainResult.nearMissIds.size > 0) {
+        // Near-miss tier: no full match among confirmed cards, only partials.
+        nearMissModeUsed = true;
+        const { nearMissIds } = mainResult;
+        confirmedCards = cards.filter((card) => nearMissIds.has(card.contactId));
+        analysisNote = NEAR_MISS_ANALYSIS_NOTE;
+      } else {
+        confirmedCards = [];
+      }
+
+      // Rescued cards: full matches only (rescue near-misses are ignored — the
+      // rescue path is already a second chance).
+      const rescuedSet = rescueResult
+        ? rescueResult.candidateIds
+        : new Set<string>();
+      const rescuedCards = rescueCards.filter((card) =>
+        rescuedSet.has(card.contactId),
+      );
+      rescuedIds = rescuedCards.map((card) => card.contactId);
+
+      if (confirmedCards.length === 0 && rescuedCards.length === 0) {
         const insufficient = discloseChatRetrievalUnavailable(
           buildInsufficientEvidenceResponse("global", {
             extra: `A full chunked scan of all ${cards.length} eligible contacts found no candidates for this question.`,
@@ -995,27 +1102,32 @@ export async function runGlobalSynthesis(input: {
           citations: [],
           modelMetadata: { source: "system", reason: "map_scan_no_candidates" },
           reason: "map_scan_no_candidates",
-          diagnostics: diag({ mapUsed: true, nearMissCandidateCount: 0 }),
+          diagnostics: diag({
+            mapUsed,
+            nearMissCandidateCount: 0,
+            rescueScanUsed,
+          }),
         };
       }
-      if (mapResult.candidateIds.size === 0) {
-        // Near-miss tier (second gate): no full match anywhere, but the scan
-        // surfaced partial matches. Reduce over the near-miss cards with a
-        // code-driven disclosure rather than returning a bare blank.
-        nearMissModeUsed = true;
-        const { nearMissIds } = mapResult;
-        synthesisCards = cards.filter((card) => nearMissIds.has(card.contactId));
-        synthesisChatEvidence = chatEvidence.filter((item) =>
-          nearMissIds.has(item.contactId),
+
+      // Rescued cards MERGE AFTER confirmed cards; both are in the sent corpus so
+      // the id-repair safety net keeps rescued response entries.
+      synthesisCards = [...confirmedCards, ...rescuedCards];
+      const synthIds = new Set(synthesisCards.map((card) => card.contactId));
+      synthesisChatEvidence = chatEvidence.filter((item) =>
+        synthIds.has(item.contactId),
+      );
+
+      if (rescuedCards.length > 0) {
+        const rescueNote = buildRescueAnalysisNote(
+          rescuedCards.map((card) => card.contactName || card.contactId),
         );
-        analysisNote =
-          "A full chunked scan found NO contact fully matching the question; the supplied cards are the closest PARTIAL matches only. Do not shortlist anyone unless they genuinely meet the full bar of the question. Name the closest candidates and the specific aspect each one is missing in `uncertainty` or `additionalMatches`.";
-      } else {
-        const { candidateIds } = mapResult;
-        synthesisCards = cards.filter((card) => candidateIds.has(card.contactId));
-        synthesisChatEvidence = chatEvidence.filter((item) =>
-          candidateIds.has(item.contactId),
-        );
+        // Compose with the near-miss note if both apply — clearly separated.
+        analysisNote = analysisNote ? `${analysisNote}\n\n${rescueNote}` : rescueNote;
+        adminAiDebugLog("evidence-rescue", {
+          poolSize: prefilter.rescuePool.length,
+          rescued: rescuedCards.length,
+        });
       }
     }
   }
@@ -1085,6 +1197,9 @@ export async function runGlobalSynthesis(input: {
           candidateIds: synthesisCards.map((card) => card.contactId),
           nearMissCandidateCount,
           nearMissModeUsed,
+          rescueScanUsed,
+          rescuedCandidateCount: rescuedIds.length,
+          rescuedIds,
           idRepairs: repaired.idRepairs,
           idDrops: repaired.idDrops,
         }),
@@ -1113,6 +1228,14 @@ export async function runGlobalSynthesis(input: {
     ...(nearMissModeUsed
       ? { nearMiss: { candidateCount: nearMissCandidateCount, modeUsed: true } }
       : {}),
+    ...(rescueScanUsed
+      ? {
+          rescue: {
+            poolSize: prefilter.rescuePool.length,
+            candidateCount: rescuedIds.length,
+          },
+        }
+      : {}),
     ...(prefilter.metadata ?? {}),
     idIntegrity: { repairs: repaired.idRepairs, drops: repaired.idDrops },
     ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
@@ -1135,6 +1258,9 @@ export async function runGlobalSynthesis(input: {
       candidateIds: synthesisCards.map((card) => card.contactId),
       nearMissCandidateCount,
       nearMissModeUsed,
+      rescueScanUsed,
+      rescuedCandidateCount: rescuedIds.length,
+      rescuedIds,
       appendedByEnumeration: enumResult.appended,
       idRepairs: repaired.idRepairs,
       idDrops: repaired.idDrops,

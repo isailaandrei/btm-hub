@@ -144,7 +144,7 @@ export function buildPlannerSystemPrompt(): string {
     'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string"}], "enumerationOnly": boolean, "notes": "string"}.',
     'Tag rules: "interested / potential candidates for X" → includeStatuses ["Interested","Potential Candidate"]; "who is joining X" → ["Joining"]; "who declined X" → ["Declined"]; a cohort named with NO status qualifier → includeStatuses [] (code applies the default).',
     "Budget: set budgetMin only when the question states an explicit minimum spend.",
-    'Field constraints: emit one ONLY for a catalog field, and the value MUST be one of that field\'s listed `options` (option-backed) or `values` (list-valued) items copied VERBATIM IN FULL — e.g. emit "Advanced Freediver", never "advanced"; emit "Professional video camera", never "professional". Use `eq` for an option-backed field and `contains` for a list-valued field. A word or fragment that merely appears inside a longer item does NOT ground a constraint. If no listed item expresses the user\'s criterion, emit NO constraint — the evidence scan handles it.',
+    'Field constraints: emit one ONLY for a catalog field, and the value MUST be one of that field\'s listed `options` (option-backed) or `values` (list-valued) items copied VERBATIM IN FULL — e.g. emit "Advanced Freediver", never "advanced"; emit "Professional video camera", never "professional". Always use `op: "contains"`. A word or fragment that merely appears inside a longer item does NOT ground a constraint. If no listed item expresses the user\'s criterion, emit NO constraint — the evidence scan handles it.',
     "Quality adjectives and level qualifiers — professional, experienced, advanced, good, high-end, serious, strong, and the like — are NEVER field-constraint values. A requirement phrased as a QUALITY of something (e.g. 'professional equipment', 'extensive experience', 'own their own professional gear') is a ranking/judgment criterion for the analyst, not a filter — leave it out even if the word appears inside a catalog vocabulary item.",
     "Criteria described only in prose — topics, experiences, anything narrated in essay answers — are NOT constraints; the evidence scan handles them. Catalog fields (option-backed or list-valued) are the ONLY fields you may filter on; never emit a fieldConstraint for a field absent from the catalog.",
     "Ranking preferences such as 'most experienced' or 'strongest' are NOT constraints — leave them out.",
@@ -232,7 +232,13 @@ export function validatePlan(
       );
       continue;
     }
-    fieldConstraints.push({ ...constraint, field: field.key });
+    // Normalize the apply-time op to `contains` regardless of what the planner
+    // emitted. Validation already forced the VALUE to be a whole vocabulary item,
+    // so `contains` at apply time is a strictly safe superset of `eq`: it also
+    // catches that canonical item embedded in legacy/Other-shaped stored values
+    // (free-text "Other" entries, comma-joined legacy language strings) that an
+    // exact `eq` comparison would miss — silently excluding qualifying contacts.
+    fieldConstraints.push({ ...constraint, field: field.key, op: "contains" });
   }
 
   return { plan: { ...plan, tagConstraint, fieldConstraints }, droppedParts };
