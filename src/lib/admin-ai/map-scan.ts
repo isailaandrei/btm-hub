@@ -55,6 +55,7 @@ export function buildMapExtractionSystemPrompt(): string {
     "Consider ONLY the cards in this batch. Do not invent contacts or use outside knowledge.",
     "Flag a contact ONLY if the card contains a SPECIFIC, QUOTABLE statement relevant to the question — a concrete fact, a named project, a defined concept or idea, a stated skill, or an explicit status. Do NOT flag general enthusiasm, broad aspirations, or thematic interest with no concrete substance.",
     "Err on the side of inclusion only WHEN a specific quotable statement exists but its relevance is uncertain — include it and let a later stage judge. Missing a contact who has such a statement is the failure mode; flagging vague interest is noise.",
+    "When you are unsure whether a specific statement satisfies the question, include the candidate — relevance uncertainty is resolved by the next stage, and rare or niche criteria especially warrant inclusion on partial matches (e.g. a related environment, activity, or experience).",
     "`evidenceSummary` MUST contain the decisive statement quoted verbatim from the card; name its source line label too (for example `Call note` or `Ultimate Vision`).",
     'Return valid JSON matching this contract: {"candidates":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string"}]}.',
     'Return {"candidates":[]} when no contact in this batch has a specific quotable statement relevant to the question.',

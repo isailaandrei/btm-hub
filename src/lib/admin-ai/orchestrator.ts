@@ -12,11 +12,9 @@ import { adminAiDebugLog, startAdminAiDebugTimer } from "./debug";
 import { EvidenceAliasRegistry } from "./evidence-alias";
 import { isAdminAiEvidenceEnabled } from "./feature-flags";
 import {
-  applyHardConstraintsToResponse,
   applyPlannedConstraints,
   extractHardConstraints,
   filterRecordsByHardConstraints,
-  filterResponseToAllowedContacts,
   type AdminAiHardConstraints,
   type PlannedFilterResult,
 } from "./hard-constraints";
@@ -486,14 +484,16 @@ const PLANNER_UNAVAILABLE_NOTE =
 type GlobalPrefilter = {
   records: ContactCardRecord[];
   structuredFilters: AdminAiStructuredFilter[];
+  plan: PlannerOutput | null;
+  droppedParts: string[];
+  plannerUnavailable: boolean;
   disclose: (response: AdminAiResponse) => AdminAiResponse;
-  enforce: (response: AdminAiResponse) => {
-    response: AdminAiResponse;
-    droppedContactIds: string[];
-  };
   // Guarantees enumeration completeness: appends any prefiltered member missing
-  // from the answer. Identity except on a pure-enumeration planner tag path.
-  completeEnumeration: (response: AdminAiResponse) => AdminAiResponse;
+  // from the answer. Identity (appended 0) except on a pure-enumeration tag path.
+  completeEnumeration: (response: AdminAiResponse) => {
+    response: AdminAiResponse;
+    appended: number;
+  };
   metadata: Record<string, unknown> | null;
 };
 
@@ -501,9 +501,11 @@ function nullPrefilter(records: ContactCardRecord[]): GlobalPrefilter {
   return {
     records,
     structuredFilters: [],
+    plan: null,
+    droppedParts: [],
+    plannerUnavailable: false,
     disclose: (response) => response,
-    enforce: (response) => ({ response, droppedContactIds: [] }),
-    completeEnumeration: (response) => response,
+    completeEnumeration: (response) => ({ response, appended: 0 }),
     metadata: null,
   };
 }
@@ -595,9 +597,9 @@ function disclosePlannerPrefilter(
 function buildEnumerationCompleter(
   records: ContactCardRecord[],
   plan: PlannerOutput,
-): (response: AdminAiResponse) => AdminAiResponse {
+): (response: AdminAiResponse) => { response: AdminAiResponse; appended: number } {
   if (!plan.enumerationOnly || !plan.tagConstraint) {
-    return (response) => response;
+    return (response) => ({ response, appended: 0 });
   }
   const tagConstraint = plan.tagConstraint;
   const wanted =
@@ -624,7 +626,7 @@ function buildEnumerationCompleter(
     for (const entry of response.shortlist ?? []) present.add(entry.contactId);
     for (const match of response.additionalMatches ?? []) present.add(match.contactId);
     const missing = rosters.filter((entry) => !present.has(entry.contactId));
-    if (missing.length === 0) return response;
+    if (missing.length === 0) return { response, appended: 0 };
     adminAiDebugLog("enumeration-completeness-appended", { count: missing.length });
     const appended: AdminAiAdditionalMatch[] = missing.map((entry) => ({
       contactId: entry.contactId,
@@ -633,8 +635,11 @@ function buildEnumerationCompleter(
       matchStrength: 1,
     }));
     return {
-      ...response,
-      additionalMatches: [...(response.additionalMatches ?? []), ...appended],
+      response: {
+        ...response,
+        additionalMatches: [...(response.additionalMatches ?? []), ...appended],
+      },
+      appended: appended.length,
     };
   };
 }
@@ -644,16 +649,14 @@ function buildPlannerPrefilter(
   run: PlannerRun,
 ): GlobalPrefilter {
   const applied = applyPlannedConstraints(records, run.plan);
-  const allowedContactIds = new Set(
-    applied.records.map((record) => record.contact.id),
-  );
   return {
     records: applied.records,
     structuredFilters: planToStructuredFilters(run.plan),
+    plan: run.plan,
+    droppedParts: run.droppedParts,
+    plannerUnavailable: false,
     disclose: (response) =>
       disclosePlannerPrefilter(response, run.plan, applied, run.droppedParts),
-    enforce: (response) =>
-      filterResponseToAllowedContacts(response, allowedContactIds),
     completeEnumeration: buildEnumerationCompleter(applied.records, run.plan),
     metadata: {
       planner: {
@@ -675,15 +678,15 @@ function buildLegacyPrefilter(
     records,
     extractHardConstraints(question, records),
   );
-  const allowedContactIds = new Set(
-    filter.records.map((record) => record.contact.id),
-  );
   const hasConstraints =
     filter.constraints.budgetMin !== undefined ||
     filter.constraints.tagCategory !== undefined;
   return {
     records: filter.records,
     structuredFilters: legacyToStructuredFilters(filter.constraints),
+    plan: null,
+    droppedParts: [],
+    plannerUnavailable: true,
     disclose: (response) => {
       // We are on the legacy path because the planner was unavailable — disclose
       // the degraded mode (fail loud, one sanctioned fallback).
@@ -698,15 +701,7 @@ function buildLegacyPrefilter(
       }
       return result;
     },
-    enforce: (response) => {
-      if (!hasConstraints) return { response, droppedContactIds: [] };
-      return applyHardConstraintsToResponse({
-        response,
-        allowedContactIds,
-        constraints: filter.constraints,
-      });
-    },
-    completeEnumeration: (response) => response,
+    completeEnumeration: (response) => ({ response, appended: 0 }),
     metadata: {
       plannerUnavailable: true,
       ...(hasConstraints
@@ -741,6 +736,383 @@ async function computeGlobalPrefilter(input: {
   return buildLegacyPrefilter(input.records, input.question);
 }
 
+const PIPELINE_USAGE_KEYS = [
+  "prompt_cache_hit_tokens",
+  "prompt_cache_miss_tokens",
+  "completion_tokens",
+] as const;
+
+type PipelineUsage = Record<(typeof PIPELINE_USAGE_KEYS)[number], number>;
+
+function accumulatePipelineUsage(agg: PipelineUsage, usage: unknown): void {
+  if (!usage || typeof usage !== "object") return;
+  const record = usage as Record<string, unknown>;
+  for (const key of PIPELINE_USAGE_KEYS) {
+    const value = record[key];
+    if (typeof value === "number") agg[key] += value;
+  }
+}
+
+/**
+ * ID-integrity repair. Models garble/fabricate 36-char UUIDs when enumerating
+ * many contacts, but copy NAMES reliably. For every entry whose contactId is not
+ * in the sent corpus, repair it via a UNIQUE case-insensitive name match against
+ * the cards; if unresolvable, drop it (never fail the whole answer) and disclose.
+ */
+function repairContactIds(
+  response: AdminAiResponse,
+  cards: RenderedContactCard[],
+): { response: AdminAiResponse; idRepairs: number; idDrops: number } {
+  const corpusIds = new Set(cards.map((card) => card.contactId));
+  const nameCounts = new Map<string, number>();
+  for (const card of cards) {
+    const key = card.contactName.trim().toLowerCase();
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+  }
+  const uniqueNameToId = new Map<string, string>();
+  for (const card of cards) {
+    const key = card.contactName.trim().toLowerCase();
+    if (nameCounts.get(key) === 1) uniqueNameToId.set(key, card.contactId);
+  }
+
+  let idRepairs = 0;
+  let idDrops = 0;
+  function repair<T extends { contactId: string; contactName: string }>(
+    entry: T,
+  ): T | null {
+    if (corpusIds.has(entry.contactId)) return entry;
+    const resolved = uniqueNameToId.get(entry.contactName.trim().toLowerCase());
+    if (resolved) {
+      idRepairs += 1;
+      return { ...entry, contactId: resolved };
+    }
+    idDrops += 1;
+    console.warn(
+      "[admin-ai] dropping entry with unresolvable contact reference",
+      { contactId: entry.contactId, contactName: entry.contactName },
+    );
+    return null;
+  }
+
+  const shortlist = response.shortlist
+    ?.map(repair)
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const additionalMatches = response.additionalMatches
+    ?.map(repair)
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  let repaired: AdminAiResponse = { ...response, shortlist, additionalMatches };
+  if (idDrops > 0) {
+    const note = `${idDrops} ${idDrops === 1 ? "entry" : "entries"} dropped: unresolvable contact references.`;
+    repaired = {
+      ...repaired,
+      uncertainty: repaired.uncertainty.includes(note)
+        ? repaired.uncertainty
+        : [...repaired.uncertainty, note],
+    };
+  }
+  return { response: repaired, idRepairs, idDrops };
+}
+
+export type GlobalSynthesisDiagnostics = {
+  plan: PlannerOutput | null;
+  droppedParts: string[];
+  plannerUnavailable: boolean;
+  prefilteredCount: number;
+  mapUsed: boolean;
+  candidateCount: number;
+  appendedByEnumeration: number;
+  idRepairs: number;
+  idDrops: number;
+  usage: PipelineUsage;
+};
+
+export type GlobalSynthesisOutput = {
+  status: "complete" | "insufficient";
+  response: AdminAiResponse;
+  citations: AdminAiCitationDraft[];
+  modelMetadata: Record<string, unknown>;
+  reason: string | null;
+  diagnostics: GlobalSynthesisDiagnostics;
+};
+
+/**
+ * The single global-scope LLM pipeline, shared verbatim by `runCardSynthesis`
+ * (which adds persistence) and the eval harness (which scores) — no drift.
+ * planner/legacy prefilter → render → map-skip/scan → generate → parse →
+ * id-integrity repair → matchStrength sort/cap → enumeration completeness.
+ * Assumes the provider is configured; throws on hard errors (caller persists a
+ * failed message).
+ */
+export async function runGlobalSynthesis(input: {
+  provider: AdminAiProvider;
+  records: ContactCardRecord[];
+  question: string;
+  queryPlan: AdminAiQueryPlan;
+  includeEvidence: boolean;
+}): Promise<GlobalSynthesisOutput> {
+  const { provider, records, question, queryPlan, includeEvidence } = input;
+  const usage: PipelineUsage = {
+    prompt_cache_hit_tokens: 0,
+    prompt_cache_miss_tokens: 0,
+    completion_tokens: 0,
+  };
+
+  const prefilter = await computeGlobalPrefilter({
+    provider,
+    scope: "global",
+    records,
+    question,
+  });
+  queryPlan.structuredFilters = prefilter.structuredFilters;
+  const prefilteredCount = prefilter.records.length;
+  const diag = (extra: Partial<GlobalSynthesisDiagnostics> = {}): GlobalSynthesisDiagnostics => ({
+    plan: prefilter.plan,
+    droppedParts: prefilter.droppedParts,
+    plannerUnavailable: prefilter.plannerUnavailable,
+    prefilteredCount,
+    mapUsed: false,
+    candidateCount: 0,
+    appendedByEnumeration: 0,
+    idRepairs: 0,
+    idDrops: 0,
+    usage,
+    ...extra,
+  });
+
+  const { cards, evidence, evidenceAliases } = renderRecords(prefilter.records, {
+    includeEvidence,
+  });
+
+  let chatEvidence: EvidenceItem[] = [];
+  let chatRetrievalUnavailable = false;
+  if (includeEvidence) {
+    try {
+      chatEvidence = await retrieveConversationEvidence({
+        question,
+        contactId: null,
+        limit: 40,
+      });
+    } catch (error) {
+      chatRetrievalUnavailable = true;
+      const message = error instanceof Error ? error.message : String(error);
+      adminAiDebugLog("conversation-retrieval-unavailable", { scope: "global", error: message });
+      console.warn("[admin-ai] conversation evidence retrieval unavailable", { error: message });
+    }
+  }
+  const allowedEvidence = includeEvidence ? [...evidence, ...chatEvidence] : [];
+  const mapReduceMode = getAdminAiScanMode() === "map_reduce";
+
+  adminAiDebugLog("raw-cards-assembled", {
+    scope: "global",
+    cardCount: cards.length,
+    evidenceCount: allowedEvidence.length,
+    evidenceEnabled: includeEvidence,
+    structuredFilters: prefilter.structuredFilters,
+    prefilterDroppedCount: records.length - prefilter.records.length,
+    chatEvidenceCount: chatEvidence.length,
+    chatRetrievalUnavailable,
+    promptCacheKey: ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY,
+  });
+
+  if (cards.length === 0 || (includeEvidence && allowedEvidence.length === 0)) {
+    const response = discloseChatRetrievalUnavailable(
+      buildInsufficientEvidenceResponse("global", {
+        extra: prefilter.structuredFilters.length > 0
+          ? "No contacts matched the deterministic hard filters for this question."
+          : "No eligible contacts with raw application, note, tag, or conversation evidence are available.",
+      }),
+      chatRetrievalUnavailable,
+    );
+    return {
+      status: "insufficient",
+      response,
+      citations: [],
+      modelMetadata: { source: "system", reason: "no_raw_card_evidence" },
+      reason: "no_raw_card_evidence",
+      diagnostics: diag(),
+    };
+  }
+
+  const timer = startAdminAiDebugTimer("raw-card-synthesis", {
+    scope: "global",
+    cardCount: cards.length,
+    evidenceCount: allowedEvidence.length,
+  });
+
+  let synthesisCards = cards;
+  let synthesisChatEvidence = chatEvidence;
+  let scanMetadata: MapScanResult["scanMetadata"] | null = null;
+  let mapUsed = false;
+  if (mapReduceMode) {
+    if (!provider.completeJson) {
+      throw new Error(
+        "map_reduce scan mode currently requires ADMIN_AI_PROVIDER=deepseek",
+      );
+    }
+    if (cards.length <= MAP_CHUNK_SIZE) {
+      adminAiDebugLog("map-skipped-small-corpus", { cardCount: cards.length });
+    } else {
+      mapUsed = true;
+      const mapResult = await runMapScan({ provider, cards, question });
+      scanMetadata = mapResult.scanMetadata;
+      accumulatePipelineUsage(usage, mapResult.scanMetadata.usage);
+      if (mapResult.candidateIds.size === 0) {
+        const insufficient = discloseChatRetrievalUnavailable(
+          buildInsufficientEvidenceResponse("global", {
+            extra: `A full chunked scan of all ${cards.length} eligible contacts found no candidates for this question.`,
+          }),
+          chatRetrievalUnavailable,
+        );
+        return {
+          status: "insufficient",
+          response: insufficient,
+          citations: [],
+          modelMetadata: { source: "system", reason: "map_scan_no_candidates" },
+          reason: "map_scan_no_candidates",
+          diagnostics: diag({ mapUsed: true }),
+        };
+      }
+      const { candidateIds } = mapResult;
+      synthesisCards = cards.filter((card) => candidateIds.has(card.contactId));
+      synthesisChatEvidence = chatEvidence.filter((item) =>
+        candidateIds.has(item.contactId),
+      );
+    }
+  }
+
+  const promptCacheKey = mapReduceMode ? null : ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY;
+  const aliasedChatEvidence = synthesisChatEvidence.map((item) => ({
+    ...item,
+    evidenceId: evidenceAliases.register(item.evidenceId),
+  }));
+  const { response: rawResponse, modelMetadata } = await provider.generate({
+    question,
+    scope: "global",
+    queryPlan,
+    cards: synthesisCards,
+    evidence: includeEvidence ? aliasedChatEvidence : [],
+    includeEvidence,
+    promptCacheKey,
+  });
+  accumulatePipelineUsage(usage, modelMetadata.usage);
+
+  let response = enforceShortlistRanking(
+    translateCitationAliases(adminAiResponseSchema.parse(rawResponse), evidenceAliases),
+  );
+  const repaired = repairContactIds(response, synthesisCards);
+  response = repaired.response;
+
+  let citations: AdminAiCitationDraft[] = [];
+  let droppedEvidenceIds: string[] = [];
+  if (includeEvidence) {
+    const resolved = resolveCitationDrafts(response, allowedEvidence);
+    citations = resolved.drafts;
+    droppedEvidenceIds = resolved.droppedEvidenceIds;
+    response = applyDroppedEvidenceIdsToResponse(response, new Set(droppedEvidenceIds));
+  } else {
+    response = stripResponseCitations(response);
+  }
+
+  let droppedContactIds: string[] = [];
+  if (includeEvidence) {
+    const cleaned = pruneUncitedGlobalShortlistEntries({ response, droppedEvidenceIds });
+    response = cleaned.response;
+    droppedContactIds = cleaned.droppedContactIds;
+    if ((response.shortlist?.length ?? 0) === 0) {
+      const insufficient = discloseChatRetrievalUnavailable(
+        buildInsufficientEvidenceResponse("global", {
+          extra:
+            response.uncertainty.at(-1) ??
+            "The model did not return any grounded shortlist entries for this question.",
+        }),
+        chatRetrievalUnavailable,
+      );
+      timer.end({
+        status: "insufficient_after_evidence_cleanup",
+        droppedEvidenceCount: droppedEvidenceIds.length,
+        droppedShortlistCount: droppedContactIds.length,
+      });
+      return {
+        status: "insufficient",
+        response: insufficient,
+        citations: [],
+        modelMetadata: { source: "system", reason: "ungrounded_raw_card_shortlist" },
+        reason: "ungrounded_raw_card_shortlist",
+        diagnostics: diag({
+          mapUsed,
+          candidateCount: synthesisCards.length,
+          idRepairs: repaired.idRepairs,
+          idDrops: repaired.idDrops,
+        }),
+      };
+    }
+  }
+
+  response = prefilter.disclose(response);
+  const enumResult = prefilter.completeEnumeration(response);
+  response = enumResult.response;
+  response = discloseChatRetrievalUnavailable(response, chatRetrievalUnavailable);
+
+  const mergedMetadata: Record<string, unknown> = {
+    ...modelMetadata,
+    rawCards: {
+      cardCount: synthesisCards.length,
+      evidenceCount: allowedEvidence.length,
+      evidenceEnabled: includeEvidence,
+      chatEvidenceCount: chatEvidence.length,
+      chatRetrievalUnavailable,
+      promptCacheKey,
+      droppedEvidenceIds,
+      droppedShortlistContactIds: droppedContactIds,
+    },
+    ...(scanMetadata ? { scan: scanMetadata } : {}),
+    ...(prefilter.metadata ?? {}),
+    idIntegrity: { repairs: repaired.idRepairs, drops: repaired.idDrops },
+    ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
+  };
+  timer.end({
+    status: "complete",
+    citationCount: citations.length,
+    droppedEvidenceCount: droppedEvidenceIds.length,
+  });
+
+  return {
+    status: "complete",
+    response,
+    citations,
+    modelMetadata: mergedMetadata,
+    reason: null,
+    diagnostics: diag({
+      mapUsed,
+      candidateCount: synthesisCards.length,
+      appendedByEnumeration: enumResult.appended,
+      idRepairs: repaired.idRepairs,
+      idDrops: repaired.idDrops,
+    }),
+  };
+}
+
+async function persistSynthesisFailure(
+  input: { scope: AdminAiScope; threadId: string; queryPlan: AdminAiQueryPlan },
+  error: unknown,
+): Promise<never> {
+  adminAiDebugLog("raw-card-synthesis-failed", {
+    scope: input.scope,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  const message = error instanceof Error ? error.message : "Admin AI analysis failed.";
+  const assistantMessageId = await persistFailedAssistantMessage({
+    threadId: input.threadId,
+    content: message,
+    queryPlan: input.queryPlan,
+    modelMetadata: { source: "system", reason: "analysis_failed" },
+  });
+  throw Object.assign(error instanceof Error ? error : new Error(message), {
+    assistantMessageId,
+  });
+}
+
 async function runCardSynthesis(input: {
   scope: AdminAiScope;
   question: string;
@@ -750,16 +1122,6 @@ async function runCardSynthesis(input: {
 }): Promise<RunAdminAiAnalysisResult> {
   const includeEvidence = isAdminAiEvidenceEnabled();
   const provider = getAdminAiProvider();
-  const prefilter = await computeGlobalPrefilter({
-    provider,
-    scope: input.scope,
-    records: input.records,
-    question: input.question,
-  });
-  input.queryPlan.structuredFilters = prefilter.structuredFilters;
-  const { cards, evidence, evidenceAliases } = renderRecords(prefilter.records, {
-    includeEvidence,
-  });
   if (!provider.isConfigured()) {
     const reason = provider.getUnavailableReason() ?? "Admin AI is unavailable.";
     const assistantMessageId = await persistFailedAssistantMessage({
@@ -779,22 +1141,72 @@ async function runCardSynthesis(input: {
     };
   }
 
+  if (input.scope === "global") {
+    try {
+      const result = await runGlobalSynthesis({
+        provider,
+        records: input.records,
+        question: input.question,
+        queryPlan: input.queryPlan,
+        includeEvidence,
+      });
+      if (result.status === "insufficient") {
+        return persistInsufficientResponse({
+          threadId: input.threadId,
+          queryPlan: input.queryPlan,
+          response: result.response,
+          reason: result.reason ?? "insufficient",
+        });
+      }
+      const { id } = await createAdminAiMessage({
+        threadId: input.threadId,
+        role: "assistant",
+        content: describeAssistantResponse(result.response),
+        status: "complete",
+        queryPlan: input.queryPlan,
+        responseJson: result.response,
+        modelMetadata: result.modelMetadata,
+      });
+      if (result.citations.length > 0) {
+        await createAdminAiCitations({ messageId: id, citations: result.citations });
+      }
+      return {
+        status: "complete",
+        assistantMessageId: id,
+        queryPlan: input.queryPlan,
+        response: result.response,
+        citations: result.citations,
+        modelMetadata: result.modelMetadata,
+        error: null,
+      };
+    } catch (error) {
+      return persistSynthesisFailure(
+        { scope: "global", threadId: input.threadId, queryPlan: input.queryPlan },
+        error,
+      );
+    }
+  }
+
+  // Contact scope: single card, contact assessment; no prefilter/map/enumeration.
+  const { cards, evidence, evidenceAliases } = renderRecords(input.records, {
+    includeEvidence,
+  });
+
   let chatEvidence: EvidenceItem[] = [];
   let chatRetrievalUnavailable = false;
   if (includeEvidence) {
     try {
       chatEvidence = await retrieveConversationEvidence({
         question: input.question,
-        contactId:
-          input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+        contactId: input.queryPlan.contactId ?? null,
         limit: 40,
       });
     } catch (error) {
       chatRetrievalUnavailable = true;
       const message = error instanceof Error ? error.message : String(error);
       adminAiDebugLog("conversation-retrieval-unavailable", {
-        scope: input.scope,
-        contactId: input.scope === "contact" ? input.queryPlan.contactId ?? null : null,
+        scope: "contact",
+        contactId: input.queryPlan.contactId ?? null,
         error: message,
       });
       console.warn("[admin-ai] conversation evidence retrieval unavailable", {
@@ -804,29 +1216,20 @@ async function runCardSynthesis(input: {
   }
   const allowedEvidence = includeEvidence ? [...evidence, ...chatEvidence] : [];
 
-  const prefilterApplied = prefilter.structuredFilters.length > 0;
-
   adminAiDebugLog("raw-cards-assembled", {
-    scope: input.scope,
+    scope: "contact",
     cardCount: cards.length,
     evidenceCount: allowedEvidence.length,
     evidenceEnabled: includeEvidence,
-    structuredFilters: prefilter.structuredFilters,
-    prefilterDroppedCount: input.records.length - prefilter.records.length,
     chatEvidenceCount: chatEvidence.length,
     chatRetrievalUnavailable,
-    promptCacheKey: input.scope === "global" ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY : null,
   });
 
   if (cards.length === 0 || (includeEvidence && allowedEvidence.length === 0)) {
     const response = discloseChatRetrievalUnavailable(
-      buildInsufficientEvidenceResponse(input.scope, {
+      buildInsufficientEvidenceResponse("contact", {
         extra:
-          prefilterApplied
-            ? "No contacts matched the deterministic hard filters for this question."
-            : input.scope === "contact"
-            ? "No raw application, note, tag, or conversation evidence is available for this contact."
-            : "No eligible contacts with raw application, note, tag, or conversation evidence are available.",
+          "No raw application, note, tag, or conversation evidence is available for this contact.",
       }),
       chatRetrievalUnavailable,
     );
@@ -839,85 +1242,23 @@ async function runCardSynthesis(input: {
   }
 
   try {
-    // Map stage (global scope + map_reduce mode only): run a chunked recall
-    // pass and narrow the corpus to the surfaced candidates before synthesis.
-    // Single mode and contact scope skip this and stay byte-identical.
-    let synthesisCards = cards;
-    let synthesisChatEvidence = chatEvidence;
-    let scanMetadata: MapScanResult["scanMetadata"] | null = null;
-    let mapReduceMode = false;
-
-    if (input.scope === "global" && getAdminAiScanMode() === "map_reduce") {
-      mapReduceMode = true;
-      if (!provider.completeJson) {
-        throw new Error(
-          "map_reduce scan mode currently requires ADMIN_AI_PROVIDER=deepseek",
-        );
-      }
-      if (cards.length <= MAP_CHUNK_SIZE) {
-        // Small (often tag-prefiltered) cohort: the map stage can only drop
-        // members it fails to re-flag, so skip it and let reduce judge every
-        // card directly. Also cheaper for small questions.
-        adminAiDebugLog("map-skipped-small-corpus", { cardCount: cards.length });
-      } else {
-        const mapResult = await runMapScan({
-          provider,
-          cards,
-          question: input.question,
-        });
-        scanMetadata = mapResult.scanMetadata;
-        if (mapResult.candidateIds.size === 0) {
-          const insufficient = discloseChatRetrievalUnavailable(
-            buildInsufficientEvidenceResponse("global", {
-              extra: `A full chunked scan of all ${cards.length} eligible contacts found no candidates for this question.`,
-            }),
-            chatRetrievalUnavailable,
-          );
-          return persistInsufficientResponse({
-            threadId: input.threadId,
-            queryPlan: input.queryPlan,
-            response: insufficient,
-            reason: "map_scan_no_candidates",
-          });
-        }
-        const { candidateIds } = mapResult;
-        synthesisCards = cards.filter((card) => candidateIds.has(card.contactId));
-        synthesisChatEvidence = chatEvidence.filter((item) =>
-          candidateIds.has(item.contactId),
-        );
-      }
-    }
-
     const timer = startAdminAiDebugTimer("raw-card-synthesis", {
-      scope: input.scope,
-      cardCount: synthesisCards.length,
+      scope: "contact",
+      cardCount: cards.length,
       evidenceCount: allowedEvidence.length,
     });
-    // In map_reduce mode the card set is question-dependent (candidate subset, or
-    // a tag-prefiltered cohort when the map was skipped), so the shared global
-    // prompt-cache key would poison the prefix match — send none.
-    const promptCacheKey = mapReduceMode
-      ? null
-      : input.scope === "global"
-        ? ADMIN_AI_GLOBAL_PROMPT_CACHE_KEY
-        : null;
-    const aliasedChatEvidence = synthesisChatEvidence.map((item) => ({
+    const aliasedChatEvidence = chatEvidence.map((item) => ({
       ...item,
       evidenceId: evidenceAliases.register(item.evidenceId),
     }));
     const { response: rawResponse, modelMetadata } = await provider.generate({
       question: input.question,
-      scope: input.scope,
+      scope: "contact",
       queryPlan: input.queryPlan,
-      cards: synthesisCards,
-      // Send only conversation-retrieval evidence to the model. Card-derived
-      // evidence ids are already inline in the card text, and duplicating the
-      // full items here once made global prompts exceed provider size limits
-      // (~74% of a 10.6MB payload). `allowedEvidence` still validates
-      // citations server-side below.
+      cards,
       evidence: includeEvidence ? aliasedChatEvidence : [],
       includeEvidence,
-      promptCacheKey,
+      promptCacheKey: null,
     });
 
     let response = enforceShortlistRanking(
@@ -928,7 +1269,6 @@ async function runCardSynthesis(input: {
     );
     let citations: AdminAiCitationDraft[] = [];
     let droppedEvidenceIds: string[] = [];
-
     if (includeEvidence) {
       const resolved = resolveCitationDrafts(response, allowedEvidence);
       citations = resolved.drafts;
@@ -943,7 +1283,6 @@ async function runCardSynthesis(input: {
 
     if (
       includeEvidence &&
-      input.scope === "contact" &&
       response.contactAssessment &&
       response.contactAssessment.citations.length === 0
     ) {
@@ -968,69 +1307,20 @@ async function runCardSynthesis(input: {
       });
     }
 
-    let droppedContactIds: string[] = [];
-    if (includeEvidence && input.scope === "global") {
-      const cleaned = pruneUncitedGlobalShortlistEntries({
-        response,
-        droppedEvidenceIds,
-      });
-      response = cleaned.response;
-      droppedContactIds = cleaned.droppedContactIds;
-
-      if ((response.shortlist?.length ?? 0) === 0) {
-        const insufficient = discloseChatRetrievalUnavailable(
-          buildInsufficientEvidenceResponse("global", {
-            extra:
-              response.uncertainty.at(-1) ??
-              "The model did not return any grounded shortlist entries for this question.",
-          }),
-          chatRetrievalUnavailable,
-        );
-        timer.end({
-          status: "insufficient_after_evidence_cleanup",
-          droppedEvidenceCount: droppedEvidenceIds.length,
-          droppedShortlistCount: droppedContactIds.length,
-        });
-        return persistInsufficientResponse({
-          threadId: input.threadId,
-          queryPlan: input.queryPlan,
-          response: insufficient,
-          reason: "ungrounded_raw_card_shortlist",
-        });
-      }
-    }
-
-    // Response safety net + disclosure are path-agnostic (planner or legacy).
-    const enforced = prefilter.enforce(response);
-    response = enforced.response;
-    const prefilterDroppedShortlistContactIds = enforced.droppedContactIds;
-    response = prefilter.disclose(response);
-    // Enumeration completeness runs AFTER the code-sort so appended members land
-    // at the end of additionalMatches (recall 1.0 by construction).
-    response = prefilter.completeEnumeration(response);
-
-    response = discloseChatRetrievalUnavailable(
-      response,
-      chatRetrievalUnavailable,
-    );
+    response = discloseChatRetrievalUnavailable(response, chatRetrievalUnavailable);
 
     const mergedMetadata: Record<string, unknown> = {
       ...modelMetadata,
       rawCards: {
-        cardCount: synthesisCards.length,
+        cardCount: cards.length,
         evidenceCount: allowedEvidence.length,
         evidenceEnabled: includeEvidence,
         chatEvidenceCount: chatEvidence.length,
         chatRetrievalUnavailable,
-        promptCacheKey,
+        promptCacheKey: null,
         droppedEvidenceIds,
-        droppedShortlistContactIds: droppedContactIds,
+        droppedShortlistContactIds: [],
       },
-      ...(scanMetadata ? { scan: scanMetadata } : {}),
-      ...(prefilter.metadata ?? {}),
-      ...(prefilterDroppedShortlistContactIds.length > 0
-        ? { prefilterDroppedShortlistContactIds }
-        : {}),
       ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
     };
 
@@ -1043,7 +1333,6 @@ async function runCardSynthesis(input: {
       responseJson: response,
       modelMetadata: mergedMetadata,
     });
-
     if (includeEvidence && citations.length > 0) {
       await createAdminAiCitations({ messageId: id, citations });
     }
@@ -1052,7 +1341,6 @@ async function runCardSynthesis(input: {
       citationCount: citations.length,
       droppedEvidenceCount: droppedEvidenceIds.length,
     });
-
     return {
       status: "complete",
       assistantMessageId: id,
@@ -1063,21 +1351,9 @@ async function runCardSynthesis(input: {
       error: null,
     };
   } catch (error) {
-    adminAiDebugLog("raw-card-synthesis-failed", {
-      scope: input.scope,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    const message =
-      error instanceof Error ? error.message : "Admin AI analysis failed.";
-    const assistantMessageId = await persistFailedAssistantMessage({
-      threadId: input.threadId,
-      content: message,
-      queryPlan: input.queryPlan,
-      modelMetadata: { source: "system", reason: "analysis_failed" },
-    });
-    throw Object.assign(
-      error instanceof Error ? error : new Error(message),
-      { assistantMessageId },
+    return persistSynthesisFailure(
+      { scope: "contact", threadId: input.threadId, queryPlan: input.queryPlan },
+      error,
     );
   }
 }

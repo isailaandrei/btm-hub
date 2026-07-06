@@ -262,8 +262,10 @@ describe("runAdminAiAnalysis (raw cards)", () => {
     expect(result.response?.shortlist?.map((entry) => entry.contactId)).toEqual([
       CONTACT_ID,
     ]);
+    // The below-budget contact was prefiltered out, so its card was never sent;
+    // the model returning it is an unresolvable reference the id-repair drops.
     expect(result.response?.uncertainty).toContain(
-      "Some model-returned shortlist entries were dropped because they were outside deterministic hard filters.",
+      "1 entry dropped: unresolvable contact references.",
     );
     expect(result.response?.uncertainty).toContain(
       "2 contacts were excluded by the deterministic budget filter ($6,000 minimum) before synthesis because the available CRM data did not satisfy the user's hard constraint.",
@@ -274,9 +276,7 @@ describe("runAdminAiAnalysis (raw cards)", () => {
         prefilteredContactCount: 2,
       }),
     );
-    expect(result.modelMetadata?.prefilterDroppedShortlistContactIds).toEqual([
-      OTHER_CONTACT_ID,
-    ]);
+    expect(result.modelMetadata?.idIntegrity).toEqual({ repairs: 0, drops: 1 });
     // No completeJson on this mock provider → planner unavailable → legacy path.
     expect(result.modelMetadata?.plannerUnavailable).toBe(true);
   });
@@ -1069,16 +1069,22 @@ describe("runAdminAiAnalysis (ranking + tag prefilter)", () => {
     const dataMod = await import("@/lib/data/admin-ai");
     const cardDataMod = await import("@/lib/data/contact-cards");
 
-    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
-    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
-      makeRecord(CONTACT_ID),
-    ]);
-
     // 12 entries with deliberately unsorted matchStrength (model emitted them
-    // out of order — code must enforce ranking + the 10-entry cap).
+    // out of order — code must enforce ranking + the 10-entry cap). Each has a
+    // matching corpus record so the id-integrity repair keeps them all.
     const strengths = [30, 90, 10, 80, 50, 70, 40, 100, 20, 60, 5, 85];
+    const entryId = (i: number) =>
+      `${String(i).padStart(8, "0")}-3333-4333-8333-333333333333`;
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue(
+      strengths.map((s, i) => {
+        const base = makeRecord(entryId(i));
+        return { ...base, contact: { ...base.contact, name: `C${s}` } };
+      }),
+    );
+
     const shortlist = strengths.map((s, i) => ({
-      contactId: `${String(i).padStart(8, "0")}-3333-4333-8333-333333333333`,
+      contactId: entryId(i),
       contactName: `C${s}`,
       whyFit: [`why ${s}`],
       concerns: [],
@@ -1382,5 +1388,143 @@ describe("runAdminAiAnalysis (constraint planner)", () => {
       ...(result.response?.additionalMatches ?? []).map((m) => m.contactId),
     ]);
     expect(union.has(MISSING_BUDGET_CONTACT_ID)).toBe(false);
+  });
+});
+
+describe("runGlobalSynthesis (id integrity + drift-proof)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function namedRecord(id: string, name: string): ContactCardRecord {
+    const base = makeRecord(id);
+    return { ...base, contact: { ...base.contact, name } };
+  }
+
+  const GARBLED_RESPONSE = {
+    assumptions: [],
+    uncertainty: [],
+    shortlist: [
+      {
+        contactId: "garbled-xxxx",
+        contactName: "Marina Costa",
+        whyFit: ["fit"],
+        concerns: [],
+        citations: [],
+        matchStrength: 90,
+      },
+      {
+        contactId: "no-such-id",
+        contactName: "Nobody Here",
+        whyFit: ["fit"],
+        concerns: [],
+        citations: [],
+        matchStrength: 50,
+      },
+      {
+        contactId: OTHER_CONTACT_ID,
+        contactName: "Ivo Santos",
+        whyFit: ["fit"],
+        concerns: [],
+        citations: [],
+        matchStrength: 80,
+      },
+    ],
+  };
+
+  function makeProviderReturning() {
+    return {
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: vi.fn().mockResolvedValue({
+        response: structuredClone(GARBLED_RESPONSE) as AdminAiResponse,
+        modelMetadata: {},
+      }),
+    };
+  }
+
+  const RECORDS = () => [
+    namedRecord(CONTACT_ID, "Marina Costa"),
+    namedRecord(OTHER_CONTACT_ID, "Ivo Santos"),
+  ];
+
+  it("repairs a garbled id by unique name and drops an unresolvable one", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+
+    const { runGlobalSynthesis } = await import("./orchestrator");
+    const result = await runGlobalSynthesis({
+      provider: makeProviderReturning() as never,
+      records: RECORDS(),
+      question: "who fits?",
+      queryPlan: {
+        mode: "global_search",
+        structuredFilters: [],
+        textFocus: ["fits"],
+        requestedLimit: 10,
+      },
+      includeEvidence: false,
+    });
+
+    expect(result.status).toBe("complete");
+    // garbled-xxxx → CONTACT_ID (unique name); no-such-id dropped; OTHER kept.
+    expect(result.response.shortlist?.map((e) => e.contactId)).toEqual([
+      CONTACT_ID,
+      OTHER_CONTACT_ID,
+    ]);
+    expect(result.diagnostics.idRepairs).toBe(1);
+    expect(result.diagnostics.idDrops).toBe(1);
+    expect(
+      result.response.uncertainty.some((u) =>
+        u.includes("unresolvable contact references"),
+      ),
+    ).toBe(true);
+  });
+
+  it("produces identical post-processing from the orchestrator and a direct call (no drift)", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+
+    const orchestratorProvider = makeProviderReturning();
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue(
+      orchestratorProvider as never,
+    );
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue(RECORDS());
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis, runGlobalSynthesis } = await import("./orchestrator");
+    const viaOrchestrator = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who fits?",
+    });
+    const direct = await runGlobalSynthesis({
+      provider: makeProviderReturning() as never,
+      records: RECORDS(),
+      question: "who fits?",
+      queryPlan: {
+        mode: "global_search",
+        structuredFilters: [],
+        textFocus: ["fits"],
+        requestedLimit: 10,
+      },
+      includeEvidence: false,
+    });
+
+    expect(viaOrchestrator.response?.shortlist?.map((e) => e.contactId)).toEqual(
+      direct.response.shortlist?.map((e) => e.contactId),
+    );
+    expect(viaOrchestrator.response?.shortlist?.map((e) => e.matchStrength)).toEqual(
+      direct.response.shortlist?.map((e) => e.matchStrength),
+    );
   });
 });

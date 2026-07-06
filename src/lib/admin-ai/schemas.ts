@@ -144,8 +144,11 @@ const adminAiCitationSchema = z.object({
 // still enforcing the 0-100 bound when present. The orchestrator sorts by it.
 const matchStrengthSchema = z.number().int().min(0).max(100).default(0);
 
+// contactId is a non-empty string, NOT a strict UUID: models garble/fabricate
+// 36-char UUIDs when enumerating 80+ contacts. A dedicated post-parse
+// id-integrity repair layer resolves or drops bad ids without failing the parse.
 const adminAiShortlistEntrySchema = z.object({
-  contactId: uuidSchema,
+  contactId: z.string().min(1),
   contactName: z.string(),
   whyFit: z.array(z.string()),
   concerns: z.array(z.string()),
@@ -160,7 +163,7 @@ const adminAiContactAssessmentSchema = z.object({
 });
 
 const adminAiAdditionalMatchSchema = z.object({
-  contactId: uuidSchema,
+  contactId: z.string().min(1),
   contactName: z.string(),
   reason: z.string(),
   matchStrength: matchStrengthSchema,

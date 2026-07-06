@@ -22,19 +22,13 @@ import {
   createLiveSupabaseClient,
   loadEligible,
   loadEnv,
-  renderRecordsForLive,
   type LiveSupabaseClient,
 } from "./admin-ai-live-lib";
 import { deepSeekAdminAiProvider } from "@/lib/admin-ai/deepseek-provider";
-import { runConstraintPlanner } from "@/lib/admin-ai/constraint-planner";
 import {
-  applyPlannedConstraints,
-  extractHardConstraints,
-  filterRecordsByHardConstraints,
-} from "@/lib/admin-ai/hard-constraints";
-import { MAP_CHUNK_SIZE, runMapScan } from "@/lib/admin-ai/map-scan";
-import { enforceShortlistRanking } from "@/lib/admin-ai/orchestrator";
-import { adminAiResponseSchema } from "@/lib/admin-ai/schemas";
+  runGlobalSynthesis,
+  type GlobalSynthesisDiagnostics,
+} from "@/lib/admin-ai/orchestrator";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
 import type { AdminAiResponse } from "@/types/admin-ai";
 
@@ -48,8 +42,6 @@ const PRICE_PER_M = {
 const YANG_YANG_ID = "6b21215b-c67a-4e71-84f0-f343fd5601a1";
 const CORAL = "26 Coral Catch";
 const SCUBASPA = "26 Maldives Academy ScubaSpa";
-
-type UsageAgg = { hit: number; miss: number; output: number };
 
 type EvalResult = {
   key: string;
@@ -67,35 +59,36 @@ type EvalResult = {
   latencyMs: number;
   costUsd: number;
   advisory: string[];
+  // Self-diagnosing fields from the shared pipeline diagnostics.
+  prefilteredCount: number;
+  candidateCount: number;
+  idRepairs: number;
+  idDrops: number;
+  appendedByEnumeration: number;
+  plan: GlobalSynthesisDiagnostics["plan"];
+  droppedParts: string[];
+  assumptions: string[];
+  truthIds: string[];
+  unionIds: string[];
+  missingIds: string[];
 };
 
 type PipelineOutput = {
   response: AdminAiResponse;
-  usage: UsageAgg;
+  diagnostics: GlobalSynthesisDiagnostics;
   latencyMs: number;
+  // Kept for call-site compatibility; sourced from diagnostics.
   cardsSent: number;
   mapUsed: boolean;
 };
 
 const gateEnabled = process.env.RUN_ADMIN_AI_EVAL === "1";
 
-function num(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function accumulateUsage(agg: UsageAgg, usage: unknown): void {
-  if (!usage || typeof usage !== "object") return;
-  const u = usage as Record<string, unknown>;
-  agg.hit += num(u.prompt_cache_hit_tokens);
-  agg.miss += num(u.prompt_cache_miss_tokens);
-  agg.output += num(u.completion_tokens);
-}
-
-function costUsd(agg: UsageAgg): number {
+function costUsd(usage: GlobalSynthesisDiagnostics["usage"]): number {
   return (
-    (agg.miss * PRICE_PER_M.inputMiss +
-      agg.hit * PRICE_PER_M.inputHit +
-      agg.output * PRICE_PER_M.output) /
+    (usage.prompt_cache_miss_tokens * PRICE_PER_M.inputMiss +
+      usage.prompt_cache_hit_tokens * PRICE_PER_M.inputHit +
+      usage.completion_tokens * PRICE_PER_M.output) /
     1_000_000
   );
 }
@@ -216,14 +209,14 @@ function printScorecard(results: EvalResult[]): void {
   lines.push("ADMIN-AI EVAL SCORECARD · provider=deepseek · scan=map_reduce");
   lines.push("=".repeat(96));
   lines.push(
-    `${pad("QUESTION", 18)}${pad("RECALL", 8)}${pad("SL-PREC", 9)}${pad("FORBID", 8)}${pad("EMPTY", 7)}${pad("SL/ADD", 8)}${pad("CARDS", 7)}${pad("MAP", 5)}${pad("LAT(s)", 8)}${pad("COST$", 9)}`,
+    `${pad("QUESTION", 18)}${pad("RECALL", 8)}${pad("SL-PREC", 9)}${pad("FORBID", 8)}${pad("EMPTY", 7)}${pad("SL/ADD", 8)}${pad("PREFILT", 8)}${pad("CARDS", 7)}${pad("MAP", 5)}${pad("LAT(s)", 8)}${pad("COST$", 9)}`,
   );
-  lines.push("-".repeat(96));
+  lines.push("-".repeat(104));
   for (const r of results) {
     const empty =
       r.expectEmpty === null ? "-" : r.expectEmptyPass ? "pass" : "FAIL";
     lines.push(
-      `${pad(r.key, 18)}${pad(fmtPct(r.recall), 8)}${pad(fmtPct(r.shortlistPrecision), 9)}${pad(String(r.forbiddenViolations.length), 8)}${pad(empty, 7)}${pad(`${r.shortlistCount}/${r.additionalCount}`, 8)}${pad(String(r.cardsSent), 7)}${pad(r.mapUsed ? "yes" : "no", 5)}${pad((r.latencyMs / 1000).toFixed(1), 8)}${pad(r.costUsd.toFixed(4), 9)}`,
+      `${pad(r.key, 18)}${pad(fmtPct(r.recall), 8)}${pad(fmtPct(r.shortlistPrecision), 9)}${pad(String(r.forbiddenViolations.length), 8)}${pad(empty, 7)}${pad(`${r.shortlistCount}/${r.additionalCount}`, 8)}${pad(String(r.prefilteredCount), 8)}${pad(String(r.candidateCount), 7)}${pad(r.mapUsed ? "yes" : "no", 5)}${pad((r.latencyMs / 1000).toFixed(1), 8)}${pad(r.costUsd.toFixed(4), 9)}`,
     );
     for (const note of r.advisory) lines.push(`    · ${note}`);
   }
@@ -298,79 +291,77 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     }
   });
 
-  // Runs the REAL pipeline with NO persistence, mirroring runCardSynthesis:
-  // prefilter → render (evidence off) → skip map when small else runMapScan →
-  // generate → zod parse → code-side matchStrength sort.
+  // Runs the SAME shared pipeline the orchestrator uses (no drift), with no
+  // persistence, evidence off. runGlobalSynthesis does planner/legacy prefilter →
+  // render → map-skip/scan → generate → parse → id-repair → sort → enumeration.
   async function runPipeline(question: string): Promise<PipelineOutput> {
     const start = Date.now();
-    const usage: UsageAgg = { hit: 0, miss: 0, output: 0 };
-
-    // Same prefilter order as the orchestrator: constraint planner first, legacy
-    // deterministic filters as the disclosed fallback.
-    const planned = await runConstraintPlanner({
+    const result = await runGlobalSynthesis({
       provider: deepSeekAdminAiProvider,
       records,
       question,
-    });
-    const prefilteredRecords = planned
-      ? applyPlannedConstraints(records, planned.plan).records
-      : filterRecordsByHardConstraints(records, extractHardConstraints(question, records))
-          .records;
-    const cards = renderRecordsForLive(prefilteredRecords, {
-      includeEvidence: false,
-    });
-
-    let candidateCards = cards;
-    let mapUsed = false;
-    if (cards.length > MAP_CHUNK_SIZE) {
-      mapUsed = true;
-      const scan = await runMapScan({
-        provider: deepSeekAdminAiProvider,
-        cards,
-        question,
-      });
-      accumulateUsage(usage, scan.scanMetadata.usage);
-      candidateCards = cards.filter((card) => scan.candidateIds.has(card.contactId));
-    }
-
-    if (candidateCards.length === 0) {
-      return {
-        response: { assumptions: [], uncertainty: ["No candidates after scan."] },
-        usage,
-        latencyMs: Date.now() - start,
-        cardsSent: 0,
-        mapUsed,
-      };
-    }
-
-    const { response: rawResponse, modelMetadata } = await deepSeekAdminAiProvider.generate({
-      question,
-      scope: "global",
       queryPlan: {
         mode: "global_search",
         structuredFilters: [],
         textFocus: question.trim() ? [question.trim()] : [],
         requestedLimit: 10,
       },
-      cards: candidateCards,
-      evidence: [],
       includeEvidence: false,
-      promptCacheKey: null,
     });
-    accumulateUsage(usage, modelMetadata.usage);
-
-    const response = enforceShortlistRanking(adminAiResponseSchema.parse(rawResponse));
     return {
-      response,
-      usage,
+      response: result.response,
+      diagnostics: result.diagnostics,
       latencyMs: Date.now() - start,
-      cardsSent: candidateCards.length,
-      mapUsed,
+      cardsSent: result.diagnostics.candidateCount,
+      mapUsed: result.diagnostics.mapUsed,
     };
   }
 
-  function record(base: Omit<EvalResult, "costUsd">, usage: UsageAgg): EvalResult {
-    const full: EvalResult = { ...base, costUsd: costUsd(usage) };
+  type EvalBase = Omit<
+    EvalResult,
+    | "costUsd"
+    | "shortlistCount"
+    | "additionalCount"
+    | "cardsSent"
+    | "mapUsed"
+    | "latencyMs"
+    | "prefilteredCount"
+    | "candidateCount"
+    | "idRepairs"
+    | "idDrops"
+    | "appendedByEnumeration"
+    | "plan"
+    | "droppedParts"
+    | "assumptions"
+    | "truthIds"
+    | "unionIds"
+    | "missingIds"
+  > & { truthIds?: string[] };
+
+  function record(base: EvalBase, out: PipelineOutput): EvalResult {
+    const d = out.diagnostics;
+    const truthIds = base.truthIds ?? [];
+    const union = unionIds(out.response);
+    const full: EvalResult = {
+      ...base,
+      truthIds,
+      unionIds: [...union],
+      missingIds: truthIds.filter((id) => !union.has(id)),
+      shortlistCount: out.response.shortlist?.length ?? 0,
+      additionalCount: out.response.additionalMatches?.length ?? 0,
+      cardsSent: d.candidateCount,
+      mapUsed: d.mapUsed,
+      latencyMs: out.latencyMs,
+      prefilteredCount: d.prefilteredCount,
+      candidateCount: d.candidateCount,
+      idRepairs: d.idRepairs,
+      idDrops: d.idDrops,
+      appendedByEnumeration: d.appendedByEnumeration,
+      plan: d.plan,
+      droppedParts: d.droppedParts,
+      assumptions: out.response.assumptions ?? [],
+      costUsd: costUsd(d.usage),
+    };
     results.push(full);
     return full;
   }
@@ -400,6 +391,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     const r = record(
       {
         key: "cohort-recall",
+        truthIds: truth,
         question,
         truthCount: truth.length,
         recall: recall(union, truth),
@@ -407,14 +399,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: violations,
         expectEmpty: null,
         expectEmptyPass: null,
-        shortlistCount: out.response.shortlist?.length ?? 0,
-        additionalCount: out.response.additionalMatches?.length ?? 0,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory: [],
       },
-      out.usage,
+      out,
     );
 
     expect(violations, "declined-only members must appear nowhere").toEqual([]);
@@ -437,6 +424,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     const r = record(
       {
         key: "cohort-big",
+        truthIds: truth,
         question,
         truthCount: truth.length,
         recall: recall(union, truth),
@@ -444,14 +432,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: [],
         expectEmpty: null,
         expectEmptyPass: null,
-        shortlistCount: out.response.shortlist?.length ?? 0,
-        additionalCount: out.response.additionalMatches?.length ?? 0,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory: [`top-10 + ${out.response.additionalMatches?.length ?? 0} overflow`],
       },
-      out.usage,
+      out,
     );
 
     expect(r.recall, "union recall over the full cohort must be 1.0").toBe(1);
@@ -475,6 +458,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     const r = record(
       {
         key: "status-trap",
+        truthIds: joiners,
         question,
         truthCount: joiners.length,
         recall: recall(union, joiners),
@@ -482,14 +466,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: [],
         expectEmpty: null,
         expectEmptyPass: null,
-        shortlistCount: out.response.shortlist?.length ?? 0,
-        additionalCount: out.response.additionalMatches?.length ?? 0,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory,
       },
-      out.usage,
+      out,
     );
 
     // Assert recall of the joiners; PC-only leakage is documented, not asserted.
@@ -514,6 +493,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     const r = record(
       {
         key: "structured-fact",
+        truthIds: truth,
         question,
         truthCount: truth.length,
         recall: recall(union, truth),
@@ -521,14 +501,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: [],
         expectEmpty: null,
         expectEmptyPass: null,
-        shortlistCount: out.response.shortlist?.length ?? 0,
-        additionalCount: out.response.additionalMatches?.length ?? 0,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory: [],
       },
-      out.usage,
+      out,
     );
 
     expect(truth.length, "truth set of Spanish speakers should be non-empty").toBeGreaterThan(0);
@@ -545,6 +520,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     record(
       {
         key: "note-canary",
+        truthIds: [YANG_YANG_ID],
         question,
         truthCount: 1,
         recall: union.has(YANG_YANG_ID) ? 1 : 0,
@@ -552,14 +528,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: [],
         expectEmpty: null,
         expectEmptyPass: null,
-        shortlistCount: out.response.shortlist?.length ?? 0,
-        additionalCount: out.response.additionalMatches?.length ?? 0,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory: [`Yang Yang ${union.has(YANG_YANG_ID) ? "surfaced" : "MISSED"}`],
       },
-      out.usage,
+      out,
     );
 
     expect(
@@ -589,6 +560,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     record(
       {
         key: "negative-control",
+        truthIds: truth,
         question,
         truthCount: truth.length,
         recall: expectEmpty ? null : recall(union, truth),
@@ -596,16 +568,11 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: violations,
         expectEmpty,
         expectEmptyPass: expectEmpty ? emptyPass : null,
-        shortlistCount,
-        additionalCount,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory: expectEmpty
           ? ["truth empty — expecting no matches"]
           : [`truth non-empty (${truth.length}) — scored as mustInclude`],
       },
-      out.usage,
+      out,
     );
 
     if (expectEmpty) {
@@ -634,6 +601,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     record(
       {
         key: "declined-recall",
+        truthIds: declined,
         question,
         truthCount: declined.length,
         recall: recall(union, declined),
@@ -641,16 +609,11 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: nonDeclinedInShortlist,
         expectEmpty: null,
         expectEmptyPass: null,
-        shortlistCount: out.response.shortlist?.length ?? 0,
-        additionalCount: out.response.additionalMatches?.length ?? 0,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory: [
           "planner should emit includeStatuses ['Declined'] so declined members are reachable",
         ],
       },
-      out.usage,
+      out,
     );
 
     expect(
@@ -684,17 +647,12 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         forbiddenViolations: [],
         expectEmpty: null,
         expectEmptyPass: null,
-        shortlistCount: out.response.shortlist?.length ?? 0,
-        additionalCount: out.response.additionalMatches?.length ?? 0,
-        cardsSent: out.cardsSent,
-        mapUsed: out.mapUsed,
-        latencyMs: out.latencyMs,
         advisory: [
           "ADVISORY (no ground truth — structural checks only)",
           `Yang Yang ${union.has(YANG_YANG_ID) ? "appears" : "absent"} in the union`,
         ],
       },
-      out.usage,
+      out,
     );
 
     expect(

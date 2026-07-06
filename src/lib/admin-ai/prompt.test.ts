@@ -140,6 +140,26 @@ describe("adminAiResponseSchema matchStrength", () => {
     });
     expect(parsed.shortlist?.[0]?.matchStrength).toBe(0);
   });
+
+  it("accepts a non-uuid contactId (the id-integrity repair handles bad ids post-parse)", () => {
+    const parsed = adminAiResponseSchema.safeParse({
+      uncertainty: [],
+      shortlist: [
+        {
+          contactId: "garbled-not-a-uuid",
+          contactName: "X",
+          whyFit: [],
+          concerns: [],
+          citations: [],
+          matchStrength: 50,
+        },
+      ],
+      additionalMatches: [
+        { contactId: "also-garbled", contactName: "Y", reason: "r", matchStrength: 10 },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
 });
 
 describe("normalizeProviderResponse", () => {
