@@ -188,7 +188,7 @@ describe("validatePlan", () => {
           includeStatuses: ["Interested", "Joining"],
         },
         fieldConstraints: [
-          { field: "certification_level", op: "contains", value: "advanced" },
+          { field: "certification_level", op: "eq", value: "Advanced Freediver" },
           { field: "nonsense", op: "eq", value: "x" },
         ],
       }),
@@ -200,13 +200,13 @@ describe("validatePlan", () => {
       includeStatuses: ["Interested"],
     });
     expect(plan.fieldConstraints).toEqual([
-      { field: "certification_level", op: "contains", value: "advanced" },
+      { field: "certification_level", op: "eq", value: "Advanced Freediver" },
     ]);
     expect(droppedParts.some((p) => p.includes("Joining"))).toBe(true);
     expect(droppedParts.some((p) => p.includes("nonsense"))).toBe(true);
   });
 
-  it("drops a field-constraint whose value is not a recognized value", () => {
+  it("drops a field-constraint whose value is not an exact vocabulary item", () => {
     const { plan, droppedParts } = validatePlan(
       plannerOutputSchema.parse({
         fieldConstraints: [
@@ -217,7 +217,7 @@ describe("validatePlan", () => {
     );
     expect(plan.fieldConstraints).toEqual([]);
     expect(
-      droppedParts.some((p) => p.includes("not a recognized value")),
+      droppedParts.some((p) => p.includes("not an exact vocabulary item")),
     ).toBe(true);
   });
 
@@ -262,9 +262,145 @@ describe("validatePlan", () => {
       listCatalog,
     );
     expect(plan.fieldConstraints).toEqual([]);
-    expect(droppedParts.some((p) => p.includes("not a recognized value"))).toBe(
-      true,
+    expect(
+      droppedParts.some((p) => p.includes("not an exact vocabulary item")),
+    ).toBe(true);
+  });
+
+  it("drops a list-field value that only appears inside a longer item (quality-word trap)", () => {
+    const listCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "equipment_owned",
+          label: "Equipment Owned",
+          op: "contains",
+          values: ["Professional video camera", "Entry-level DSLR", "GoPro"],
+        },
+      ],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "equipment_owned", op: "contains", value: "Professional" },
+        ],
+      }),
+      listCatalog,
     );
+    // "Professional" is a quality word INSIDE "Professional video camera", not a
+    // whole vocabulary item — it must not ground a hard filter (that is the live
+    // bug where a 15-person cohort collapsed to 1).
+    expect(plan.fieldConstraints).toEqual([]);
+    expect(
+      droppedParts.some((p) => p.includes("not an exact vocabulary item")),
+    ).toBe(true);
+  });
+
+  it("grounds a list-field value equal to a whole multi-word vocabulary item (trim/case-insensitive)", () => {
+    const listCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "equipment_owned",
+          label: "Equipment Owned",
+          op: "contains",
+          values: ["Professional video camera", "GoPro"],
+        },
+      ],
+    };
+    const { plan } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          {
+            field: "equipment_owned",
+            op: "contains",
+            value: "  professional video camera  ",
+          },
+        ],
+      }),
+      listCatalog,
+    );
+    // The FULL item (trimmed, case-insensitive) is legitimate set membership.
+    expect(plan.fieldConstraints).toEqual([
+      {
+        field: "equipment_owned",
+        op: "contains",
+        value: "  professional video camera  ",
+      },
+    ]);
+  });
+
+  it("grounds an option-backed field only by a whole option (case/space-insensitive), dropping a substring", () => {
+    const whole = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "certification_level", op: "eq", value: "  advanced freediver  " },
+        ],
+      }),
+      catalog,
+    );
+    // A whole option — trimmed, case-insensitive — grounds.
+    expect(whole.plan.fieldConstraints).toEqual([
+      { field: "certification_level", op: "eq", value: "  advanced freediver  " },
+    ]);
+    const substring = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "certification_level", op: "contains", value: "advanced" },
+        ],
+      }),
+      catalog,
+    );
+    // A substring of an option no longer grounds — unified whole-item rule.
+    expect(substring.plan.fieldConstraints).toEqual([]);
+    expect(
+      substring.droppedParts.some((p) => p.includes("not an exact vocabulary item")),
+    ).toBe(true);
+  });
+
+  it("drops a substring of an option-backed multiselect item (equipment quality-word trap)", () => {
+    const optionCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "equipment_owned",
+          label: "Equipment Owned",
+          options: [
+            "Professional video camera",
+            "Action camera (GoPro, Osmo, Insta360, etc)",
+            "Lighting equipment",
+          ],
+        },
+      ],
+    };
+    // "Professional" is a substring of the OPTION "Professional video camera" — a
+    // quality word, not set membership. This is the live bug (an option-backed
+    // multiselect, NOT a list-valued field); the unified rule drops it.
+    const dropped = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "equipment_owned", op: "contains", value: "Professional" },
+        ],
+      }),
+      optionCatalog,
+    );
+    expect(dropped.plan.fieldConstraints).toEqual([]);
+    expect(
+      dropped.droppedParts.some((p) => p.includes("not an exact vocabulary item")),
+    ).toBe(true);
+
+    // The whole option copied verbatim still grounds (legitimate set membership).
+    const grounded = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "equipment_owned", op: "eq", value: "Professional video camera" },
+        ],
+      }),
+      optionCatalog,
+    );
+    expect(grounded.plan.fieldConstraints).toEqual([
+      { field: "equipment_owned", op: "eq", value: "Professional video camera" },
+    ]);
   });
 
   it("drops a free-text / unknown field with an evidence-scan disclosure", () => {

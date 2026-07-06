@@ -144,7 +144,8 @@ export function buildPlannerSystemPrompt(): string {
     'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string"}], "enumerationOnly": boolean, "notes": "string"}.',
     'Tag rules: "interested / potential candidates for X" → includeStatuses ["Interested","Potential Candidate"]; "who is joining X" → ["Joining"]; "who declined X" → ["Declined"]; a cohort named with NO status qualifier → includeStatuses [] (code applies the default).',
     "Budget: set budgetMin only when the question states an explicit minimum spend.",
-    'Field constraints: emit one ONLY for a catalog field. For an option-backed field (one carrying `options`), use `eq` for an exact option and `contains` for a substring of an option. For a list-valued field (one carrying `op: "contains"` and a `values` sample, e.g. languages), emit `op: "contains"` with a single value grounded in that sample (e.g. "Spanish").',
+    'Field constraints: emit one ONLY for a catalog field, and the value MUST be one of that field\'s listed `options` (option-backed) or `values` (list-valued) items copied VERBATIM IN FULL — e.g. emit "Advanced Freediver", never "advanced"; emit "Professional video camera", never "professional". Use `eq` for an option-backed field and `contains` for a list-valued field. A word or fragment that merely appears inside a longer item does NOT ground a constraint. If no listed item expresses the user\'s criterion, emit NO constraint — the evidence scan handles it.',
+    "Quality adjectives and level qualifiers — professional, experienced, advanced, good, high-end, serious, strong, and the like — are NEVER field-constraint values. A requirement phrased as a QUALITY of something (e.g. 'professional equipment', 'extensive experience', 'own their own professional gear') is a ranking/judgment criterion for the analyst, not a filter — leave it out even if the word appears inside a catalog vocabulary item.",
     "Criteria described only in prose — topics, experiences, anything narrated in essay answers — are NOT constraints; the evidence scan handles them. Catalog fields (option-backed or list-valued) are the ONLY fields you may filter on; never emit a fieldConstraint for a field absent from the catalog.",
     "Ranking preferences such as 'most experienced' or 'strongest' are NOT constraints — leave them out.",
     "Set `enumerationOnly` true when the question asks for an exhaustive roster of the extracted constraints and nothing more — whether the constraint is a tag cohort (e.g. 'who is interested / potential for X?') or a catalog field (e.g. 'which contacts speak Spanish?', 'list everyone certified as X'). Set it false when the question adds ranking or judgment beyond the constraints (e.g. 'who in X has the most experience?').",
@@ -210,18 +211,24 @@ export function validatePlan(
       );
       continue;
     }
-    // The value must case-insensitively match one of the field's grounded values
-    // — an option (option-backed field) or a sampled observed value (list-valued
-    // field), exact or as a substring. Otherwise it is not a real filter and the
-    // evidence scan should handle it.
+    // ONE grounding rule for both field kinds: the value must trim/case-
+    // insensitively EQUAL a WHOLE vocabulary item — an option (option-backed) or
+    // a sampled item (list-valued). Substring grounding is unsound: the quality
+    // word "professional" is a substring of the option "Professional video
+    // camera" yet is a ranking judgment, not set membership; grounding it as a
+    // hard filter silently drops qualifying contacts. The planner (which sees the
+    // full option list) is responsible for copying a whole item verbatim — e.g.
+    // "Advanced Freediver", never "advanced" — or emitting no constraint. Apply-
+    // time matching in hard-constraints.ts stays `contains` so legacy
+    // string-typed answers keep matching; only validation is exact here.
     const value = constraint.value.trim().toLowerCase();
-    const candidateValues = field.options ?? field.values ?? [];
-    const matchesValue = candidateValues.some((candidate) =>
-      candidate.toLowerCase().includes(value),
+    const vocabulary = field.options ?? field.values ?? [];
+    const matchesItem = vocabulary.some(
+      (item) => item.trim().toLowerCase() === value,
     );
-    if (!matchesValue) {
+    if (!matchesItem) {
       droppedParts.push(
-        `${label} dropped: '${constraint.value}' is not a recognized value of '${field.key}'`,
+        `${label} dropped: '${constraint.value}' is not an exact vocabulary item of '${field.key}'`,
       );
       continue;
     }

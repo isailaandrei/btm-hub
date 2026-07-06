@@ -713,4 +713,74 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     ).toBeLessThanOrEqual(10);
     expect(nonIncreasing, "matchStrength must be non-increasing across the shortlist").toBe(true);
   }, 600_000);
+
+  it("qualifier-trap: 'professional equipment' must rank, not hard-filter, the cohort", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question =
+      "Which of the people who are interested / potential candidates for the 26 Coral Catch have the most experience with underwater filmmaking / photography? I'm interested especially in experience in the industry, such that they can lead a project already with little guidance? They should own their own professional equipment.";
+    // Truth is the cohort itself; this is a RANKING question over that cohort, so
+    // there is no roster-recall bar — the lock is that the "professional
+    // equipment" / "most experience" QUALIFIERS never become a hard field filter
+    // that excludes cohort members (the live bug cut 15 candidates down to 1).
+    const truth = idsWithTagInCategory(records, CORAL, [
+      "Interested",
+      "Potential Candidate",
+    ]);
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const truthSet = new Set(truth);
+    const shortlistOutsideCohort = shortlistIds(out.response).filter(
+      (id) => !truthSet.has(id),
+    );
+    const strengths = (out.response.shortlist ?? []).map((e) => e.matchStrength ?? 0);
+    const nonIncreasing = strengths.every(
+      (s, i) => i === 0 || s <= strengths[i - 1]!,
+    );
+    const fieldConstraints = out.diagnostics.plan?.fieldConstraints ?? [];
+
+    record(
+      {
+        key: "qualifier-trap",
+        truthIds: truth,
+        question,
+        truthCount: truth.length,
+        recall: recall(union, truth),
+        shortlistPrecision: shortlistPrecision(out.response, truth),
+        forbiddenViolations: shortlistOutsideCohort,
+        expectEmpty: null,
+        expectEmptyPass: null,
+        advisory: [
+          "qualifier ('professional equipment' / 'most experience') must stay MODEL territory — never a field filter that prefilters the cohort",
+        ],
+      },
+      out,
+    );
+
+    // Core lock: the quality qualifier must NOT be lifted into a hard field filter.
+    expect(
+      fieldConstraints,
+      "planner must not emit a field constraint for the 'professional equipment' qualifier",
+    ).toEqual([]);
+    // Nothing beyond the tag cohort was excluded — the equipment qualifier
+    // prefiltered no one out.
+    expect(
+      out.diagnostics.prefilteredCount,
+      "prefilter must narrow to exactly the interested/potential cohort — no qualifier exclusion",
+    ).toBe(truth.length);
+    // Precision: every shortlisted contact is a real cohort member.
+    expect(
+      shortlistOutsideCohort,
+      "every shortlisted contact must be within the interested/potential cohort",
+    ).toEqual([]);
+    // Ranking question over a non-empty cohort: a shortlist, ranked descending.
+    expect(
+      out.response.shortlist?.length ?? 0,
+      "a ranking question over a non-empty cohort must return a shortlist",
+    ).toBeGreaterThan(0);
+    expect(
+      nonIncreasing,
+      "matchStrength must be non-increasing across the shortlist",
+    ).toBe(true);
+  }, 600_000);
 });
