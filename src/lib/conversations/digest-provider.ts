@@ -34,6 +34,7 @@ export function buildDigestSystemPrompt(): string {
     "NOISE (ignore): greetings, thanks, emoji-only messages, scheduling back-and-forth that lands nowhere, link drops without discussion, broadcast/campaign-style outbound with no reply.",
     'If the window contains NO signal, return {"summary": "", "facts": []} — this is a valid, expected outcome.',
     "When there IS signal, write a concise `summary` (2-4 sentences) of what an admin should remember, and extract `facts`.",
+    "Write the `summary` and every fact's `valueText` in ENGLISH, regardless of the language the conversation is in (translate non-English content). Preserve proper nouns as written.",
     "Facts are append-only. If values conflict, keep both facts with the same `conflictGroup`.",
     `Set each fact's \`fieldKey\` to one of these known keys when the fact maps to one, else null: ${FACT_FIELD_KEYS.join(", ")}.`,
     "Each fact has `valueText` (the stated value), `valueJson` (always null), `confidence` (\"high\" | \"medium\" | \"low\"), and `conflictGroup` (a stable grouping key, or null).",

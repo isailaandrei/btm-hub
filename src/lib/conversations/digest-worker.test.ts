@@ -8,6 +8,7 @@ const mockUpsertConversationEmbeddings = vi.fn();
 const mockConversationDigestExists = vi.fn();
 const mockExtractConversationDigest = vi.fn();
 const mockBuildConversationEmbeddingRows = vi.fn();
+const mockIsEmbeddingConfigured = vi.fn(() => true);
 
 vi.mock("@/lib/data/conversations", () => ({
   listUndigestedConversationMessages: mockListUndigestedConversationMessages,
@@ -24,6 +25,7 @@ vi.mock("./digest-provider", () => ({
 
 vi.mock("./embeddings", () => ({
   buildConversationEmbeddingRows: mockBuildConversationEmbeddingRows,
+  isEmbeddingConfigured: mockIsEmbeddingConfigured,
   DEFAULT_EMBEDDING_MODEL: "text-embedding-3-small",
   DEFAULT_MESSAGE_EMBEDDING_VERSION: "message-v1",
 }));
@@ -83,6 +85,7 @@ describe("processConversationDigestWindows", () => {
       version: "message-v1",
       usage: null,
     });
+    mockIsEmbeddingConfigured.mockReturnValue(true);
   });
 
   it("creates digest and append-only facts for closed contact windows, then embeds missing messages", async () => {
@@ -98,6 +101,7 @@ describe("processConversationDigestWindows", () => {
       embeddingsCreated: 1,
       noiseWindows: 0,
       remainingWindows: 0,
+      embeddingsSkipped: 0,
     });
 
     expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
@@ -145,6 +149,7 @@ describe("processConversationDigestWindows", () => {
       embeddingsCreated: 1,
       noiseWindows: 0,
       remainingWindows: 0,
+      embeddingsSkipped: 0,
     });
 
     expect(mockExtractConversationDigest).not.toHaveBeenCalled();
@@ -190,6 +195,7 @@ describe("processConversationDigestWindows", () => {
       embeddingsCreated: 0,
       noiseWindows: 0,
       remainingWindows: 0,
+      embeddingsSkipped: 0,
     });
 
     expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
@@ -308,5 +314,30 @@ describe("processConversationDigestWindows", () => {
     expect(summary.remainingWindows).toBe(1);
     // The cap stops further model calls this run.
     expect(mockExtractConversationDigest).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips the embeddings pass with disclosure when OPENAI_API_KEY is absent", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockIsEmbeddingConfigured.mockReturnValue(false);
+    mockListMessagesMissingEmbeddings.mockResolvedValue([
+      { id: "message-1", body: "Budget is around $5k." },
+      { id: "message-2", body: "Can travel in August." },
+    ]);
+
+    const { processConversationDigestWindows } = await import("./digests");
+    const summary = await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T11:00:00Z"),
+    });
+
+    // Skipped, not thrown: the count is reported and a later configured run
+    // backfills the same messages.
+    expect(summary.embeddingsSkipped).toBe(2);
+    expect(summary.embeddingsCreated).toBe(0);
+    expect(mockBuildConversationEmbeddingRows).not.toHaveBeenCalled();
+    expect(mockUpsertConversationEmbeddings).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[conversations] embeddings skipped: OPENAI_API_KEY not configured",
+      { messagesLeftUnembedded: 2 },
+    );
   });
 });

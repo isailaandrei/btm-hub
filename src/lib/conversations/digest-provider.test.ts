@@ -74,6 +74,7 @@ describe("extractConversationDigest", () => {
     // The new noise-aware contract reaches the model.
     expect(requestBody.input[0].content).toContain("SIGNAL (extract)");
     expect(requestBody.input[0].content).toContain("NOISE (ignore)");
+    expect(requestBody.input[0].content).toContain("in ENGLISH");
     expect(result).toEqual({
       summary: "Discussed budget.",
       facts: [
@@ -126,6 +127,7 @@ describe("extractConversationDigest", () => {
     };
     expect(callArg.systemPrompt).toContain("SIGNAL (extract)");
     expect(callArg.systemPrompt).toContain("NOISE (ignore)");
+    expect(callArg.systemPrompt).toContain("in ENGLISH");
     expect(callArg.userPrompt).toBe("message-1: Confirmed for March.");
     expect(result).toEqual({
       summary: "Confirmed for the March trip.",

@@ -36,4 +36,29 @@ describe("conversation facts", () => {
       }),
     ]);
   });
+
+  it("normalizes an invented non-registry fieldKey to null, preserving known keys", () => {
+    const rows = buildConversationFactInputs({
+      contactId: "contact-1",
+      sourceMessageIds: ["message-1"],
+      observedAt: "2026-06-11T10:00:00Z",
+      extractorModel: "fixture",
+      facts: [
+        // Not a FIELD_REGISTRY key — a genuinely invented one.
+        { fieldKey: "made_up_topic_xyz", valueText: "Lives near the marina", confidence: "low" },
+        { fieldKey: "budget", valueText: "$5k", confidence: "high" },
+      ],
+    });
+
+    // Unknown key → null (and its conflictGroup falls back to the contact scope);
+    // valueText/confidence are preserved.
+    expect(rows[0]).toMatchObject({
+      fieldKey: null,
+      valueText: "Lives near the marina",
+      confidence: "low",
+      conflictGroup: "conversation:contact-1",
+    });
+    // Known registry key → preserved.
+    expect(rows[1]).toMatchObject({ fieldKey: "budget", conflictGroup: "budget" });
+  });
 });

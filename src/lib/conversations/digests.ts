@@ -12,6 +12,7 @@ import {
   buildConversationEmbeddingRows,
   DEFAULT_EMBEDDING_MODEL,
   DEFAULT_MESSAGE_EMBEDDING_VERSION,
+  isEmbeddingConfigured,
 } from "./embeddings";
 import { buildConversationFactInputs } from "./facts";
 import type { ConversationDirection, ConversationSource } from "./ingestion/adapter";
@@ -111,6 +112,8 @@ export type ConversationDigestProcessSummary = {
   noiseWindows: number;
   /** Quiesced windows this run did NOT process (cap hit / more batches remain). */
   remainingWindows: number;
+  /** Messages left unembedded because OPENAI_API_KEY is not configured. */
+  embeddingsSkipped: number;
 };
 
 export type DigestWindowWorkItem = {
@@ -191,6 +194,7 @@ export async function processConversationDigestWindows(input?: {
     embeddingsCreated: 0,
     noiseWindows: 0,
     remainingWindows: 0,
+    embeddingsSkipped: 0,
   };
 
   let index = 0;
@@ -276,11 +280,25 @@ export async function processConversationDigestWindows(input?: {
   }
 
   // Embeddings backlog is independent of digest windows; bound it per run too.
+  // Embeddings run on OpenAI (DeepSeek has no embedding endpoint). When no key
+  // is configured, SKIP the pass with disclosure instead of throwing — a later
+  // run with a key backfills automatically via listMessagesMissingEmbeddings
+  // (this same query). A configured key that fails at request time still throws.
   const messagesMissingEmbeddings = await listMessagesMissingEmbeddings({
     embeddingModel: DEFAULT_EMBEDDING_MODEL,
     embeddingVersion: DEFAULT_MESSAGE_EMBEDDING_VERSION,
     limit: input?.embeddingLimit ?? 500,
   });
+  if (!isEmbeddingConfigured()) {
+    summary.embeddingsSkipped = messagesMissingEmbeddings.length;
+    if (messagesMissingEmbeddings.length > 0) {
+      console.warn(
+        "[conversations] embeddings skipped: OPENAI_API_KEY not configured",
+        { messagesLeftUnembedded: messagesMissingEmbeddings.length },
+      );
+    }
+    return summary;
+  }
   const embeddingResult = await buildConversationEmbeddingRows({
     messages: messagesMissingEmbeddings,
     model: DEFAULT_EMBEDDING_MODEL,

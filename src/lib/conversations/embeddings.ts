@@ -20,6 +20,16 @@ function getEmbeddingApiKey(): string | null {
   return process.env.OPENAI_API_KEY?.trim() || null;
 }
 
+/**
+ * Whether the OpenAI embeddings key is configured. Embeddings always run on
+ * OpenAI (DeepSeek has no embedding endpoint), so the digest path uses this to
+ * SKIP the embeddings pass (with disclosure) rather than throw when the key is
+ * absent. A configured key that then fails at request time still throws.
+ */
+export function isEmbeddingConfigured(): boolean {
+  return getEmbeddingApiKey() !== null;
+}
+
 export function hashEmbeddingContent(content: string, version: string): string {
   return createHash("sha256")
     .update(version)
