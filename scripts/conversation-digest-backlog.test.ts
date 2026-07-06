@@ -15,7 +15,7 @@
  * it. Reads env from `.env.development.local` (service-role DB + the resolved
  * ADMIN_AI_PROVIDER for extraction).
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "./admin-ai-live-lib";
 import {
   DEFAULT_MAX_DIGEST_WINDOWS_PER_RUN,
@@ -32,6 +32,22 @@ const dryRun = process.env.BACKLOG_DRY_RUN === "1";
 // Hard stop so a mis-computed remainingWindows can never loop forever.
 const MAX_ITERATIONS = 1000;
 
+// This script drives the cron's shared processing path, whose data layer builds
+// the ADMIN client from process.env (NEXT_PUBLIC_SUPABASE_URL +
+// SUPABASE_SERVICE_ROLE_KEY) at each call. Vitest's global setup pre-sets
+// NEXT_PUBLIC_SUPABASE_URL to a not-running local stack, so these MUST be
+// OVERWRITTEN (plain assignment) from .env.development.local — a guarded/`??=`
+// assign would leave the admin client pointed at localhost. Drain mode also
+// needs the provider env for extraction. Saved/restored around the run.
+const OVERRIDE_ENV_KEYS = [
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "ADMIN_AI_PROVIDER",
+  "DEEPSEEK_API_KEY",
+  "DEEPSEEK_MODEL",
+  "DEEPSEEK_BASE_URL",
+] as const;
+
 describe.runIf(gateEnabled)("conversation digest backlog", () => {
   const env: Record<string, string> = (() => {
     try {
@@ -40,11 +56,22 @@ describe.runIf(gateEnabled)("conversation digest backlog", () => {
       return {};
     }
   })();
-  // The processing function and data layer read process.env (service-role DB,
-  // provider selection), so hydrate it from the loaded file.
-  for (const [key, value] of Object.entries(env)) {
-    if (process.env[key] === undefined) process.env[key] = value;
-  }
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeAll(() => {
+    for (const key of OVERRIDE_ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      if (env[key] !== undefined) process.env[key] = env[key];
+    }
+  });
+
+  afterAll(() => {
+    for (const key of OVERRIDE_ENV_KEYS) {
+      const original = savedEnv[key];
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
+  });
 
   it(
     dryRun ? "previews the windows it would process" : "drains the digest backlog",
