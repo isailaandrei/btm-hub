@@ -46,6 +46,9 @@ const OVERRIDE_ENV_KEYS = [
   "DEEPSEEK_API_KEY",
   "DEEPSEEK_MODEL",
   "DEEPSEEK_BASE_URL",
+  // Embeddings always run on OpenAI regardless of ADMIN_AI_PROVIDER (DeepSeek has
+  // no embedding endpoint); embeddings.ts reads only OPENAI_API_KEY.
+  "OPENAI_API_KEY",
 ] as const;
 
 describe.runIf(gateEnabled)("conversation digest backlog", () => {
