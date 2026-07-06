@@ -590,34 +590,45 @@ function disclosePlannerPrefilter(
   return result;
 }
 
-// For a pure-enumeration tag question, the prefiltered records ARE the answer.
-// Append any member the reduce tier dropped to the END of additionalMatches so
-// recall is 1.0 by construction; ranking of what's already there stays model
-// territory.
+// For a pure-enumeration question grounded on a deterministic constraint (a tag
+// cohort OR one or more catalog field filters), the prefiltered records ARE the
+// answer. Append any member the reduce tier dropped to the END of
+// additionalMatches so recall is 1.0 by construction; ranking of what's already
+// there stays model territory.
 function buildEnumerationCompleter(
   records: ContactCardRecord[],
   plan: PlannerOutput,
 ): (response: AdminAiResponse) => { response: AdminAiResponse; appended: number } {
-  if (!plan.enumerationOnly || !plan.tagConstraint) {
+  const tagConstraint = plan.tagConstraint;
+  const hasFieldConstraint = plan.fieldConstraints.length > 0;
+  if (!plan.enumerationOnly || (!tagConstraint && !hasFieldConstraint)) {
     return (response) => ({ response, appended: 0 });
   }
-  const tagConstraint = plan.tagConstraint;
   const wanted =
-    tagConstraint.includeStatuses.length > 0
+    tagConstraint && tagConstraint.includeStatuses.length > 0
       ? new Set(tagConstraint.includeStatuses.map((status) => status.toLowerCase()))
       : null;
+  const fieldReason = hasFieldConstraint
+    ? `Matches ${plan.fieldConstraints
+        .map((constraint) => `${constraint.field} ${constraint.op} '${constraint.value}'`)
+        .join("; ")}`
+    : "";
   const rosters = records.map((record) => {
-    const matches = (record.contactTags ?? []).filter((tag) => {
-      if (tag.categoryName?.toLowerCase() !== tagConstraint.category.toLowerCase()) {
-        return false;
-      }
-      const name = (tag.tagName ?? "").toLowerCase();
-      return wanted ? wanted.has(name) : name !== "declined";
-    });
+    let reason = fieldReason;
+    if (tagConstraint) {
+      const matches = (record.contactTags ?? []).filter((tag) => {
+        if (tag.categoryName?.toLowerCase() !== tagConstraint.category.toLowerCase()) {
+          return false;
+        }
+        const name = (tag.tagName ?? "").toLowerCase();
+        return wanted ? wanted.has(name) : name !== "declined";
+      });
+      reason = `Carries '${tagConstraint.category}: ${matches.map((tag) => tag.tagName).join(", ")}' tag`;
+    }
     return {
       contactId: record.contact.id,
       contactName: record.contact.name ?? "",
-      status: matches.map((tag) => tag.tagName).join(", "),
+      reason,
     };
   });
 
@@ -631,7 +642,7 @@ function buildEnumerationCompleter(
     const appended: AdminAiAdditionalMatch[] = missing.map((entry) => ({
       contactId: entry.contactId,
       contactName: entry.contactName,
-      reason: `Carries '${tagConstraint.category}: ${entry.status}' tag`,
+      reason: entry.reason,
       matchStrength: 1,
     }));
     return {
@@ -821,6 +832,13 @@ export type GlobalSynthesisDiagnostics = {
   prefilteredCount: number;
   mapUsed: boolean;
   candidateCount: number;
+  // The map-union candidate ids fed to the reduce (forensics: whether a contact
+  // was dropped by the map or the reduce). JSON-only; kept off the scorecard.
+  candidateIds: string[];
+  // Near-miss tier (double-gated): how many partial-match ids the map surfaced,
+  // and whether the reduce actually ran over them (full union was empty).
+  nearMissCandidateCount: number;
+  nearMissModeUsed: boolean;
   appendedByEnumeration: number;
   idRepairs: number;
   idDrops: number;
@@ -873,6 +891,9 @@ export async function runGlobalSynthesis(input: {
     prefilteredCount,
     mapUsed: false,
     candidateCount: 0,
+    candidateIds: [],
+    nearMissCandidateCount: 0,
+    nearMissModeUsed: false,
     appendedByEnumeration: 0,
     idRepairs: 0,
     idDrops: 0,
@@ -944,6 +965,9 @@ export async function runGlobalSynthesis(input: {
   let synthesisChatEvidence = chatEvidence;
   let scanMetadata: MapScanResult["scanMetadata"] | null = null;
   let mapUsed = false;
+  let nearMissCandidateCount = 0;
+  let nearMissModeUsed = false;
+  let analysisNote: string | undefined;
   if (mapReduceMode) {
     if (!provider.completeJson) {
       throw new Error(
@@ -956,8 +980,9 @@ export async function runGlobalSynthesis(input: {
       mapUsed = true;
       const mapResult = await runMapScan({ provider, cards, question });
       scanMetadata = mapResult.scanMetadata;
+      nearMissCandidateCount = mapResult.nearMissIds.size;
       accumulatePipelineUsage(usage, mapResult.scanMetadata.usage);
-      if (mapResult.candidateIds.size === 0) {
+      if (mapResult.candidateIds.size === 0 && mapResult.nearMissIds.size === 0) {
         const insufficient = discloseChatRetrievalUnavailable(
           buildInsufficientEvidenceResponse("global", {
             extra: `A full chunked scan of all ${cards.length} eligible contacts found no candidates for this question.`,
@@ -970,14 +995,28 @@ export async function runGlobalSynthesis(input: {
           citations: [],
           modelMetadata: { source: "system", reason: "map_scan_no_candidates" },
           reason: "map_scan_no_candidates",
-          diagnostics: diag({ mapUsed: true }),
+          diagnostics: diag({ mapUsed: true, nearMissCandidateCount: 0 }),
         };
       }
-      const { candidateIds } = mapResult;
-      synthesisCards = cards.filter((card) => candidateIds.has(card.contactId));
-      synthesisChatEvidence = chatEvidence.filter((item) =>
-        candidateIds.has(item.contactId),
-      );
+      if (mapResult.candidateIds.size === 0) {
+        // Near-miss tier (second gate): no full match anywhere, but the scan
+        // surfaced partial matches. Reduce over the near-miss cards with a
+        // code-driven disclosure rather than returning a bare blank.
+        nearMissModeUsed = true;
+        const { nearMissIds } = mapResult;
+        synthesisCards = cards.filter((card) => nearMissIds.has(card.contactId));
+        synthesisChatEvidence = chatEvidence.filter((item) =>
+          nearMissIds.has(item.contactId),
+        );
+        analysisNote =
+          "A full chunked scan found NO contact fully matching the question; the supplied cards are the closest PARTIAL matches only. Do not shortlist anyone unless they genuinely meet the full bar of the question. Name the closest candidates and the specific aspect each one is missing in `uncertainty` or `additionalMatches`.";
+      } else {
+        const { candidateIds } = mapResult;
+        synthesisCards = cards.filter((card) => candidateIds.has(card.contactId));
+        synthesisChatEvidence = chatEvidence.filter((item) =>
+          candidateIds.has(item.contactId),
+        );
+      }
     }
   }
 
@@ -991,6 +1030,7 @@ export async function runGlobalSynthesis(input: {
     scope: "global",
     queryPlan,
     cards: synthesisCards,
+    ...(analysisNote ? { analysisNote } : {}),
     evidence: includeEvidence ? aliasedChatEvidence : [],
     includeEvidence,
     promptCacheKey,
@@ -1042,6 +1082,9 @@ export async function runGlobalSynthesis(input: {
         diagnostics: diag({
           mapUsed,
           candidateCount: synthesisCards.length,
+          candidateIds: synthesisCards.map((card) => card.contactId),
+          nearMissCandidateCount,
+          nearMissModeUsed,
           idRepairs: repaired.idRepairs,
           idDrops: repaired.idDrops,
         }),
@@ -1067,6 +1110,9 @@ export async function runGlobalSynthesis(input: {
       droppedShortlistContactIds: droppedContactIds,
     },
     ...(scanMetadata ? { scan: scanMetadata } : {}),
+    ...(nearMissModeUsed
+      ? { nearMiss: { candidateCount: nearMissCandidateCount, modeUsed: true } }
+      : {}),
     ...(prefilter.metadata ?? {}),
     idIntegrity: { repairs: repaired.idRepairs, drops: repaired.idDrops },
     ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
@@ -1086,6 +1132,9 @@ export async function runGlobalSynthesis(input: {
     diagnostics: diag({
       mapUsed,
       candidateCount: synthesisCards.length,
+      candidateIds: synthesisCards.map((card) => card.contactId),
+      nearMissCandidateCount,
+      nearMissModeUsed,
       appendedByEnumeration: enumResult.appended,
       idRepairs: repaired.idRepairs,
       idDrops: repaired.idDrops,

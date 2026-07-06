@@ -19,10 +19,77 @@ import type { ContactCardRecord } from "@/lib/data/contact-cards";
 // meta columns are excluded from the planner's field catalog.
 const NON_FIELD_META_KEYS = new Set(["tag_ids", "tag_names"]);
 
+// Per list-valued field, how many observed distinct values to sample into the
+// catalog (top N by frequency). Bounds the planner payload while covering the
+// common values the planner needs to ground a `contains` filter (e.g. a language).
+const LIST_FIELD_SAMPLE_SIZE = 30;
+
+export type PlannerCatalogField = {
+  key: string;
+  label: string;
+  /** Complete option list for an option-backed field (`eq`/`contains`). */
+  options?: string[];
+  /** Supported op for a list-valued field (discrete array answers). */
+  op?: "contains";
+  /** Bounded sample of observed values for a list-valued field. */
+  values?: string[];
+};
+
 export type PlannerCatalog = {
   tagCategories: Array<{ name: string; tags: string[] }>;
-  fields: Array<{ key: string; label: string; options?: string[] }>;
+  fields: PlannerCatalogField[];
 };
+
+function stringifyListItem(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+/**
+ * Data-driven admission of LIST-VALUED answer fields: any answer key whose value
+ * is an array in at least one loaded record. Discrete array answers (e.g.
+ * `languages`) are a controlled vocabulary, not prose, so a case-insensitive
+ * `contains` over their items is precise — unlike a paraphrase-blind substring
+ * over an essay. Each admitted field carries a bounded top-frequency value
+ * sample so the planner can ground values like "Spanish".
+ */
+function collectListValuedFields(
+  records: ContactCardRecord[],
+  excludeKeys: ReadonlySet<string>,
+): PlannerCatalogField[] {
+  const frequencyByKey = new Map<string, Map<string, number>>();
+  for (const record of records) {
+    for (const application of record.applications) {
+      const answers = (application.answers ?? {}) as Record<string, unknown>;
+      for (const [key, value] of Object.entries(answers)) {
+        if (!Array.isArray(value)) continue;
+        if (excludeKeys.has(key) || NON_FIELD_META_KEYS.has(key)) continue;
+        let counts = frequencyByKey.get(key);
+        if (!counts) {
+          counts = new Map<string, number>();
+          frequencyByKey.set(key, counts);
+        }
+        for (const item of value) {
+          const stringified = stringifyListItem(item);
+          if (!stringified) continue;
+          counts.set(stringified, (counts.get(stringified) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  const fields: PlannerCatalogField[] = [];
+  for (const [key, counts] of frequencyByKey) {
+    const values = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, LIST_FIELD_SAMPLE_SIZE)
+      .map(([value]) => value);
+    if (values.length === 0) continue;
+    fields.push({ key, label: getAdminAiFieldLabel(key), op: "contains", values });
+  }
+  return fields;
+}
 
 export function buildPlannerCatalog(records: ContactCardRecord[]): PlannerCatalog {
   const tagsByCategory = new Map<string, Set<string>>();
@@ -44,11 +111,14 @@ export function buildPlannerCatalog(records: ContactCardRecord[]): PlannerCatalo
     tags: [...tags],
   }));
 
-  // Only OPTION-BACKED fields (a fixed option list) are planner-filterable.
-  // Free-text fields (languages, essays) and unbacked meta columns are omitted
-  // entirely — paraphrase-blind substring filters over prose destroy recall, so
-  // those criteria are left to the evidence scan.
-  const fields = ADMIN_AI_STRUCTURED_FIELDS.filter(
+  // Two admission paths, both exclusionary-safe:
+  // 1. OPTION-BACKED fields (a fixed option list) — `eq`/`contains` over options.
+  // 2. LIST-VALUED fields (discrete array answers, e.g. `languages`) — `contains`
+  //    over a bounded value sample.
+  // Free-text prose fields (essays, single-string answers) are still omitted —
+  // paraphrase-blind substring filters over prose destroy recall, so those
+  // criteria are left to the evidence scan.
+  const optionFields = ADMIN_AI_STRUCTURED_FIELDS.filter(
     (key) => !NON_FIELD_META_KEYS.has(key),
   )
     .map((key) => ({
@@ -60,8 +130,10 @@ export function buildPlannerCatalog(records: ContactCardRecord[]): PlannerCatalo
       (field): field is { key: string; label: string; options: string[] } =>
         Array.isArray(field.options) && field.options.length > 0,
     );
+  const optionFieldKeys = new Set(optionFields.map((field) => field.key));
+  const listFields = collectListValuedFields(records, optionFieldKeys);
 
-  return { tagCategories, fields };
+  return { tagCategories, fields: [...optionFields, ...listFields] };
 }
 
 export function buildPlannerSystemPrompt(): string {
@@ -72,10 +144,10 @@ export function buildPlannerSystemPrompt(): string {
     'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string"}], "enumerationOnly": boolean, "notes": "string"}.',
     'Tag rules: "interested / potential candidates for X" → includeStatuses ["Interested","Potential Candidate"]; "who is joining X" → ["Joining"]; "who declined X" → ["Declined"]; a cohort named with NO status qualifier → includeStatuses [] (code applies the default).',
     "Budget: set budgetMin only when the question states an explicit minimum spend.",
-    "Field constraints: emit one ONLY for an option-backed catalog field whose value matches one of its options; use `eq` for an exact option and `contains` for a substring of an option.",
-    "Free-text criteria — languages spoken, topics or experiences mentioned, anything described in prose — are NOT constraints; the evidence scan handles them. Never emit a fieldConstraint for a field that is not in the catalog.",
+    'Field constraints: emit one ONLY for a catalog field. For an option-backed field (one carrying `options`), use `eq` for an exact option and `contains` for a substring of an option. For a list-valued field (one carrying `op: "contains"` and a `values` sample, e.g. languages), emit `op: "contains"` with a single value grounded in that sample (e.g. "Spanish").',
+    "Criteria described only in prose — topics, experiences, anything narrated in essay answers — are NOT constraints; the evidence scan handles them. Catalog fields (option-backed or list-valued) are the ONLY fields you may filter on; never emit a fieldConstraint for a field absent from the catalog.",
     "Ranking preferences such as 'most experienced' or 'strongest' are NOT constraints — leave them out.",
-    "Set `enumerationOnly` true when the question asks for nothing beyond the extracted constraints — a pure roster (e.g. 'who is interested / potential for X?' with a tagConstraint). Set it false when the question adds ranking or judgment beyond the constraints (e.g. 'who in X has the most experience?').",
+    "Set `enumerationOnly` true when the question asks for an exhaustive roster of the extracted constraints and nothing more — whether the constraint is a tag cohort (e.g. 'who is interested / potential for X?') or a catalog field (e.g. 'which contacts speak Spanish?', 'list everyone certified as X'). Set it false when the question adds ranking or judgment beyond the constraints (e.g. 'who in X has the most experience?').",
     "When the question names nothing explicit and exclusionary, return tagConstraint null, budgetMin null, an empty fieldConstraints array, and enumerationOnly false.",
     "Put a one-line explanation of your reading in `notes`.",
   ].join(" ");
@@ -138,16 +210,18 @@ export function validatePlan(
       );
       continue;
     }
-    // The value must case-insensitively match one of the field's options
-    // (exact or a substring of an option) — otherwise it is not a real option
-    // filter and the evidence scan should handle it.
+    // The value must case-insensitively match one of the field's grounded values
+    // — an option (option-backed field) or a sampled observed value (list-valued
+    // field), exact or as a substring. Otherwise it is not a real filter and the
+    // evidence scan should handle it.
     const value = constraint.value.trim().toLowerCase();
-    const matchesOption = (field.options ?? []).some((option) =>
-      option.toLowerCase().includes(value),
+    const candidateValues = field.options ?? field.values ?? [];
+    const matchesValue = candidateValues.some((candidate) =>
+      candidate.toLowerCase().includes(value),
     );
-    if (!matchesOption) {
+    if (!matchesValue) {
       droppedParts.push(
-        `${label} dropped: '${constraint.value}' is not a recognized option of '${field.key}'`,
+        `${label} dropped: '${constraint.value}' is not a recognized value of '${field.key}'`,
       );
       continue;
     }

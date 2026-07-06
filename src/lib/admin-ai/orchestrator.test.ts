@@ -931,6 +931,78 @@ describe("runAdminAiAnalysis (map-reduce scan)", () => {
     ).toBe(true);
   });
 
+  it("reduces over near-miss cards with a disclosure when the full-match union is empty", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+    // >30 records so the map stage runs; CONTACT_ID is the near-miss card.
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+      ...makeFillerRecords(34),
+    ]);
+
+    // The one completeJson mock serves the planner (parses as an empty plan) and
+    // every map chunk: zero full matches, one near-miss on CONTACT_ID.
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        candidates: [],
+        nearMisses: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            evidenceSummary: "Call note: works with polar imagery, not under ice.",
+            missingAspect: "no professional under-ice filming stated",
+          },
+        ],
+      },
+      modelMetadata: { provider: "deepseek", usage: null },
+    });
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: ["Marina Costa is the closest partial match but lacks the key aspect."],
+        additionalMatches: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            reason: "closest partial match",
+            matchStrength: 20,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: { model: "deepseek-v4-pro" },
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who has professional experience filming under polar ice?",
+    });
+
+    expect(result.status).toBe("complete");
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+      analysisNote?: string;
+    };
+    // The reduce sees ONLY the near-miss card, plus the code-driven disclosure.
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+    expect(generateArg.analysisNote).toMatch(/closest PARTIAL matches/);
+    expect(result.modelMetadata?.nearMiss).toEqual({
+      candidateCount: 1,
+      modeUsed: true,
+    });
+  });
+
   it("skips the map stage when the corpus fits in one chunk", async () => {
     vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
     const providerMod = await import("./provider");
@@ -1388,6 +1460,144 @@ describe("runAdminAiAnalysis (constraint planner)", () => {
       ...(result.response?.additionalMatches ?? []).map((m) => m.contactId),
     ]);
     expect(union.has(MISSING_BUDGET_CONTACT_ID)).toBe(false);
+  });
+
+  it("appends prefiltered members the reduce dropped for a field-constraint enumeration", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    // 3 Spanish speakers (list-valued `languages` answer) — the planner catalog
+    // admits `languages` as a list field, so the field constraint prefilters.
+    const langAnswers = {
+      languages: ["Spanish", "English"],
+      ultimate_vision: "vision",
+    };
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID, langAnswers),
+      makeRecord(OTHER_CONTACT_ID, langAnswers),
+      makeRecord(MISSING_BUDGET_CONTACT_ID, langAnswers),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: null,
+        budgetMin: null,
+        fieldConstraints: [
+          { field: "languages", op: "contains", value: "spanish" },
+        ],
+        enumerationOnly: true,
+        notes: "",
+      },
+      modelMetadata: {},
+    });
+    // Reduce returns only 2 of the 3 prefiltered Spanish speakers.
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+          {
+            contactId: OTHER_CONTACT_ID,
+            contactName: "Ivo Santos",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 80,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "which contacts speak Spanish?",
+    });
+
+    const appended = result.response?.additionalMatches?.find(
+      (m) => m.contactId === MISSING_BUDGET_CONTACT_ID,
+    );
+    expect(appended?.reason).toBe("Matches languages contains 'spanish'");
+    expect(appended?.matchStrength).toBe(1);
+  });
+
+  it("does not append missing members for an enumerationOnly plan with no constraints", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+      makeRecord(OTHER_CONTACT_ID),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: null,
+        budgetMin: null,
+        fieldConstraints: [],
+        enumerationOnly: true,
+        notes: "",
+      },
+      modelMetadata: {},
+    });
+    // Reduce returns only 1 of the 2 records; with no deterministic constraint
+    // there is no roster to complete, so the other must NOT be appended.
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "list everyone",
+    });
+
+    const union = new Set([
+      ...(result.response?.shortlist ?? []).map((e) => e.contactId),
+      ...(result.response?.additionalMatches ?? []).map((m) => m.contactId),
+    ]);
+    expect(union.has(OTHER_CONTACT_ID)).toBe(false);
   });
 });
 

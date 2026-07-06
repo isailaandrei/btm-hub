@@ -339,6 +339,23 @@ describe("applyPlannedConstraints", () => {
     ).toEqual(["b"]);
   });
 
+  it("matches a contains constraint against array-typed answer values", () => {
+    const records = [
+      recordWithAnswers("multi", { languages: ["English", "Spanish", "French"] }),
+      recordWithAnswers("mono", { languages: ["English"] }),
+      recordWithAnswers("string", { languages: "Spanish and Portuguese" }),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({
+        fieldConstraints: [{ field: "languages", op: "contains", value: "spanish" }],
+      }),
+    );
+    // Case-insensitive substring over each array item (and legacy string values).
+    expect(result.records.map((r) => r.contact.id)).toEqual(["multi", "string"]);
+    expect(result.droppedByField).toEqual(["mono"]);
+  });
+
   it("reuses the budget comparison for budgetMin", () => {
     const records = [
       recordWithAnswers("rich", { budget: "All-In budget (>12,000 €/USD)" }),

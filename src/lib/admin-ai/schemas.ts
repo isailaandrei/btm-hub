@@ -232,6 +232,20 @@ export const mapExtractionSchema = z.object({
       evidenceSummary: z.string(),
     }),
   ),
+  // Emitted ONLY when a chunk has zero full matches and the question states a
+  // rare/specific/multi-part criterion: contacts with real PARTIAL evidence,
+  // each naming the aspect they do NOT satisfy. Empty for normal questions.
+  nearMisses: z
+    .array(
+      z.object({
+        contactId: uuidSchema,
+        contactName: z.string(),
+        evidenceSummary: z.string(),
+        missingAspect: z.string(),
+      }),
+    )
+    .max(3)
+    .default([]),
 });
 
 export type MapExtraction = z.infer<typeof mapExtractionSchema>;

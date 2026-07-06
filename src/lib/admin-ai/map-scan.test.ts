@@ -6,6 +6,7 @@ import {
   MAP_CHUNK_SIZE,
   runMapScan,
 } from "./map-scan";
+import { mapExtractionSchema } from "./schemas";
 import type { RenderedContactCard } from "./contact-card";
 import type { AdminAiProvider } from "./provider";
 
@@ -78,6 +79,55 @@ describe("buildMapExtractionSystemPrompt", () => {
     expect(prompt).toContain("defined concept");
     expect(prompt).toContain("Do NOT flag general enthusiasm");
     expect(prompt).toContain("quoted verbatim");
+  });
+
+  it("gates near-misses behind zero full matches and a rare criterion", () => {
+    const prompt = buildMapExtractionSystemPrompt();
+    expect(prompt).toContain("nearMisses");
+    expect(prompt).toContain("NO contact in this batch is a full match");
+    expect(prompt).toContain("missingAspect");
+  });
+});
+
+describe("mapExtractionSchema nearMisses", () => {
+  const uuid = (i: number) =>
+    `${String(i).padStart(8, "0")}-1111-4111-8111-111111111111`;
+  const nearMiss = (i: number) => ({
+    contactId: uuid(i),
+    contactName: `C${i}`,
+    evidenceSummary: "partial evidence",
+    missingAspect: "missing the key aspect",
+  });
+
+  it("defaults nearMisses to [] when the chunk omits them", () => {
+    const parsed = mapExtractionSchema.parse({ candidates: [] });
+    expect(parsed.nearMisses).toEqual([]);
+  });
+
+  it("accepts up to 3 well-formed near-misses but rejects a 4th", () => {
+    expect(
+      mapExtractionSchema.safeParse({
+        candidates: [],
+        nearMisses: [nearMiss(0), nearMiss(1), nearMiss(2)],
+      }).success,
+    ).toBe(true);
+    expect(
+      mapExtractionSchema.safeParse({
+        candidates: [],
+        nearMisses: [nearMiss(0), nearMiss(1), nearMiss(2), nearMiss(3)],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires missingAspect on every near-miss", () => {
+    expect(
+      mapExtractionSchema.safeParse({
+        candidates: [],
+        nearMisses: [
+          { contactId: uuid(0), contactName: "C0", evidenceSummary: "partial" },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -227,5 +277,63 @@ describe("runMapScan", () => {
 
     expect(result.candidateIds.size).toBe(0);
     expect(result.scanMetadata.candidateCount).toBe(0);
+    expect(result.nearMissIds.size).toBe(0);
+    expect(result.scanMetadata.nearMissCount).toBe(0);
+  });
+
+  function nearMissJson(
+    candidates: Array<{ contactId: string; contactName: string }>,
+    nearMisses: Array<{ contactId: string; contactName: string }>,
+  ) {
+    return {
+      json: {
+        candidates: candidates.map((c) => ({ ...c, evidenceSummary: "quote" })),
+        nearMisses: nearMisses.map((c) => ({
+          ...c,
+          evidenceSummary: "partial",
+          missingAspect: "missing aspect",
+        })),
+      },
+      modelMetadata: { provider: "deepseek", usage: null },
+    };
+  }
+
+  it("collects near-misses ONLY from chunks with zero full matches (per-chunk gate)", async () => {
+    const cards = Array.from({ length: 40 }, (_, i) => makeCard(i));
+    const provider = makeProvider(async ({ userPrompt }) => {
+      const inChunk = cardsInPrompt(userPrompt);
+      if (inChunk[0]!.contactId === cards[0]!.contactId) {
+        // Chunk 0: no full match, a near-miss on its first card.
+        return nearMissJson([], [inChunk[0]!]);
+      }
+      // Chunk 1: a full match on its first card AND a near-miss on its second —
+      // the near-miss must be gated out because this chunk qualified a contact.
+      return nearMissJson([inChunk[0]!], [inChunk[1]!]);
+    });
+
+    const result = await runMapScan({ provider, cards, question: "q" });
+
+    expect([...result.candidateIds]).toEqual([cards[30]!.contactId]);
+    expect([...result.nearMissIds]).toEqual([cards[0]!.contactId]);
+    expect(result.scanMetadata.nearMissCount).toBe(1);
+  });
+
+  it("drops hallucinated near-miss contactIds not present in the corpus", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cards = [makeCard(0), makeCard(1)]; // single chunk, zero full matches
+    const ghostId = "99999999-9999-4999-8999-999999999999";
+    const provider = makeProvider(async ({ userPrompt }) => {
+      const inChunk = cardsInPrompt(userPrompt);
+      return nearMissJson([], [
+        inChunk[0]!,
+        { contactId: ghostId, contactName: "Ghost" },
+      ]);
+    });
+
+    const result = await runMapScan({ provider, cards, question: "q" });
+
+    expect([...result.nearMissIds]).toEqual([cards[0]!.contactId]);
+    expect(result.nearMissIds.has(ghostId)).toBe(false);
+    expect(warnSpy).toHaveBeenCalled();
   });
 });

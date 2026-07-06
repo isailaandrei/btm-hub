@@ -35,6 +35,39 @@ function recordWithTags(
   } as unknown as ContactCardRecord;
 }
 
+function recordWithAnswers(
+  id: string,
+  answers: Record<string, unknown>,
+): ContactCardRecord {
+  return {
+    contact: {
+      id,
+      name: id,
+      email: null,
+      phone: null,
+      profile_id: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+    },
+    applications: [
+      {
+        id: `${id}-app`,
+        user_id: null,
+        contact_id: id,
+        program: "freediving",
+        status: "reviewing",
+        answers,
+        tags: [],
+        admin_notes: [],
+        submitted_at: "2026-03-02T00:00:00Z",
+        updated_at: "2026-03-02T00:00:00Z",
+      },
+    ],
+    contactNotes: [],
+    contactTags: [],
+  } as unknown as ContactCardRecord;
+}
+
 type CompleteJson = NonNullable<AdminAiProvider["completeJson"]>;
 
 function makeProvider(completeJson?: CompleteJson): AdminAiProvider {
@@ -62,11 +95,37 @@ describe("buildPlannerCatalog", () => {
     // Only option-backed fields survive; every catalog field has options.
     expect(catalog.fields.length).toBeGreaterThan(0);
     expect(catalog.fields.every((f) => (f.options?.length ?? 0) > 0)).toBe(true);
-    // Free-text `languages` and unbacked meta columns are excluded.
+    // With no array-valued answers present, list-valued `languages` and unbacked
+    // meta columns are excluded.
     expect(catalog.fields.some((f) => f.key === "languages")).toBe(false);
     expect(catalog.fields.some((f) => f.key === "program")).toBe(false);
     expect(catalog.fields.some((f) => f.key === "tag_ids")).toBe(false);
     expect(catalog.fields.some((f) => f.key === "tag_names")).toBe(false);
+  });
+
+  it("admits a list-valued answer field with a sampled value list, excluding essay text", () => {
+    const records = [
+      recordWithAnswers("a", {
+        languages: ["Spanish", "English"],
+        ultimate_vision: "I want to film Spanish coastlines.",
+      }),
+      recordWithAnswers("b", {
+        languages: ["Spanish", "French"],
+        ultimate_vision: "A different essay entirely.",
+      }),
+    ];
+    const catalog = buildPlannerCatalog(records);
+
+    const languages = catalog.fields.find((f) => f.key === "languages");
+    expect(languages).toBeDefined();
+    expect(languages?.op).toBe("contains");
+    // Spanish (freq 2) leads; the sample keeps the discrete controlled values.
+    expect(languages?.values?.[0]).toBe("Spanish");
+    expect(languages?.values).toEqual(
+      expect.arrayContaining(["Spanish", "English", "French"]),
+    );
+    // A single-string essay field is NOT array-valued, so it is never admitted.
+    expect(catalog.fields.some((f) => f.key === "ultimate_vision")).toBe(false);
   });
 });
 
@@ -147,7 +206,7 @@ describe("validatePlan", () => {
     expect(droppedParts.some((p) => p.includes("nonsense"))).toBe(true);
   });
 
-  it("drops a field-constraint whose value is not a recognized option", () => {
+  it("drops a field-constraint whose value is not a recognized value", () => {
     const { plan, droppedParts } = validatePlan(
       plannerOutputSchema.parse({
         fieldConstraints: [
@@ -158,8 +217,54 @@ describe("validatePlan", () => {
     );
     expect(plan.fieldConstraints).toEqual([]);
     expect(
-      droppedParts.some((p) => p.includes("not a recognized option")),
+      droppedParts.some((p) => p.includes("not a recognized value")),
     ).toBe(true);
+  });
+
+  it("accepts a contains constraint on a list-valued field, still dropping unknown fields", () => {
+    const listCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "languages",
+          label: "Languages",
+          op: "contains",
+          values: ["Spanish", "English", "French"],
+        },
+      ],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "languages", op: "contains", value: "spanish" },
+          { field: "essay", op: "contains", value: "ocean" },
+        ],
+      }),
+      listCatalog,
+    );
+    expect(plan.fieldConstraints).toEqual([
+      { field: "languages", op: "contains", value: "spanish" },
+    ]);
+    expect(droppedParts.some((p) => p.includes("essay"))).toBe(true);
+  });
+
+  it("drops a list-field value absent from the sampled values", () => {
+    const listCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        { key: "languages", label: "Languages", op: "contains", values: ["Spanish"] },
+      ],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [{ field: "languages", op: "contains", value: "klingon" }],
+      }),
+      listCatalog,
+    );
+    expect(plan.fieldConstraints).toEqual([]);
+    expect(droppedParts.some((p) => p.includes("not a recognized value"))).toBe(
+      true,
+    );
   });
 
   it("drops a free-text / unknown field with an evidence-scan disclosure", () => {

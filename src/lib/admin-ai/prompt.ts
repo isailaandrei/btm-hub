@@ -78,6 +78,12 @@ export type AdminAiSynthesisInput = {
   evidence: EvidenceItem[];
   includeEvidence?: boolean;
   promptCacheKey?: string | null;
+  /**
+   * Optional code-driven analysis note surfaced to the model in the per-question
+   * tail. Used to disclose near-miss mode: that a full chunked scan found no
+   * exact match and the supplied cards are the closest partial matches only.
+   */
+  analysisNote?: string;
 };
 
 export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
@@ -128,6 +134,7 @@ export function buildAdminAiUserPrompt(input: AdminAiSynthesisInput): string {
       },
       scope: input.scope,
       ...(includeEvidence ? { evidence: input.evidence } : {}),
+      ...(input.analysisNote ? { analysisNote: input.analysisNote } : {}),
       queryPlan: input.queryPlan,
       question: input.question,
     },

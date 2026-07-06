@@ -62,6 +62,11 @@ type EvalResult = {
   // Self-diagnosing fields from the shared pipeline diagnostics.
   prefilteredCount: number;
   candidateCount: number;
+  // The map-union candidate ids fed to the reduce — reveals whether a dropped
+  // contact was lost by the map or the reduce. JSON-only (off the scorecard).
+  candidateIds: string[];
+  nearMissCandidateCount: number;
+  nearMissModeUsed: boolean;
   idRepairs: number;
   idDrops: number;
   appendedByEnumeration: number;
@@ -148,12 +153,22 @@ function recordNoteText(record: ContactCardRecord): string {
 }
 
 // The `languages` answer field specifically — NOT all answers — so an essay
-// mention like "filmed in Spanish waters" does not count as a speaker.
+// mention like "filmed in Spanish waters" does not count as a speaker. The field
+// stores two shapes across applications: a plain string, or a JSON array of
+// strings (the vast majority). Accept both; join array items with ", ".
 function recordLanguagesText(record: ContactCardRecord): string {
-  return record.applications
-    .map((app) => (app.answers as Record<string, unknown>)?.languages)
-    .filter((v): v is string => typeof v === "string")
-    .join(" ");
+  const parts: string[] = [];
+  for (const app of record.applications) {
+    const value = (app.answers as Record<string, unknown>)?.languages;
+    if (typeof value === "string") {
+      parts.push(value);
+    } else if (Array.isArray(value)) {
+      parts.push(
+        value.filter((item): item is string => typeof item === "string").join(", "),
+      );
+    }
+  }
+  return parts.join(" ");
 }
 
 function idsMatching(
@@ -327,6 +342,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     | "latencyMs"
     | "prefilteredCount"
     | "candidateCount"
+    | "candidateIds"
+    | "nearMissCandidateCount"
+    | "nearMissModeUsed"
     | "idRepairs"
     | "idDrops"
     | "appendedByEnumeration"
@@ -354,6 +372,9 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       latencyMs: out.latencyMs,
       prefilteredCount: d.prefilteredCount,
       candidateCount: d.candidateCount,
+      candidateIds: d.candidateIds,
+      nearMissCandidateCount: d.nearMissCandidateCount,
+      nearMissModeUsed: d.nearMissModeUsed,
       idRepairs: d.idRepairs,
       idDrops: d.idDrops,
       appendedByEnumeration: d.appendedByEnumeration,
@@ -555,7 +576,27 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     const additionalCount = out.response.additionalMatches?.length ?? 0;
     const expectEmpty = truth.length === 0;
     const emptyPass = shortlistCount === 0 && additionalCount === 0;
-    const violations = expectEmpty ? [] : truth.filter((id) => !union.has(id));
+
+    // Regex hits are NEAR-MISS candidates (partial signal), not ground-truth
+    // exact matches for "professional experience filming under polar ice". Score
+    // as a near-miss disclosure: the shortlist must not fabricate exact matches
+    // outside the hit set, and every hit must be reachable — surfaced in the
+    // union OR named (by name) in the uncertainty disclosure.
+    const hitSet = new Set(truth);
+    const shortlistOutsideHits = expectEmpty
+      ? []
+      : shortlistIds(out.response).filter((id) => !hitSet.has(id));
+    const uncertaintyText = out.response.uncertainty.join(" ").toLowerCase();
+    const nameById = new Map(
+      records.map((rec) => [rec.contact.id, (rec.contact.name ?? "").toLowerCase()]),
+    );
+    const unreachableHits = expectEmpty
+      ? []
+      : truth.filter((id) => {
+          if (union.has(id)) return false;
+          const name = nameById.get(id) ?? "";
+          return !(name.length > 0 && uncertaintyText.includes(name));
+        });
 
     record(
       {
@@ -565,12 +606,12 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         truthCount: truth.length,
         recall: expectEmpty ? null : recall(union, truth),
         shortlistPrecision: null,
-        forbiddenViolations: violations,
+        forbiddenViolations: shortlistOutsideHits,
         expectEmpty,
         expectEmptyPass: expectEmpty ? emptyPass : null,
         advisory: expectEmpty
           ? ["truth empty — expecting no matches"]
-          : [`truth non-empty (${truth.length}) — scored as mustInclude`],
+          : [`truth non-empty (${truth.length}) — scored as near-miss disclosure`],
       },
       out,
     );
@@ -581,7 +622,14 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         "no truth → shortlist AND additionalMatches must be empty",
       ).toBe(true);
     } else {
-      expect(violations, "all real matches must surface").toEqual([]);
+      expect(
+        shortlistOutsideHits,
+        "no fabricated exact matches — every shortlist entry must be within the near-miss hit set",
+      ).toEqual([]);
+      expect(
+        unreachableHits,
+        "every near-miss hit must surface in shortlist∪additionalMatches or be named in uncertainty",
+      ).toEqual([]);
     }
   }, 600_000);
 

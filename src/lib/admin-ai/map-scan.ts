@@ -24,11 +24,15 @@ type MapScanUsage = Record<(typeof USAGE_KEYS)[number], number>;
 
 export type MapScanResult = {
   candidateIds: Set<string>;
+  // Corpus-ordered, deduped near-miss ids (disjoint from candidateIds). Consulted
+  // by the reduce ONLY when the full-match union is empty (see orchestrator).
+  nearMissIds: Set<string>;
   scanMetadata: {
     mode: "map_reduce";
     chunkCount: number;
     chunkSize: number;
     candidateCount: number;
+    nearMissCount: number;
     retriedChunkCount: number;
     usage: MapScanUsage;
   };
@@ -57,8 +61,11 @@ export function buildMapExtractionSystemPrompt(): string {
     "Err on the side of inclusion only WHEN a specific quotable statement exists but its relevance is uncertain — include it and let a later stage judge. Missing a contact who has such a statement is the failure mode; flagging vague interest is noise.",
     "When you are unsure whether a specific statement satisfies the question, include the candidate — relevance uncertainty is resolved by the next stage, and rare or niche criteria especially warrant inclusion on partial matches (e.g. a related environment, activity, or experience).",
     "`evidenceSummary` MUST contain the decisive statement quoted verbatim from the card; name its source line label too (for example `Call note` or `Ultimate Vision`).",
-    'Return valid JSON matching this contract: {"candidates":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string"}]}.',
-    'Return {"candidates":[]} when no contact in this batch has a specific quotable statement relevant to the question.',
+    "When — and ONLY when — NO contact in this batch is a full match AND the question states a RARE, highly specific, or multi-part criterion, you MAY record up to 3 `nearMisses`: contacts whose card holds real PARTIAL evidence toward the question.",
+    "Each near-miss MUST quote the real partial evidence verbatim in `evidenceSummary` and name the specific aspect of the question it does NOT satisfy in `missingAspect`. Never invent evidence or overstate a partial match.",
+    "If ANY contact in this batch is a full match, or the question is broad or common, return `nearMisses` empty.",
+    'Return valid JSON matching this contract: {"candidates":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string"}],"nearMisses":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string","missingAspect":"string"}]}.',
+    'Return {"candidates":[],"nearMisses":[]} when no contact in this batch has a specific quotable statement relevant to the question.',
   ].join(" ");
 }
 
@@ -85,6 +92,7 @@ export function buildMapExtractionUserPrompt(input: {
 
 type ChunkResult = {
   candidates: MapExtraction["candidates"];
+  nearMisses: MapExtraction["nearMisses"];
   usage: Record<string, unknown> | null;
 };
 
@@ -124,6 +132,7 @@ export async function runMapScan(input: {
     const parsed = mapExtractionSchema.parse(json);
     results[chunkIndex] = {
       candidates: parsed.candidates,
+      nearMisses: parsed.nearMisses,
       usage: (modelMetadata.usage as Record<string, unknown> | null) ?? null,
     };
   }
@@ -153,12 +162,15 @@ export async function runMapScan(input: {
   }
 
   const flagged = new Set<string>();
+  const flaggedNearMiss = new Set<string>();
   results.forEach((result, chunkIndex) => {
     const candidates = result?.candidates ?? [];
+    const nearMisses = result?.nearMisses ?? [];
     adminAiDebugLog("map-chunk", {
       chunkIndex,
       cardCount: chunks[chunkIndex]!.length,
       candidateCount: candidates.length,
+      nearMissCount: nearMisses.length,
     });
     for (const candidate of candidates) {
       if (!validContactIds.has(candidate.contactId)) {
@@ -174,12 +186,36 @@ export async function runMapScan(input: {
       }
       flagged.add(candidate.contactId);
     }
+    // Per-chunk gate: near-misses count ONLY from a chunk that produced zero full
+    // matches (prevents candidate re-inflation on chunks that already qualified).
+    if (candidates.length > 0) return;
+    for (const nearMiss of nearMisses) {
+      if (!validContactIds.has(nearMiss.contactId)) {
+        console.warn(
+          "[admin-ai][map-scan] dropping hallucinated near-miss contactId",
+          { chunkIndex, contactId: nearMiss.contactId },
+        );
+        adminAiDebugLog("map-hallucinated-near-miss", {
+          chunkIndex,
+          contactId: nearMiss.contactId,
+        });
+        continue;
+      }
+      flaggedNearMiss.add(nearMiss.contactId);
+    }
   });
 
-  // Dedupe by contactId while preserving corpus (oldest-first) order.
+  // Dedupe by contactId while preserving corpus (oldest-first) order. Near-miss
+  // ids are kept disjoint from full-match candidates.
   const candidateIds = new Set<string>();
   for (const card of cards) {
     if (flagged.has(card.contactId)) candidateIds.add(card.contactId);
+  }
+  const nearMissIds = new Set<string>();
+  for (const card of cards) {
+    if (flaggedNearMiss.has(card.contactId) && !candidateIds.has(card.contactId)) {
+      nearMissIds.add(card.contactId);
+    }
   }
 
   const usage: MapScanUsage = {
@@ -198,16 +234,19 @@ export async function runMapScan(input: {
   timer.end({
     status: "ok",
     candidateCount: candidateIds.size,
+    nearMissCount: nearMissIds.size,
     retriedChunkCount,
   });
 
   return {
     candidateIds,
+    nearMissIds,
     scanMetadata: {
       mode: "map_reduce",
       chunkCount: chunks.length,
       chunkSize: MAP_CHUNK_SIZE,
       candidateCount: candidateIds.size,
+      nearMissCount: nearMissIds.size,
       retriedChunkCount,
       usage,
     },
