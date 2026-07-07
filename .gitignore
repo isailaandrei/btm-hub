@@ -76,6 +76,7 @@ e2e/screenshots
 # WhatsApp ingestion tooling (gated live suites; run via RUN_* env flags)
 !/scripts/whatsapp-match-backfill.test.ts
 !/scripts/conversation-digest-backlog.test.ts
+!/scripts/whatsapp-media-backfill.test.ts
 
 #wiki
 /wiki

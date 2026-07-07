@@ -262,10 +262,12 @@ export function ContactWhatsAppSection({
 }
 
 /**
- * Renders one WhatsApp attachment. Images are shown inline via the admin media
- * proxy (which adds the YCloud API key); if the image can't load — proxy not
- * configured (no YCLOUD_API_KEY) or media expired by YCloud — it degrades to a
- * plain "open" link instead of a broken-image icon. Non-images are always links.
+ * Renders one WhatsApp attachment via the admin media proxy (which serves our
+ * archived copy when one exists, else fetches YCloud with the API key).
+ * Images render inline; audio (voice notes) and video get native players;
+ * everything else is a link. If an image can't load — proxy not configured or
+ * media expired upstream before archiving (proxy answers 410) — it degrades
+ * to a plain "open" link instead of a broken-image icon.
  */
 function MediaAttachment({
   messageId,
@@ -281,6 +283,8 @@ function MediaAttachment({
     messageId,
   )}&index=${index}`;
   const isImage = (contentType?.startsWith("image/") ?? false) && !imageFailed;
+  const isAudio = contentType?.startsWith("audio/") ?? false;
+  const isVideo = contentType?.startsWith("video/") ?? false;
 
   if (isImage) {
     return (
@@ -299,6 +303,28 @@ function MediaAttachment({
           className="max-h-72 max-w-full rounded-md object-contain"
         />
       </a>
+    );
+  }
+
+  if (isAudio) {
+    return (
+      <audio
+        controls
+        preload="none"
+        src={proxySrc}
+        className="mt-1 block h-10 w-full max-w-xs"
+      />
+    );
+  }
+
+  if (isVideo) {
+    return (
+      <video
+        controls
+        preload="metadata"
+        src={proxySrc}
+        className="mt-1 block max-h-72 max-w-full rounded-md"
+      />
     );
   }
 

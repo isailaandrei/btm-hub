@@ -148,6 +148,15 @@ error — log instead); keep the eval script unaffected.
 
 ## 3. WhatsApp media persistence (TIME-SENSITIVE — 30-day clock)
 
+> **STATUS: IMPLEMENTED Jul 7 2026 (by Fable, on `feat/whatsapp-media-persistence`).**
+> Migration `20260707000003` (bucket + `conversation_media` ledger + seed RPC),
+> archiver `src/lib/conversations/media-archive.ts`, cron route
+> `/api/cron/whatsapp-media-archive`, proxy prefers the archived copy (410 on
+> expired), inline audio/video players, gated backfill script. Remaining =
+> ACTIVATION (Andrei): merge, `supabase db push`, backfill dry-run → apply,
+> schedule the cron — steps in `docs/plans/whatsapp-ingestion-runbook.md`
+> §"Media archive activation". Original spec kept below for reference.
+
 **Goal (Andrei, Jul 7):** media on WhatsApp messages (images, audio, video,
 documents, stickers) exists only as YCloud-hosted URLs today. YCloud retains
 media for **30 days** (confirmed from docs.ycloud.com: the `link` URL needs an

@@ -293,6 +293,45 @@ export async function getConversationMessageMediaUrl(
   return item && typeof item.url === "string" ? item.url : null;
 }
 
+export interface ArchivedConversationMedia {
+  status: "pending" | "stored" | "expired" | "failed";
+  storagePath: string | null;
+  contentType: string | null;
+}
+
+/**
+ * Archive-ledger lookup for one attachment (see conversation_media +
+ * media-archive.ts). `null` means the attachment hasn't been seeded into the
+ * archive queue yet — callers treat that like `pending` (serve from YCloud).
+ */
+export async function getArchivedConversationMedia(
+  messageId: string,
+  index: number,
+): Promise<ArchivedConversationMedia | null> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("conversation_media")
+    .select("status, storage_path, content_type")
+    .eq("message_id", messageId)
+    .eq("media_index", index)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load archived media: ${error.message}`);
+  }
+  if (!data) return null;
+  const row = data as {
+    status: ArchivedConversationMedia["status"];
+    storage_path: string | null;
+    content_type: string | null;
+  };
+  return {
+    status: row.status,
+    storagePath: row.storage_path,
+    contentType: row.content_type,
+  };
+}
+
 /**
  * Soft-deactivates (or restores) a single conversation message. Deactivated
  * messages drop out of the contact thread's active view and are excluded from

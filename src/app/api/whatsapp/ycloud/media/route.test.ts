@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRequireAdmin = vi.fn();
 const mockGetMediaUrl = vi.fn();
+const mockGetArchivedMedia = vi.fn();
+const mockCreateSignedUrl = vi.fn();
 
 vi.mock("@/lib/auth/require-admin", () => ({
   requireAdmin: mockRequireAdmin,
@@ -9,10 +11,21 @@ vi.mock("@/lib/auth/require-admin", () => ({
 
 vi.mock("@/lib/data/conversations", () => ({
   getConversationMessageMediaUrl: mockGetMediaUrl,
+  getArchivedConversationMedia: mockGetArchivedMedia,
+}));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: vi.fn().mockResolvedValue({
+    storage: {
+      from: vi.fn(() => ({ createSignedUrl: mockCreateSignedUrl })),
+    },
+  }),
 }));
 
 const MESSAGE_ID = "11111111-1111-4111-8111-111111111111";
 const YCLOUD_URL = "https://api.ycloud.com/v2/whatsapp/media/download/abc";
+const SIGNED_URL =
+  "https://project.supabase.co/storage/v1/object/sign/whatsapp-media/messages/x/0.jpg?token=t";
 
 async function get(params: string) {
   const { GET } = await import("./route");
@@ -28,6 +41,12 @@ describe("GET /api/whatsapp/ycloud/media", () => {
     vi.unstubAllGlobals();
     mockRequireAdmin.mockResolvedValue({ id: "admin-1", role: "admin" });
     mockGetMediaUrl.mockResolvedValue(YCLOUD_URL);
+    // Default: attachment not seeded into the archive yet -> passthrough.
+    mockGetArchivedMedia.mockResolvedValue(null);
+    mockCreateSignedUrl.mockResolvedValue({
+      data: { signedUrl: SIGNED_URL },
+      error: null,
+    });
     process.env.YCLOUD_API_KEY = "key-123";
   });
 
@@ -54,7 +73,65 @@ describe("GET /api/whatsapp/ycloud/media", () => {
     expect(res.status).toBe(400);
   });
 
-  it("streams YCloud media with the API key and passes the content-type through", async () => {
+  it("redirects to a signed URL when the attachment is archived", async () => {
+    mockGetArchivedMedia.mockResolvedValue({
+      status: "stored",
+      storagePath: "messages/x/0.jpg",
+      contentType: "image/jpeg",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await get(`messageId=${MESSAGE_ID}&index=0`);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(SIGNED_URL);
+    // Archived media never touches YCloud (works after the 30-day purge).
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockCreateSignedUrl).toHaveBeenCalledWith("messages/x/0.jpg", 600);
+  });
+
+  it("serves archived media even without YCLOUD_API_KEY", async () => {
+    delete process.env.YCLOUD_API_KEY;
+    mockGetArchivedMedia.mockResolvedValue({
+      status: "stored",
+      storagePath: "messages/x/0.jpg",
+      contentType: "image/jpeg",
+    });
+    const res = await get(`messageId=${MESSAGE_ID}&index=0`);
+    expect(res.status).toBe(302);
+  });
+
+  it("502s loudly when a stored attachment cannot be signed", async () => {
+    mockGetArchivedMedia.mockResolvedValue({
+      status: "stored",
+      storagePath: "messages/x/0.jpg",
+      contentType: "image/jpeg",
+    });
+    mockCreateSignedUrl.mockResolvedValue({
+      data: null,
+      error: { message: "object not found" },
+    });
+    const res = await get(`messageId=${MESSAGE_ID}&index=0`);
+    expect(res.status).toBe(502);
+  });
+
+  it("410s for media that expired upstream before archiving", async () => {
+    mockGetArchivedMedia.mockResolvedValue({
+      status: "expired",
+      storagePath: null,
+      contentType: null,
+    });
+    const res = await get(`messageId=${MESSAGE_ID}&index=0`);
+    expect(res.status).toBe(410);
+  });
+
+  it("falls back to the YCloud passthrough while the archive is pending", async () => {
+    mockGetArchivedMedia.mockResolvedValue({
+      status: "pending",
+      storagePath: null,
+      contentType: "image/jpeg",
+    });
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("bytes", {
         status: 200,

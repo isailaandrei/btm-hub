@@ -125,11 +125,69 @@ select * from cron.job where jobname = 'conversation-digest';
 select cron.unschedule('conversation-digest');
 ```
 
+## Media archive activation (feat/whatsapp-media-persistence)
+
+YCloud retains attachment bytes for only **30 days** (fetches need the
+`X-API-Key` header). The archive pipeline copies them into the private
+`whatsapp-media` Storage bucket; the admin media proxy prefers our copy and
+answers 410 for media that expired before archiving. In order:
+
+1. **Apply the migration** (`20260707000003_whatsapp_media_archive.sql`:
+   bucket + `conversation_media` ledger + seed RPC) via the normal flow
+   (`supabase db push`).
+2. **Backfill DRY-RUN** — inventory only (counts by contentType, ledger
+   status), no fetches, no writes:
+   ```
+   RUN_WHATSAPP_MEDIA_BACKFILL=1 npx vitest run scripts/whatsapp-media-backfill.test.ts
+   ```
+3. **Backfill APPLY** — loops the cron's bounded batch function until
+   `remaining = 0`; writes a JSON report to `.admin-ai-debug/`. Run this SOON
+   after the migration — the 30-day clock is already running, and
+   history-synced attachments older than the window will be reported (not
+   hidden) as `expired`:
+   ```
+   RUN_WHATSAPP_MEDIA_BACKFILL=1 BACKFILL_APPLY=1 npx vitest run scripts/whatsapp-media-backfill.test.ts
+   ```
+4. **Prod scheduling** — new URL secret + daily job (10 min after the digest
+   job; reuses `email_cron_secret`):
+   ```sql
+   select vault.create_secret(
+     'https://btm-hub.vercel.app/api/cron/whatsapp-media-archive',
+     'whatsapp_media_archive_url',
+     'WhatsApp media archive cron endpoint (hub prod host; update at host cutover)'
+   );
+
+   select cron.schedule(
+     'whatsapp-media-archive',
+     '20 3 * * *',
+     $$
+     select net.http_get(
+       url := (
+         select decrypted_secret from vault.decrypted_secrets
+         where name = 'whatsapp_media_archive_url'
+       ),
+       headers := jsonb_build_object(
+         'Authorization',
+         'Bearer ' || (
+           select decrypted_secret from vault.decrypted_secrets
+           where name = 'email_cron_secret'
+         )
+       )
+     );
+     $$
+   );
+   ```
+   Verify: `select * from cron.job where jobname = 'whatsapp-media-archive';`
+   Rollback: `select cron.unschedule('whatsapp-media-archive');`
+
+Prod env prerequisite: `YCLOUD_API_KEY` must be set wherever the cron route
+runs, or the batch throws (fail loud) and the run does nothing.
+
 ## Hostinger cutover note
 
-At the Vercel → Hostinger cutover `btm-hub.vercel.app` dies, so **BOTH** cron
-URL secrets must be updated to the hub's new domain (whatever is chosen at
-cutover) — the schedules and routes themselves stay put:
+At the Vercel → Hostinger cutover `btm-hub.vercel.app` dies, so **ALL THREE**
+cron URL secrets must be updated to the hub's new domain (whatever is chosen
+at cutover) — the schedules and routes themselves stay put:
 
 ```sql
 select vault.update_secret(
@@ -139,6 +197,10 @@ select vault.update_secret(
 select vault.update_secret(
   (select id from vault.secrets where name = 'email_drain_url'),
   'https://NEW-HUB-DOMAIN/api/cron/email-drain'
+);
+select vault.update_secret(
+  (select id from vault.secrets where name = 'whatsapp_media_archive_url'),
+  'https://NEW-HUB-DOMAIN/api/cron/whatsapp-media-archive'
 );
 ```
 

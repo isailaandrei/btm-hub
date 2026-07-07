@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { validateUUID } from "@/lib/validation-helpers";
-import { getConversationMessageMediaUrl } from "@/lib/data/conversations";
+import {
+  getArchivedConversationMedia,
+  getConversationMessageMediaUrl,
+} from "@/lib/data/conversations";
+import { WHATSAPP_MEDIA_BUCKET } from "@/lib/conversations/media-archive";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // YCloud media-download links are only directly fetchable for a few minutes;
-// after that they require the account API key, so the browser can't load them
-// in an <img>. This admin-gated proxy fetches them server-side with the key and
-// streams the bytes back. We only ever proxy YCloud media-download URLs we
-// stored ourselves (looked up by message id), which avoids open-proxy/SSRF.
+// after that they require the account API key, and after 30 DAYS YCloud purges
+// the media entirely. This admin-gated proxy therefore serves our own archived
+// copy (private whatsapp-media bucket, via a short-lived signed URL) when one
+// exists, and only falls back to fetching YCloud with the API key while the
+// attachment is still pending archive. `expired` means YCloud purged it before
+// we archived it — surfaced as an explicit 410, never a broken image.
+// We only ever proxy YCloud media-download URLs we stored ourselves (looked up
+// by message id), which avoids open-proxy/SSRF.
 const YCLOUD_MEDIA_HOST = "api.ycloud.com";
+const SIGNED_URL_TTL_SECONDS = 600;
 // Bound only the initial request (connect + response headers). We deliberately
 // do NOT bound the streamed body — see the fetch below.
 const YCLOUD_MEDIA_FETCH_TIMEOUT_MS = 15000;
@@ -29,6 +39,35 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid index" }, { status: 400 });
   }
 
+  // Archived copy first: works even if YCloud (or its API key) is long gone.
+  const archived = await getArchivedConversationMedia(messageId, index);
+  if (archived?.status === "stored" && archived.storagePath) {
+    const admin = await createAdminClient();
+    const { data: signed, error: signError } = await admin.storage
+      .from(WHATSAPP_MEDIA_BUCKET)
+      .createSignedUrl(archived.storagePath, SIGNED_URL_TTL_SECONDS);
+    if (signError || !signed?.signedUrl) {
+      // A stored row whose bytes can't be signed is a real fault — say so
+      // instead of quietly re-proxying YCloud (which may already have purged).
+      console.error(
+        `whatsapp-media: failed to sign ${archived.storagePath}:`,
+        signError?.message,
+      );
+      return NextResponse.json(
+        { error: "Archived media unavailable (signing failed)" },
+        { status: 502 },
+      );
+    }
+    return NextResponse.redirect(signed.signedUrl, 302);
+  }
+  if (archived?.status === "expired") {
+    return NextResponse.json(
+      { error: "Media expired upstream before it was archived" },
+      { status: 410 },
+    );
+  }
+
+  // pending / failed / not-yet-seeded: fall back to the YCloud passthrough.
   const apiKey = process.env.YCLOUD_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
