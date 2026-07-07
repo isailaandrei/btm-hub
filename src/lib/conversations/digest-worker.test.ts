@@ -343,17 +343,18 @@ describe("processConversationDigestWindows", () => {
     );
   });
 
-  it("stores a STATUS digest but extracts NO facts (facts are durable-only)", async () => {
-    // The model returns facts, but a status window must never yield facts.
+  it("stores a STATUS digest and keeps the facts the model emitted (durable kernel of a mixed window)", async () => {
+    // A status-dominant window can still carry a durable fact (a dated
+    // commitment); the relevance tag must not veto the model's facts.
     mockExtractConversationDigest.mockResolvedValue({
-      summary: "Arriving Tuesday at 3pm; taxi booked.",
+      summary: "Confirmed he will join the Azores program July 24-Aug 4; taxi booked.",
       relevance: "status",
       facts: [
         {
           fieldKey: null,
-          valueText: "Arriving Tuesday",
+          valueText: "Confirmed attendance: Azores program July 24-Aug 4",
           valueJson: null,
-          confidence: "medium",
+          confidence: "high",
           conflictGroup: null,
         },
       ],
@@ -368,12 +369,41 @@ describe("processConversationDigestWindows", () => {
     expect(summary).toMatchObject({
       processedWindows: 1,
       digestsCreated: 1,
-      factsCreated: 0,
+      factsCreated: 1,
       noiseWindows: 0,
     });
     expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
       expect.objectContaining({ isNoise: false, relevance: "status" }),
     );
+    expect(mockAppendConversationFacts).toHaveBeenCalledWith([
+      expect.objectContaining({
+        valueText: "Confirmed attendance: Azores program July 24-Aug 4",
+      }),
+    ]);
+  });
+
+  it("never extracts facts for a NOISE window", async () => {
+    mockExtractConversationDigest.mockResolvedValue({
+      summary: "",
+      relevance: null,
+      facts: [
+        {
+          fieldKey: null,
+          valueText: "should be ignored",
+          valueJson: null,
+          confidence: "low",
+          conflictGroup: null,
+        },
+      ],
+      model: "gpt-test",
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    const summary = await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T11:00:00Z"),
+    });
+
+    expect(summary).toMatchObject({ noiseWindows: 1, factsCreated: 0 });
     expect(mockAppendConversationFacts).not.toHaveBeenCalled();
   });
 });

@@ -257,19 +257,21 @@ export async function processConversationDigestWindows(input?: {
       summary.noiseWindows += 1;
     } else {
       summary.digestsCreated += 1;
-      // Facts are DURABLE-ONLY: only profile-grade windows yield facts; status
-      // windows keep the digest line but never a fact.
-      if (relevance === "profile") {
-        const facts = buildConversationFactInputs({
-          contactId: window.contactId,
-          sourceMessageIds: windowMessages.map((message) => message.id),
-          observedAt: window.windowEnd,
-          extractorModel: extraction.model,
-          facts: extraction.facts,
-        });
-        await appendConversationFacts(facts);
-        summary.factsCreated += facts.length;
-      }
+      // Facts are appended for ANY signal window (profile OR status), never for
+      // noise. Durable-only is a PER-FACT decision the MODEL makes (the "facts
+      // ONLY for PROFILE-grade content" prompt rule): a status-tagged window can
+      // still carry a durable kernel — e.g. a dated attendance commitment whose
+      // dominant content is logistics — and the window's relevance tag must not
+      // veto the facts the model chose to emit.
+      const facts = buildConversationFactInputs({
+        contactId: window.contactId,
+        sourceMessageIds: windowMessages.map((message) => message.id),
+        observedAt: window.windowEnd,
+        extractorModel: extraction.model,
+        facts: extraction.facts,
+      });
+      await appendConversationFacts(facts);
+      summary.factsCreated += facts.length;
     }
   }
 
