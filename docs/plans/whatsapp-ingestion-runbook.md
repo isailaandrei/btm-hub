@@ -71,17 +71,23 @@ same `CRON_SECRET` env), so only a new URL secret is added.
 
 ### 1. URL secret
 
-Use the **canonical domain** (e.g. `https://behind-the-mask.com/...`), NOT a
-host-specific URL — that is what makes this Hostinger-portable.
+Use the **hub's current prod host**. There is no canonical hub domain:
+`behind-the-mask.com` is a DIFFERENT website; the hub runs at
+`btm-hub.vercel.app` (Vercel prod) and `preview.behind-the-mask.com`
+(Hostinger pilot). Portability comes from the Vault indirection — at a host
+change only the secret values change (see the cutover section).
 
 ```sql
--- Placeholder value: replace with the real canonical prod URL at deploy time.
 select vault.create_secret(
-  'https://REPLACE-WITH-CANONICAL-DOMAIN/api/cron/conversation-digest',
+  'https://btm-hub.vercel.app/api/cron/conversation-digest',
   'conversation_digest_url',
-  'Conversation digest cron endpoint (canonical domain; updated at host cutover)'
+  'Conversation digest cron endpoint (hub prod host; update at host cutover)'
 );
 ```
+
+> DONE Jul 7 2026: job `conversation-digest` (jobid 3) is scheduled on prod and
+> the secret exists (a double-slash typo in the URL was fixed the same day —
+> `net.http_get` does not follow redirects, so path typos fail silently).
 
 ### 2. Schedule the job (mirrors the live email-drain job's style)
 
@@ -121,16 +127,29 @@ select cron.unschedule('conversation-digest');
 
 ## Hostinger cutover note
 
-At the Vercel → Hostinger cutover, only the URL Vault value changes — the
-schedule and route stay put. If the URL secret already holds the canonical
-domain and DNS moves with it, nothing changes. Otherwise update the value:
+At the Vercel → Hostinger cutover `btm-hub.vercel.app` dies, so **BOTH** cron
+URL secrets must be updated to the hub's new domain (whatever is chosen at
+cutover) — the schedules and routes themselves stay put:
 
 ```sql
 select vault.update_secret(
   (select id from vault.secrets where name = 'conversation_digest_url'),
-  'https://NEW-CANONICAL-DOMAIN/api/cron/conversation-digest'
+  'https://NEW-HUB-DOMAIN/api/cron/conversation-digest'
+);
+select vault.update_secret(
+  (select id from vault.secrets where name = 'email_drain_url'),
+  'https://NEW-HUB-DOMAIN/api/cron/email-drain'
 );
 ```
+
+Verify each with a no-auth curl (expect **401** — a 404 or 308 means a wrong
+path or a redirecting host; `net.http_get` does not follow redirects), and the
+next day check `select * from cron.job_run_details order by start_time desc
+limit 5;`.
+
+Also required at webhook re-enable time: prod env needs
+`ADMIN_AI_PROVIDER=deepseek` + `DEEPSEEK_API_KEY`, or digest extraction falls
+back to the OpenAI default and fails nightly once new messages flow.
 
 ## matched_via naming
 
