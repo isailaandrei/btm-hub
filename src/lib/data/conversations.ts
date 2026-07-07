@@ -293,6 +293,81 @@ export async function getConversationMessageMediaUrl(
   return item && typeof item.url === "string" ? item.url : null;
 }
 
+export type ContactConversationDigest = {
+  id: string;
+  windowStart: string;
+  windowEnd: string;
+  isNoise: boolean;
+  relevance: "profile" | "status" | null;
+  summary: string;
+};
+
+/**
+ * All of a contact's digest windows (signal AND noise), newest first — the
+ * AI-visibility surfaces need noise rows too, to explain filtered exchanges.
+ */
+export async function listContactConversationDigests(
+  contactId: string,
+): Promise<ContactConversationDigest[]> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("conversation_digests")
+    .select("id, window_start, window_end, is_noise, relevance, summary")
+    .eq("contact_id", contactId)
+    .order("window_end", { ascending: false });
+  if (error) {
+    throw new Error(`Failed to list conversation digests: ${error.message}`);
+  }
+  return ((data ?? []) as Array<{
+    id: string;
+    window_start: string;
+    window_end: string;
+    is_noise: boolean;
+    relevance: "profile" | "status" | null;
+    summary: string;
+  }>).map((row) => ({
+    id: row.id,
+    windowStart: row.window_start,
+    windowEnd: row.window_end,
+    isNoise: row.is_noise,
+    relevance: row.relevance,
+    summary: row.summary,
+  }));
+}
+
+export type ContactConversationCurrentFact = {
+  fieldKey: string | null;
+  valueText: string;
+  confidence: "high" | "medium" | "low";
+  observedAt: string;
+};
+
+/** Current (non-invalidated, latest per field) facts — the AI's structured memory. */
+export async function listContactCurrentConversationFacts(
+  contactId: string,
+): Promise<ContactConversationCurrentFact[]> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("conversation_current_facts")
+    .select("field_key, value_text, confidence, observed_at")
+    .eq("contact_id", contactId)
+    .order("observed_at", { ascending: false });
+  if (error) {
+    throw new Error(`Failed to list conversation facts: ${error.message}`);
+  }
+  return ((data ?? []) as Array<{
+    field_key: string | null;
+    value_text: string;
+    confidence: "high" | "medium" | "low";
+    observed_at: string;
+  }>).map((row) => ({
+    fieldKey: row.field_key,
+    valueText: row.value_text,
+    confidence: row.confidence,
+    observedAt: row.observed_at,
+  }));
+}
+
 export interface ArchivedConversationMedia {
   status: "pending" | "stored" | "expired" | "failed";
   storagePath: string | null;

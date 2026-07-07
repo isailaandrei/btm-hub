@@ -10,6 +10,9 @@ import { toast } from "sonner";
 const mockLoad = vi.fn();
 const mockDeactivate = vi.fn();
 const mockRestore = vi.fn();
+// AI-visibility data load (badges). Defaults to an empty memory so existing
+// thread behaviors render badge-less, exactly like a contact with no digests.
+const mockLoadAiMemory = vi.fn();
 const mockRemoveChannel = vi.fn();
 const channelStub = {
   on: vi.fn(() => channelStub),
@@ -24,6 +27,7 @@ vi.mock("../actions", () => ({
   loadContactWhatsAppMessages: mockLoad,
   deactivateContactWhatsAppMessage: mockDeactivate,
   restoreContactWhatsAppMessage: mockRestore,
+  loadContactAiMemory: mockLoadAiMemory,
 }));
 
 vi.mock("@/lib/supabase/client", () => ({
@@ -70,6 +74,9 @@ describe("ContactWhatsAppSection", () => {
     mockLoad.mockReset();
     mockDeactivate.mockReset().mockResolvedValue(undefined);
     mockRestore.mockReset().mockResolvedValue(undefined);
+    mockLoadAiMemory
+      .mockReset()
+      .mockResolvedValue({ digests: [], facts: [], freshnessDays: 45 });
     channelStub.on.mockClear();
     channelStub.subscribe.mockClear();
     mockRemoveChannel.mockReset();

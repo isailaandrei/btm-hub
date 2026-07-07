@@ -2,14 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { Clock, EyeOff, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { createClient } from "@/lib/supabase/client";
 import { formatRelative } from "@/lib/format-relative";
 import {
+  computeThreadAiVisibility,
+  type MessageAiVisibility,
+} from "@/lib/conversations/ai-visibility";
+import {
   deactivateContactWhatsAppMessage,
+  loadContactAiMemory,
   loadContactWhatsAppMessages,
   restoreContactWhatsAppMessage,
+  type ContactAiMemoryData,
 } from "../actions";
 
 type ConversationMessage = Awaited<
@@ -47,6 +60,29 @@ export function ContactWhatsAppSection({
   const [isPending, startTransition] = useTransition();
   const [isMutating, startMutation] = useTransition();
   const [showRemoved, setShowRemoved] = useState(false);
+  // AI-visibility calibration data (digest windows + freshness horizon).
+  // Progressive enhancement: the thread renders without it; a load failure is
+  // DISCLOSED in the header (never silently badge-less). `nowMs` is captured
+  // at load time (render must stay pure) — fresh enough for a 45-day horizon.
+  const [aiMemory, setAiMemory] = useState<
+    (ContactAiMemoryData & { nowMs: number }) | null
+  >(null);
+  const [aiMemoryFailed, setAiMemoryFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    loadContactAiMemory(contactId)
+      .then((data) => {
+        if (active) setAiMemory({ ...data, nowMs: Date.now() });
+      })
+      .catch((error) => {
+        console.warn(`AI visibility load failed for contact ${contactId}`, error);
+        if (active) setAiMemoryFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [contactId]);
 
   const applyMessages = useCallback(
     (next: ConversationMessage[]) => {
@@ -174,10 +210,43 @@ export function ContactWhatsAppSection({
     };
   }, [messages]);
 
+  const aiStates = useMemo(() => {
+    if (!aiMemory || !messages) return null;
+    return computeThreadAiVisibility({
+      messages,
+      digests: aiMemory.digests,
+      freshnessDays: aiMemory.freshnessDays,
+      nowMs: aiMemory.nowMs,
+    });
+  }, [aiMemory, messages]);
+
   return (
+    <TooltipProvider delayDuration={200}>
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm text-muted-foreground">WhatsApp</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-sm text-muted-foreground">WhatsApp</CardTitle>
+          {aiMemoryFailed ? (
+            <span className="text-[11px] text-muted-foreground">
+              AI visibility unavailable
+            </span>
+          ) : aiStates ? (
+            <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Sparkles className="h-3 w-3 fill-primary text-primary" /> profile
+              </span>
+              <span className="flex items-center gap-1">
+                <Sparkles className="h-3 w-3 text-amber-500" /> status
+              </span>
+              <span className="flex items-center gap-1">
+                <EyeOff className="h-3 w-3 opacity-50" /> noise
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3 opacity-50" /> pending
+              </span>
+            </span>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent>
         {loadError ? (
@@ -211,6 +280,7 @@ export function ContactWhatsAppSection({
                   <MessageBubble
                     key={message.id}
                     message={message}
+                    aiVisibility={aiStates?.get(message.id) ?? null}
                     disabled={isMutating}
                     action={{
                       label: "Remove",
@@ -258,6 +328,7 @@ export function ContactWhatsAppSection({
         )}
       </CardContent>
     </Card>
+    </TooltipProvider>
   );
 }
 
@@ -342,16 +413,88 @@ function MediaAttachment({
   );
 }
 
+/** Tooltip copy per AI-visibility state (badges are the calibration surface). */
+function describeAiVisibility(visibility: MessageAiVisibility): string {
+  switch (visibility.state) {
+    case "profile":
+      return "In AI memory permanently (profile signal).";
+    case "status-fresh":
+      return `In AI memory until ${
+        visibility.expiresAt
+          ? new Date(visibility.expiresAt).toLocaleDateString()
+          : "soon"
+      } (status signal).`;
+    case "status-aged":
+      return `Aged out of AI memory on ${
+        visibility.expiresAt
+          ? new Date(visibility.expiresAt).toLocaleDateString()
+          : "an earlier date"
+      }.`;
+    case "noise":
+      return "Filtered as noise — the AI never sees this exchange.";
+    case "pending":
+      return "Not yet processed by the AI (picked up by the next digest run).";
+    case "excluded":
+      return "Never shared with the AI (outbound, unmatched, or removed).";
+  }
+}
+
+function AiVisibilityBadge({
+  visibility,
+}: {
+  visibility: MessageAiVisibility;
+}) {
+  // Excluded gets no marker: outbound bubbles and the Removed group already
+  // communicate it, and per-message icons there would be pure clutter.
+  if (visibility.state === "excluded") return null;
+
+  const icon =
+    visibility.state === "profile" ? (
+      <Sparkles className="h-3 w-3 fill-primary text-primary" />
+    ) : visibility.state === "status-fresh" ? (
+      <Sparkles className="h-3 w-3 text-amber-500" />
+    ) : visibility.state === "status-aged" ? (
+      <Sparkles className="h-3 w-3 text-muted-foreground/60" />
+    ) : visibility.state === "noise" ? (
+      <EyeOff className="h-3 w-3 text-muted-foreground/60" />
+    ) : (
+      <Clock className="h-3 w-3 text-muted-foreground/60" />
+    );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="inline-flex shrink-0 cursor-default"
+          aria-label={`AI visibility: ${visibility.state}`}
+        >
+          {icon}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-72">
+        <p>{describeAiVisibility(visibility)}</p>
+        {visibility.digestSummary ? (
+          <p className="mt-1 border-t border-border/40 pt-1 italic">
+            AI summary: {visibility.digestSummary}
+          </p>
+        ) : null}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function MessageBubble({
   message,
   action,
   disabled,
   muted,
+  aiVisibility,
 }: {
   message: ConversationMessage;
   action?: { label: string; onClick: () => void };
   disabled?: boolean;
   muted?: boolean;
+  aiVisibility?: MessageAiVisibility | null;
 }) {
   const isInbound = message.direction === "inbound";
   return (
@@ -394,12 +537,15 @@ function MessageBubble({
           </button>
         ) : null}
       </div>
-      <time
-        dateTime={message.happenedAt}
-        className="mt-1 text-[11px] text-muted-foreground"
-      >
-        {formatRelative(message.happenedAt)}
-      </time>
+      <span className="mt-1 flex items-center gap-1.5">
+        {aiVisibility ? <AiVisibilityBadge visibility={aiVisibility} /> : null}
+        <time
+          dateTime={message.happenedAt}
+          className="text-[11px] text-muted-foreground"
+        >
+          {formatRelative(message.happenedAt)}
+        </time>
+      </span>
     </li>
   );
 }

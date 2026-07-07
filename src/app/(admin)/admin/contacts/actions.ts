@@ -21,10 +21,15 @@ import {
 import type { EmailSuppressionReason } from "@/types/database";
 import { normalizePhoneNumber } from "@/lib/conversations/phone";
 import {
+  listContactConversationDigests,
   listContactConversationMessages,
+  listContactCurrentConversationFacts,
   setConversationMessageDeactivated,
+  type ContactConversationDigest,
   type ContactConversationMessage,
 } from "@/lib/data/conversations";
+import { STATUS_DIGEST_FRESHNESS_DAYS } from "@/lib/data/contact-cards";
+import { getFieldEntry } from "@/lib/admin/contacts/field-registry";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 import {
   contactsPreferencesPatchSchema,
@@ -106,6 +111,44 @@ export async function loadContactWhatsAppMessages(
   if (!contact) throw new Error("Contact not found");
   const phoneE164 = normalizePhoneNumber(contact.phone)?.e164 ?? null;
   return listContactConversationMessages({ contactId, phoneE164 });
+}
+
+export type ContactAiMemoryData = {
+  digests: ContactConversationDigest[];
+  facts: Array<{
+    fieldKey: string | null;
+    label: string | null;
+    valueText: string;
+    confidence: "high" | "medium" | "low";
+    observedAt: string;
+  }>;
+  freshnessDays: number;
+};
+
+/**
+ * What the AI holds for this contact: every digest window (signal AND noise —
+ * the badges need noise rows to explain filtered exchanges) plus the current
+ * structured facts, with the status-freshness horizon the card loader applies.
+ * Read-only calibration surface for the WhatsApp badges (task 1) and the
+ * "AI conversation memory" section (task 1b).
+ */
+export async function loadContactAiMemory(
+  contactId: string,
+): Promise<ContactAiMemoryData> {
+  await requireAdmin();
+  validateUUID(contactId);
+  const [digests, facts] = await Promise.all([
+    listContactConversationDigests(contactId),
+    listContactCurrentConversationFacts(contactId),
+  ]);
+  return {
+    digests,
+    facts: facts.map((fact) => ({
+      ...fact,
+      label: fact.fieldKey ? (getFieldEntry(fact.fieldKey)?.label ?? null) : null,
+    })),
+    freshnessDays: STATUS_DIGEST_FRESHNESS_DAYS,
+  };
 }
 
 /**

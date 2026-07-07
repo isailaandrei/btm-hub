@@ -27,6 +27,7 @@ import {
 } from "./contact-detail-skeleton";
 import { ContactTagsSection } from "./contact-tags-section";
 import { ContactEmailSection } from "./contact-email-section";
+import { ContactAiMemorySection } from "./contact-ai-memory-section";
 import { ContactWhatsAppSection } from "./contact-whatsapp-section";
 import { PortfolioSectionClient } from "./portfolio-section-client";
 import { Timeline } from "./timeline";
@@ -237,6 +238,8 @@ export function ContactDetailPanel({
             revalidateInitialData={revalidateSections}
             onMessagesLoaded={onWhatsAppLoaded}
           />
+
+          <ContactAiMemorySection contactId={contactId} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
