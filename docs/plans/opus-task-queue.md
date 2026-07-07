@@ -146,6 +146,106 @@ error — log instead); keep the eval script unaffected.
 
 ---
 
+## 3. WhatsApp media persistence (TIME-SENSITIVE — 30-day clock)
+
+**Goal (Andrei, Jul 7):** media on WhatsApp messages (images, audio, video,
+documents, stickers) exists only as YCloud-hosted URLs today. YCloud retains
+media for **30 days** (confirmed from docs.ycloud.com: the `link` URL needs an
+`X-API-Key` header to fetch reliably; unauthenticated access dies within
+minutes; after 30 days the media is gone permanently). Copy the bytes into our
+own private Supabase Storage bucket so attachments survive YCloud expiry.
+
+**What already exists — do NOT rebuild:**
+- `conversation_messages.media_json` (jsonb, `[{url, contentType}]`) and
+  `raw_payload` (full provider event) are populated by the webhook adapter
+  (`src/lib/conversations/ingestion/ycloud-whatsapp.ts`).
+- An admin-gated media proxy already serves attachments:
+  `src/app/api/whatsapp/ycloud/media/route.ts`, called as
+  `/api/whatsapp/ycloud/media?messageId=...&index=...`, injecting
+  `X-API-Key: YCLOUD_API_KEY`.
+- The thread UI (`src/app/(admin)/admin/contacts/[id]/
+  contact-whatsapp-section.tsx`, `MediaAttachment`) already renders images
+  inline via that proxy and non-images as links.
+
+The entire gap is byte persistence + teaching the proxy to prefer our copy.
+**No webhook changes** — archiving is cron/backfill-driven, which keeps the
+webhook storm-proof by construction (30-day retention makes nightly plenty).
+
+**Build:**
+1. **Migration** (copy the bucket pattern from
+   `supabase/migrations/20260506000001_profile_portfolio.sql`):
+   - Private bucket `whatsapp-media` (`INSERT INTO storage.buckets ... ON
+     CONFLICT DO UPDATE`; no public-read policies — service-role writes,
+     signed-URL reads only).
+   - Table `conversation_media`: `id uuid PK`, `message_id uuid NOT NULL FK
+     conversation_messages(id) ON DELETE CASCADE`, `media_index int NOT NULL`,
+     `UNIQUE(message_id, media_index)`, `source_url text NOT NULL`,
+     `content_type text`, `storage_path text` (null until stored),
+     `size_bytes bigint`, `status text NOT NULL DEFAULT 'pending' CHECK
+     (status IN ('pending','stored','expired','failed'))`, `attempts int NOT
+     NULL DEFAULT 0`, `last_error text`, `fetched_at timestamptz`,
+     `created_at timestamptz DEFAULT now()`. RLS: admin SELECT, service-role
+     writes. Why a table instead of mutating `media_json`: jsonb
+     read-modify-write is the race the house RPC rule exists to prevent, and
+     a table gives a status/attempts audit trail.
+2. **Archiver** `src/lib/conversations/media-archive.ts`: enumerate messages
+   with `media_json != '[]'` lacking a `stored`/`expired` row, **oldest
+   `happened_at` first** (closest to the 30-day cliff). Per item: fetch
+   `source_url` with `X-API-Key` + `AbortSignal.timeout(15_000)` and a size
+   cap (~25MB → mark failed with reason); upload to
+   `whatsapp-media/messages/{message_id}/{media_index}{ext-from-contentType}`;
+   mark `stored`. HTTP 404/403/410 → `expired` (permanent, never retried).
+   Other failures → `attempts + 1`, becoming `failed` at 5 attempts (stays
+   visible for manual review — fail loud). Bounded batch per run (default 40
+   files) returning a remaining count — mirror the shape of
+   `processConversationDigestWindows`.
+3. **Cron route** `src/app/api/cron/whatsapp-media-archive/route.ts` — copy
+   `src/app/api/cron/conversation-digest/route.ts` exactly (constant-time
+   `CRON_SECRET` check via `src/lib/cron-auth.ts`, `maxDuration = 300`, one
+   bounded archiver call, summary JSON with remaining count). Prod scheduling
+   is Andrei's step (pg_cron + Vault, runbook pattern) — **add the SQL to
+   `docs/plans/whatsapp-ingestion-runbook.md`** (new secret
+   `whatsapp_media_archive_url`) **and update its Hostinger-cutover section to
+   list all THREE URL secrets**. Rejected alternative: piggybacking on the
+   conversation-digest route — repo convention is one job per route, separate
+   failure domains.
+4. **Backfill script** `scripts/whatsapp-media-backfill.test.ts` (copy
+   `scripts/whatsapp-match-backfill.test.ts` gating +
+   `scripts/conversation-digest-backlog.test.ts` env-overwrite pattern):
+   `RUN_WHATSAPP_MEDIA_BACKFILL=1` = dry-run (counts by contentType,
+   per-message listing, JSON report to `.admin-ai-debug/`, NO fetches);
+   `BACKFILL_APPLY=1` = loop the archiver until remaining = 0. The corpus
+   includes months-old history-sync messages, so some media is likely already
+   expired — report `expired` rows plainly (disclosed, not silent).
+5. **Proxy update** (`src/app/api/whatsapp/ycloud/media/route.ts`): check
+   `conversation_media` first. `stored` → redirect to a signed URL
+   (`createSignedUrls` pattern from `src/lib/data/profile-portfolio.ts`,
+   ~10-min TTL). No row / `pending` → current YCloud passthrough. `expired`
+   → 410 with a clear message. The UI keeps working unchanged for images.
+6. **UI (small, recommended)**: in `MediaAttachment`, render
+   `<audio controls>` / `<video controls>` for audio/video contentTypes via
+   the same proxy URL; documents keep the link but show the filename; an
+   `expired` attachment renders a visible "attachment expired before
+   archiving" placeholder — never a silently broken image.
+7. **Out of scope:** the AI pipeline. Media never reaches the model;
+   media-only windows stay noise via the 40-char body gate. Touch nothing in
+   `digests.ts` / facts.
+
+**Tests:** contentType→extension mapping; status transitions incl. 404→expired
+and the attempts cap; batch bound + oldest-first ordering; proxy branching
+(stored/pending/expired) with mocked storage; cron auth. No live network in
+CI — the live path is the gated script, run by Andrei.
+
+**Owner decisions:** archive outbound and unmatched messages too? (recommend
+YES — the goal is preservation and storage is cheap); include deactivated
+messages? (recommend yes — curation is not deletion); signed-URL TTL; size cap.
+
+**Ops:** migration + backfill should run SOON after merge (the 30-day clock is
+already running on existing media). Current volume is trivial (hundreds of
+messages).
+
+---
+
 ## Deploy checklist (Andrei's own actions, not coding tasks)
 
 - Prod cron scheduling for conversation digests: SQL in
@@ -157,11 +257,21 @@ error — log instead); keep the eval script unaffected.
   handler are prerequisites — both merged).
 - Prod `maxDuration` accommodation for the 360s DeepSeek timeout on the
   admin-ai route at deploy time.
+- After task 3 (media persistence) merges: run the media backfill promptly
+  (YCloud's 30-day retention clock is already running on existing media) and
+  schedule the `whatsapp-media-archive` cron per the runbook.
 
 ## Explicitly out of queue (Andrei, Jul 7 2026)
 
-- Deep-link batching & repo-hardening review — Andrei believes these are done/
-  merged. NOTE: session records suggest only their SPEC DOCS were merged
-  (`docs/plans/deep-link-batching.md`, `docs/plans/comprehensive-review-
-  refactor-prompt.md`) and the work itself was open — verify before assuming
-  either way.
+- Deep-link batching — VERIFIED IMPLEMENTED on main (Jul 7 check): commit
+  `e5db8d0` server-renders the contact deep link via one
+  `getContactDetailPageBootstrap` + cache seeding. Nothing left to do.
+- Repo-hardening review — the REPO-WIDE pass described in
+  `docs/plans/comprehensive-review-refactor-prompt.md` (an untracked prompt
+  doc) has NOT been executed (verified Jul 7). Do not confuse it with the two
+  hardening PRs that DID merge — PR #21 "Harden admin dashboard concurrency
+  and forms" (squash `fa590ac`, Apr 13; its local branch
+  `admin-dashboard-hardening` is fully merged, just a stale ref) and PR #53
+  "cache & realtime robustness hardening" (Jul 3) — both scoped to the admin
+  dashboard, not repo-wide. The repo-wide prompt stays available to run in a
+  fresh session whenever Andrei triggers it.
