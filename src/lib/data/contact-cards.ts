@@ -7,6 +7,23 @@ import type {
   ContactNote,
 } from "@/types/database";
 
+/**
+ * How long a STATUS conversation digest stays in the AI's view after its window
+ * closes (roughly one trip cycle). Profile digests never age out. The eval
+ * live-lib mirror imports this so both read paths agree.
+ */
+export const STATUS_DIGEST_FRESHNESS_DAYS = 45;
+
+/**
+ * ISO cutoff for status-digest freshness: digests whose `window_end` is at or
+ * after this are still visible to the AI. Injectable `now` for tests.
+ */
+export function signalDigestFreshnessCutoff(now: number = Date.now()): string {
+  return new Date(
+    now - STATUS_DIGEST_FRESHNESS_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+}
+
 export type ContactCardTag = {
   tagId: string;
   tagName: string;
@@ -160,8 +177,10 @@ async function loadChunkRows(
         "id, contact_id, source, window_start, window_end, summary, source_message_count",
       )
       .in("contact_id", chunkIds)
-      // Noise-marker digests (empty summary) never render into cards.
+      // Noise-marker digests never render; status digests age out after the
+      // freshness window, profile digests stay permanently.
       .eq("is_noise", false)
+      .or(`relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()}`)
       .order("window_end", { ascending: false }),
     // Intentionally read the append-only ledger instead of a current-facts view:
     // raw contact cards must surface conflicts, not collapse them away.

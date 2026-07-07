@@ -143,3 +143,27 @@ prints the existing distinct `matched_via` values first):
   (e.g. `contact.phone`, `application:<id>.phone`); suffix matches write
   `suffix9:<source>` (e.g. `suffix9:contact.phone`).
 - **Backfill script**: every linked row gets `matched_via = 'phone_backfill'`.
+
+## Recalibration wipe
+
+To re-digest the whole corpus under a changed taxonomy (e.g. after tuning the
+profile/status/noise rules or the prompt), delete the derived rows and re-run
+the drain. The digest watermark (`max(window_end)` per contact in
+`list_undigested_conversation_messages`) derives from `conversation_digests`, so
+deleting the digests resets it and every window is reprocessed.
+
+```sql
+-- Order matters if FKs demand it: facts reference message ids, digests reference
+-- message ids; delete the derived tables first, leaving conversation_messages.
+delete from public.conversation_facts;
+delete from public.conversation_digests;
+```
+
+Then re-run the backlog drain until `remainingWindows = 0`:
+
+```
+RUN_CONVERSATION_DIGEST_BACKLOG=1 npx vitest run scripts/conversation-digest-backlog.test.ts
+```
+
+Embeddings are keyed by content hash and are NOT wiped here — they are message
+embeddings, independent of the digest taxonomy, and stay valid.

@@ -59,6 +59,7 @@ describe("processConversationDigestWindows", () => {
     mockConversationDigestExists.mockResolvedValue(false);
     mockExtractConversationDigest.mockResolvedValue({
       summary: "Discussed budget and travel.",
+      relevance: "profile",
       facts: [
         {
           fieldKey: "budget",
@@ -110,6 +111,7 @@ describe("processConversationDigestWindows", () => {
         summary: "Discussed budget and travel.",
         sourceMessageCount: 2,
         isNoise: false,
+        relevance: "profile",
       }),
     );
     expect(mockExtractConversationDigest).toHaveBeenCalledWith({
@@ -339,5 +341,39 @@ describe("processConversationDigestWindows", () => {
       "[conversations] embeddings skipped: OPENAI_API_KEY not configured",
       { messagesLeftUnembedded: 2 },
     );
+  });
+
+  it("stores a STATUS digest but extracts NO facts (facts are durable-only)", async () => {
+    // The model returns facts, but a status window must never yield facts.
+    mockExtractConversationDigest.mockResolvedValue({
+      summary: "Arriving Tuesday at 3pm; taxi booked.",
+      relevance: "status",
+      facts: [
+        {
+          fieldKey: null,
+          valueText: "Arriving Tuesday",
+          valueJson: null,
+          confidence: "medium",
+          conflictGroup: null,
+        },
+      ],
+      model: "gpt-test",
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    const summary = await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T11:00:00Z"),
+    });
+
+    expect(summary).toMatchObject({
+      processedWindows: 1,
+      digestsCreated: 1,
+      factsCreated: 0,
+      noiseWindows: 0,
+    });
+    expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
+      expect.objectContaining({ isNoise: false, relevance: "status" }),
+    );
+    expect(mockAppendConversationFacts).not.toHaveBeenCalled();
   });
 });

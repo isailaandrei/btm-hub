@@ -293,11 +293,18 @@ describe("conversation data layer", () => {
       generatorModel: "fixture",
       generatorVersion: "v1",
       isNoise: false,
+      relevance: "profile",
     });
 
     expect(client.from).toHaveBeenCalledWith("conversation_digests");
     expect(query.upsert).toHaveBeenCalledWith(
-      [expect.objectContaining({ content_hash: "hash-1", is_noise: false })],
+      [
+        expect.objectContaining({
+          content_hash: "hash-1",
+          is_noise: false,
+          relevance: "profile",
+        }),
+      ],
       { onConflict: "content_hash" },
     );
   });

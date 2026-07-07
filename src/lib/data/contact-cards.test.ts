@@ -25,6 +25,7 @@ function makeQuery(data: unknown, error: unknown = null) {
     "eq",
     "neq",
     "is",
+    "or",
     "order",
     "limit",
   ]) {
@@ -213,7 +214,7 @@ function setupFilteringClient(tables: Record<string, Array<Record<string, unknow
     from: vi.fn((table: string) => {
       let filter: { column: string; values: string[] } | null = null;
       const query: Record<string, unknown> = {};
-      for (const method of ["select", "not", "eq", "neq", "is", "order", "limit"]) {
+      for (const method of ["select", "not", "eq", "neq", "is", "or", "order", "limit"]) {
         query[method] = vi.fn().mockReturnValue(query);
       }
       query.in = vi.fn((column: string, values: string[]) => {
@@ -309,6 +310,11 @@ describe("contact card data loader", () => {
     expect(queries.conversation_digests.eq).toHaveBeenCalledWith(
       "is_noise",
       false,
+    );
+    // Profile digests always, plus status digests still within the freshness
+    // window (window_end >= a 45-day-ago cutoff).
+    expect(queries.conversation_digests.or).toHaveBeenCalledWith(
+      expect.stringMatching(/^relevance\.eq\.profile,window_end\.gte\./),
     );
     expect(client.from).toHaveBeenCalledTimes(6);
   });
@@ -407,5 +413,16 @@ describe("contact card data loader", () => {
     expect(byContactId.get(OTHER_CONTACT_ID)?.conversationDigests).toHaveLength(200);
     expect(byContactId.get(CONTACT_ID)?.conversationFacts).toHaveLength(400);
     expect(byContactId.get(OTHER_CONTACT_ID)?.conversationFacts).toHaveLength(400);
+  });
+});
+
+describe("signalDigestFreshnessCutoff", () => {
+  it("returns the ISO timestamp exactly STATUS_DIGEST_FRESHNESS_DAYS before now", async () => {
+    const { signalDigestFreshnessCutoff, STATUS_DIGEST_FRESHNESS_DAYS } =
+      await import("./contact-cards");
+    expect(STATUS_DIGEST_FRESHNESS_DAYS).toBe(45);
+    const now = Date.parse("2026-07-07T00:00:00.000Z");
+    // 45 days before 2026-07-07 is 2026-05-23.
+    expect(signalDigestFreshnessCutoff(now)).toBe("2026-05-23T00:00:00.000Z");
   });
 });

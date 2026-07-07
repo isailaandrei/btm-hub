@@ -221,6 +221,7 @@ export async function processConversationDigestWindows(input?: {
         generatorModel: NOISE_GATE_MARKER,
         generatorVersion: DIGEST_GENERATOR_VERSION,
         isNoise: true,
+        relevance: null,
       });
       summary.processedWindows += 1;
       summary.noiseWindows += 1;
@@ -233,6 +234,7 @@ export async function processConversationDigestWindows(input?: {
     // Model-level noise: an empty summary means the model found no signal — same
     // handling as the code-level gate (marker row, no facts).
     const isNoise = extraction.summary.trim() === "";
+    const relevance = isNoise ? null : extraction.relevance;
 
     await upsertConversationDigest({
       contactId: window.contactId,
@@ -247,6 +249,7 @@ export async function processConversationDigestWindows(input?: {
       generatorModel: extraction.model,
       generatorVersion: DIGEST_GENERATOR_VERSION,
       isNoise,
+      relevance,
     });
 
     summary.processedWindows += 1;
@@ -254,15 +257,19 @@ export async function processConversationDigestWindows(input?: {
       summary.noiseWindows += 1;
     } else {
       summary.digestsCreated += 1;
-      const facts = buildConversationFactInputs({
-        contactId: window.contactId,
-        sourceMessageIds: windowMessages.map((message) => message.id),
-        observedAt: window.windowEnd,
-        extractorModel: extraction.model,
-        facts: extraction.facts,
-      });
-      await appendConversationFacts(facts);
-      summary.factsCreated += facts.length;
+      // Facts are DURABLE-ONLY: only profile-grade windows yield facts; status
+      // windows keep the digest line but never a fact.
+      if (relevance === "profile") {
+        const facts = buildConversationFactInputs({
+          contactId: window.contactId,
+          sourceMessageIds: windowMessages.map((message) => message.id),
+          observedAt: window.windowEnd,
+          extractorModel: extraction.model,
+          facts: extraction.facts,
+        });
+        await appendConversationFacts(facts);
+        summary.factsCreated += facts.length;
+      }
     }
   }
 

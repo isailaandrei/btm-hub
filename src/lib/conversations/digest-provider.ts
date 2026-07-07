@@ -8,8 +8,13 @@ const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_MODEL = "gpt-5.4";
 const REQUEST_TIMEOUT_MS = 60_000;
 
+export type ConversationDigestRelevance = "profile" | "status";
+
 export type ConversationDigestExtraction = {
   summary: string;
+  // Signal windows are "profile" (durable) or "status" (short-lived); noise
+  // windows (empty summary) are null.
+  relevance: ConversationDigestRelevance | null;
   facts: ExtractedConversationFact[];
   model: string;
 };
@@ -29,16 +34,18 @@ const FACT_FIELD_KEYS: readonly string[] = Object.freeze(
  */
 export function buildDigestSystemPrompt(): string {
   return [
-    "You distill a WhatsApp conversation window into durable CRM memory about the contact.",
-    "SIGNAL (extract): program/trip interest and decisions (joining, declining, postponing, confirming); budget, availability, and timeline statements; skills, certifications, and equipment; personal projects and aspirations; objections or concerns; logistics ONLY when they change state (e.g. 'confirmed for the March trip'); meaningful personal context an admin would want remembered.",
-    "NOISE (ignore): greetings, thanks, emoji-only messages, scheduling back-and-forth that lands nowhere, link drops without discussion, broadcast/campaign-style outbound with no reply.",
-    'If the window contains NO signal, return {"summary": "", "facts": []} — this is a valid, expected outcome.',
-    "When there IS signal, write a concise `summary` (2-4 sentences) of what an admin should remember, and extract `facts`.",
+    "You distill a WhatsApp conversation window into durable CRM memory about the contact. Classify the window into one of three kinds:",
+    "PROFILE — durable, about the person: skills, preferences, aspirations, relationships or referrals, personality, and DECISIONS (joining, declining, postponing, confirming, commitments). A dated commitment (e.g. 'confirmed July 24-Aug 4') is PROFILE — it stays meaningful as history.",
+    "STATUS — operational and short-lived: arrival times, flight/taxi/accommodation logistics, 'waiting on X', 'ready to book'. Useful for about a trip cycle, then it should leave the AI's view.",
+    "NOISE — ignore entirely: greetings, thanks, emoji-only messages, link drops without discussion, broadcast/campaign-style outbound with no reply. CALL/MEETING SCHEDULING IS ALWAYS NOISE, however specific (e.g. 'free Monday afternoon', 'let's talk Tuesday'). 'Availability' counts as SIGNAL only when it is about joining a trip or program, never about scheduling a chat.",
+    'If the window is entirely NOISE, return {"summary": "", "relevance": null, "facts": []} — this is a valid, expected outcome.',
+    'When there IS signal, write a concise `summary` (2-4 sentences) of what an admin should remember, and set `relevance` to "profile" or "status" by the DOMINANT content of the window. When a window mixes a durable kernel with logistics, put the durable kernel into `facts` and tag the summary by what remains.',
+    "Extract `facts` ONLY for PROFILE-grade content (skills, preferences, decisions, constraints, relationships). STATUS content yields a summary line but NEVER a fact.",
     "Write the `summary` and every fact's `valueText` in ENGLISH, regardless of the language the conversation is in (translate non-English content). Preserve proper nouns as written.",
     "Facts are append-only. If values conflict, keep both facts with the same `conflictGroup`.",
     `Set each fact's \`fieldKey\` to one of these known keys when the fact maps to one, else null: ${FACT_FIELD_KEYS.join(", ")}.`,
     "Each fact has `valueText` (the stated value), `valueJson` (always null), `confidence` (\"high\" | \"medium\" | \"low\"), and `conflictGroup` (a stable grouping key, or null).",
-    "Return JSON matching this contract: {\"summary\": \"string\", \"facts\": [{\"fieldKey\": \"string|null\", \"valueText\": \"string\", \"valueJson\": null, \"confidence\": \"high|medium|low\", \"conflictGroup\": \"string|null\"}]}.",
+    "Return JSON matching this contract: {\"summary\": \"string\", \"relevance\": \"profile|status|null\", \"facts\": [{\"fieldKey\": \"string|null\", \"valueText\": \"string\", \"valueJson\": null, \"confidence\": \"high|medium|low\", \"conflictGroup\": \"string|null\"}]}.",
   ].join(" ");
 }
 
@@ -52,6 +59,7 @@ const factSchema = z.object({
 
 const digestExtractionSchema = z.object({
   summary: z.string(),
+  relevance: z.enum(["profile", "status"]).nullable().default(null),
   facts: z.array(factSchema).default([]),
 });
 
@@ -95,6 +103,7 @@ async function extractViaCompleteJson(
     typeof modelMetadata.model === "string" ? modelMetadata.model : "deepseek";
   return {
     summary: parsed.data.summary,
+    relevance: parsed.data.relevance,
     facts: toExtractedFacts(parsed.data.facts),
     model,
   };
@@ -110,6 +119,9 @@ const DIGEST_JSON_SCHEMA = {
   additionalProperties: false,
   properties: {
     summary: { type: "string" },
+    relevance: {
+      anyOf: [{ type: "string", enum: ["profile", "status"] }, { type: "null" }],
+    },
     facts: {
       type: "array",
       items: {
@@ -132,7 +144,7 @@ const DIGEST_JSON_SCHEMA = {
       },
     },
   },
-  required: ["summary", "facts"],
+  required: ["summary", "relevance", "facts"],
 } as const;
 
 type OpenAiResponsePayload = {
@@ -221,6 +233,7 @@ async function extractViaOpenAi(
   }
   return {
     summary: parsed.data.summary,
+    relevance: parsed.data.relevance,
     facts: toExtractedFacts(parsed.data.facts),
     model: payload.model ?? model,
   };

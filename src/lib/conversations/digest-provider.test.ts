@@ -42,6 +42,7 @@ describe("extractConversationDigest", () => {
                   type: "output_text",
                   text: JSON.stringify({
                     summary: "Discussed budget.",
+                    relevance: "profile",
                     facts: [
                       {
                         fieldKey: "budget",
@@ -71,12 +72,19 @@ describe("extractConversationDigest", () => {
     expect(
       requestBody.text.format.schema.properties.facts.items.properties.valueJson,
     ).toEqual({ type: "null" });
-    // The new noise-aware contract reaches the model.
-    expect(requestBody.input[0].content).toContain("SIGNAL (extract)");
-    expect(requestBody.input[0].content).toContain("NOISE (ignore)");
+    // The profile/status/noise contract reaches the model.
+    expect(requestBody.input[0].content).toContain("PROFILE —");
+    expect(requestBody.input[0].content).toContain("STATUS —");
+    expect(requestBody.input[0].content).toContain(
+      "CALL/MEETING SCHEDULING IS ALWAYS NOISE",
+    );
+    expect(requestBody.input[0].content).toContain("ONLY for PROFILE-grade");
     expect(requestBody.input[0].content).toContain("in ENGLISH");
+    // The strict schema requires relevance.
+    expect(requestBody.text.format.schema.required).toContain("relevance");
     expect(result).toEqual({
       summary: "Discussed budget.",
+      relevance: "profile",
       facts: [
         {
           fieldKey: "budget",
@@ -94,6 +102,7 @@ describe("extractConversationDigest", () => {
     const completeJson = vi.fn().mockResolvedValue({
       json: {
         summary: "Confirmed for the March trip.",
+        relevance: "profile",
         facts: [
           {
             fieldKey: "start_timeline",
@@ -125,12 +134,16 @@ describe("extractConversationDigest", () => {
       systemPrompt: string;
       userPrompt: string;
     };
-    expect(callArg.systemPrompt).toContain("SIGNAL (extract)");
-    expect(callArg.systemPrompt).toContain("NOISE (ignore)");
+    expect(callArg.systemPrompt).toContain("PROFILE —");
+    expect(callArg.systemPrompt).toContain("STATUS —");
+    expect(callArg.systemPrompt).toContain(
+      "CALL/MEETING SCHEDULING IS ALWAYS NOISE",
+    );
     expect(callArg.systemPrompt).toContain("in ENGLISH");
     expect(callArg.userPrompt).toBe("message-1: Confirmed for March.");
     expect(result).toEqual({
       summary: "Confirmed for the March trip.",
+      relevance: "profile",
       facts: [
         {
           fieldKey: "start_timeline",
@@ -158,7 +171,12 @@ describe("extractConversationDigest", () => {
     const { extractConversationDigest } = await import("./digest-provider");
     const result = await extractConversationDigest({ transcript: "hi there" });
 
-    expect(result).toEqual({ summary: "", facts: [], model: "deepseek-v4-pro" });
+    expect(result).toEqual({
+      summary: "",
+      relevance: null,
+      facts: [],
+      model: "deepseek-v4-pro",
+    });
   });
 
   it("fails loud when the DeepSeek JSON violates the digest schema", async () => {
