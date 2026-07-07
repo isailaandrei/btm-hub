@@ -11,7 +11,7 @@ import {
   resolveAdminPanelTab,
   type AdminPanelTab,
 } from "./admin-navigation";
-import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
+import { isAdminAiEnabled } from "./admin-ai/visibility";
 import type { AdminContactsInitialData } from "@/lib/data/admin-contact-list";
 
 const EmailStudio = dynamic(
@@ -70,7 +70,7 @@ export function AdminDashboard({
   initialContactsData?: Promise<AdminContactsInitialData | undefined>;
 }) {
   const searchParams = useSearchParams();
-  const aiEnabled = isLocalAdminAiEnabled();
+  const aiEnabled = isAdminAiEnabled();
   const { tab: activeTab, invalidValue } = resolveAdminPanelTab(
     searchParams.get("tab"),
     { aiEnabled },

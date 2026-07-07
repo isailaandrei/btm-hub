@@ -4,7 +4,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { resolveAdminPanelTab } from "./admin-navigation";
-import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
+import { isAdminAiEnabled } from "./admin-ai/visibility";
 
 const tabLabels = {
   contacts: "Contacts",
@@ -24,7 +24,7 @@ export function AdminShellHeader() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { tab } = resolveAdminPanelTab(searchParams.get("tab"), {
-    aiEnabled: isLocalAdminAiEnabled(),
+    aiEnabled: isAdminAiEnabled(),
   });
   const pageLabel = getPageLabel(pathname, tabLabels[tab]);
 

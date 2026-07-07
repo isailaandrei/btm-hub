@@ -39,7 +39,7 @@ import {
 import { getAdminItemActiveState, getAdminPanelHref } from "./admin-navigation";
 import type { AdminPanelTab, AdminNavigationItem } from "./admin-navigation";
 import { shouldSoftNavigate, softNavigate } from "./admin-soft-nav";
-import { isLocalAdminAiEnabled } from "./admin-ai/visibility";
+import { isAdminAiEnabled } from "./admin-ai/visibility";
 
 type AdminSidebarUser = {
   displayName: string | null;
@@ -60,8 +60,8 @@ const workspaceItems: WorkspaceNavItem[] = [
   { item: "tags", label: "Tags", icon: Tags },
 ];
 
-// Dev-only AI Agent panel — reuses the same `?tab=ai` route the dashboard and
-// header already handle; the link is the only piece that was missing.
+// AI Agent panel (flag-gated via NEXT_PUBLIC_SHOW_ADMIN_AI) — reuses the same
+// `?tab=ai` route the dashboard and header already handle.
 const adminAiNavItem: WorkspaceNavItem = {
   item: "ai",
   label: "AI Agent",
@@ -125,7 +125,7 @@ function AdminSidebarCollapseButton() {
 export function AdminSidebar({ user }: { user: AdminSidebarUser }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const aiEnabled = isLocalAdminAiEnabled();
+  const aiEnabled = isAdminAiEnabled();
   const workspaceNav = aiEnabled
     ? [...workspaceItems, adminAiNavItem]
     : workspaceItems;

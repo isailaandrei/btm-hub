@@ -1,17 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isLocalAdminAiEnabled } from "./visibility";
+import { isAdminAiEnabled } from "./visibility";
 
-describe("isLocalAdminAiEnabled", () => {
+describe("isAdminAiEnabled", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
   it("is disabled by default", () => {
-    expect(isLocalAdminAiEnabled()).toBe(false);
+    expect(isAdminAiEnabled()).toBe(false);
   });
 
-  it("is enabled outside production when the local flag is set", () => {
+  it("is enabled when the flag is set", () => {
     vi.stubEnv("NEXT_PUBLIC_SHOW_ADMIN_AI", "1");
-    expect(isLocalAdminAiEnabled()).toBe(true);
+    expect(isAdminAiEnabled()).toBe(true);
+  });
+
+  it("stays enabled in production when the flag is set", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SHOW_ADMIN_AI", "1");
+    expect(isAdminAiEnabled()).toBe(true);
+  });
+
+  it("treats any other flag value as disabled", () => {
+    vi.stubEnv("NEXT_PUBLIC_SHOW_ADMIN_AI", "true");
+    expect(isAdminAiEnabled()).toBe(false);
   });
 });
