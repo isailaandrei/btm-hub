@@ -6,8 +6,9 @@
  *
  * Every write goes through `requireAdmin()` so callers cannot bypass the
  * admin check even if they skip the server action. RLS on the underlying
- * tables is a second line of defense: threads are scoped to
- * `author_id = auth.uid()` at the DB level regardless of what we send.
+ * tables is a second line of defense: admin-role-only, shared across ALL
+ * admins (20260707000002) — threads are a shared workspace, not per-author.
+ * `author_id` still records who created each thread, for attribution.
  */
 
 import { cache } from "react";
@@ -99,8 +100,8 @@ export const getAdminAiThreadDetail = cache(
       throw new Error(`Failed to load admin AI thread: ${threadError.message}`);
     }
     if (!threadData) {
-      // RLS filters out threads owned by someone else, so "not found" covers
-      // both genuinely-missing and not-visible-to-this-admin cases.
+      // RLS hides everything from non-admins, so "not found" covers both
+      // genuinely-missing and not-authorized cases.
       throw new Error(`Admin AI thread not found: ${input.threadId}`);
     }
     const thread = threadData as AdminAiThread;
