@@ -28,6 +28,7 @@ import {
   type AdminAiProvider,
 } from "./provider";
 import { MAP_CHUNK_SIZE, runMapScan, type MapScanResult } from "./map-scan";
+import type { AdminAiProgressCallback } from "./progress";
 import type { PlannerOutput } from "./schemas";
 import { adminAiResponseSchema } from "./schemas";
 import { retrieveConversationEvidence } from "@/lib/conversations/retrieval";
@@ -904,8 +905,16 @@ export async function runGlobalSynthesis(input: {
   question: string;
   queryPlan: AdminAiQueryPlan;
   includeEvidence: boolean;
+  /**
+   * Optional stage-progress hook (planning → scanning chunk i/N → analyzing).
+   * MUST be fire-and-forget on the caller's side: nothing here awaits it and
+   * pipeline semantics are identical with or without it (eval passes none).
+   */
+  onProgress?: AdminAiProgressCallback;
 }): Promise<GlobalSynthesisOutput> {
-  const { provider, records, question, queryPlan, includeEvidence } = input;
+  const { provider, records, question, queryPlan, includeEvidence, onProgress } =
+    input;
+  onProgress?.({ stage: "planning" });
   const usage: PipelineUsage = {
     prompt_cache_hit_tokens: 0,
     prompt_cache_miss_tokens: 0,
@@ -1043,10 +1052,32 @@ export async function runGlobalSynthesis(input: {
       // run CONCURRENTLY so latency stays flat. The main scan is skipped when the
       // confirmed corpus fits in one chunk; the rescue scan runs whenever the
       // pool is non-empty.
+      // Progress: one shared counter across both scans (their chunks complete
+      // interleaved), reported per successful chunk.
+      const chunkTotal =
+        (runMain ? Math.ceil(cards.length / MAP_CHUNK_SIZE) : 0) +
+        (runRescue ? Math.ceil(rescueCards.length / MAP_CHUNK_SIZE) : 0);
+      let chunksDone = 0;
+      let candidatesSoFar = 0;
+      const onChunkComplete = onProgress
+        ? (info: { chunkIndex: number; candidateCount: number }) => {
+            chunksDone += 1;
+            candidatesSoFar += info.candidateCount;
+            onProgress({
+              stage: "scanning",
+              chunksDone,
+              chunkTotal,
+              candidateCount: candidatesSoFar,
+            });
+          }
+        : undefined;
+      onProgress?.({ stage: "scanning", chunksDone: 0, chunkTotal });
       const [mainResult, rescueResult] = await Promise.all([
-        runMain ? runMapScan({ provider, cards, question }) : Promise.resolve(null),
+        runMain
+          ? runMapScan({ provider, cards, question, onChunkComplete })
+          : Promise.resolve(null),
         runRescue
-          ? runMapScan({ provider, cards: rescueCards, question })
+          ? runMapScan({ provider, cards: rescueCards, question, onChunkComplete })
           : Promise.resolve(null),
       ]);
 
@@ -1137,6 +1168,7 @@ export async function runGlobalSynthesis(input: {
     ...item,
     evidenceId: evidenceAliases.register(item.evidenceId),
   }));
+  onProgress?.({ stage: "analyzing", candidateCount: synthesisCards.length });
   const { response: rawResponse, modelMetadata } = await provider.generate({
     question,
     scope: "global",
@@ -1294,6 +1326,7 @@ async function runCardSynthesis(input: {
   queryPlan: AdminAiQueryPlan;
   threadId: string;
   records: ContactCardRecord[];
+  onProgress?: AdminAiProgressCallback;
 }): Promise<RunAdminAiAnalysisResult> {
   const includeEvidence = isAdminAiEvidenceEnabled();
   const provider = getAdminAiProvider();
@@ -1324,6 +1357,7 @@ async function runCardSynthesis(input: {
         question: input.question,
         queryPlan: input.queryPlan,
         includeEvidence,
+        onProgress: input.onProgress,
       });
       if (result.status === "insufficient") {
         return persistInsufficientResponse({
@@ -1538,6 +1572,8 @@ export async function runAdminAiAnalysis(input: {
   question: string;
   threadId: string;
   contactId?: string;
+  /** Stage-progress hook; only the global (map-reduce) path reports stages. */
+  onProgress?: AdminAiProgressCallback;
 }): Promise<RunAdminAiAnalysisResult> {
   const queryPlan = buildCardQueryPlan({
     scope: input.scope,
@@ -1568,5 +1604,6 @@ export async function runAdminAiAnalysis(input: {
     queryPlan,
     threadId: input.threadId,
     records,
+    onProgress: input.onProgress,
   });
 }

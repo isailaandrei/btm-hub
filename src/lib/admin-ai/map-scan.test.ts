@@ -343,3 +343,39 @@ describe("runMapScan", () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 });
+
+describe("runMapScan onChunkComplete", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("fires once per successful chunk with that chunk's candidate count", async () => {
+    // MAP_CHUNK_SIZE + 5 cards -> exactly 2 chunks.
+    const cards = Array.from({ length: MAP_CHUNK_SIZE + 5 }, (_, i) =>
+      makeCard(i + 1),
+    );
+    const provider = makeProvider(async ({ userPrompt }) => {
+      const inChunk = cardsInPrompt(userPrompt);
+      return completion([
+        {
+          contactId: inChunk[0]!.contactId,
+          contactName: inChunk[0]!.contactName,
+        },
+      ]);
+    });
+
+    const events: Array<{ chunkIndex: number; candidateCount: number }> = [];
+    await runMapScan({
+      provider,
+      cards,
+      question: "q",
+      onChunkComplete: (event) => events.push(event),
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.candidateCount)).toEqual([1, 1]);
+    expect(new Set(events.map((event) => event.chunkIndex))).toEqual(
+      new Set([0, 1]),
+    );
+  });
+});

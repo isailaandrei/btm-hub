@@ -101,8 +101,14 @@ export async function runMapScan(input: {
   provider: AdminAiProvider;
   cards: RenderedContactCard[];
   question: string;
+  /**
+   * Progress hook: fires once per SUCCESSFUL chunk (a failed-then-retried
+   * chunk reports only on its successful attempt). Must be cheap and must
+   * never throw — the orchestrator passes a fire-and-forget reporter.
+   */
+  onChunkComplete?: (info: { chunkIndex: number; candidateCount: number }) => void;
 }): Promise<MapScanResult> {
-  const { provider, cards, question } = input;
+  const { provider, cards, question, onChunkComplete } = input;
   if (!provider.completeJson) {
     throw new Error("map_reduce scan requires a provider with completeJson support");
   }
@@ -136,6 +142,7 @@ export async function runMapScan(input: {
       nearMisses: parsed.nearMisses,
       usage: (modelMetadata.usage as Record<string, unknown> | null) ?? null,
     };
+    onChunkComplete?.({ chunkIndex, candidateCount: parsed.candidates.length });
   }
 
   async function attempt(indices: number[]): Promise<number[]> {
