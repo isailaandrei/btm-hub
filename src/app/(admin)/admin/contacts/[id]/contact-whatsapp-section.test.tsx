@@ -74,9 +74,12 @@ describe("ContactWhatsAppSection", () => {
     mockLoad.mockReset();
     mockDeactivate.mockReset().mockResolvedValue(undefined);
     mockRestore.mockReset().mockResolvedValue(undefined);
-    mockLoadAiMemory
-      .mockReset()
-      .mockResolvedValue({ digests: [], facts: [], freshnessDays: 45 });
+    mockLoadAiMemory.mockReset().mockResolvedValue({
+      digests: [],
+      facts: [],
+      freshnessDays: 45,
+      aiSummary: null,
+    });
     channelStub.on.mockClear();
     channelStub.subscribe.mockClear();
     mockRemoveChannel.mockReset();

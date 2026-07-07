@@ -10,6 +10,14 @@ before committing. Do not touch `.env*` files or `.admin-ai-debug/` (PII).
 
 ## 1. AI-visibility badges in the WhatsApp thread
 
+> **STATUS: IMPLEMENTED Jul 7 2026 (by Fable, on `feat/ai-visibility-and-summaries`,
+> stacked on `feat/whatsapp-media-persistence` — merge media first).** Pure
+> bucketing lib `src/lib/conversations/ai-visibility.ts` (all six states,
+> tested incl. boundaries), badges + tooltips + header legend in the thread,
+> `loadContactAiMemory` action. Remaining = Andrei: merge + browser-check the
+> badges against a few known threads (Yang Yang's noise windows are the
+> calibration case).
+
 **Goal:** admins see, per message in the contact-page WhatsApp thread, whether
 the AI sees it — the calibration surface for the digest taxonomy. V1 is
 READ-ONLY (no override actions).
@@ -56,6 +64,11 @@ badge/tooltip render smoke.
 
 ## 1b. Conversation summaries on the contact detail page
 
+> **STATUS: IMPLEMENTED Jul 7 2026 (same branch as task 1).** Read-only
+> `ContactAiMemorySection` (signal digests w/ profile/status chips + status
+> expiry/aged-out, extracted facts w/ labels + confidence, and the task-1c AI
+> summary block) rendered under the WhatsApp thread on the contact page.
+
 **Goal (Andrei, Jul 7):** show the AI's conversation digests on the contact
 detail ("contact id") page so admins can check that the summaries make sense —
 same visibility/calibration motive as the badges. Natural companion to task 1
@@ -75,6 +88,17 @@ yet." Do not change any write path.
 ---
 
 ## 1c. Per-contact AI summaries (+ email ingestion groundwork)
+
+> **STATUS: CODE IMPLEMENTED Jul 7 2026 (same branch as task 1); ACTIVATION
+> GATED on the owner's calibration round.** `contact_ai_summaries` table
+> (migration `20260707000005`), generator through the existing contact scope
+> with content-hash staleness (`src/lib/admin-ai/contact-summary.ts`), nightly
+> cron route `/api/cron/contact-ai-summaries`, gated backfill script, summary
+> rendered in the AI-memory section. Owner decisions adopted: renders on the
+> contact page; nightly + hash-staleness refresh; summaries do NOT feed the
+> global corpus. **Still open before relying on it: audit the first live batch
+> (the runbook's activation section) and add contact-scope eval questions —
+> the suite is global-only today.** Email ingestion remains design-sketch only.
 
 **Goal (Andrei, Jul 7):** an AI-written summary for each contact, refreshed
 when the contact's data changes — later usable as context for email drafting.
