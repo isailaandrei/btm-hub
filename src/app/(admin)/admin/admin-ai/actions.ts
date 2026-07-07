@@ -11,6 +11,13 @@ import { requireAdmin } from "@/lib/auth/require-admin";
 import { adminAiDebugLog } from "@/lib/admin-ai/debug";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import {
+  createAdminAiProgressReporter,
+  readAdminAiProgress,
+  type AdminAiProgressReporter,
+  type AdminAiProgressSnapshot,
+} from "@/lib/admin-ai/progress";
+import { validateUUID } from "@/lib/validation-helpers";
+import {
   describeAssistantResponse,
   runAdminAiAnalysis,
 } from "@/lib/admin-ai/orchestrator";
@@ -246,12 +253,27 @@ export async function askAdminAiQuestion(
     },
   ];
 
+  // Stage progress (global answers only): the client passes a self-generated
+  // UUID and polls getAdminAiProgress while awaiting this action. Best-effort
+  // by contract — an invalid id degrades to no progress, never to a failure.
+  let progressReporter: AdminAiProgressReporter | null = null;
+  const rawProgressId = formData.get("progressId");
+  if (typeof rawProgressId === "string" && rawProgressId && parsed.data.scope === "global") {
+    try {
+      validateUUID(rawProgressId);
+      progressReporter = createAdminAiProgressReporter(rawProgressId);
+    } catch {
+      console.warn("[admin-ai] ignoring malformed progressId");
+    }
+  }
+
   try {
     const analysis = await runAdminAiAnalysis({
       scope: parsed.data.scope,
       threadId,
       question: parsed.data.question,
       contactId: parsed.data.contactId,
+      onProgress: progressReporter?.report,
     });
 
     const assistantCreatedAt = new Date().toISOString();
@@ -331,7 +353,23 @@ export async function askAdminAiQuestion(
         },
       ],
     };
+  } finally {
+    // Fire-and-forget cleanup; the polling client stops when this action
+    // resolves, so a lingering row is cosmetic at worst.
+    if (progressReporter) void progressReporter.clear();
   }
+}
+
+/**
+ * Poll target for the stage-progress line under the "AI is thinking" spinner.
+ * Returns null before the first write and after cleanup.
+ */
+export async function getAdminAiProgress(
+  progressId: string,
+): Promise<AdminAiProgressSnapshot | null> {
+  await requireAdmin();
+  validateUUID(progressId);
+  return readAdminAiProgress(progressId);
 }
 
 export async function loadGlobalAdminAiPanelData(): Promise<AdminAiPanelData> {

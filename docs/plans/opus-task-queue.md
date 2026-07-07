@@ -120,6 +120,16 @@ inbound email, and the inbound-only analog (whose words count as evidence).
 
 ## 2. Staged-progress UI for admin-AI map-reduce waits
 
+> **STATUS: IMPLEMENTED Jul 7 2026 (by Fable, on `feat/admin-ai-staged-progress`).**
+> Design chosen: ephemeral `admin_ai_progress` row (migration `20260707000004`)
+> keyed by a client-generated UUID, written fire-and-forget by a serialized
+> reporter (`src/lib/admin-ai/progress.ts`), polled every 2s by the question
+> form while the global answer is pending. Stages: planning → scanning (chunk
+> i/N + running candidate count, shared across main+rescue scans) → analyzing.
+> Pipeline semantics untouched (`onProgress` optional everywhere; eval passes
+> none). Remaining = Andrei: merge, `supabase db push`, then a live global
+> question to see the stages. Original spec kept below for reference.
+
 **Goal:** global admin-AI answers take 15–110s (map scan over ~11 chunks +
 reduce). The user currently stares at a spinner. Show live stage progress.
 
