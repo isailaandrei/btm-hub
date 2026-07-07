@@ -19,11 +19,11 @@ import {
 } from "@/lib/conversations/ai-visibility";
 import {
   deactivateContactWhatsAppMessage,
-  loadContactAiMemory,
   loadContactWhatsAppMessages,
   restoreContactWhatsAppMessage,
   type ContactAiMemoryData,
 } from "../actions";
+import { loadContactAiMemoryShared } from "./contact-ai-memory-loader";
 
 type ConversationMessage = Awaited<
   ReturnType<typeof loadContactWhatsAppMessages>
@@ -71,7 +71,7 @@ export function ContactWhatsAppSection({
 
   useEffect(() => {
     let active = true;
-    loadContactAiMemory(contactId)
+    loadContactAiMemoryShared(contactId)
       .then((data) => {
         if (active) setAiMemory({ ...data, nowMs: Date.now() });
       })

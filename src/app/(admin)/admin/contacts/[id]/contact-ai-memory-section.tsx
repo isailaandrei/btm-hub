@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { statusDigestExpiry } from "@/lib/conversations/ai-visibility";
-import { loadContactAiMemory, type ContactAiMemoryData } from "../actions";
+import type { ContactAiMemoryData } from "../actions";
+import { loadContactAiMemoryShared } from "./contact-ai-memory-loader";
 
 /**
  * Read-only calibration surface (task 1b): the AI's conversation memory for
@@ -25,7 +26,7 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
     startTransition(async () => {
       try {
         setLoadError(null);
-        const loaded = await loadContactAiMemory(contactId);
+        const loaded = await loadContactAiMemoryShared(contactId);
         setData({ ...loaded, nowMs: Date.now() });
       } catch (error) {
         setLoadError(
