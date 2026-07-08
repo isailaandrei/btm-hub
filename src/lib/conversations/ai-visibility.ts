@@ -60,22 +60,38 @@ export function computeMessageAiVisibility(input: {
 }): MessageAiVisibility {
   const { message, digests, freshnessDays, nowMs } = input;
 
-  if (
-    message.direction !== "inbound" ||
-    message.matchStatus !== "matched" ||
-    message.deactivatedAt !== null
-  ) {
-    return { state: "excluded", digestSummary: null, expiresAt: null };
-  }
-
   const happenedMs = Date.parse(message.happenedAt);
   // Window bounds are inclusive: they are derived from the first/last message
   // timestamps of the window, so edge messages sit exactly ON a bound.
-  const digest = digests.find(
-    (candidate) =>
-      happenedMs >= Date.parse(candidate.windowStart) &&
-      happenedMs <= Date.parse(candidate.windowEnd),
-  );
+  const findWindow = () =>
+    digests.find(
+      (candidate) =>
+        happenedMs >= Date.parse(candidate.windowStart) &&
+        happenedMs <= Date.parse(candidate.windowEnd),
+    );
+
+  if (message.direction !== "inbound" || message.matchStatus !== "matched") {
+    // Outbound/unmatched messages were NEVER digested — a window merely
+    // overlapping their timestamp read only the inbound side, so no summary
+    // is attached (it would falsely imply the AI saw this message).
+    return { state: "excluded", digestSummary: null, expiresAt: null };
+  }
+
+  if (message.deactivatedAt !== null) {
+    // Removed AFTER digestion: the covering digest was built while this
+    // message was active, so its content may still be referenced by the AI
+    // until a recalibration wipe rebuilds digests without it. Attach the
+    // summary so the tooltip can say so honestly.
+    const covering = findWindow();
+    return {
+      state: "excluded",
+      digestSummary:
+        covering && !covering.isNoise ? covering.summary : null,
+      expiresAt: null,
+    };
+  }
+
+  const digest = findWindow();
   if (!digest) {
     return { state: "pending", digestSummary: null, expiresAt: null };
   }
