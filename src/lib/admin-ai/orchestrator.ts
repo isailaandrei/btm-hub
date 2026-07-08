@@ -1057,6 +1057,9 @@ export async function runGlobalSynthesis(input: {
       const chunkTotal =
         (runMain ? Math.ceil(cards.length / MAP_CHUNK_SIZE) : 0) +
         (runRescue ? Math.ceil(rescueCards.length / MAP_CHUNK_SIZE) : 0);
+      // Every contact reaching the scan — surfaced in the UI so "N flagged"
+      // can never read as "only N examined".
+      const scanContactTotal = cards.length + rescueCards.length;
       let chunksDone = 0;
       let candidatesSoFar = 0;
       const onChunkComplete = onProgress
@@ -1067,11 +1070,17 @@ export async function runGlobalSynthesis(input: {
               stage: "scanning",
               chunksDone,
               chunkTotal,
+              contactTotal: scanContactTotal,
               candidateCount: candidatesSoFar,
             });
           }
         : undefined;
-      onProgress?.({ stage: "scanning", chunksDone: 0, chunkTotal });
+      onProgress?.({
+        stage: "scanning",
+        chunksDone: 0,
+        chunkTotal,
+        contactTotal: scanContactTotal,
+      });
       const [mainResult, rescueResult] = await Promise.all([
         runMain
           ? runMapScan({ provider, cards, question, onChunkComplete })
@@ -1168,7 +1177,11 @@ export async function runGlobalSynthesis(input: {
     ...item,
     evidenceId: evidenceAliases.register(item.evidenceId),
   }));
-  onProgress?.({ stage: "analyzing", candidateCount: synthesisCards.length });
+  onProgress?.({
+    stage: "analyzing",
+    candidateCount: synthesisCards.length,
+    contactTotal: cards.length + rescueCards.length,
+  });
   const { response: rawResponse, modelMetadata } = await provider.generate({
     question,
     scope: "global",

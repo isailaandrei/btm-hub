@@ -289,6 +289,69 @@ messages).
 
 ---
 
+## 4. Reduce-stage capacity check (broad questions)
+
+**Why (Andrei + watch-item, Jul 8):** for broad judgment questions the map
+union keeps growing — the "own projects" question flags 164 of 308 contacts
+(diagnostics `candidateCount`/`prefilteredCount`; earlier runs: 57 → 101 →
+149). The reduce then judges ~164 full cards in one call, recreating the
+very context size whose attention ceiling map-reduce was built to escape
+(the 2026-07-04 single-pass recall failures).
+
+**Do:**
+1. Measure: from `.admin-ai-debug/` request dumps, the reduce prompt size in
+   tokens for the own-projects question today vs. the original single-pass
+   corpus. Establish at what candidate count the reduce prompt approaches the
+   known-bad regime (~340k tokens ≈ 300+ cards → trouble; ~180k may be fine —
+   measure, don't guess).
+2. If close: options in preference order — (a) tighten the map's evidence bar
+   for broad questions (prompt calibration, eval-gated), (b) a second map
+   round over flagged candidates with a stricter bar when the union exceeds a
+   threshold, (c) cap + disclose. Any change runs the full eval (9/9) and
+   needs Andrei's sign-off on wording.
+3. Extend the eval contract with a broad-question quality assertion so
+   degradation is caught by the suite, not by an admin (discuss the assertion
+   with Andrei first — question sets are owner-approved).
+
+---
+
+## 5. Digest-label feedback: admins mark AI labels right/wrong
+
+**Why (Andrei, Jul 8):** the badges surfaced real miscalibrations — some
+WhatsApp digests labeled `profile` should have been `status`. Admins need to
+correct labels in the UI, and the corrections should both fix the AI's view
+immediately and accumulate into a calibration dataset for tuning the taxonomy
+prompt.
+
+**Design (agreed direction, refine as needed):**
+1. **Storage — corrections keyed by digest `content_hash`, not digest id:**
+   table `conversation_digest_corrections` (`content_hash text PK`,
+   `corrected_relevance text CHECK (in ('profile','status'))`,
+   `corrected_is_noise boolean`, `original_relevance`, `original_is_noise`,
+   `corrected_by uuid`, `created_at`). Keying by hash means corrections
+   SURVIVE a recalibration wipe (re-digested windows produce the same hash →
+   the correction reapplies). Store the originals so the correction pairs are
+   the calibration dataset.
+2. **Apply at read time:** the card loader (`src/lib/data/contact-cards.ts`
+   digest query) and `listContactConversationDigests` join/overlay
+   corrections so the AI and every visibility surface see the corrected
+   label. Do NOT mutate the digest row — the model's original output is data.
+3. **UI:** in the contact page's AI-memory section (and/or the badge
+   tooltip), a small "wrong label?" control per digest → pick the correct
+   label (profile / status / noise). Optimistic, house-style. Write path via
+   a server action + RPC or plain insert (admins write; RLS admin-insert).
+4. **Calibration loop:** a gated script that prints correction pairs
+   (original → corrected + summary text) so Andrei/Fable-successor can tune
+   the taxonomy prompt against real mistakes; bump the digest prompt version
+   + recalibration wipe applies the improved taxonomy while corrections
+   persist.
+5. **Watch:** 45-day expiry semantics — a profile→status correction makes the
+   digest age out (that's the point); a status→profile correction makes it
+   permanent. The AI-visibility badges pick this up automatically once the
+   loaders overlay corrections.
+
+---
+
 ## Deploy checklist (Andrei's own actions, not coding tasks)
 
 - Prod cron scheduling for conversation digests: SQL in

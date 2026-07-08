@@ -17,23 +17,40 @@ const INITIAL_STATE: AdminAiAskFormState = {
 
 const PROGRESS_POLL_INTERVAL_MS = 2000;
 
+// Copy rule: counts must never read as coverage limits. Every contact in the
+// corpus is examined by the scan; "flagged" is the scan's OUTPUT. An admin
+// once read "164 candidates" as "only 164 of 308 were analyzed" — hence the
+// explicit contact total on every line.
 function describeProgress(progress: AdminAiProgressSnapshot): string {
   switch (progress.stage) {
     case "planning":
       return "Planning constraints...";
     case "scanning": {
+      const total =
+        progress.contactTotal !== undefined
+          ? `all ${progress.contactTotal} contacts`
+          : "contacts";
       const chunks =
         progress.chunkTotal !== undefined
-          ? ` (chunk ${progress.chunksDone ?? 0}/${progress.chunkTotal}${
-              progress.candidateCount ? `, ${progress.candidateCount} candidates` : ""
-            })`
+          ? ` (chunk ${progress.chunksDone ?? 0}/${progress.chunkTotal})`
           : "";
-      return `Scanning contacts${chunks}...`;
+      const flagged = progress.candidateCount
+        ? ` — ${progress.candidateCount} flagged so far`
+        : "";
+      return `Scanning ${total}${chunks}${flagged}...`;
     }
-    case "analyzing":
+    case "analyzing": {
+      if (
+        progress.candidateCount &&
+        progress.contactTotal &&
+        progress.candidateCount < progress.contactTotal
+      ) {
+        return `Analyzing ${progress.candidateCount} flagged candidates (all ${progress.contactTotal} contacts were scanned)...`;
+      }
       return progress.candidateCount
-        ? `Analyzing ${progress.candidateCount} candidates...`
+        ? `Analyzing ${progress.candidateCount} contacts...`
         : "Analyzing candidates...";
+    }
   }
 }
 

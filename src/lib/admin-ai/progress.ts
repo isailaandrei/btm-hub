@@ -22,7 +22,13 @@ export interface AdminAiProgressEvent {
   chunksDone?: number;
   /** Total map chunks this run (scanning only). */
   chunkTotal?: number;
-  /** Candidates surfaced so far / being analyzed. */
+  /**
+   * Contacts the scan examines — the whole corpus reaching the map (confirmed
+   * + rescue pool). Surfaced in the UI so admins see that EVERY contact was
+   * read; `candidateCount` is the subset the scan flagged, not coverage.
+   */
+  contactTotal?: number;
+  /** Candidates flagged so far / being analyzed. */
   candidateCount?: number;
 }
 
