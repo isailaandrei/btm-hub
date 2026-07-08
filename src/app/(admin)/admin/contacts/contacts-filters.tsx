@@ -101,7 +101,7 @@ export const ContactsFilters = memo(function ContactsFilters({
         >
           <input
             type="text"
-            placeholder="Search by name or email..."
+            placeholder="Search by name, email, or phone..."
             value={search}
             disabled={disabled}
             onChange={(e) => onSearchChange(e.target.value)}

@@ -21,6 +21,7 @@ import {
   deriveContactActivityFromSummary,
   type ContactActivityDerivation,
 } from "./events-derivation";
+import { contactMatchesSearch } from "./search-helpers";
 import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
 
 const EMPTY_TAG_ID_SET = new Set<string>();
@@ -135,11 +136,12 @@ export function useContactsPanelViewModel({
     let result = contacts ?? [];
 
     if (search) {
-      const query = search.toLowerCase();
-      result = result.filter(
-        (contact) =>
-          contact.name.toLowerCase().includes(query) ||
-          contact.email.toLowerCase().includes(query),
+      result = result.filter((contact) =>
+        contactMatchesSearch(
+          contact,
+          appsByContact.get(contact.id) ?? EMPTY_APPLICATIONS,
+          search,
+        ),
       );
     }
 

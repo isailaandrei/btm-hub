@@ -289,29 +289,61 @@ messages).
 
 ---
 
-## 4. Reduce-stage capacity check (broad questions)
+## 4. Strength-graded map: cap the reduce set for broad questions
 
-**Why (Andrei + watch-item, Jul 8):** for broad judgment questions the map
-union keeps growing — the "own projects" question flags 164 of 308 contacts
-(diagnostics `candidateCount`/`prefilteredCount`; earlier runs: 57 → 101 →
-149). The reduce then judges ~164 full cards in one call, recreating the
-very context size whose attention ceiling map-reduce was built to escape
-(the 2026-07-04 single-pass recall failures).
+**DECIDED (Andrei, Jul 8 2026): Option B approved — strength-graded map
+candidates + code-side assembly with a weak-tier cap of 60.** Implementation
+open. Do NOT substitute a general prompt-bar tightening (rejected: it gambles
+narrow-question recall and its exclusions are silent).
 
-**Do:**
-1. Measure: from `.admin-ai-debug/` request dumps, the reduce prompt size in
-   tokens for the own-projects question today vs. the original single-pass
-   corpus. Establish at what candidate count the reduce prompt approaches the
-   known-bad regime (~340k tokens ≈ 300+ cards → trouble; ~180k may be fine —
-   measure, don't guess).
-2. If close: options in preference order — (a) tighten the map's evidence bar
-   for broad questions (prompt calibration, eval-gated), (b) a second map
-   round over flagged candidates with a stricter bar when the union exceeds a
-   threshold, (c) cap + disclose. Any change runs the full eval (9/9) and
-   needs Andrei's sign-off on wording.
-3. Extend the eval contract with a broad-question quality assertion so
-   degradation is caught by the suite, not by an admin (discuss the assertion
-   with Andrei first — question sets are owner-approved).
+**Why:** the map union keeps growing for broad judgment questions — "own
+projects" flags 164 of 308 (earlier runs 57 → 101 → 149) — so the reduce is
+drifting back toward the single-pass context size whose attention ceiling
+caused the 2026-07-04 recall failures. Principle: convert invisible
+exclusions into visible, countable, DISCLOSED ones.
+
+**Build (all admin-AI change-protocol rules apply — read
+`docs/admin-ai-handbook.md` first; system-prompt edits make the next eval run
+cold, ~$0.15, expected):**
+
+1. **Measure first** (no model calls): from the `.admin-ai-debug/` request
+   dumps, record the reduce prompt token size for the own-projects question
+   as the baseline (known-bad regime was ~340k single-pass; ~180k unproven).
+2. **Map contract** (`src/lib/admin-ai/map-scan.ts`, `schemas.ts`): each
+   candidate gains `strength: "strong" | "weak"` — strong = the quoted
+   evidence DIRECTLY satisfies the question's core criterion; weak = real
+   quotable evidence whose relevance is partial or uncertain. Err-on-inclusion
+   is unchanged: uncertain → include as weak, never omit. In the Zod schema
+   default a missing `strength` to `"strong"` (inclusion-safe) and
+   `adminAiDebugLog` the omission — never abort an answer over grading noise.
+   Near-miss tier unchanged (separate mechanism, zero-full-match gate).
+3. **Assembly rule** (`orchestrator.ts`, map_reduce path): export
+   `REDUCE_CANDIDATE_CAP = 60`. Reduce set = ALL strong candidates in corpus
+   order (strong evidence is NEVER trimmed — wrong exclusion is worse than
+   wrong inclusion, even past the cap; if strongs alone exceed the cap,
+   disclose the breadth instead of cutting). If strong < cap, append weak
+   candidates in corpus order up to the cap. Trimmed weaks are counted, never
+   silently dropped:
+   - analysisNote (compose with near-miss/rescue notes as elsewhere): "K
+     additional contacts showed weaker or partial evidence for this question
+     and were not analyzed in depth — narrow the question to surface them."
+   - diagnostics gain `strongCount`, `weakFlaggedCount`, `weakIncludedCount`.
+   Rescue-scan candidates keep existing behavior (rescued full matches merge
+   after confirmed; they sit OUTSIDE the cap — the pool is small and already
+   disclosed by the rescue note). Near-miss mode only when the union is empty,
+   as today.
+4. **Eval before shipping** (`scripts/admin-ai-eval.test.ts` +
+   `docs/admin-ai-eval-contract.md`): extend the broad-advisory (own-projects)
+   question's assertions — (a) Yang Yang still surfaces citing the Flo call
+   note, (b) reduce set size ≤ max(cap, strongCount) via diagnostics, (c) when
+   `weakFlaggedCount > weakIncludedCount` the disclosure text is present in
+   the response. Add the standing rule to the contract: "strong evidence is
+   never trimmed; weak evidence may be capped with disclosure" (direction
+   owner-approved Jul 8; show Andrei the final contract wording). Full suite
+   must stay green — 9/9 plus the extended assertions; Andrei runs the live
+   eval.
+5. Usual gates; map-scan/orchestrator unit tests for grading defaults,
+   assembly order, cap boundary (strong ≥ cap), and disclosure composition.
 
 ---
 
