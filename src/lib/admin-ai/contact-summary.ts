@@ -14,7 +14,6 @@
 import { createHash } from "node:crypto";
 import { renderContactCard } from "./contact-card";
 import { EvidenceAliasRegistry } from "./evidence-alias";
-import { describeAssistantResponse } from "./orchestrator";
 import { getAdminAiProvider } from "./provider";
 import { adminAiResponseSchema } from "./schemas";
 import {
@@ -25,7 +24,7 @@ import {
   loadEligibleContactCardRecords,
   type ContactCardRecord,
 } from "@/lib/data/contact-cards";
-import type { AdminAiQueryPlan } from "@/types/admin-ai";
+import type { AdminAiQueryPlan, AdminAiResponse } from "@/types/admin-ai";
 
 export const DEFAULT_MAX_SUMMARIES_PER_RUN = 20;
 const GENERATE_CONCURRENCY = 2;
@@ -67,6 +66,38 @@ function buildSummaryQueryPlan(contactId: string): AdminAiQueryPlan {
   };
 }
 
+/**
+ * Renders the stored summary TEXT from the contact-scope response. The scope's
+ * contract puts substance in `contactAssessment` (inferredQualities/concerns)
+ * — NOT in `describeAssistantResponse`, which returns the literal placeholder
+ * "Contact assessment returned." for this shape (it labels chat messages, it
+ * doesn't render them). Caught in the Jul 7 staff review before any summary
+ * was generated.
+ */
+export function renderContactSummaryText(response: AdminAiResponse): string {
+  const assessment = response.contactAssessment;
+  if (!assessment) {
+    throw new Error("Contact summary response had no contactAssessment");
+  }
+  const sections: string[] = [];
+  if (assessment.inferredQualities.length > 0) {
+    sections.push(
+      assessment.inferredQualities.map((quality) => `• ${quality}`).join("\n"),
+    );
+  }
+  if (assessment.concerns.length > 0) {
+    sections.push(
+      `Concerns:\n${assessment.concerns.map((concern) => `• ${concern}`).join("\n")}`,
+    );
+  }
+  if (response.uncertainty.length > 0) {
+    sections.push(
+      `Uncertainty:\n${response.uncertainty.map((item) => `• ${item}`).join("\n")}`,
+    );
+  }
+  return sections.join("\n\n");
+}
+
 export interface ContactSummarySummaryRun {
   eligible: number;
   stale: number;
@@ -88,7 +119,7 @@ async function generateOne(record: ContactCardRecord): Promise<void> {
     promptCacheKey: null,
   });
   const response = adminAiResponseSchema.parse(rawResponse);
-  const summary = describeAssistantResponse(response);
+  const summary = renderContactSummaryText(response);
   if (!summary.trim()) {
     throw new Error(
       `Contact summary came back empty for ${record.contact.id} — refusing to store`,
