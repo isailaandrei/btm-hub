@@ -85,6 +85,35 @@ describe("computeMessageAiVisibility", () => {
     );
   });
 
+  it("attaches the covering digest summary to messages removed AFTER digestion", () => {
+    const result = compute(
+      msg({ deactivatedAt: "2026-07-05T00:00:00.000Z" }),
+      [digest()],
+    );
+    expect(result.state).toBe("excluded");
+    expect(result.digestSummary).toContain("shark");
+  });
+
+  it("never attaches a summary to outbound/unmatched messages inside a window", () => {
+    const d = [digest()];
+    expect(compute(msg({ direction: "outbound" }), d).digestSummary).toBeNull();
+    expect(
+      compute(msg({ matchStatus: "unmatched" }), d).digestSummary,
+    ).toBeNull();
+  });
+
+  it("attaches no summary to a removed message covered only by a noise window", () => {
+    const result = compute(
+      msg({ deactivatedAt: "2026-07-05T00:00:00.000Z" }),
+      [digest({ isNoise: true, summary: "" })],
+    );
+    expect(result).toEqual({
+      state: "excluded",
+      digestSummary: null,
+      expiresAt: null,
+    });
+  });
+
   it("maps a noise window to noise with no summary leak", () => {
     const result = compute(msg(), [digest({ isNoise: true, summary: "" })]);
     expect(result).toEqual({ state: "noise", digestSummary: null, expiresAt: null });

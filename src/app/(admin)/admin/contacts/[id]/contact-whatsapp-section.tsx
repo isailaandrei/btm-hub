@@ -309,6 +309,7 @@ export function ContactWhatsAppSection({
                       <MessageBubble
                         key={message.id}
                         message={message}
+                        aiVisibility={aiStates?.get(message.id) ?? null}
                         muted
                         disabled={isMutating}
                         action={{
@@ -435,7 +436,11 @@ function describeAiVisibility(visibility: MessageAiVisibility): string {
     case "pending":
       return "Not yet processed by the AI (picked up by the next digest run).";
     case "excluded":
-      return "Never shared with the AI (outbound, unmatched, or removed).";
+      // A removed message that was digested BEFORE removal: the earlier
+      // digest may still reference it until the next recalibration rebuild.
+      return visibility.digestSummary
+        ? "Removed from the thread — but an AI digest created before the removal may still reference this exchange (cleared on the next digest recalibration)."
+        : "Not shared with the AI (outbound, unmatched, or removed).";
   }
 }
 
@@ -444,9 +449,11 @@ function AiVisibilityBadge({
 }: {
   visibility: MessageAiVisibility;
 }) {
-  // Excluded gets no marker: outbound bubbles and the Removed group already
-  // communicate it, and per-message icons there would be pure clutter.
-  if (visibility.state === "excluded") return null;
+  // Excluded normally gets no marker (outbound bubbles and the Removed group
+  // already communicate it) — EXCEPT removed messages that were digested
+  // before removal, where the badge honestly discloses that an earlier digest
+  // may still reference them.
+  if (visibility.state === "excluded" && !visibility.digestSummary) return null;
 
   const icon =
     visibility.state === "profile" ? (
@@ -455,7 +462,7 @@ function AiVisibilityBadge({
       <Sparkles className="h-3 w-3 text-amber-500" />
     ) : visibility.state === "status-aged" ? (
       <Sparkles className="h-3 w-3 text-muted-foreground/60" />
-    ) : visibility.state === "noise" ? (
+    ) : visibility.state === "noise" || visibility.state === "excluded" ? (
       <EyeOff className="h-3 w-3 text-muted-foreground/60" />
     ) : (
       <Clock className="h-3 w-3 text-muted-foreground/60" />
