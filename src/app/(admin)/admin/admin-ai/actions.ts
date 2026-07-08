@@ -12,9 +12,7 @@ import { adminAiDebugLog } from "@/lib/admin-ai/debug";
 import { getAdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import {
   createAdminAiProgressReporter,
-  readAdminAiProgress,
   type AdminAiProgressReporter,
-  type AdminAiProgressSnapshot,
 } from "@/lib/admin-ai/progress";
 import { validateUUID } from "@/lib/validation-helpers";
 import {
@@ -254,7 +252,7 @@ export async function askAdminAiQuestion(
   ];
 
   // Stage progress (global answers only): the client passes a self-generated
-  // UUID and polls getAdminAiProgress while awaiting this action. Best-effort
+  // UUID and polls GET /api/admin-ai/progress while awaiting this action. Best-effort
   // by contract — an invalid id degrades to no progress, never to a failure.
   let progressReporter: AdminAiProgressReporter | null = null;
   const rawProgressId = formData.get("progressId");
@@ -360,17 +358,9 @@ export async function askAdminAiQuestion(
   }
 }
 
-/**
- * Poll target for the stage-progress line under the "AI is thinking" spinner.
- * Returns null before the first write and after cleanup.
- */
-export async function getAdminAiProgress(
-  progressId: string,
-): Promise<AdminAiProgressSnapshot | null> {
-  await requireAdmin();
-  validateUUID(progressId);
-  return readAdminAiProgress(progressId);
-}
+// NOTE: progress polling deliberately has NO server action — React serializes
+// server actions per client, so a poll action would queue behind the pending
+// ask and never run mid-answer. The client polls GET /api/admin-ai/progress.
 
 export async function loadGlobalAdminAiPanelData(): Promise<AdminAiPanelData> {
   await requireAdmin();

@@ -5,7 +5,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiProgressSnapshot } from "@/lib/admin-ai/progress";
 import type { AdminAiAskFormState } from "./actions";
-import { askAdminAiQuestion, getAdminAiProgress } from "./actions";
+import { askAdminAiQuestion } from "./actions";
 
 const INITIAL_STATE: AdminAiAskFormState = {
   errors: null,
@@ -72,13 +72,24 @@ export function QuestionForm({
 
   // Poll the stage-progress row while a GLOBAL answer is running. Best-effort:
   // poll errors are logged and skipped (the spinner alone is the fallback).
+  // Polling MUST go through a plain GET route, not a server action — React
+  // serializes server actions per client, so an action-based poll queues
+  // behind the pending ask and never runs until the answer resolves.
   useEffect(() => {
     if (!isPending || scope !== "global") return;
     const pollId = progressId;
     let active = true;
     const interval = setInterval(() => {
-      getAdminAiProgress(pollId)
-        .then((snapshot) => {
+      fetch(`/api/admin-ai/progress?id=${encodeURIComponent(pollId)}`, {
+        cache: "no-store",
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json() as Promise<{
+            snapshot: AdminAiProgressSnapshot | null;
+          }>;
+        })
+        .then(({ snapshot }) => {
           if (active && snapshot) setPolled({ id: pollId, snapshot });
         })
         .catch((error) => {
