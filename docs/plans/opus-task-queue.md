@@ -291,6 +291,11 @@ messages).
 
 ## 4. Strength-graded map: cap the reduce set for broad questions
 
+> **STATUS: IMPLEMENTED Jul 9 2026 (Sonnet agent, Fable-audited; merged to
+> main).** ACTIVATION GATE: Andrei's live eval run (`RUN_ADMIN_AI_EVAL=1`,
+> COLD — the map prompt changed, ~$0.15) must stay green incl. the two new
+> broad-advisory assertions before relying on it.
+
 **DECIDED (Andrei, Jul 8 2026): Option B approved — strength-graded map
 candidates + code-side assembly with a weak-tier cap of 60.** Implementation
 open. Do NOT substitute a general prompt-bar tightening (rejected: it gambles
@@ -348,6 +353,12 @@ cold, ~$0.15, expected):**
 ---
 
 ## 5. Digest-label feedback: admins mark AI labels right/wrong
+
+> **STATUS: IMPLEMENTED Jul 9 2026 (Sonnet agent, Fable-audited; merged to
+> main).** ACTIVATION: `supabase db push` (migration `20260709000001` —
+> corrections table + `conversation_digests_effective` view; the loaders
+> already read the view, so push the migration BEFORE deploying this code).
+> Calibration export: `RUN_DIGEST_CORRECTION_PAIRS=1` script.
 
 **Why (Andrei, Jul 8):** the badges surfaced real miscalibrations — some
 WhatsApp digests labeled `profile` should have been `status`. Admins need to
