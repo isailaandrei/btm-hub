@@ -197,13 +197,24 @@ export const plannerOutputSchema = z.object({
     })
     .nullable()
     .default(null),
+  // Program-cohort membership, parallel to `tagConstraint` but NEVER routed
+  // through the field-constraint rescue pool: not having applied to a program
+  // is definitive (not a "maybe"), so a drop here is never second-guessed by
+  // the evidence rescue scan. Grounded against the corpus's runtime-derived
+  // `applications.program` vocabulary (see `PlannerCatalog.programs`).
+  programConstraint: z.string().nullable().default(null),
   budgetMin: z.number().nullable().default(null),
   fieldConstraints: z
     .array(
       z.object({
         field: z.string(),
-        op: z.enum(["contains", "eq"]),
-        value: z.string(),
+        op: z.enum(["contains", "eq", "in"]),
+        // A question can span MULTIPLE whole vocabulary items (an age range
+        // crossing buckets, several nationalities, several equipment items).
+        // `validatePlan` grounds each array item independently and normalizes
+        // the op to `in` for >1 surviving item; a single value keeps `contains`
+        // (unchanged from the pre-multi-value contract).
+        value: z.union([z.string(), z.array(z.string())]),
       }),
     )
     .default([]),

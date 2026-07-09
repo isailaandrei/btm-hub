@@ -13,6 +13,7 @@ import type { ContactCardRecord } from "@/lib/data/contact-cards";
 function plan(partial: Partial<PlannerOutput>): PlannerOutput {
   return {
     tagConstraint: null,
+    programConstraint: null,
     budgetMin: null,
     fieldConstraints: [],
     enumerationOnly: false,
@@ -49,6 +50,38 @@ function recordWithAnswers(
         updated_at: "2026-03-02T00:00:00Z",
       },
     ],
+    contactNotes: [],
+    contactTags: [],
+  } as unknown as ContactCardRecord;
+}
+
+/** A record with a configurable set of applications (program + status each). */
+function recordWithApplications(
+  id: string,
+  applications: Array<{ program: string | null; status?: string }>,
+): ContactCardRecord {
+  return {
+    contact: {
+      id,
+      name: id,
+      email: null,
+      phone: null,
+      profile_id: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+    },
+    applications: applications.map((app, i) => ({
+      id: `${id}-app-${i}`,
+      user_id: null,
+      contact_id: id,
+      program: app.program,
+      status: app.status ?? "reviewing",
+      answers: {},
+      tags: [],
+      admin_notes: [],
+      submitted_at: "2026-03-02T00:00:00Z",
+      updated_at: "2026-03-02T00:00:00Z",
+    })),
     contactNotes: [],
     contactTags: [],
   } as unknown as ContactCardRecord;
@@ -237,6 +270,57 @@ describe("admin AI hard constraints", () => {
   });
 });
 
+describe("program hard constraint (legacy fallback path)", () => {
+  it("extracts a program the question names from the runtime-derived vocabulary", () => {
+    const records = [
+      recordWithApplications("a", [{ program: "internship" }]),
+      recordWithApplications("b", [{ program: "freediving" }]),
+    ];
+    expect(
+      extractHardConstraints("filter the internship applicants", records).program,
+    ).toBe("internship");
+  });
+
+  it("does not extract a program absent from the corpus vocabulary", () => {
+    const records = [recordWithApplications("a", [{ program: "internship" }])];
+    expect(
+      extractHardConstraints("who does freediving?", records).program,
+    ).toBeUndefined();
+  });
+
+  it("keeps records with ANY matching application, case-insensitive, status-agnostic", () => {
+    const records = [
+      // Matches via a SECOND application; first application is a different
+      // program entirely — "any application" semantics.
+      recordWithApplications("multi-app", [
+        { program: "photography" },
+        { program: "Internship", status: "declined" },
+      ]),
+      recordWithApplications("single-app", [{ program: "internship", status: "accepted" }]),
+      recordWithApplications("no-match", [{ program: "freediving" }]),
+    ];
+    const result = filterRecordsByHardConstraints(records, { program: "internship" });
+    expect(result.records.map((r) => r.contact.id)).toEqual([
+      "multi-app",
+      "single-app",
+    ]);
+    expect(result.droppedProgramContactIds).toEqual(["no-match"]);
+  });
+
+  it("discloses program drops separately from budget/tag drops", () => {
+    const records = [
+      recordWithApplications("kept", [{ program: "internship" }]),
+      recordWithApplications("dropped", [{ program: "freediving" }]),
+    ];
+    const result = filterRecordsByHardConstraints(records, { program: "internship" });
+    expect(result.records.map((r) => r.contact.id)).toEqual(["kept"]);
+    expect(result.droppedProgramContactIds).toEqual(["dropped"]);
+    // Program drops are tracked SEPARATELY from the combined budget/tag list —
+    // never conflated, so the orchestrator can disclose the right reason.
+    expect(result.droppedContactIds).toEqual([]);
+  });
+});
+
 function statusRecord(
   id: string,
   categoryName: string,
@@ -364,5 +448,88 @@ describe("applyPlannedConstraints", () => {
     const result = applyPlannedConstraints(records, plan({ budgetMin: 6000 }));
     expect(result.records.map((r) => r.contact.id)).toEqual(["rich"]);
     expect(result.droppedByBudget).toEqual(["poor"]);
+  });
+
+  // --- Program constraint (GAP 1) ---
+
+  it("keeps records with ANY matching application, case-insensitive, status-agnostic, tracked separately from tag/budget/field drops", () => {
+    const records = [
+      recordWithApplications("multi-app", [
+        { program: "photography" },
+        { program: "INTERNSHIP", status: "declined" },
+      ]),
+      recordWithApplications("single-app", [{ program: "internship" }]),
+      recordWithApplications("no-match", [{ program: "freediving" }]),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({ programConstraint: "internship" }),
+    );
+    expect(result.records.map((r) => r.contact.id)).toEqual([
+      "multi-app",
+      "single-app",
+    ]);
+    expect(result.droppedByProgram).toEqual(["no-match"]);
+    expect(result.droppedByTag).toEqual([]);
+    expect(result.droppedByBudget).toEqual([]);
+    expect(result.droppedByField).toEqual([]);
+  });
+
+  it("applies program before budget/field so downstream filters only see program members", () => {
+    const records = [
+      recordWithApplications("in-program-poor", [{ program: "internship" }]),
+      recordWithApplications("out-of-program-rich", [{ program: "freediving" }]),
+    ];
+    // in-program-poor has no budget answer at all (fails budget); the OTHER
+    // program's contact never even reaches the budget check for disclosure
+    // purposes — it is dropped by program first.
+    const result = applyPlannedConstraints(
+      records,
+      plan({ programConstraint: "internship", budgetMin: 6000 }),
+    );
+    expect(result.droppedByProgram).toEqual(["out-of-program-rich"]);
+    expect(result.droppedByBudget).toEqual(["in-program-poor"]);
+    expect(result.records).toEqual([]);
+  });
+
+  // --- Multi-value field constraint applier (GAP 2) ---
+
+  it("intersects a multi-value (array) constraint against a scalar answer", () => {
+    const records = [
+      recordWithAnswers("young", { age: "18-24" }),
+      recordWithAnswers("mid", { age: "25-34" }),
+      recordWithAnswers("old", { age: "55+" }),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({
+        fieldConstraints: [
+          { field: "age", op: "in", value: ["18-24", "25-34"] },
+        ],
+      }),
+    );
+    expect(result.records.map((r) => r.contact.id)).toEqual(["young", "mid"]);
+    expect(result.droppedByField).toEqual(["old"]);
+  });
+
+  it("intersects a multi-value (array) constraint against a list-valued (array) answer", () => {
+    const records = [
+      recordWithAnswers("spanish-speaker", { languages: ["Spanish", "English"] }),
+      recordWithAnswers("french-speaker", { languages: ["French"] }),
+      recordWithAnswers("german-speaker", { languages: ["German"] }),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({
+        fieldConstraints: [
+          { field: "languages", op: "in", value: ["spanish", "french"] },
+        ],
+      }),
+    );
+    expect(result.records.map((r) => r.contact.id)).toEqual([
+      "spanish-speaker",
+      "french-speaker",
+    ]);
+    expect(result.droppedByField).toEqual(["german-speaker"]);
   });
 });

@@ -38,6 +38,15 @@ export type PlannerCatalogField = {
 export type PlannerCatalog = {
   tagCategories: Array<{ name: string; tags: string[] }>;
   fields: PlannerCatalogField[];
+  /**
+   * Distinct non-null `applications.program` values observed in the loaded
+   * corpus, derived AT RUNTIME (never hardcoded — new programs appear without
+   * a code change). Grounds `programConstraint`: a program-cohort question
+   * ("internship applicants", "who applied to freediving") maps to this
+   * vocabulary, matched whole-item, case-insensitive, exactly like a tag
+   * category/status.
+   */
+  programs: string[];
 };
 
 function stringifyListItem(value: unknown): string {
@@ -91,6 +100,27 @@ function collectListValuedFields(
   return fields;
 }
 
+/**
+ * Runtime-derived program vocabulary: distinct non-null, non-empty
+ * `applications.program` values across the loaded corpus, sorted for a stable
+ * catalog payload (prompt-cache friendly). Program membership is a hard
+ * TAG-CLASS constraint — not having an application in a program is
+ * definitive, so this vocabulary is never sampled/truncated the way list-field
+ * values are.
+ */
+function collectProgramVocabulary(records: ContactCardRecord[]): string[] {
+  const programs = new Set<string>();
+  for (const record of records) {
+    for (const application of record.applications) {
+      const program = application.program;
+      if (typeof program === "string" && program.trim()) {
+        programs.add(program.trim());
+      }
+    }
+  }
+  return [...programs].sort();
+}
+
 export function buildPlannerCatalog(records: ContactCardRecord[]): PlannerCatalog {
   const tagsByCategory = new Map<string, Set<string>>();
   for (const record of records) {
@@ -133,23 +163,29 @@ export function buildPlannerCatalog(records: ContactCardRecord[]): PlannerCatalo
   const optionFieldKeys = new Set(optionFields.map((field) => field.key));
   const listFields = collectListValuedFields(records, optionFieldKeys);
 
-  return { tagCategories, fields: [...optionFields, ...listFields] };
+  return {
+    tagCategories,
+    fields: [...optionFields, ...listFields],
+    programs: collectProgramVocabulary(records),
+  };
 }
 
 export function buildPlannerSystemPrompt(): string {
   return [
     "You are a query-constraint planner for a CRM admin AI.",
     "Extract ONLY the constraints the question makes EXPLICIT and exclusionary. When a detail is a ranking preference, a nice-to-have, or unstated, it is NOT a constraint.",
-    "Use ONLY category names, tag names, and field keys that appear in the supplied catalog, copied verbatim (exact casing). Never invent names.",
-    'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string"}], "enumerationOnly": boolean, "notes": "string"}.',
+    "Use ONLY category names, tag names, field keys, and program names that appear in the supplied catalog, copied verbatim (exact casing). Never invent names.",
+    'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "programConstraint": "string" | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string" | ["string"]}], "enumerationOnly": boolean, "notes": "string"}.',
     'Tag rules: "interested / potential candidates for X" → includeStatuses ["Interested","Potential Candidate"]; "who is joining X" → ["Joining"]; "who declined X" → ["Declined"]; a cohort named with NO status qualifier → includeStatuses [] (code applies the default).',
+    'Program rules: when the question names a program cohort — "X applicants", "X candidates", "people who applied to X", "the X program" — for an X that is one of the catalog\'s `programs` values, set `programConstraint` to that program copied VERBATIM from `programs`. Program membership means the contact has an application in that program, independent of its status. Do NOT set programConstraint for a program mentioned only incidentally (e.g. comparing programs) or for a value not present in `programs`.',
     "Budget: set budgetMin only when the question states an explicit minimum spend.",
-    'Field constraints: emit one ONLY for a catalog field, and the value MUST be one of that field\'s listed `options` (option-backed) or `values` (list-valued) items copied VERBATIM IN FULL — e.g. emit "Advanced Freediver", never "advanced"; emit "Professional video camera", never "professional". Always use `op: "contains"`. A word or fragment that merely appears inside a longer item does NOT ground a constraint. If no listed item expresses the user\'s criterion, emit NO constraint — the evidence scan handles it.',
+    'Field constraints: emit one ONLY for a catalog field. Each value MUST be one of that field\'s listed `options` (option-backed) or `values` (list-valued) items copied VERBATIM IN FULL — e.g. emit "Advanced Freediver", never "advanced"; emit "Professional video camera", never "professional". A word or fragment that merely appears inside a longer item does NOT ground a constraint. If no listed item expresses the user\'s criterion, emit NO constraint — the evidence scan handles it.',
+    'When a question\'s criterion spans MULTIPLE options of the SAME field — an age range crossing more than one bucket ("aged 20 to 30"), several nationalities, several equipment items — list ALL matching options verbatim as a JSON array in `value` (e.g. `["18-24","25-34"]`), never just one. Emitting only the first matching option silently narrows the cohort. Use a single string `value` only when exactly one option applies. Always use `op: "contains"` regardless of whether `value` is a string or an array.',
     "Quality adjectives and level qualifiers — professional, experienced, advanced, good, high-end, serious, strong, and the like — are NEVER field-constraint values. A requirement phrased as a QUALITY of something (e.g. 'professional equipment', 'extensive experience', 'own their own professional gear') is a ranking/judgment criterion for the analyst, not a filter — leave it out even if the word appears inside a catalog vocabulary item.",
     "Criteria described only in prose — topics, experiences, anything narrated in essay answers — are NOT constraints; the evidence scan handles them. Catalog fields (option-backed or list-valued) are the ONLY fields you may filter on; never emit a fieldConstraint for a field absent from the catalog.",
     "Ranking preferences such as 'most experienced' or 'strongest' are NOT constraints — leave them out.",
-    "Set `enumerationOnly` true when the question asks for an exhaustive roster of the extracted constraints and nothing more — whether the constraint is a tag cohort (e.g. 'who is interested / potential for X?') or a catalog field (e.g. 'which contacts speak Spanish?', 'list everyone certified as X'). Set it false when the question adds ranking or judgment beyond the constraints (e.g. 'who in X has the most experience?').",
-    "When the question names nothing explicit and exclusionary, return tagConstraint null, budgetMin null, an empty fieldConstraints array, and enumerationOnly false.",
+    "Set `enumerationOnly` true when the question asks for an exhaustive roster of the extracted constraints and nothing more — whether the constraint is a tag cohort (e.g. 'who is interested / potential for X?'), a program cohort (e.g. 'list the internship applicants'), or a catalog field (e.g. 'which contacts speak Spanish?', 'list everyone certified as X'). Set it false when the question adds ranking or judgment beyond the constraints (e.g. 'who in X has the most experience?', 'the internship applicants with the most experience above water').",
+    "When the question names nothing explicit and exclusionary, return tagConstraint null, programConstraint null, budgetMin null, an empty fieldConstraints array, and enumerationOnly false.",
     "Put a one-line explanation of your reading in `notes`.",
   ].join(" ");
 }
@@ -165,6 +201,10 @@ export function buildPlannerUserPrompt(input: {
     null,
     2,
   );
+}
+
+function describeConstraintValue(value: string | string[]): string {
+  return Array.isArray(value) ? `[${value.join(", ")}]` : value;
 }
 
 /**
@@ -199,49 +239,91 @@ export function validatePlan(
     }
   }
 
+  // Program constraint: the SAME whole-vocabulary-item rule as tags/fields, but
+  // grounded against the runtime-derived `catalog.programs` list. A drop here
+  // is disclosed with the same message shape used for field constraints so the
+  // caller's existing "not an exact vocabulary item" detection keeps working.
+  let programConstraint = plan.programConstraint;
+  if (programConstraint) {
+    const normalized = programConstraint.trim().toLowerCase();
+    const canonical = catalog.programs.find(
+      (program) => program.trim().toLowerCase() === normalized,
+    );
+    if (canonical) {
+      programConstraint = canonical;
+    } else {
+      droppedParts.push(
+        `program constraint '${programConstraint}' dropped: not an exact vocabulary item of 'program'`,
+      );
+      programConstraint = null;
+    }
+  }
+
   const fieldConstraints: PlannerOutput["fieldConstraints"] = [];
   for (const constraint of plan.fieldConstraints) {
-    const label = `field filter '${constraint.field} ${constraint.op} ${constraint.value}'`;
     const field = catalog.fields.find(
       (f) => f.key.toLowerCase() === constraint.field.toLowerCase(),
     );
     if (!field) {
+      const label = `field filter '${constraint.field} ${constraint.op} ${describeConstraintValue(constraint.value)}'`;
       droppedParts.push(
         `${label} dropped: field is free-text or unknown — left to the evidence scan`,
       );
       continue;
     }
-    // ONE grounding rule for both field kinds: the value must trim/case-
+    // ONE grounding rule for both field kinds: EACH value must trim/case-
     // insensitively EQUAL a WHOLE vocabulary item — an option (option-backed) or
     // a sampled item (list-valued). Substring grounding is unsound: the quality
     // word "professional" is a substring of the option "Professional video
     // camera" yet is a ranking judgment, not set membership; grounding it as a
     // hard filter silently drops qualifying contacts. The planner (which sees the
-    // full option list) is responsible for copying a whole item verbatim — e.g.
+    // full option list) is responsible for copying whole items verbatim — e.g.
     // "Advanced Freediver", never "advanced" — or emitting no constraint. Apply-
-    // time matching in hard-constraints.ts stays `contains` so legacy
+    // time matching in hard-constraints.ts stays `contains`/`in` so legacy
     // string-typed answers keep matching; only validation is exact here.
-    const value = constraint.value.trim().toLowerCase();
+    //
+    // A question can span MULTIPLE vocabulary items of the same field (an age
+    // range crossing buckets, several nationalities, several equipment items).
+    // Each array item is graded independently: invalid items are dropped (and
+    // disclosed) individually, never the whole constraint — the constraint stays
+    // as wide as whatever validly grounded (never narrower).
     const vocabulary = field.options ?? field.values ?? [];
-    const matchesItem = vocabulary.some(
-      (item) => item.trim().toLowerCase() === value,
-    );
-    if (!matchesItem) {
-      droppedParts.push(
-        `${label} dropped: '${constraint.value}' is not an exact vocabulary item of '${field.key}'`,
+    const rawValues = Array.isArray(constraint.value)
+      ? constraint.value
+      : [constraint.value];
+    const survivingValues: string[] = [];
+    for (const rawValue of rawValues) {
+      const normalized = rawValue.trim().toLowerCase();
+      const matchesItem = vocabulary.some(
+        (item) => item.trim().toLowerCase() === normalized,
       );
-      continue;
+      if (matchesItem) {
+        survivingValues.push(rawValue);
+      } else {
+        droppedParts.push(
+          `field filter '${constraint.field} ${constraint.op} ${rawValue}' dropped: '${rawValue}' is not an exact vocabulary item of '${field.key}'`,
+        );
+      }
     }
-    // Normalize the apply-time op to `contains` regardless of what the planner
-    // emitted. Validation already forced the VALUE to be a whole vocabulary item,
-    // so `contains` at apply time is a strictly safe superset of `eq`: it also
-    // catches that canonical item embedded in legacy/Other-shaped stored values
-    // (free-text "Other" entries, comma-joined legacy language strings) that an
-    // exact `eq` comparison would miss — silently excluding qualifying contacts.
-    fieldConstraints.push({ ...constraint, field: field.key, op: "contains" });
+    if (survivingValues.length === 0) continue;
+    // Normalize the apply-time op regardless of what the planner emitted.
+    // Validation already forced every surviving VALUE to be a whole vocabulary
+    // item, so `contains` (single value) / `in` (multiple values) at apply time
+    // is a strictly safe superset of `eq`: it also catches that canonical item
+    // embedded in legacy/Other-shaped stored values (free-text "Other" entries,
+    // comma-joined legacy language strings) that an exact `eq` comparison would
+    // miss — silently excluding qualifying contacts.
+    fieldConstraints.push({
+      field: field.key,
+      op: survivingValues.length > 1 ? "in" : "contains",
+      value: survivingValues.length > 1 ? survivingValues : survivingValues[0]!,
+    });
   }
 
-  return { plan: { ...plan, tagConstraint, fieldConstraints }, droppedParts };
+  return {
+    plan: { ...plan, tagConstraint, programConstraint, fieldConstraints },
+    droppedParts,
+  };
 }
 
 export type PlannerRun = {
@@ -283,6 +365,7 @@ export async function runConstraintPlanner(input: {
 export function planHasConstraints(plan: PlannerOutput): boolean {
   return (
     plan.tagConstraint !== null ||
+    plan.programConstraint !== null ||
     plan.budgetMin !== null ||
     plan.fieldConstraints.length > 0
   );

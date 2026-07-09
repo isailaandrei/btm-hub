@@ -4,7 +4,7 @@ One page: what each eval question asserts and the product rule it encodes.
 Every rule here is a decision Andrei owns — veto or amend any line and the
 suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-ai-eval.test.ts --disableConsoleIntercept` (~$0.30).
 
-## The 9 questions
+## The 11 questions
 
 | # | Key | Question (gist) | Hard assertions | Product rule encoded |
 |---|-----|-----------------|-----------------|----------------------|
@@ -17,6 +17,8 @@ suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-a
 | 7 | declined-recall | Who declined 26 Coral Catch | Every declined member surfaces; no non-declined member in the shortlist | Asking about declines lifts the default declined-exclusion. Decline data is reachable, just never mixed into positive rosters |
 | 8 | broad-advisory | People with their own project initiatives (ambiguous bar) | Assumptions stated; ≤10 shortlist; matchStrength non-increasing. **No ground truth** — structural only | Ambiguous questions get: explicit interpretive assumptions + invitation to rephrase + judged ranked top-10. Precision over inclusiveness |
 | 9 | qualifier-trap | Most underwater-filmmaking experience in Coral Catch cohort, "should own professional equipment" | **No field constraint fires** (`fieldConstraints` empty); prefilter stops at the cohort; shortlist ⊆ cohort; ranked | Quality adjectives (professional, experienced, advanced…) are ranking criteria, never hard filters. From the Jul 6 live over-filtering incident |
+| 10 | program-cohort | "Filter through the internship applicants, for the ones with most experience above water." (owner verbatim) | `plan.programConstraint === "internship"`; prefilter narrows to EXACTLY the internship cohort (count equality — program drops are never rescued); shortlist ⊆ cohort; ranked by matchStrength. "Above water" judgment quality is **not asserted** | Program membership (`applications.program`) is a hard, tag-class constraint: deterministic, status-agnostic, enumeration-complete, and its drops are disclosed but NEVER routed through the field/budget rescue pool |
+| 11 | demographic-multi | "Which female applicants are aged \<lower bound of bucket1\> to \<upper bound of bucket2\>?" — question text built at runtime from the registry's first two adjacent `AGE_RANGES` buckets | `fieldConstraints` contain `gender` grounded to the female option AND `age` grounded to **BOTH** buckets as an array; prefilter ≤ truth (raw internship numeric ages need the rescue path); union recall 1.0 | A field constraint grounds to one OR MORE whole vocabulary items — a question whose criterion spans multiple options (an age range crossing buckets) must ground every matching item, never just the first |
 
 ## Standing rules the suite enforces (approve / veto each)
 
@@ -50,6 +52,24 @@ suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-a
    `REDUCE_CANDIDATE_CAP` (60) — strong candidates are included regardless of
    the cap. Trimmed weak candidates are counted and disclosed, never silently
    dropped. *(Andrei owner-approved 2026-07-08.)*
+9. **Program membership is a hard, tag-class constraint.** A program-cohort
+   question ("internship applicants", "who applied to freediving") grounds
+   `programConstraint` against the runtime-derived `applications.program`
+   vocabulary — deterministic, status-agnostic (any application in the
+   program qualifies, regardless of its status), enumeration-complete (like
+   `tagConstraint`, prefiltered members missing from the answer are
+   code-appended), and its drops are disclosed but **never** rescued: not
+   having applied to a program is definitive, unlike a field/budget mismatch
+   other evidence might override. *(Andrei owner-approved 2026-07-09.)*
+10. **Field constraints ground to one OR MORE whole vocabulary items.** A
+    question whose criterion spans multiple options of the same field (an age
+    range crossing buckets, several nationalities, several equipment items)
+    must ground EVERY matching item as an array, never just the first —
+    grounding only one silently narrows the cohort. Each item is validated
+    independently: invalid items are dropped individually (disclosed), and
+    only when NO item grounds is the whole constraint dropped. The applier
+    matches when a record's field value(s) intersect the constraint's value
+    set. *(Andrei owner-approved 2026-07-09.)*
 
 ## Open questions (not yet decided — flag if you care)
 

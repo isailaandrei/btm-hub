@@ -112,10 +112,19 @@ function discloseHardConstraintPrefilter(input: {
   response: AdminAiResponse;
   droppedContactCount: number;
   droppedDeclinedContactCount: number;
+  droppedProgramContactCount: number;
   constraints: AdminAiHardConstraints;
 }): AdminAiResponse {
-  const { budgetMin, tagCategory, otherTagCategories } = input.constraints;
+  const { budgetMin, tagCategory, otherTagCategories, program } = input.constraints;
   let response = input.response;
+
+  if (program && input.droppedProgramContactCount > 0) {
+    const label = contactCountLabel(input.droppedProgramContactCount);
+    response = appendUncertainty(
+      response,
+      `${input.droppedProgramContactCount} ${label} excluded because they have no '${program}' application.`,
+    );
+  }
 
   if (input.droppedContactCount > 0) {
     const label = contactCountLabel(input.droppedContactCount);
@@ -610,6 +619,9 @@ function planToStructuredFilters(plan: PlannerOutput): AdminAiStructuredFilter[]
       value: plan.tagConstraint.includeStatuses,
     });
   }
+  if (plan.programConstraint) {
+    filters.push({ field: "program", op: "eq", value: plan.programConstraint });
+  }
   if (plan.budgetMin !== null) {
     filters.push({ field: "budget", op: "eq", value: String(plan.budgetMin) });
   }
@@ -630,6 +642,9 @@ function legacyToStructuredFilters(
   if (constraints.tagCategory) {
     filters.push({ field: constraints.tagCategory, op: "in", value: [] });
   }
+  if (constraints.program) {
+    filters.push({ field: "program", op: "eq", value: constraints.program });
+  }
   if (constraints.budgetMin !== undefined) {
     filters.push({
       field: "budget",
@@ -638,6 +653,10 @@ function legacyToStructuredFilters(
     });
   }
   return filters;
+}
+
+function describeFieldConstraintValue(value: string | string[]): string {
+  return Array.isArray(value) ? value.join(", ") : value;
 }
 
 function disclosePlannerPrefilter(
@@ -657,6 +676,13 @@ function disclosePlannerPrefilter(
       `Applied filter: '${plan.tagConstraint.category}' tags ${statuses} — ${applied.droppedByTag.length} contact(s) excluded.`,
     );
   }
+  if (plan.programConstraint && applied.droppedByProgram.length > 0) {
+    const label = contactCountLabel(applied.droppedByProgram.length);
+    result = appendUncertainty(
+      result,
+      `${applied.droppedByProgram.length} ${label} excluded because they have no '${plan.programConstraint}' application.`,
+    );
+  }
   if (plan.budgetMin !== null && applied.droppedByBudget.length > 0) {
     result = appendUncertainty(
       result,
@@ -665,7 +691,10 @@ function disclosePlannerPrefilter(
   }
   if (plan.fieldConstraints.length > 0 && applied.droppedByField.length > 0) {
     const fields = plan.fieldConstraints
-      .map((fieldConstraint) => `${fieldConstraint.field} ${fieldConstraint.op} '${fieldConstraint.value}'`)
+      .map(
+        (fieldConstraint) =>
+          `${fieldConstraint.field} ${fieldConstraint.op} '${describeFieldConstraintValue(fieldConstraint.value)}'`,
+      )
       .join("; ");
     result = appendUncertainty(
       result,
@@ -682,17 +711,21 @@ function disclosePlannerPrefilter(
 }
 
 // For a pure-enumeration question grounded on a deterministic constraint (a tag
-// cohort OR one or more catalog field filters), the prefiltered records ARE the
-// answer. Append any member the reduce tier dropped to the END of
-// additionalMatches so recall is 1.0 by construction; ranking of what's already
-// there stays model territory.
+// cohort, a program cohort, OR one or more catalog field filters), the
+// prefiltered records ARE the answer. Append any member the reduce tier
+// dropped to the END of additionalMatches so recall is 1.0 by construction;
+// ranking of what's already there stays model territory.
 function buildEnumerationCompleter(
   records: ContactCardRecord[],
   plan: PlannerOutput,
 ): (response: AdminAiResponse) => { response: AdminAiResponse; appended: number } {
   const tagConstraint = plan.tagConstraint;
+  const programConstraint = plan.programConstraint;
   const hasFieldConstraint = plan.fieldConstraints.length > 0;
-  if (!plan.enumerationOnly || (!tagConstraint && !hasFieldConstraint)) {
+  if (
+    !plan.enumerationOnly ||
+    (!tagConstraint && !programConstraint && !hasFieldConstraint)
+  ) {
     return (response) => ({ response, appended: 0 });
   }
   const wanted =
@@ -701,11 +734,14 @@ function buildEnumerationCompleter(
       : null;
   const fieldReason = hasFieldConstraint
     ? `Matches ${plan.fieldConstraints
-        .map((constraint) => `${constraint.field} ${constraint.op} '${constraint.value}'`)
+        .map(
+          (constraint) =>
+            `${constraint.field} ${constraint.op} '${describeFieldConstraintValue(constraint.value)}'`,
+        )
         .join("; ")}`
     : "";
   const rosters = records.map((record) => {
-    let reason = fieldReason;
+    const reasons: string[] = [];
     if (tagConstraint) {
       const matches = (record.contactTags ?? []).filter((tag) => {
         if (tag.categoryName?.toLowerCase() !== tagConstraint.category.toLowerCase()) {
@@ -714,12 +750,18 @@ function buildEnumerationCompleter(
         const name = (tag.tagName ?? "").toLowerCase();
         return wanted ? wanted.has(name) : name !== "declined";
       });
-      reason = `Carries '${tagConstraint.category}: ${matches.map((tag) => tag.tagName).join(", ")}' tag`;
+      reasons.push(
+        `Carries '${tagConstraint.category}: ${matches.map((tag) => tag.tagName).join(", ")}' tag`,
+      );
     }
+    if (programConstraint) {
+      reasons.push(`Has a '${programConstraint}' application`);
+    }
+    if (fieldReason) reasons.push(fieldReason);
     return {
       contactId: record.contact.id,
       contactName: record.contact.name ?? "",
-      reason,
+      reason: reasons.join("; "),
     };
   });
 
@@ -751,8 +793,10 @@ function buildPlannerPrefilter(
   run: PlannerRun,
 ): GlobalPrefilter {
   const applied = applyPlannedConstraints(records, run.plan);
-  // Rescue pool = contacts dropped by FIELD or BUDGET (not TAG). Sequential
-  // filtering means these two lists are exactly the non-tag drops.
+  // Rescue pool = contacts dropped by FIELD or BUDGET (not TAG, not PROGRAM).
+  // Sequential filtering means these two lists are exactly the non-tag,
+  // non-program drops. Program drops are definitive (not-having-applied is
+  // never a "maybe") and must NEVER be rescued.
   const rescueIds = new Set([...applied.droppedByField, ...applied.droppedByBudget]);
   const rescuePool = records.filter((record) => rescueIds.has(record.contact.id));
   return {
@@ -770,6 +814,7 @@ function buildPlannerPrefilter(
         plan: run.plan,
         droppedParts: run.droppedParts,
         droppedByTag: applied.droppedByTag.length,
+        droppedByProgram: applied.droppedByProgram.length,
         droppedByBudget: applied.droppedByBudget.length,
         droppedByField: applied.droppedByField.length,
       },
@@ -787,11 +832,13 @@ function buildLegacyPrefilter(
   );
   const hasConstraints =
     filter.constraints.budgetMin !== undefined ||
-    filter.constraints.tagCategory !== undefined;
+    filter.constraints.tagCategory !== undefined ||
+    filter.constraints.program !== undefined;
   return {
     records: filter.records,
     // No rescue on the legacy fallback path: it cannot separate budget-only
-    // drops from tag drops, and rescue is a planner-path capability.
+    // drops from tag drops, and rescue is a planner-path capability. Program
+    // drops would never be rescued anyway (definitive, tag-class semantics).
     rescuePool: [],
     structuredFilters: legacyToStructuredFilters(filter.constraints),
     plan: null,
@@ -806,6 +853,7 @@ function buildLegacyPrefilter(
           response: result,
           droppedContactCount: filter.droppedContactIds.length,
           droppedDeclinedContactCount: filter.droppedDeclinedContactIds.length,
+          droppedProgramContactCount: filter.droppedProgramContactIds.length,
           constraints: filter.constraints,
         });
       }
@@ -821,6 +869,7 @@ function buildLegacyPrefilter(
               prefilteredContactCount: filter.droppedContactIds.length,
               droppedContactIds: filter.droppedContactIds,
               droppedDeclinedContactIds: filter.droppedDeclinedContactIds,
+              droppedProgramContactIds: filter.droppedProgramContactIds,
             },
           }
         : {}),

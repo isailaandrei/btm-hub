@@ -8,6 +8,14 @@ export type AdminAiHardConstraints = {
   tagCategory?: string;
   /** Other categories the question also matched but that were not applied. */
   otherTagCategories?: string[];
+  /**
+   * A program name the question named (runtime-derived from `applications.program`);
+   * members must have AT LEAST ONE application in this program, any status.
+   * Program membership is a hard TAG-CLASS constraint like `tagCategory` — a
+   * drop here is definitive (not having applied is never a "maybe") and is
+   * never routed through the rescue/evidence path.
+   */
+  program?: string;
 };
 
 export type HardConstraintFilterResult = {
@@ -16,6 +24,8 @@ export type HardConstraintFilterResult = {
   droppedContactIds: string[];
   /** Contacts dropped because their only tag in the category is "Declined". */
   droppedDeclinedContactIds: string[];
+  /** Contacts dropped because no application matches the named program. */
+  droppedProgramContactIds: string[];
 };
 
 const BUDGET_MIN_PATTERNS = [
@@ -63,6 +73,33 @@ function extractTagCategoryConstraint(
   };
 }
 
+/**
+ * Runtime-derived program vocabulary (distinct non-null `applications.program`
+ * values across the loaded records) matched against the question the same way
+ * `extractTagCategoryConstraint` matches tag categories: a case-insensitive
+ * substring hit. Program names ("internship", "freediving", …) are
+ * domain-specific single tokens, unlikely to appear incidentally.
+ */
+function extractProgramConstraint(
+  question: string,
+  records: ContactCardRecord[],
+): Pick<AdminAiHardConstraints, "program"> {
+  const loweredQuestion = question.toLowerCase();
+  const programs = new Set<string>();
+  for (const record of records) {
+    for (const application of record.applications) {
+      const program = application.program;
+      if (typeof program === "string" && program.trim()) {
+        programs.add(program.trim());
+      }
+    }
+  }
+  const matched = [...programs].find((program) =>
+    loweredQuestion.includes(program.toLowerCase()),
+  );
+  return matched ? { program: matched } : {};
+}
+
 export function extractHardConstraints(
   question: string,
   records: ContactCardRecord[] = [],
@@ -81,6 +118,10 @@ export function extractHardConstraints(
     if (tag.otherTagCategories) {
       constraints.otherTagCategories = tag.otherTagCategories;
     }
+  }
+  const program = extractProgramConstraint(question, records);
+  if (program.program) {
+    constraints.program = program.program;
   }
   return constraints;
 }
@@ -197,25 +238,50 @@ function recordIsDeclinedOnlyInCategory(
   return tags.every((tag) => (tag.tagName ?? "").toLowerCase() === "declined");
 }
 
+function recordHasProgram(record: ContactCardRecord, program: string): boolean {
+  const target = program.trim().toLowerCase();
+  return record.applications.some(
+    (application) => (application.program ?? "").toLowerCase() === target,
+  );
+}
+
 export function filterRecordsByHardConstraints(
   records: ContactCardRecord[],
   constraints: AdminAiHardConstraints,
 ): HardConstraintFilterResult {
   const hasBudget = constraints.budgetMin !== undefined;
   const hasTag = constraints.tagCategory !== undefined;
-  if (!hasBudget && !hasTag) {
+  const hasProgram = constraints.program !== undefined;
+  if (!hasBudget && !hasTag && !hasProgram) {
     return {
       constraints,
       records,
       droppedContactIds: [],
       droppedDeclinedContactIds: [],
+      droppedProgramContactIds: [],
     };
+  }
+
+  // Program membership is applied FIRST and independently, exactly like a tag
+  // category: it is a definitive gate (not having an application in the named
+  // program is never a "maybe"), so its drops are tracked separately and are
+  // NEVER mixed into the budget/tag combined drop list (which the caller may
+  // later route through a rescue/evidence path).
+  let current = records;
+  const droppedProgramContactIds: string[] = [];
+  if (hasProgram) {
+    const kept: ContactCardRecord[] = [];
+    for (const record of current) {
+      if (recordHasProgram(record, constraints.program!)) kept.push(record);
+      else droppedProgramContactIds.push(record.contact.id);
+    }
+    current = kept;
   }
 
   const filtered: ContactCardRecord[] = [];
   const droppedContactIds: string[] = [];
   const droppedDeclinedContactIds: string[] = [];
-  for (const record of records) {
+  for (const record of current) {
     const meetsBudget =
       !hasBudget || recordMeetsBudgetMinimum(record, constraints.budgetMin!);
     const meetsTag =
@@ -244,6 +310,7 @@ export function filterRecordsByHardConstraints(
     records: filtered,
     droppedContactIds,
     droppedDeclinedContactIds,
+    droppedProgramContactIds,
   };
 }
 
@@ -254,7 +321,8 @@ export function applyHardConstraintsToResponse(input: {
 }): { response: AdminAiResponse; droppedContactIds: string[] } {
   const hasConstraint =
     input.constraints.budgetMin !== undefined ||
-    input.constraints.tagCategory !== undefined;
+    input.constraints.tagCategory !== undefined ||
+    input.constraints.program !== undefined;
   if (
     !hasConstraint ||
     (!input.response.shortlist && !input.response.additionalMatches)
@@ -303,6 +371,8 @@ export function applyHardConstraintsToResponse(input: {
 export type PlannedFilterResult = {
   records: ContactCardRecord[];
   droppedByTag: string[];
+  /** Program-cohort drops — like `droppedByTag`, never rescued (see below). */
+  droppedByProgram: string[];
   droppedByBudget: string[];
   droppedByField: string[];
 };
@@ -330,16 +400,51 @@ function recordFieldValues(record: ContactCardRecord, field: string): string[] {
   return values;
 }
 
+/**
+ * Normalizes a constraint's value (scalar or array, per the multi-value
+ * grounding contract) to a bounded, non-empty list of lowercased targets.
+ */
+function fieldConstraintTargets(
+  constraint: PlannerOutput["fieldConstraints"][number],
+): string[] {
+  const raw = Array.isArray(constraint.value) ? constraint.value : [constraint.value];
+  return raw.map((value) => value.trim().toLowerCase()).filter((value) => value.length > 0);
+}
+
+/**
+ * A record matches when its field value(s) intersect the constraint's value
+ * set. Reuses the SAME single-value comparison the pre-multi-value path used
+ * (`eq` = exact match, anything else = substring/"contains") for every target,
+ * OR'd across both the record's own (possibly multi-valued, e.g. `languages`)
+ * answers and the constraint's (possibly multi-valued, e.g. two age buckets)
+ * targets — so a scalar constraint against a scalar answer behaves exactly as
+ * before.
+ */
 function recordMatchesFieldConstraint(
   record: ContactCardRecord,
   constraint: PlannerOutput["fieldConstraints"][number],
 ): boolean {
-  const target = constraint.value.trim().toLowerCase();
-  if (!target) return true;
-  return recordFieldValues(record, constraint.field).some((value) => {
+  const targets = fieldConstraintTargets(constraint);
+  if (targets.length === 0) return true;
+  const values = recordFieldValues(record, constraint.field);
+  return values.some((value) => {
     const lowered = value.toLowerCase();
-    return constraint.op === "eq" ? lowered === target : lowered.includes(target);
+    return targets.some((target) =>
+      constraint.op === "eq" ? lowered === target : lowered.includes(target),
+    );
   });
+}
+
+function recordMatchesProgramConstraint(
+  record: ContactCardRecord,
+  program: string,
+): boolean {
+  const target = program.trim().toLowerCase();
+  // Status-agnostic: membership is having AT LEAST ONE application in the
+  // program, regardless of that application's status.
+  return record.applications.some(
+    (application) => (application.program ?? "").toLowerCase() === target,
+  );
 }
 
 function recordMatchesTagConstraint(
@@ -369,6 +474,7 @@ export function applyPlannedConstraints(
   plan: PlannerOutput,
 ): PlannedFilterResult {
   const droppedByTag: string[] = [];
+  const droppedByProgram: string[] = [];
   const droppedByBudget: string[] = [];
   const droppedByField: string[] = [];
   let current = records;
@@ -379,6 +485,21 @@ export function applyPlannedConstraints(
     for (const record of current) {
       if (recordMatchesTagConstraint(record, tagConstraint)) kept.push(record);
       else droppedByTag.push(record.contact.id);
+    }
+    current = kept;
+  }
+
+  // Program membership is a hard TAG-CLASS constraint, applied the same way as
+  // `tagConstraint`: sequential, and its drops are tracked separately so the
+  // caller (orchestrator.ts) never routes them into the rescue pool — not
+  // having applied to a program is definitive, unlike a field/budget mismatch
+  // that other evidence might override.
+  if (plan.programConstraint) {
+    const programConstraint = plan.programConstraint;
+    const kept: ContactCardRecord[] = [];
+    for (const record of current) {
+      if (recordMatchesProgramConstraint(record, programConstraint)) kept.push(record);
+      else droppedByProgram.push(record.contact.id);
     }
     current = kept;
   }
@@ -402,7 +523,13 @@ export function applyPlannedConstraints(
     current = kept;
   }
 
-  return { records: current, droppedByTag, droppedByBudget, droppedByField };
+  return {
+    records: current,
+    droppedByTag,
+    droppedByProgram,
+    droppedByBudget,
+    droppedByField,
+  };
 }
 
 /**

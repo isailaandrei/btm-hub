@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminAiResponse, EvidenceItem } from "@/types/admin-ai";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
+import type { ProgramSlug } from "@/types/database";
 
 vi.mock("./provider", () => ({
   getAdminAiProvider: vi.fn(),
@@ -107,6 +108,14 @@ function makeTaggedRecord(
         assignedAt: "2026-03-02T00:00:00Z",
       },
     ],
+  };
+}
+
+function makeProgramRecord(contactId: string, program: ProgramSlug): ContactCardRecord {
+  const base = makeRecord(contactId);
+  return {
+    ...base,
+    applications: base.applications.map((application) => ({ ...application, program })),
   };
 }
 
@@ -1598,6 +1607,348 @@ describe("runAdminAiAnalysis (constraint planner)", () => {
       ...(result.response?.additionalMatches ?? []).map((m) => m.contactId),
     ]);
     expect(union.has(OTHER_CONTACT_ID)).toBe(false);
+  });
+});
+
+describe("runAdminAiAnalysis (program constraint, GAP 1)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("applies a planned program constraint end-to-end and populates structuredFilters", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeProgramRecord(CONTACT_ID, "internship"),
+      makeProgramRecord(OTHER_CONTACT_ID, "freediving"),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: null,
+        programConstraint: "internship",
+        budgetMin: null,
+        fieldConstraints: [],
+        notes: "internship cohort",
+      },
+      modelMetadata: {},
+    });
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist: [] } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "Filter through the internship applicants.",
+    });
+
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+      queryPlan: { structuredFilters: unknown[] };
+    };
+    // Only the internship applicant reached synthesis; the freediving one was
+    // dropped by the program constraint.
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+    expect(generateArg.queryPlan.structuredFilters).toEqual([
+      { field: "program", op: "eq", value: "internship" },
+    ]);
+  });
+
+  it("discloses program drops with the 'no <program> application' text", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeProgramRecord(CONTACT_ID, "internship"),
+      makeProgramRecord(OTHER_CONTACT_ID, "freediving"),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: null,
+        programConstraint: "internship",
+        budgetMin: null,
+        fieldConstraints: [],
+        notes: "internship cohort",
+      },
+      modelMetadata: {},
+    });
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist: [] } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "Filter through the internship applicants.",
+    });
+
+    expect(result.response?.uncertainty).toContain(
+      "1 contact was excluded because they have no 'internship' application.",
+    );
+  });
+
+  it("never rescues program drops even when a field constraint also fires (program stays TAG-class)", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    // map_reduce mode so a non-empty rescue pool WOULD normally be scanned —
+    // proves program drops are excluded from that pool by construction, not by
+    // an accident of scan mode.
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("map_reduce");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeProgramRecord(CONTACT_ID, "internship"),
+      makeProgramRecord(OTHER_CONTACT_ID, "freediving"),
+    ]);
+    const completeJson = vi.fn(async ({ userPrompt }: { userPrompt: string }) => {
+      if (userPrompt.includes('"catalog"')) {
+        return {
+          json: {
+            tagConstraint: null,
+            programConstraint: "internship",
+            budgetMin: null,
+            fieldConstraints: [],
+            enumerationOnly: false,
+            notes: "",
+          },
+          modelMetadata: {},
+        };
+      }
+      // Map scan over the sole confirmed (internship) card.
+      const parsed = JSON.parse(userPrompt) as {
+        rawContactCards: Array<{ contactId: string; contactName: string }>;
+      };
+      return {
+        json: {
+          candidates: parsed.rawContactCards.map((card) => ({
+            ...card,
+            evidenceSummary: "matches",
+          })),
+          nearMisses: [],
+        },
+        modelMetadata: { usage: null },
+      };
+    });
+    const generate = vi.fn().mockResolvedValue({
+      response: { uncertainty: [], shortlist: [] } as AdminAiResponse,
+      modelMetadata: { usage: null },
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "Filter through the internship applicants.",
+    });
+
+    // Only ONE card (the internship member) reached the map/reduce; the
+    // freediving member was dropped by program and never entered the rescue
+    // pool, so no rescue scan ran for it.
+    expect(result.modelMetadata).not.toHaveProperty("rescue");
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+    };
+    expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
+  });
+
+  it("appends prefiltered members the reduce dropped for a program-constraint enumeration", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    // 3 internship applicants.
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeProgramRecord(CONTACT_ID, "internship"),
+      makeProgramRecord(OTHER_CONTACT_ID, "internship"),
+      makeProgramRecord(MISSING_BUDGET_CONTACT_ID, "internship"),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: null,
+        programConstraint: "internship",
+        budgetMin: null,
+        fieldConstraints: [],
+        enumerationOnly: true,
+        notes: "",
+      },
+      modelMetadata: {},
+    });
+    // Reduce returns only 2 of the 3 prefiltered internship applicants.
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+          {
+            contactId: OTHER_CONTACT_ID,
+            contactName: "Ivo Santos",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 80,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "list the internship applicants",
+    });
+
+    const appended = result.response?.additionalMatches?.find(
+      (m) => m.contactId === MISSING_BUDGET_CONTACT_ID,
+    );
+    expect(appended?.reason).toBe("Has a 'internship' application");
+    expect(appended?.matchStrength).toBe(1);
+  });
+});
+
+describe("runAdminAiAnalysis (multi-value field constraint, GAP 2)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("prefilters on a multi-value field constraint end-to-end, discloses the array value, and completes enumeration", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID, { age: "18-24" }),
+      makeRecord(OTHER_CONTACT_ID, { age: "25-34" }),
+      makeRecord(MISSING_BUDGET_CONTACT_ID, { age: "55+" }),
+    ]);
+    const completeJson = vi.fn().mockResolvedValue({
+      json: {
+        tagConstraint: null,
+        programConstraint: null,
+        budgetMin: null,
+        fieldConstraints: [
+          { field: "age", op: "in", value: ["18-24", "25-34"] },
+        ],
+        enumerationOnly: true,
+        notes: "",
+      },
+      modelMetadata: {},
+    });
+    // Reduce returns only 1 of the 2 prefiltered members.
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["fit"],
+            concerns: [],
+            citations: [],
+            matchStrength: 90,
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+      completeJson,
+    });
+    vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "Which contacts are aged 18 to 34?",
+    });
+
+    // Only the two matching-age members reached synthesis (the 55+ member was
+    // dropped by the field constraint); structuredFilters carries the array.
+    const generateArg = generate.mock.calls[0]![0] as {
+      cards: Array<{ contactId: string }>;
+      queryPlan: { structuredFilters: unknown[] };
+    };
+    expect(generateArg.cards.map((c) => c.contactId).sort()).toEqual(
+      [CONTACT_ID, OTHER_CONTACT_ID].sort(),
+    );
+    expect(generateArg.queryPlan.structuredFilters).toEqual([
+      { field: "age", op: "in", value: ["18-24", "25-34"] },
+    ]);
+    // Disclosure renders the array value readably (not a raw array literal).
+    expect(result.response?.uncertainty.join(" ")).toContain(
+      "age in '18-24, 25-34'",
+    );
+    // Enumeration completeness appended the member the reduce dropped.
+    const appended = result.response?.additionalMatches?.find(
+      (m) => m.contactId === OTHER_CONTACT_ID,
+    );
+    expect(appended?.reason).toBe("Matches age in '18-24, 25-34'");
   });
 });
 

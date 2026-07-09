@@ -30,6 +30,7 @@ import {
   runGlobalSynthesis,
   type GlobalSynthesisDiagnostics,
 } from "@/lib/admin-ai/orchestrator";
+import { getFieldEntry, normalizeAgeToRange } from "@/lib/admin/contacts/field-registry";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
 import type { AdminAiResponse } from "@/types/admin-ai";
 
@@ -187,6 +188,18 @@ function idsMatching(
   test: (record: ContactCardRecord) => boolean,
 ): string[] {
   return records.filter(test).map((record) => record.contact.id);
+}
+
+// Q10 truth: cohort = contacts with AT LEAST ONE application in the named
+// program, status-agnostic — mirrors the hard-constraint applier's semantics
+// (`recordMatchesProgramConstraint` in hard-constraints.ts).
+function idsWithProgram(records: ContactCardRecord[], program: string): string[] {
+  const target = program.toLowerCase();
+  return idsMatching(records, (record) =>
+    record.applications.some(
+      (application) => (application.program ?? "").toLowerCase() === target,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -837,5 +850,151 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       nonIncreasing,
       "matchStrength must be non-increasing across the shortlist",
     ).toBe(true);
+  }, 600_000);
+
+  it("program-cohort: internship applicants ranked by experience above water (GAP 1, owner verbatim wording)", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    const question =
+      "Filter through the internship applicants, for the ones with most experience above water.";
+    // Truth: cohort = contacts with >=1 application where program='internship',
+    // status-agnostic — never having applied to the program is definitive, so
+    // this constraint is a hard TAG-class gate, not a rescuable field filter.
+    const truth = idsWithProgram(records, "internship");
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const truthSet = new Set(truth);
+    const shortlistOutsideCohort = shortlistIds(out.response).filter(
+      (id) => !truthSet.has(id),
+    );
+    const strengths = (out.response.shortlist ?? []).map((e) => e.matchStrength ?? 0);
+    const nonIncreasing = strengths.every(
+      (s, i) => i === 0 || s <= strengths[i - 1]!,
+    );
+
+    const r = record(
+      {
+        key: "program-cohort",
+        truthIds: truth,
+        question,
+        truthCount: truth.length,
+        recall: recall(union, truth),
+        shortlistPrecision: shortlistPrecision(out.response, truth),
+        forbiddenViolations: shortlistOutsideCohort,
+        expectEmpty: null,
+        expectEmptyPass: null,
+        advisory: [
+          "program membership is a hard, tag-class constraint — never rescued",
+          "'most experience above water' is a ranking judgment — NOT asserted for quality",
+        ],
+      },
+      out,
+    );
+
+    expect(truth.length, "truth set of internship applicants should be non-empty").toBeGreaterThan(0);
+    expect(
+      out.diagnostics.plan?.programConstraint,
+      "planner must ground the 'internship' program as programConstraint",
+    ).toBe("internship");
+    expect(
+      out.diagnostics.prefilteredCount,
+      "prefilter must narrow to EXACTLY the internship cohort (program drops are never rescued)",
+    ).toBe(truth.length);
+    expect(r.recall, "union recall over the internship cohort must be 1.0").toBe(1);
+    expect(
+      shortlistOutsideCohort,
+      "every shortlisted contact must be a real internship applicant",
+    ).toEqual([]);
+    expect(
+      nonIncreasing,
+      "shortlist must be ranked by matchStrength (non-increasing)",
+    ).toBe(true);
+  }, 600_000);
+
+  it("demographic-multi-value: female applicants spanning two adjacent AGE_RANGES buckets (GAP 2)", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    // Constructed AT RUNTIME from the registry's own vocabulary — never
+    // hardcoded, so this stays correct if AGE_RANGES/GENDERS ever change.
+    const genderOptions = getFieldEntry("gender")?.options ?? [];
+    const femaleOption = genderOptions.find((o) => o.toLowerCase() === "female") ?? "Female";
+    const ageBuckets = (getFieldEntry("age")?.canonical?.options ?? []) as readonly string[];
+    const bucket1 = ageBuckets[0]!;
+    const bucket2 = ageBuckets[1]!;
+    const boundsOf = (bucket: string): [number, number] => {
+      const m = bucket.match(/^(\d+)-(\d+)$/);
+      if (!m) throw new Error(`Unexpected AGE_RANGES bucket shape: ${bucket}`);
+      return [Number(m[1]), Number(m[2])];
+    };
+    const lowerBound = boundsOf(bucket1)[0];
+    const upperBound = boundsOf(bucket2)[1];
+    const question = `Which female applicants are aged ${lowerBound} to ${upperBound}?`;
+
+    // Truth: gender=female (GENDERS vocabulary) AND age bucket in {bucket1,
+    // bucket2} — applying the registry's age normalizer so raw-numeric
+    // internship ages bucket the same way the card/filter pipeline does.
+    const truth = idsMatching(records, (rec) =>
+      rec.applications.some((app) => {
+        const answers = (app.answers ?? {}) as Record<string, unknown>;
+        const gender = typeof answers.gender === "string" ? answers.gender.trim().toLowerCase() : "";
+        if (gender !== femaleOption.toLowerCase()) return false;
+        const bucket = normalizeAgeToRange(answers.age);
+        return bucket === bucket1 || bucket === bucket2;
+      }),
+    );
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const fieldConstraints = out.diagnostics.plan?.fieldConstraints ?? [];
+    const genderConstraint = fieldConstraints.find((c) => c.field === "gender");
+    const ageConstraint = fieldConstraints.find((c) => c.field === "age");
+    const ageValues = (
+      Array.isArray(ageConstraint?.value) ? ageConstraint.value : [ageConstraint?.value]
+    )
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim().toLowerCase())
+      .sort();
+
+    const r = record(
+      {
+        key: "demographic-multi",
+        truthIds: truth,
+        question,
+        truthCount: truth.length,
+        recall: recall(union, truth),
+        shortlistPrecision: null,
+        forbiddenViolations: [],
+        expectEmpty: null,
+        expectEmptyPass: null,
+        advisory: [
+          `buckets asserted: ${bucket1}, ${bucket2}`,
+          `prefiltered=${out.diagnostics.prefilteredCount} truth=${truth.length}`,
+          "field constraints ground to one OR MORE whole vocabulary items — multi-option spans must ground every matching item",
+        ],
+      },
+      out,
+    );
+
+    expect(
+      genderConstraint?.value?.toString().trim().toLowerCase(),
+      "gender constraint must ground the female option",
+    ).toBe(femaleOption.toLowerCase());
+    expect(
+      ageValues,
+      "age constraint must ground BOTH adjacent buckets as an array — never just one",
+    ).toEqual([bucket1.toLowerCase(), bucket2.toLowerCase()].sort());
+    expect(
+      out.diagnostics.prefilteredCount,
+      "raw field-matched prefilter is a subset of truth (internship numeric ages need the rescue path)",
+    ).toBeLessThanOrEqual(truth.length);
+    expect(
+      r.recall,
+      "every true cohort member must surface via prefilter+shortlist or the disclosed rescue path",
+    ).toBe(1);
+    if (truth.length > 0 && out.diagnostics.prefilteredCount < truth.length) {
+      expect(
+        out.diagnostics.rescueScanUsed,
+        "raw-mismatched truth members (e.g. internship numeric ages) require the rescue scan to have run",
+      ).toBe(true);
+    }
   }, 600_000);
 });

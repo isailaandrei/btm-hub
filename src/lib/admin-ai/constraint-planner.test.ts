@@ -68,6 +68,36 @@ function recordWithAnswers(
   } as unknown as ContactCardRecord;
 }
 
+function recordWithProgram(id: string, program: string | null): ContactCardRecord {
+  return {
+    contact: {
+      id,
+      name: id,
+      email: null,
+      phone: null,
+      profile_id: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+    },
+    applications: [
+      {
+        id: `${id}-app`,
+        user_id: null,
+        contact_id: id,
+        program,
+        status: "reviewing",
+        answers: {},
+        tags: [],
+        admin_notes: [],
+        submitted_at: "2026-03-02T00:00:00Z",
+        updated_at: "2026-03-02T00:00:00Z",
+      },
+    ],
+    contactNotes: [],
+    contactTags: [],
+  } as unknown as ContactCardRecord;
+}
+
 type CompleteJson = NonNullable<AdminAiProvider["completeJson"]>;
 
 function makeProvider(completeJson?: CompleteJson): AdminAiProvider {
@@ -127,24 +157,46 @@ describe("buildPlannerCatalog", () => {
     // A single-string essay field is NOT array-valued, so it is never admitted.
     expect(catalog.fields.some((f) => f.key === "ultimate_vision")).toBe(false);
   });
+
+  it("derives the program vocabulary at runtime from distinct non-null applications.program values", () => {
+    const records = [
+      recordWithAnswers("a", {}), // program: "freediving" (recordWithAnswers default)
+      recordWithProgram("b", "internship"),
+      recordWithProgram("c", "internship"),
+      recordWithProgram("d", "photography"),
+      recordWithProgram("e", null),
+    ];
+    const catalog = buildPlannerCatalog(records);
+
+    // Distinct, deduped, sorted, excluding null/empty — never hardcoded.
+    expect(catalog.programs).toEqual(["freediving", "internship", "photography"]);
+  });
+
+  it("returns an empty program vocabulary when no record has an application", () => {
+    const records = [recordWithTags("a", [{ categoryName: "X Y Z", tagName: "Interested" }])];
+    const catalog = buildPlannerCatalog(records);
+    expect(catalog.programs).toEqual([]);
+  });
 });
 
 describe("buildPlannerUserPrompt", () => {
   it("puts the catalog first and the question last", () => {
-    const catalog: PlannerCatalog = { tagCategories: [], fields: [] };
+    const catalog: PlannerCatalog = { tagCategories: [], fields: [], programs: [] };
     const prompt = buildPlannerUserPrompt({ catalog, question: "who freedives?" });
     expect(prompt.indexOf('"catalog"')).toBeLessThan(prompt.indexOf('"question"'));
   });
 });
 
 describe("plannerOutputSchema", () => {
-  it("accepts a well-formed plan and defaults a partial one", () => {
+  it("accepts a well-formed plan (including a program constraint and a multi-value field constraint) and defaults a partial one", () => {
     expect(
       plannerOutputSchema.safeParse({
         tagConstraint: { category: "X", includeStatuses: ["Interested"] },
+        programConstraint: "internship",
         budgetMin: 6000,
         fieldConstraints: [
           { field: "certification_level", op: "eq", value: "Advanced Freediver" },
+          { field: "age", op: "contains", value: ["18-24", "25-34"] },
         ],
         enumerationOnly: true,
         notes: "n",
@@ -152,6 +204,7 @@ describe("plannerOutputSchema", () => {
     ).toBe(true);
     expect(plannerOutputSchema.parse({})).toEqual({
       tagConstraint: null,
+      programConstraint: null,
       budgetMin: null,
       fieldConstraints: [],
       enumerationOnly: false,
@@ -166,6 +219,16 @@ describe("plannerOutputSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("accepts the `in` op (the code-side multi-value normalization result)", () => {
+    expect(
+      plannerOutputSchema.safeParse({
+        fieldConstraints: [
+          { field: "age", op: "in", value: ["18-24", "25-34"] },
+        ],
+      }).success,
+    ).toBe(true);
+  });
 });
 
 describe("validatePlan", () => {
@@ -178,6 +241,7 @@ describe("validatePlan", () => {
         options: ["Advanced Freediver", "Beginner"],
       },
     ],
+    programs: ["freediving", "internship"],
   };
 
   it("keeps canonical casing and an option-matched field, drops unknown tags/fields", () => {
@@ -233,6 +297,7 @@ describe("validatePlan", () => {
           values: ["Spanish", "English", "French"],
         },
       ],
+      programs: [],
     };
     const { plan, droppedParts } = validatePlan(
       plannerOutputSchema.parse({
@@ -255,6 +320,7 @@ describe("validatePlan", () => {
       fields: [
         { key: "languages", label: "Languages", op: "contains", values: ["Spanish"] },
       ],
+      programs: [],
     };
     const { plan, droppedParts } = validatePlan(
       plannerOutputSchema.parse({
@@ -279,6 +345,7 @@ describe("validatePlan", () => {
           values: ["Professional video camera", "Entry-level DSLR", "GoPro"],
         },
       ],
+      programs: [],
     };
     const { plan, droppedParts } = validatePlan(
       plannerOutputSchema.parse({
@@ -308,6 +375,7 @@ describe("validatePlan", () => {
           values: ["Professional video camera", "GoPro"],
         },
       ],
+      programs: [],
     };
     const { plan } = validatePlan(
       plannerOutputSchema.parse({
@@ -374,6 +442,7 @@ describe("validatePlan", () => {
           ],
         },
       ],
+      programs: [],
     };
     // "Professional" is a substring of the OPTION "Professional video camera" — a
     // quality word, not set membership. This is the live bug (an option-backed
@@ -431,6 +500,163 @@ describe("validatePlan", () => {
     expect(
       droppedParts.some((p) => p.includes("left to the evidence scan")),
     ).toBe(true);
+  });
+
+  // --- Program constraint (GAP 1: program as a hard tag-class constraint) ---
+
+  it("grounds a program constraint equal to a whole runtime-vocabulary item (trim/case-insensitive)", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({ programConstraint: "  Internship  " }),
+      catalog, // catalog.programs === ["freediving", "internship"]
+    );
+    // Canonical casing from the catalog is kept, not the planner's emitted casing.
+    expect(plan.programConstraint).toBe("internship");
+    expect(droppedParts).toEqual([]);
+  });
+
+  it("drops a program constraint absent from the runtime vocabulary, disclosed like a field drop", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({ programConstraint: "underwater-basketry" }),
+      catalog,
+    );
+    expect(plan.programConstraint).toBeNull();
+    expect(
+      droppedParts.some((p) => p.includes("not an exact vocabulary item")),
+    ).toBe(true);
+  });
+
+  it("drops a program constraint that only substring-matches a vocabulary item (quality/fragment trap)", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({ programConstraint: "intern" }),
+      catalog,
+    );
+    expect(plan.programConstraint).toBeNull();
+    expect(
+      droppedParts.some((p) => p.includes("not an exact vocabulary item")),
+    ).toBe(true);
+  });
+
+  it("passes through a null program constraint untouched", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({ programConstraint: null }),
+      catalog,
+    );
+    expect(plan.programConstraint).toBeNull();
+    expect(droppedParts).toEqual([]);
+  });
+
+  // --- Multi-value field constraints (GAP 2) ---
+
+  it("grounds ALL valid items of a multi-value field constraint as an array with op 'in'", () => {
+    const ageCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "age",
+          label: "Age Range",
+          options: ["18-24", "25-34", "35-44", "45-54", "55+"],
+        },
+      ],
+      programs: [],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "age", op: "contains", value: ["18-24", "25-34"] },
+        ],
+      }),
+      ageCatalog,
+    );
+    expect(plan.fieldConstraints).toEqual([
+      { field: "age", op: "in", value: ["18-24", "25-34"] },
+    ]);
+    expect(droppedParts).toEqual([]);
+  });
+
+  it("drops only the invalid items of a partially-valid multi-value constraint, keeping the constraint as wide as what grounded", () => {
+    const ageCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "age",
+          label: "Age Range",
+          options: ["18-24", "25-34", "35-44", "45-54", "55+"],
+        },
+      ],
+      programs: [],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "age", op: "contains", value: ["18-24", "25-34", "ancient"] },
+        ],
+      }),
+      ageCatalog,
+    );
+    // Only the invalid item is dropped; the two valid ones stay — never narrower
+    // than what validly grounded.
+    expect(plan.fieldConstraints).toEqual([
+      { field: "age", op: "in", value: ["18-24", "25-34"] },
+    ]);
+    expect(
+      droppedParts.some(
+        (p) => p.includes("ancient") && p.includes("not an exact vocabulary item"),
+      ),
+    ).toBe(true);
+  });
+
+  it("collapses a multi-value constraint to a scalar (op 'contains') when only ONE item survives grounding", () => {
+    const ageCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "age",
+          label: "Age Range",
+          options: ["18-24", "25-34", "35-44", "45-54", "55+"],
+        },
+      ],
+      programs: [],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "age", op: "contains", value: ["18-24", "ancient"] },
+        ],
+      }),
+      ageCatalog,
+    );
+    expect(plan.fieldConstraints).toEqual([
+      { field: "age", op: "contains", value: "18-24" },
+    ]);
+    expect(
+      droppedParts.some((p) => p.includes("not an exact vocabulary item")),
+    ).toBe(true);
+  });
+
+  it("drops the WHOLE multi-value constraint when no item grounds", () => {
+    const ageCatalog: PlannerCatalog = {
+      tagCategories: [],
+      fields: [
+        {
+          key: "age",
+          label: "Age Range",
+          options: ["18-24", "25-34", "35-44", "45-54", "55+"],
+        },
+      ],
+      programs: [],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        fieldConstraints: [
+          { field: "age", op: "contains", value: ["ancient", "prehistoric"] },
+        ],
+      }),
+      ageCatalog,
+    );
+    expect(plan.fieldConstraints).toEqual([]);
+    expect(
+      droppedParts.filter((p) => p.includes("not an exact vocabulary item")),
+    ).toHaveLength(2);
   });
 });
 
@@ -496,6 +722,35 @@ describe("runConstraintPlanner", () => {
       category: "26 Coral Catch",
       includeStatuses: ["Interested"],
     });
+    expect(run?.droppedParts).toEqual([]);
+  });
+
+  it("catalogs the runtime program vocabulary and validates a program-cohort plan end-to-end", async () => {
+    const records = [recordWithProgram("a", "internship")];
+    let capturedCatalog: PlannerCatalog | undefined;
+    const run = await runConstraintPlanner({
+      provider: makeProvider(
+        vi.fn().mockImplementation(async ({ userPrompt }: { userPrompt: string }) => {
+          capturedCatalog = (JSON.parse(userPrompt) as { catalog: PlannerCatalog }).catalog;
+          return {
+            json: {
+              tagConstraint: null,
+              programConstraint: "internship",
+              budgetMin: null,
+              fieldConstraints: [],
+              enumerationOnly: false,
+              notes: "internship cohort",
+            },
+            modelMetadata: {},
+          };
+        }),
+      ),
+      records,
+      question: "Filter through the internship applicants.",
+    });
+
+    expect(capturedCatalog?.programs).toEqual(["internship"]);
+    expect(run?.plan.programConstraint).toBe("internship");
     expect(run?.droppedParts).toEqual([]);
   });
 });
