@@ -25,6 +25,7 @@ import {
   listContactConversationMessages,
   listContactCurrentConversationFacts,
   setConversationMessageDeactivated,
+  upsertConversationDigestCorrection,
   type ContactConversationDigest,
   type ContactConversationMessage,
 } from "@/lib/data/conversations";
@@ -160,6 +161,54 @@ export async function loadContactAiMemory(
         }
       : null,
   };
+}
+
+const correctDigestLabelSchema = z.object({
+  contactId: z.string(),
+  contentHash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/, "Invalid digest content hash"),
+  label: z.enum(["profile", "status", "noise"]),
+  // The model's TRUE original label (from ContactConversationDigest's
+  // modelRelevance/modelIsNoise) — the caller must never pass a previous
+  // correction's values here, or the calibration dataset's "original" column
+  // would drift away from what the model actually produced.
+  originalRelevance: z.enum(["profile", "status"]).nullable(),
+  originalIsNoise: z.boolean(),
+});
+
+/**
+ * Admin correction of a conversation digest's label (profile / status /
+ * noise) — the calibration surface the AI-visibility badges exist for
+ * (task: digest-label feedback). Every read path (`contact-cards.ts`,
+ * `listContactConversationDigests`, the eval live-lib mirror) overlays
+ * corrections via `conversation_digests_effective`, so this takes effect for
+ * the AI corpus immediately. Never mutates `conversation_digests` — the
+ * model's original output stays intact as data, alongside the correction
+ * pair for taxonomy-prompt tuning (see
+ * `scripts/digest-correction-pairs.test.ts`).
+ */
+export async function correctContactDigestLabel(
+  input: z.infer<typeof correctDigestLabelSchema>,
+): Promise<void> {
+  const profile = await requireAdmin();
+  const parsed = correctDigestLabelSchema.parse(input);
+  validateUUID(parsed.contactId);
+
+  const correctedIsNoise = parsed.label === "noise";
+  const correctedRelevance: "profile" | "status" | null =
+    parsed.label === "noise" ? null : parsed.label;
+
+  await upsertConversationDigestCorrection({
+    contentHash: parsed.contentHash,
+    correctedRelevance,
+    correctedIsNoise,
+    originalRelevance: parsed.originalRelevance,
+    originalIsNoise: parsed.originalIsNoise,
+    correctedBy: profile.id,
+  });
+
+  revalidatePath(`/admin/contacts/${parsed.contactId}`);
 }
 
 /**

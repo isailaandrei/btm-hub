@@ -105,7 +105,9 @@ export async function loadRecords(
         supabase.from("contact_tags")
           .select("contact_id, tag_id, assigned_at, tags(id, name, tag_categories(name))")
           .in("contact_id", ids).order("assigned_at", { ascending: true }),
-        supabase.from("conversation_digests")
+        // Mirrors contact-cards.ts: read the correction-overlaid read-model so
+        // the eval/live scripts see the same corrected labels the AI does.
+        supabase.from("conversation_digests_effective")
           .select("id, contact_id, source, window_start, window_end, summary, source_message_count")
           .in("contact_id", ids).eq("is_noise", false)
           .or(`relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()}`)

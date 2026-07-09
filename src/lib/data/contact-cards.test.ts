@@ -192,7 +192,13 @@ function setupClient(overrides: SetupClientOverrides = {}) {
     ),
   };
   const client = {
-    from: vi.fn((table: keyof typeof queries) => queries[table]),
+    from: vi.fn((table: string) =>
+      // Production reads digests through the correction-overlaid view; route
+      // it to the digest mock so fixtures keep one canonical key.
+      table === "conversation_digests_effective"
+        ? queries.conversation_digests
+        : queries[table as keyof typeof queries],
+    ),
   };
   return { client, queries };
 }
@@ -255,7 +261,9 @@ describe("contact card data loader", () => {
     expect(client.from).toHaveBeenCalledWith("contacts");
     expect(client.from).toHaveBeenCalledWith("contact_events");
     expect(client.from).toHaveBeenCalledWith("contact_tags");
-    expect(client.from).toHaveBeenCalledWith("conversation_digests");
+    // Digests come from the correction-overlaid view, never the raw table.
+    expect(client.from).toHaveBeenCalledWith("conversation_digests_effective");
+    expect(client.from).not.toHaveBeenCalledWith("conversation_digests");
     expect(client.from).toHaveBeenCalledWith("conversation_facts");
     expect(queries.applications.not).toHaveBeenCalledWith("contact_id", "is", null);
     expect(queries.contacts.in).toHaveBeenCalledWith("id", [CONTACT_ID]);
@@ -355,7 +363,7 @@ describe("contact card data loader", () => {
       ],
       contact_events: [],
       contact_tags: [],
-      conversation_digests: [],
+      conversation_digests_effective: [],
       conversation_facts: [],
     });
     vi.mocked(createClient).mockResolvedValue(client as never);

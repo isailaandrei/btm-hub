@@ -172,7 +172,11 @@ async function loadChunkRows(
       .in("contact_id", chunkIds)
       .order("assigned_at", { ascending: true }),
     supabase
-      .from("conversation_digests")
+      // Reads the correction-overlaid read-model (conversation_digests
+      // migration 20260709000001) so an admin's "wrong label?" correction
+      // takes effect for the AI corpus immediately, without mutating the
+      // original digest row.
+      .from("conversation_digests_effective")
       .select(
         "id, contact_id, source, window_start, window_end, summary, source_message_count",
       )

@@ -30,3 +30,13 @@ export function loadContactAiMemoryShared(
   cache.set(contactId, { promise, at: Date.now() });
   return promise;
 }
+
+/**
+ * Evicts the cached entry so the next call re-fetches. Called after a
+ * successful digest-label correction: the correcting section already patches
+ * its own local state optimistically, but a sibling section mounted later
+ * (or a re-mount within the TTL) must not serve the pre-correction snapshot.
+ */
+export function invalidateContactAiMemoryShared(contactId: string): void {
+  cache.delete(contactId);
+}
