@@ -395,6 +395,29 @@ prompt.
 
 ---
 
+## 6. Hard-constraint gaps: DONE Jul 9 + one refinement open
+
+> **IMPLEMENTED Jul 9 2026 (Sonnet agent, Fable-audited, merged to main):**
+> program membership is now a hard TAG-CLASS constraint (deterministic
+> prefilter on `applications.program` with runtime vocabulary, never rescued,
+> enumeration-complete, drops disclosed; both planner and legacy paths), and
+> field constraints ground to one OR MORE whole vocabulary items (op `in`),
+> so an age span grounds every matching bucket instead of silently narrowing.
+> Eval grew to 11 questions (Q10 program cohort — owner's verbatim internship
+> question; Q11 runtime-built demographic multi-value). ACTIVATION: Andrei's
+> cold live eval run must be 11/11.
+
+**Open refinement (small, Opus-able):** the field applier compares RAW answer
+values against bucket vocabulary, so internship's raw-numeric ages ("21")
+miss the deterministic age prefilter and rely on the (disclosed) rescue path.
+Fix: apply the field registry's age normalizer (`normalizeAgeToRange`, used
+by the card renderer) inside `recordMatchesFieldConstraint` for fields that
+declare a normalizer, then tighten Q11's assertion from
+recall-via-rescue to exact prefilter equality. Unit tests: raw "21" matches
+the bucket containing 21; non-numeric garbage still falls through to rescue.
+
+---
+
 ## Deploy checklist (Andrei's own actions, not coding tasks)
 
 - Prod cron scheduling for conversation digests: SQL in
