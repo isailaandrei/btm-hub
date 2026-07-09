@@ -47,7 +47,11 @@ const OVERRIDE_ENV_KEYS = [
 ] as const;
 
 describe.runIf(gateEnabled)("contact AI summaries backfill", () => {
-  const env: Record<string, string> = loadEnv(".env.development.local");
+  // Guarded: describe.runIf still evaluates this callback at collection, so an
+  // env-less checkout (CI, fresh clone) must not crash at import.
+  const env: Record<string, string> = gateEnabled
+    ? loadEnv(".env.development.local")
+    : {};
   const savedEnv: Partial<Record<(typeof OVERRIDE_ENV_KEYS)[number], string>> =
     {};
 
