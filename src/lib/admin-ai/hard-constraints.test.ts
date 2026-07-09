@@ -532,4 +532,79 @@ describe("applyPlannedConstraints", () => {
     ]);
     expect(result.droppedByField).toEqual(["german-speaker"]);
   });
+
+  // --- Age-normalized field matching (§6 refinement, GAP 2 follow-up) ---
+  // `recordMatchesFieldConstraint` runs each record's raw field value through
+  // the registry's `canonical.normalize` hook (generic — driven by whatever
+  // `getFieldEntry(field)?.canonical?.normalize` returns) before the
+  // intersection test. `age` is currently the only field with a normalizer
+  // (`normalizeAgeToRange` in field-registry.ts), so raw internship numeric
+  // text like "21" now matches its AGE_RANGES bucket at the deterministic
+  // prefilter stage instead of missing it and relying on the rescue scan.
+
+  it("matches a raw numeric age value against its bucket via the registry normalizer", () => {
+    const records = [
+      // Internship applications store age as raw numeric text.
+      recordWithAnswers("raw-21", { age: "21" }),
+      recordWithAnswers("raw-40", { age: "40" }),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({
+        fieldConstraints: [
+          { field: "age", op: "in", value: ["18-24", "25-34"] },
+        ],
+      }),
+    );
+    // "21" normalizes to "18-24" (in range) and matches; "40" normalizes to
+    // "35-44" (out of range) and is dropped.
+    expect(result.records.map((r) => r.contact.id)).toEqual(["raw-21"]);
+    expect(result.droppedByField).toEqual(["raw-40"]);
+  });
+
+  it("still matches an already-canonical, bucket-stored age value", () => {
+    const records = [
+      recordWithAnswers("bucketed", { age: "18-24" }),
+      recordWithAnswers("other-bucket", { age: "55+" }),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({
+        fieldConstraints: [{ field: "age", op: "in", value: ["18-24"] }],
+      }),
+    );
+    expect(result.records.map((r) => r.contact.id)).toEqual(["bucketed"]);
+    expect(result.droppedByField).toEqual(["other-bucket"]);
+  });
+
+  it("does not match a non-normalizable garbage age value (falls through to no match / rescue pool)", () => {
+    const records = [recordWithAnswers("garbage", { age: "not an age" })];
+    const result = applyPlannedConstraints(
+      records,
+      plan({
+        fieldConstraints: [
+          { field: "age", op: "in", value: ["18-24", "25-34"] },
+        ],
+      }),
+    );
+    expect(result.records).toEqual([]);
+    expect(result.droppedByField).toEqual(["garbage"]);
+  });
+
+  it("leaves fields WITHOUT a canonical.normalize hook unaffected (raw comparison only)", () => {
+    const records = [
+      recordWithAnswers("advanced", { certification_level: "Advanced Freediver" }),
+      recordWithAnswers("beginner", { certification_level: "Beginner" }),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({
+        fieldConstraints: [
+          { field: "certification_level", op: "contains", value: "advanced" },
+        ],
+      }),
+    );
+    expect(result.records.map((r) => r.contact.id)).toEqual(["advanced"]);
+    expect(result.droppedByField).toEqual(["beginner"]);
+  });
 });

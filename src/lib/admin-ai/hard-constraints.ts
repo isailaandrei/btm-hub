@@ -1,4 +1,5 @@
 import type { PlannerOutput } from "./schemas";
+import { getFieldEntry } from "@/lib/admin/contacts/field-registry";
 import type { ContactCardRecord } from "@/lib/data/contact-cards";
 import type { AdminAiResponse } from "@/types/admin-ai";
 
@@ -419,6 +420,15 @@ function fieldConstraintTargets(
  * answers and the constraint's (possibly multi-valued, e.g. two age buckets)
  * targets — so a scalar constraint against a scalar answer behaves exactly as
  * before.
+ *
+ * When the field's registry entry exposes a `canonical.normalize` hook (see
+ * `field-registry.ts` — currently only `age`, mapping raw internship numeric
+ * text like "21" onto its AGE_RANGES bucket), each raw record value is ALSO
+ * compared via its normalized form. This is generic: any future field that
+ * gains a `canonical` bucket mapping gets prefilter-matching for free, no
+ * field-specific code here. A value that fails to normalize (garbage, or a
+ * field without a normalizer) falls back to the raw-only comparison —
+ * unchanged behavior, no match, routed to the rescue pool.
  */
 function recordMatchesFieldConstraint(
   record: ContactCardRecord,
@@ -427,7 +437,14 @@ function recordMatchesFieldConstraint(
   const targets = fieldConstraintTargets(constraint);
   if (targets.length === 0) return true;
   const values = recordFieldValues(record, constraint.field);
-  return values.some((value) => {
+  const normalize = getFieldEntry(constraint.field)?.canonical?.normalize;
+  const candidateValues = normalize
+    ? values.flatMap((value) => {
+        const normalized = normalize(value);
+        return normalized && normalized !== value ? [value, normalized] : [value];
+      })
+    : values;
+  return candidateValues.some((value) => {
     const lowered = value.toLowerCase();
     return targets.some((target) =>
       constraint.op === "eq" ? lowered === target : lowered.includes(target),

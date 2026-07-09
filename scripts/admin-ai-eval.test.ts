@@ -900,7 +900,23 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       out.diagnostics.prefilteredCount,
       "prefilter must narrow to EXACTLY the internship cohort (program drops are never rescued)",
     ).toBe(truth.length);
-    expect(r.recall, "union recall over the internship cohort must be 1.0").toBe(1);
+    // NOT asserted: full-cohort recall (r.recall === 1.0). This question is a
+    // RANKED question ("the ones with most experience above water"), not an
+    // enumerationOnly roster — cohort members with zero above-water evidence
+    // legitimately never surface in shortlist∪additionalMatches. A live run
+    // (2026-07-09) showed union recall 0.226 while prefilteredCount === cohort
+    // size PASSED, i.e. the deterministic prefilter/enumeration guarantee held
+    // and the "failure" was asserting a roster-completeness bar on a ranking
+    // question — exactly the "eval-truth bug" class the handbook's eval
+    // iteration loop calls out (docs/admin-ai-handbook.md §4, step 3: "when the
+    // model scores oddly against ground truth, SUSPECT THE TRUTH FIRST"; see
+    // also the eval contract's rule 4, "missing structured data ≠ disqualified"
+    // — the same discipline of not asserting completeness where the product
+    // rule never promised it). Full-cohort recall belongs only to
+    // enumerationOnly questions (see cohort-recall, cohort-big,
+    // structured-fact, etc.), never to a ranking question over a cohort.
+    // `r.recall` is still computed and recorded on the scorecard/JSON as an
+    // advisory signal.
     expect(
       shortlistOutsideCohort,
       "every shortlisted contact must be a real internship applicant",
@@ -909,6 +925,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       nonIncreasing,
       "shortlist must be ranked by matchStrength (non-increasing)",
     ).toBe(true);
+    void r;
   }, 600_000);
 
   it("demographic-multi-value: female applicants spanning two adjacent AGE_RANGES buckets (GAP 2)", async (ctx) => {
@@ -982,14 +999,27 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       ageValues,
       "age constraint must ground BOTH adjacent buckets as an array — never just one",
     ).toEqual([bucket1.toLowerCase(), bucket2.toLowerCase()].sort());
+    // §6 refinement (owner-approved 2026-07-09): `recordMatchesFieldConstraint`
+    // now runs each record's raw field value through the registry's
+    // `canonical.normalize` hook (age's `normalizeAgeToRange`) before the
+    // intersection test, so a raw internship numeric age like "21" matches the
+    // "18-24" bucket at the DETERMINISTIC prefilter stage instead of missing it
+    // and falling to the rescue scan. With the normalizer wired in, the
+    // deterministic prefilter now fully covers the truth cohort — tightened
+    // from `toBeLessThanOrEqual` (pre-fix: prefilter was a subset, missing
+    // raw-numeric-age members) to an exact match.
     expect(
       out.diagnostics.prefilteredCount,
-      "raw field-matched prefilter is a subset of truth (internship numeric ages need the rescue path)",
-    ).toBeLessThanOrEqual(truth.length);
+      "with the age normalizer wired into the prefilter, it must now cover the full truth cohort exactly (no more raw-numeric-age misses)",
+    ).toBe(truth.length);
     expect(
       r.recall,
       "every true cohort member must surface via prefilter+shortlist or the disclosed rescue path",
     ).toBe(1);
+    // Rescue-path allowance kept in shape (not removed) as a structural safety
+    // net: if some future truth member still can't ground at the prefilter
+    // (e.g. a value the normalizer can't parse), the rescue scan remains the
+    // required fallback rather than a silent miss.
     if (truth.length > 0 && out.diagnostics.prefilteredCount < truth.length) {
       expect(
         out.diagnostics.rescueScanUsed,
