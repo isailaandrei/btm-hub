@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import type {
   Application,
@@ -392,32 +393,53 @@ export const loadContactCardRecords = cache(
   },
 );
 
+async function loadEligibleRecordsWith(
+  supabase: SupabaseClient,
+): Promise<ContactCardRecord[]> {
+  const { data, error } = await supabase
+    .from("applications")
+    .select("*")
+    .not("contact_id", "is", null)
+    .order("submitted_at", { ascending: false });
+
+  if (error) {
+    throw new Error(
+      `Failed to load eligible applications for cards: ${error.message}`,
+    );
+  }
+
+  const applications = (data ?? []) as Application[];
+  const contactIds = Array.from(
+    new Set(
+      applications
+        .map((application) => application.contact_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  return loadRecordsForContactIds(supabase, contactIds, applications);
+}
+
 export const loadEligibleContactCardRecords = cache(
   async function loadEligibleContactCardRecords(): Promise<ContactCardRecord[]> {
     await requireAdmin();
     const supabase = await createClient();
-
-    const { data, error } = await supabase
-      .from("applications")
-      .select("*")
-      .not("contact_id", "is", null)
-      .order("submitted_at", { ascending: false });
-
-    if (error) {
-      throw new Error(
-        `Failed to load eligible applications for cards: ${error.message}`,
-      );
-    }
-
-    const applications = (data ?? []) as Application[];
-    const contactIds = Array.from(
-      new Set(
-        applications
-          .map((application) => application.contact_id)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    );
-
-    return loadRecordsForContactIds(supabase, contactIds, applications);
+    return loadEligibleRecordsWith(supabase);
   },
 );
+
+/**
+ * Service-role variant of `loadEligibleContactCardRecords` for CRON/script
+ * contexts only — no request scope (no cookies, no admin session) exists
+ * there, so `requireAdmin()`/`createClient()` would throw. Skips the
+ * `requireAdmin()` gate and React `cache()` wrapper (service contexts are
+ * single-shot, not per-request) and reads via the Supabase service-role
+ * client instead, which bypasses RLS. Never call this from a user-facing
+ * (request-scoped) path — use `loadEligibleContactCardRecords` there.
+ */
+export async function loadEligibleContactCardRecordsService(): Promise<
+  ContactCardRecord[]
+> {
+  const supabase = await createAdminClient();
+  return loadEligibleRecordsWith(supabase);
+}

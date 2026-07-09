@@ -4,6 +4,10 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: vi.fn(),
+}));
+
 vi.mock("@/lib/auth/require-admin", () => ({
   requireAdmin: vi.fn(async () => ({
     id: "admin-1",
@@ -295,6 +299,36 @@ describe("contact card data loader", () => {
       ],
       conversationDigests: [{ id: "digest-1", summary: "Discussed budget." }],
       conversationFacts: [{ id: "fact-1", valueText: "$3-5k" }],
+    });
+  });
+
+  it("(service variant) loads eligible contacts via the service-role client without requireAdmin", async () => {
+    // CRON/script contexts have no request scope (no cookies, no admin
+    // session), so this variant must skip requireAdmin()/createClient() and
+    // read via the service-role admin client instead — the whole point of
+    // the fix this test guards.
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { createClient } = await import("@/lib/supabase/server");
+    const { requireAdmin } = await import("@/lib/auth/require-admin");
+    const { client, queries } = setupClient();
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { loadEligibleContactCardRecordsService } = await import(
+      "./contact-cards"
+    );
+    const records = await loadEligibleContactCardRecordsService();
+
+    expect(requireAdmin).not.toHaveBeenCalled();
+    expect(createClient).not.toHaveBeenCalled();
+    expect(createAdminClient).toHaveBeenCalledTimes(1);
+    expect(client.from).toHaveBeenCalledWith("applications");
+    expect(client.from).toHaveBeenCalledWith("contacts");
+    expect(queries.applications.not).toHaveBeenCalledWith("contact_id", "is", null);
+    expect(queries.contacts.in).toHaveBeenCalledWith("id", [CONTACT_ID]);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      contact: { id: CONTACT_ID },
+      applications: [{ id: APP_ID }, { id: OTHER_APP_ID }],
     });
   });
 

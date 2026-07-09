@@ -21,7 +21,7 @@ import {
   upsertContactAiSummary,
 } from "@/lib/data/contact-ai-summaries";
 import {
-  loadEligibleContactCardRecords,
+  loadEligibleContactCardRecordsService,
   type ContactCardRecord,
 } from "@/lib/data/contact-cards";
 import type { AdminAiQueryPlan, AdminAiResponse } from "@/types/admin-ai";
@@ -156,7 +156,7 @@ export async function processContactAiSummaries(
   }
 
   const [records, storedHashes] = await Promise.all([
-    loadEligibleContactCardRecords(),
+    loadEligibleContactCardRecordsService(),
     listContactAiSummaryHashes(),
   ]);
 

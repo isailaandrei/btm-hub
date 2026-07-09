@@ -25,7 +25,7 @@ import {
 import { renderContactCard } from "@/lib/admin-ai/contact-card";
 import { EvidenceAliasRegistry } from "@/lib/admin-ai/evidence-alias";
 import { listContactAiSummaryHashes } from "@/lib/data/contact-ai-summaries";
-import { loadEligibleContactCardRecords } from "@/lib/data/contact-cards";
+import { loadEligibleContactCardRecordsService } from "@/lib/data/contact-cards";
 
 const gateEnabled = process.env.RUN_CONTACT_AI_SUMMARIES === "1";
 const dryRun = process.env.SUMMARIES_DRY_RUN === "1";
@@ -99,7 +99,7 @@ describe.runIf(gateEnabled)("contact AI summaries backfill", () => {
     async () => {
       if (dryRun) {
         const [records, storedHashes] = await Promise.all([
-          loadEligibleContactCardRecords(),
+          loadEligibleContactCardRecordsService(),
           listContactAiSummaryHashes(),
         ]);
         const stale = records.filter((record) => {
