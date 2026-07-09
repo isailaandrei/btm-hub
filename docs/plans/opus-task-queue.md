@@ -435,6 +435,25 @@ the bucket containing 21; non-numeric garbage still falls through to rescue.
 
 ---
 
+## 7. PENDING OWNER DECISION: pin the reduce (generate) to temperature 0
+
+**Observed (Jul 9, concurrent eval runs):** two eval questions flaked on one
+run and passed on the next, identical code — the REDUCE call (`generate` in
+`deepseek-provider.ts`) still samples at default temperature, unlike the map
+(`completeJson`), which was pinned to 0 in July precisely to kill eval flake
+(d78634a). Failure modes seen: reduce emitted zero `assumptions`
+(judgment variance) and omitted `citations` arrays (shape variance → loud
+ZodError). Roughly 2-in-11 assertions are exposed per dice roll.
+
+**Recommendation (Fable):** pin `temperature: 0` on the `generate` path too
+— same determinism doctrine, an admin analyst should answer identically to
+identical questions; reproducibility is the eval's foundation. Secondary
+(optional): one bounded retry when the reduce response fails the Zod parse,
+mirroring the existing empty-content retry. Both are pipeline behavior
+changes → owner sign-off + a fresh 11/11 live eval before shipping.
+
+---
+
 ## Deploy checklist (Andrei's own actions, not coding tasks)
 
 - Prod cron scheduling for conversation digests: SQL in
