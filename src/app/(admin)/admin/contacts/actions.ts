@@ -30,7 +30,6 @@ import {
   type ContactConversationMessage,
 } from "@/lib/data/conversations";
 import { STATUS_DIGEST_FRESHNESS_DAYS } from "@/lib/data/contact-cards";
-import { getContactAiSummary } from "@/lib/data/contact-ai-summaries";
 import { getFieldEntry } from "@/lib/admin/contacts/field-registry";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 import {
@@ -125,8 +124,6 @@ export type ContactAiMemoryData = {
     observedAt: string;
   }>;
   freshnessDays: number;
-  /** AI-written CRM summary (nightly, content-hash refreshed); null until generated. */
-  aiSummary: { summary: string; model: string; generatedAt: string } | null;
 };
 
 /**
@@ -141,10 +138,9 @@ export async function loadContactAiMemory(
 ): Promise<ContactAiMemoryData> {
   await requireAdmin();
   validateUUID(contactId);
-  const [digests, facts, aiSummary] = await Promise.all([
+  const [digests, facts] = await Promise.all([
     listContactConversationDigests(contactId),
     listContactCurrentConversationFacts(contactId),
-    getContactAiSummary(contactId),
   ]);
   return {
     digests,
@@ -153,13 +149,6 @@ export async function loadContactAiMemory(
       label: fact.fieldKey ? (getFieldEntry(fact.fieldKey)?.label ?? null) : null,
     })),
     freshnessDays: STATUS_DIGEST_FRESHNESS_DAYS,
-    aiSummary: aiSummary
-      ? {
-          summary: aiSummary.summary,
-          model: aiSummary.model,
-          generatedAt: aiSummary.generatedAt,
-        }
-      : null,
   };
 }
 

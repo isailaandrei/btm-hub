@@ -185,6 +185,12 @@ runs, or the batch throws (fail loud) and the run does nothing.
 
 ## Contact AI-summary activation (feat/ai-visibility-and-summaries)
 
+> **WITHDRAWN by owner 2026-07-09 — do not run these steps; kept for
+> history.** The per-contact summary was a misunderstanding of what the
+> owner wanted (the WhatsApp digest display, which already existed); the UI
+> block has been removed and this cron must never be scheduled. See
+> `docs/plans/opus-task-queue.md` §1c.
+
 Per-contact AI summaries (queue task 1c): one CRM summary per eligible
 contact, regenerated only when the rendered card's content hash changes.
 Requires `ADMIN_AI_PROVIDER=deepseek` + `DEEPSEEK_API_KEY` wherever it runs.

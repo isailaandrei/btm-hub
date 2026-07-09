@@ -78,7 +78,6 @@ describe("ContactWhatsAppSection", () => {
       digests: [],
       facts: [],
       freshnessDays: 45,
-      aiSummary: null,
     });
     channelStub.on.mockClear();
     channelStub.subscribe.mockClear();

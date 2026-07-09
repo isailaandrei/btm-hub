@@ -150,26 +150,12 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
             <div className="h-10 w-full animate-pulse rounded bg-muted" />
             <div className="h-10 w-3/4 animate-pulse rounded bg-muted" />
           </div>
-        ) : visibleDigests.length === 0 &&
-          data.facts.length === 0 &&
-          !data.aiSummary ? (
+        ) : visibleDigests.length === 0 && data.facts.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No WhatsApp conversation signal yet.
           </p>
         ) : (
           <div className="flex flex-col gap-4">
-            {data.aiSummary && (
-              <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
-                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  AI summary ·{" "}
-                  {new Date(data.aiSummary.generatedAt).toLocaleDateString()} ·{" "}
-                  {data.aiSummary.model}
-                </p>
-                <p className="whitespace-pre-wrap text-sm text-foreground">
-                  {data.aiSummary.summary}
-                </p>
-              </div>
-            )}
             {visibleDigests.length > 0 && (
               <ol className="flex flex-col gap-3">
                 {visibleDigests.map((digest) => {

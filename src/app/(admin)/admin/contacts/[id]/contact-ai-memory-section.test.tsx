@@ -48,7 +48,7 @@ function makeDigest(overrides: Record<string, unknown> = {}) {
 }
 
 function makeMemory(digests: unknown[]) {
-  return { digests, facts: [], freshnessDays: 45, aiSummary: null };
+  return { digests, facts: [], freshnessDays: 45 };
 }
 
 function labelButton(container: HTMLElement, label: string) {
