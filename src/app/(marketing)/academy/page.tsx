@@ -5,7 +5,8 @@ import { AcademyProgramSection } from "@/components/academy/AcademyProgramSectio
 import { RevealOnScroll } from "@/components/home/reveal-on-scroll";
 import { PROGRAM_MARKETING } from "@/lib/academy/marketing";
 import { PROGRAMS } from "@/lib/academy/programs";
-import { getAllProgramsCms } from "@/lib/data/sanity";
+import { panelImage, deepDiveImage } from "@/lib/academy/images";
+import { getAllProgramsCms, getAcademyPageSettings } from "@/lib/data/sanity";
 
 export const metadata: Metadata = {
   title: "Academy — Behind The Mask",
@@ -15,7 +16,10 @@ export const metadata: Metadata = {
 
 export default async function AcademyPage() {
   const programs = Object.values(PROGRAMS);
-  const cmsData = await getAllProgramsCms();
+  const [cmsData, settings] = await Promise.all([
+    getAllProgramsCms(),
+    getAcademyPageSettings(),
+  ]);
   const cmsBySlug = new Map(cmsData.map((program) => [program.slug, program]));
 
   const openBySlug = new Map(
@@ -32,7 +36,8 @@ export default async function AcademyPage() {
     slug: program.slug,
     name: program.name,
     tag: PROGRAM_MARKETING[program.slug].tag,
-    image: PROGRAM_MARKETING[program.slug].panelImage,
+    image: panelImage(cmsBySlug.get(program.slug)),
+    fallbackImage: PROGRAM_MARKETING[program.slug].panelImage,
     href: `/academy/${program.slug}`,
     isOpen: openBySlug.get(program.slug) ?? program.applicationOpen,
   }));
@@ -62,14 +67,14 @@ export default async function AcademyPage() {
               applyHref={`/academy/${program.slug}/apply`}
               detailHref={`/academy/${program.slug}`}
               isOpen={openBySlug.get(program.slug) ?? program.applicationOpen}
-              heroImage={cms?.heroImage}
-              placeholderImage={marketing.placeholderImage}
+              image={deepDiveImage(cms)}
+              fallbackImage={marketing.placeholderImage}
             />
           );
         })}
       </div>
 
-      <AcademyCTABand />
+      <AcademyCTABand backgroundImage={settings?.ctaImage} />
     </div>
   );
 }

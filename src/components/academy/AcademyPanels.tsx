@@ -1,14 +1,19 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import type { SanityImageSource } from "@sanity/image-url";
+
+import { SanityImage } from "@/components/sanity/SanityImage";
 
 export type AcademyPanel = {
   slug: string;
   name: string;
   /** Short hook shown under the name. */
   tag: string;
-  /** Portrait photo filling the panel. */
-  image: string;
+  /** Admin-set portrait photo from Sanity; falls back to {@link fallbackImage}. */
+  image?: SanityImageSource | null;
+  /** Shipped portrait photo, used when no Sanity panel image is set. */
+  fallbackImage: string;
   /** Link to the programme's dedicated page. */
   href: string;
   /** Drives the subtle "Now enrolling" marker. */
@@ -48,14 +53,24 @@ export function AcademyPanels({ panels }: { panels: AcademyPanel[] }) {
             href={panel.href}
             className="group relative isolate flex min-h-[42vh] items-end overflow-hidden bg-[#020306] md:min-h-0"
           >
-            <Image
-              src={panel.image}
-              alt=""
-              aria-hidden
-              fill
-              sizes="(min-width: 768px) 25vw, 50vw"
-              className="object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
-            />
+            {panel.image ? (
+              <SanityImage
+                source={panel.image}
+                alt=""
+                fill
+                sizes="(min-width: 768px) 25vw, 50vw"
+                className="object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
+              />
+            ) : (
+              <Image
+                src={panel.fallbackImage}
+                alt=""
+                aria-hidden
+                fill
+                sizes="(min-width: 768px) 25vw, 50vw"
+                className="object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
+              />
+            )}
             {/* legibility scrim + a wash that lifts on hover */}
             <div className="absolute inset-0 bg-gradient-to-t from-[#020306] via-[#020306]/25 to-transparent" />
             <div className="absolute inset-0 bg-[#020306]/20 transition-colors duration-500 group-hover:bg-transparent" />

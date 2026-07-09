@@ -10,6 +10,7 @@ import {
   ALL_FILM_SLUGS_QUERY,
   PROGRAM_BY_SLUG_QUERY,
   ALL_PROGRAMS_CMS_QUERY,
+  ACADEMY_PAGE_SETTINGS_QUERY,
   TEAM_MEMBERS_QUERY,
   TEAM_MEMBER_BY_SLUG_QUERY,
   ALL_TEAM_MEMBER_SLUGS_QUERY,
@@ -25,6 +26,7 @@ import type {
   FILMS_PAGE_SETTINGS_QUERY_RESULT,
   PROGRAM_BY_SLUG_QUERY_RESULT,
   ALL_PROGRAMS_CMS_QUERY_RESULT,
+  ACADEMY_PAGE_SETTINGS_QUERY_RESULT,
   TEAM_MEMBERS_QUERY_RESULT,
   TEAM_MEMBER_BY_SLUG_QUERY_RESULT,
   PARTNERS_QUERY_RESULT,
@@ -39,6 +41,7 @@ export type FilmCollection = FILM_COLLECTIONS_QUERY_RESULT[number];
 export type FilmsPageSettings = FILMS_PAGE_SETTINGS_QUERY_RESULT;
 export type ProgramContent = PROGRAM_BY_SLUG_QUERY_RESULT;
 export type ProgramCmsSummary = ALL_PROGRAMS_CMS_QUERY_RESULT[number];
+export type AcademyPageSettings = ACADEMY_PAGE_SETTINGS_QUERY_RESULT;
 export type TeamMember = TEAM_MEMBERS_QUERY_RESULT[number];
 export type TeamMemberDetail = TEAM_MEMBER_BY_SLUG_QUERY_RESULT;
 export type Partner = PARTNERS_QUERY_RESULT[number];
@@ -122,6 +125,13 @@ export const getAllProgramsCms = cache(async function getAllProgramsCms() {
   const { data } = await sanityFetch({ query: ALL_PROGRAMS_CMS_QUERY });
   return data;
 });
+
+export const getAcademyPageSettings = cache(
+  async function getAcademyPageSettings() {
+    const { data } = await sanityFetch({ query: ACADEMY_PAGE_SETTINGS_QUERY });
+    return data;
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Team Members

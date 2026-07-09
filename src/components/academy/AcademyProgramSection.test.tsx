@@ -24,8 +24,13 @@ const base = {
   applyHref: "/academy/photography/apply",
   detailHref: "/academy/photography",
   isOpen: true,
-  heroImage: null,
-  placeholderImage: "/images/home/film-3.jpg",
+  image: null,
+  fallbackImage: "/images/home/film-3.jpg",
+}
+
+const cmsImage = {
+  _type: "image" as const,
+  asset: { _ref: "image-abc123-2000x2500-jpg", _type: "reference" as const },
 }
 
 describe("AcademyProgramSection", () => {
@@ -42,9 +47,17 @@ describe("AcademyProgramSection", () => {
     expect(html).not.toContain("Applications closed")
   })
 
-  it("falls back to the placeholder image when there is no Sanity hero image", () => {
+  it("falls back to the local image when there is no Sanity image", () => {
     const html = renderToStaticMarkup(<AcademyProgramSection {...base} />)
     expect(html).toContain("/images/home/film-3.jpg")
+  })
+
+  it("renders the Sanity image (from the CDN) when a CMS image is provided", () => {
+    const html = renderToStaticMarkup(
+      <AcademyProgramSection {...base} image={cmsImage} />,
+    )
+    expect(html).toContain("cdn.sanity.io")
+    expect(html).not.toContain("/images/home/film-3.jpg")
   })
 
   it("shows 'Applications closed' (no apply link) when the programme is closed", () => {

@@ -11,6 +11,7 @@ import { testimonial } from "./objects/testimonial";
 import { film } from "./documents/film";
 import { filmCollection } from "./documents/filmCollection";
 import { filmsPageSettings } from "./documents/filmsPageSettings";
+import { academyPageSettings } from "./documents/academyPageSettings";
 import { program } from "./documents/program";
 import { teamMember } from "./documents/teamMember";
 import { partner } from "./documents/partner";
@@ -27,6 +28,7 @@ export const schemaTypes: SchemaTypeDefinition[] = [
   film,
   filmCollection,
   filmsPageSettings,
+  academyPageSettings,
   program,
   teamMember,
   partner,

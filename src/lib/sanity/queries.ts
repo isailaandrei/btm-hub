@@ -91,7 +91,7 @@ export const ALL_FILM_SLUGS_QUERY = defineQuery(`
 
 export const PROGRAM_BY_SLUG_QUERY = defineQuery(`
   *[_type == "program" && slug == $slug][0] {
-    _id, slug, heroImage, heroVideo, fullDescription, highlights,
+    _id, slug, heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,
     curriculum, instructor->{ _id, name, slug, photo, title },
     gallery, faqs, testimonials, pricing, seoDescription, applicationOpen
   }
@@ -99,7 +99,13 @@ export const PROGRAM_BY_SLUG_QUERY = defineQuery(`
 
 export const ALL_PROGRAMS_CMS_QUERY = defineQuery(`
   *[_type == "program"] {
-    _id, slug, heroImage, applicationOpen
+    _id, slug, heroImage, panelImage, overviewImage, applicationOpen
+  }
+`);
+
+export const ACADEMY_PAGE_SETTINGS_QUERY = defineQuery(`
+  *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {
+    ctaImage
   }
 `);
 

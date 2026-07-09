@@ -44,6 +44,38 @@ export const program = defineType({
       ],
     }),
     defineField({
+      name: "panelImage",
+      title: "Panel Image",
+      type: "image",
+      description:
+        "Portrait photo (roughly 4:5) shown as this programme's tile on the Academy grid. Leave empty to use the shipped default.",
+      options: { hotspot: true },
+      fields: [
+        {
+          name: "alt",
+          type: "string",
+          title: "Alt Text",
+          validation: (rule) => rule.required(),
+        },
+      ],
+    }),
+    defineField({
+      name: "overviewImage",
+      title: "Overview Image",
+      type: "image",
+      description:
+        "Photo used in the deep-dive / overview blocks (displayed cropped to portrait). Leave empty to use the shipped default.",
+      options: { hotspot: true },
+      fields: [
+        {
+          name: "alt",
+          type: "string",
+          title: "Alt Text",
+          validation: (rule) => rule.required(),
+        },
+      ],
+    }),
+    defineField({
       name: "heroVideo",
       title: "Hero Video URL",
       type: "url",

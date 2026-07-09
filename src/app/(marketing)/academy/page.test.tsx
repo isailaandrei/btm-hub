@@ -40,6 +40,7 @@ vi.mock("@/components/home/reveal-on-scroll", () => ({
 }))
 vi.mock("@/lib/data/sanity", () => ({
   getAllProgramsCms: vi.fn().mockResolvedValue([]),
+  getAcademyPageSettings: vi.fn().mockResolvedValue(null),
 }))
 
 const { default: AcademyPage } = await import("./page")

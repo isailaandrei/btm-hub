@@ -6,10 +6,15 @@ import type { ProgramSlug } from "@/types/database";
  * enticing wording is easy for an editor to tweak without touching layout.
  *
  * Two images per programme, both from the dedicated "BTM Academy Maldives 2025"
- * shoot in `/public/images/academy`:
- *  - `panelImage`   — the portrait shot for the four-panel hero.
- *  - `placeholderImage` — the deep-dive section photo, used until a real
- *    programme photo is set on the Sanity `program.heroImage` field (which wins).
+ * shoot in `/public/images/academy`. Both are now the *local fallbacks* behind
+ * admin-editable Sanity images (see `src/lib/academy/images.ts`); the shipped
+ * files below display until an admin uploads a photo in Studio:
+ *  - `panelImage`   — fallback for the four-panel hero tile. Sanity
+ *    `program.panelImage` wins when set.
+ *  - `placeholderImage` — fallback for the deep-dive/overview blocks (both the
+ *    Academy listing and the programme detail page). Sanity
+ *    `program.overviewImage` wins; on the listing, legacy `program.heroImage`
+ *    is the second choice before this local file.
  */
 export type ProgramMarketing = {
   /** Small kicker above the programme name. */
@@ -20,9 +25,10 @@ export type ProgramMarketing = {
   description: string;
   /** Three short "what you'll get" highlights. */
   highlights: string[];
-  /** Portrait photo for the four-panel hero. */
+  /** Local fallback for the four-panel hero tile (Sanity `panelImage` wins). */
   panelImage: string;
-  /** Deep-dive section photo, used until a real programme photo lives in Sanity. */
+  /** Local fallback for the deep-dive/overview blocks (Sanity `overviewImage`,
+   *  then legacy `heroImage` on the listing, win first). */
   placeholderImage: string;
 };
 

@@ -14,10 +14,28 @@ type SchemaField = {
   name: string;
   type: string;
   validation?: unknown;
+  options?: { hotspot?: boolean };
   of?: SchemaField[];
   to?: { type: string }[];
   fields?: SchemaField[];
 };
+
+/** Invokes a field's `validation` with a recording rule to see if it calls
+ *  `.required()` — i.e. whether the field (or nested alt) is mandatory. */
+function isRequired(field: SchemaField | undefined): boolean {
+  let requiredCalled = false;
+  const rule: Record<string, () => unknown> = {};
+  for (const method of ["required", "min", "max", "uri", "unique", "custom"]) {
+    rule[method] = () => {
+      if (method === "required") requiredCalled = true;
+      return rule;
+    };
+  }
+  if (typeof field?.validation === "function") {
+    (field.validation as (r: unknown) => unknown)(rule);
+  }
+  return requiredCalled;
+}
 
 type CustomValidator = (values: unknown) => true | string;
 
@@ -65,14 +83,15 @@ describe("sanity schemas", () => {
     expect(names).toContain("film");
     expect(names).toContain("filmCollection");
     expect(names).toContain("filmsPageSettings");
+    expect(names).toContain("academyPageSettings");
     expect(names).toContain("program");
     expect(names).toContain("teamMember");
     expect(names).toContain("partner");
     expect(names).toContain("homepageVideo");
   });
 
-  it("has 12 total schema types (5 objects + 7 documents)", () => {
-    expect(schemaTypes).toHaveLength(12);
+  it("has 13 total schema types (5 objects + 8 documents)", () => {
+    expect(schemaTypes).toHaveLength(13);
   });
 
   it("homepageVideo schema has a title, youtube id and sort order", () => {
@@ -172,6 +191,39 @@ describe("sanity schemas", () => {
       "showAllVideosRow",
     ]);
     expect(fields.map((field) => field.type)).toEqual(["boolean", "boolean"]);
+  });
+
+  it("academyPageSettings schema exposes a single optional CTA background image", () => {
+    const settings = schemaTypes.find((s) => s.name === "academyPageSettings");
+    const fields = fieldsFor("academyPageSettings");
+    const ctaImage = fields.find((field) => field.name === "ctaImage");
+
+    expect(settings?.type).toBe("document");
+    expect(fields.map((field) => field.name)).toEqual(["ctaImage"]);
+    expect(ctaImage?.type).toBe("image");
+    expect(ctaImage?.options?.hotspot).toBe(true);
+    // Decorative behind an 80% scrim — alt stays optional.
+    const alt = ctaImage?.fields?.find((f) => f.name === "alt");
+    expect(alt?.type).toBe("string");
+    expect(isRequired(alt)).toBe(false);
+  });
+
+  it("program schema exposes panel + overview images with hotspot and required alt", () => {
+    for (const fieldName of ["panelImage", "overviewImage"]) {
+      const field = fieldsFor("program").find((f) => f.name === fieldName);
+      expect(field?.type).toBe("image");
+      expect(field?.options?.hotspot).toBe(true);
+
+      const alt = field?.fields?.find((f) => f.name === "alt");
+      expect(alt?.type).toBe("string");
+      expect(isRequired(alt)).toBe(true);
+    }
+
+    // heroImage keeps its optional alt — unchanged by this feature.
+    const heroAlt = fieldsFor("program")
+      .find((f) => f.name === "heroImage")
+      ?.fields?.find((f) => f.name === "alt");
+    expect(isRequired(heroAlt)).toBe(false);
   });
 
   it("film metadata validators reject normalized duplicate blanks and tags", () => {

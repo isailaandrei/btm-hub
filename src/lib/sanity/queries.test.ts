@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { FILM_BY_SLUG_QUERY } from "./queries";
+import {
+  FILM_BY_SLUG_QUERY,
+  PROGRAM_BY_SLUG_QUERY,
+  ALL_PROGRAMS_CMS_QUERY,
+  ACADEMY_PAGE_SETTINGS_QUERY,
+} from "./queries";
 
 describe("film detail query", () => {
   it("projects credits with resolved team members and external links", () => {
@@ -11,5 +16,29 @@ describe("film detail query", () => {
     expect(FILM_BY_SLUG_QUERY).not.toContain("gallery");
     expect(FILM_BY_SLUG_QUERY).not.toContain("heroImage");
     expect(FILM_BY_SLUG_QUERY).not.toContain("thumbnailImage");
+  });
+});
+
+describe("program queries project the admin-editable images", () => {
+  it("PROGRAM_BY_SLUG_QUERY selects hero, panel and overview images", () => {
+    expect(PROGRAM_BY_SLUG_QUERY).toContain("heroImage");
+    expect(PROGRAM_BY_SLUG_QUERY).toContain("panelImage");
+    expect(PROGRAM_BY_SLUG_QUERY).toContain("overviewImage");
+  });
+
+  it("ALL_PROGRAMS_CMS_QUERY selects hero, panel and overview images", () => {
+    expect(ALL_PROGRAMS_CMS_QUERY).toContain("heroImage");
+    expect(ALL_PROGRAMS_CMS_QUERY).toContain("panelImage");
+    expect(ALL_PROGRAMS_CMS_QUERY).toContain("overviewImage");
+  });
+});
+
+describe("academy page settings query", () => {
+  it("selects the CTA background image from the fixed singleton", () => {
+    expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain(
+      '_type == "academyPageSettings"',
+    );
+    expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain('_id == "academyPageSettings"');
+    expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain("ctaImage");
   });
 });

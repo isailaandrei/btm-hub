@@ -9,6 +9,7 @@ import { portableTextComponents } from "@/lib/sanity/portable-text";
 import { getProgramShowcase } from "@/lib/data/programs";
 import { PROGRAM_SLUGS } from "@/lib/academy/programs";
 import { PROGRAM_MARKETING } from "@/lib/academy/marketing";
+import { detailHeroImage, detailOverviewImage } from "@/lib/academy/images";
 import type { ProgramSlug } from "@/types/database";
 
 const FLOURISH = "/images/home/flourish.svg";
@@ -44,6 +45,8 @@ export default async function ProgramPage({
   // Local marketing copy + academy photos are the always-present baseline;
   // Sanity CMS fields enrich the page when they exist.
   const marketing = PROGRAM_MARKETING[program.slug as ProgramSlug];
+  const heroImage = detailHeroImage(cms);
+  const overviewImage = detailOverviewImage(cms);
   const highlights =
     cms?.highlights && cms.highlights.length > 0
       ? cms.highlights
@@ -54,10 +57,10 @@ export default async function ProgramPage({
       {/* Hero — the programme's signature photo (same shot as its Academy panel) */}
       <section className="relative isolate flex min-h-[70vh] w-full items-end overflow-hidden bg-[#020306] md:min-h-[80vh]">
         <div className="absolute inset-0 -z-10">
-          {cms?.heroImage ? (
+          {heroImage ? (
             <SanityImage
-              source={cms.heroImage}
-              alt={cms.heroImage?.alt || program.name}
+              source={heroImage}
+              alt={cms?.heroImage?.alt || program.name}
               fill
               priority
               sizes="100vw"
@@ -116,14 +119,24 @@ export default async function ProgramPage({
       <section className="border-t border-white/5 py-16 md:py-24">
         <div className="mx-auto grid max-w-[1420px] items-center gap-10 px-5 sm:px-8 md:grid-cols-2 md:gap-16 lg:px-16">
           <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
-            <Image
-              src={marketing.placeholderImage}
-              alt=""
-              aria-hidden
-              fill
-              className="object-cover"
-              sizes="(min-width: 768px) 50vw, 100vw"
-            />
+            {overviewImage ? (
+              <SanityImage
+                source={overviewImage}
+                alt={program.name}
+                fill
+                className="object-cover"
+                sizes="(min-width: 768px) 50vw, 100vw"
+              />
+            ) : (
+              <Image
+                src={marketing.placeholderImage}
+                alt=""
+                aria-hidden
+                fill
+                className="object-cover"
+                sizes="(min-width: 768px) 50vw, 100vw"
+              />
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-[#020306]/45 to-transparent" />
           </div>
 

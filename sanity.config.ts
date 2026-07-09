@@ -21,6 +21,7 @@ export default defineConfig({
             S.documentTypeListItem("film").title("Films"),
             S.documentTypeListItem("filmCollection").title("Collections"),
             S.documentTypeListItem("teamMember").title("Team"),
+            S.documentTypeListItem("program").title("Programs"),
             S.documentTypeListItem("homepageVideo").title("Homepage videos"),
             S.divider(),
             // Less-frequent content, tucked below.
@@ -34,7 +35,15 @@ export default defineConfig({
                   .schemaType("filmsPageSettings")
                   .documentId("filmsPageSettings"),
               ),
-            // "program" is intentionally hidden from the desk — unused on the site.
+            S.listItem()
+              .title("Academy Page Settings")
+              .schemaType("academyPageSettings")
+              .child(
+                S.document()
+                  .title("Academy Page Settings")
+                  .schemaType("academyPageSettings")
+                  .documentId("academyPageSettings"),
+              ),
           ]),
     }),
     presentationTool({
@@ -48,6 +57,10 @@ export default defineConfig({
   schema: {
     types: schemaTypes,
     templates: (templates) =>
-      templates.filter((template) => template.schemaType !== "filmsPageSettings"),
+      templates.filter(
+        (template) =>
+          template.schemaType !== "filmsPageSettings" &&
+          template.schemaType !== "academyPageSettings",
+      ),
   },
 });

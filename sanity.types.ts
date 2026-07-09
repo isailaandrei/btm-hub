@@ -15,6 +15,17 @@
 export declare const internalGroqTypeReferenceTo: unique symbol;
 
 // Source: schema.json
+export type HomepageVideo = {
+  _id: string;
+  _type: "homepageVideo";
+  _createdAt: string;
+  _updatedAt: string;
+  _rev: string;
+  title: string;
+  youtubeId: string;
+  sortOrder?: number;
+};
+
 export type SanityImageAssetReference = {
   _ref: string;
   _type: "reference";
@@ -129,6 +140,22 @@ export type Program = {
     alt?: string;
     _type: "image";
   };
+  panelImage?: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt: string;
+    _type: "image";
+  };
+  overviewImage?: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt: string;
+    _type: "image";
+  };
   heroVideo?: string;
   fullDescription?: PortableText;
   highlights?: Array<string>;
@@ -162,6 +189,22 @@ export type Gallery = {
     _type: "image";
     _key: string;
   }>;
+};
+
+export type AcademyPageSettings = {
+  _id: string;
+  _type: "academyPageSettings";
+  _createdAt: string;
+  _updatedAt: string;
+  _rev: string;
+  ctaImage?: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt?: string;
+    _type: "image";
+  };
 };
 
 export type FilmsPageSettings = {
@@ -400,6 +443,7 @@ export type Geopoint = {
 };
 
 export type AllSanitySchemaTypes =
+  | HomepageVideo
   | SanityImageAssetReference
   | Partner
   | PortableText
@@ -409,6 +453,7 @@ export type AllSanitySchemaTypes =
   | TeamMemberReference
   | Program
   | Gallery
+  | AcademyPageSettings
   | FilmsPageSettings
   | FilmReference
   | FilmCollection
@@ -518,6 +563,15 @@ export type FEATURED_FILMS_QUERY_RESULT = Array<{
 }>;
 
 // Source: src/lib/sanity/queries.ts
+// Variable: HOMEPAGE_VIDEOS_QUERY
+// Query: *[_type == "homepageVideo"] | order(sortOrder asc) {    _id,    title,    youtubeId  }
+export type HOMEPAGE_VIDEOS_QUERY_RESULT = Array<{
+  _id: string;
+  title: string;
+  youtubeId: string;
+}>;
+
+// Source: src/lib/sanity/queries.ts
 // Variable: FILM_COLLECTIONS_QUERY
 // Query: *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {    _id,    title,    slug,    description,    sortOrder,    films[]->{        _id,  title,  slug,  tagline,  videoEmbed,  duration,  releaseYear,  status,  featured,  sortOrder,  locations,  subjects,  formats,  skills,  displayTags,  poster    }  }
 export type FILM_COLLECTIONS_QUERY_RESULT = Array<{
@@ -567,7 +621,7 @@ export type ALL_FILM_SLUGS_QUERY_RESULT = Array<string>;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: PROGRAM_BY_SLUG_QUERY
-// Query: *[_type == "program" && slug == $slug][0] {    _id, slug, heroImage, heroVideo, fullDescription, highlights,    curriculum, instructor->{ _id, name, slug, photo, title },    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen  }
+// Query: *[_type == "program" && slug == $slug][0] {    _id, slug, heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,    curriculum, instructor->{ _id, name, slug, photo, title },    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen  }
 export type PROGRAM_BY_SLUG_QUERY_RESULT = {
   _id: string;
   slug: "filmmaking" | "freediving" | "internship" | "photography";
@@ -577,6 +631,22 @@ export type PROGRAM_BY_SLUG_QUERY_RESULT = {
     hotspot?: SanityImageHotspot;
     crop?: SanityImageCrop;
     alt?: string;
+    _type: "image";
+  } | null;
+  panelImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt: string;
+    _type: "image";
+  } | null;
+  overviewImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt: string;
     _type: "image";
   } | null;
   heroVideo: string | null;
@@ -615,7 +685,7 @@ export type PROGRAM_BY_SLUG_QUERY_RESULT = {
 
 // Source: src/lib/sanity/queries.ts
 // Variable: ALL_PROGRAMS_CMS_QUERY
-// Query: *[_type == "program"] {    _id, slug, heroImage, applicationOpen  }
+// Query: *[_type == "program"] {    _id, slug, heroImage, panelImage, overviewImage, applicationOpen  }
 export type ALL_PROGRAMS_CMS_QUERY_RESULT = Array<{
   _id: string;
   slug: "filmmaking" | "freediving" | "internship" | "photography";
@@ -627,8 +697,38 @@ export type ALL_PROGRAMS_CMS_QUERY_RESULT = Array<{
     alt?: string;
     _type: "image";
   } | null;
+  panelImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt: string;
+    _type: "image";
+  } | null;
+  overviewImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt: string;
+    _type: "image";
+  } | null;
   applicationOpen: boolean | null;
 }>;
+
+// Source: src/lib/sanity/queries.ts
+// Variable: ACADEMY_PAGE_SETTINGS_QUERY
+// Query: *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {    ctaImage  }
+export type ACADEMY_PAGE_SETTINGS_QUERY_RESULT = {
+  ctaImage: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt?: string;
+    _type: "image";
+  } | null;
+} | null;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: TEAM_MEMBERS_QUERY
@@ -751,11 +851,13 @@ declare module "@sanity/client" {
     '\n  *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n  }\n': FILMS_QUERY_RESULT;
     '\n  *[_type == "film" && slug.current == $slug][0] {\n    _id, title, slug, tagline, description, videoEmbed,\n    credits[]{\n      role,\n      name,\n      "teamMember": teamMember->{ _id, name, slug },\n      externalLinks[]{ label, url }\n    },\n    releaseYear, duration, status, featured, sortOrder,\n    locations, subjects, formats, skills, displayTags\n  }\n': FILM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n  }\n': FEATURED_FILMS_QUERY_RESULT;
+    '\n  *[_type == "homepageVideo"] | order(sortOrder asc) {\n    _id,\n    title,\n    youtubeId\n  }\n': HOMEPAGE_VIDEOS_QUERY_RESULT;
     '\n  *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {\n    _id,\n    title,\n    slug,\n    description,\n    sortOrder,\n    films[]->{\n      \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n    }\n  }\n': FILM_COLLECTIONS_QUERY_RESULT;
     '\n  *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {\n    "showLatestRow": coalesce(showLatestRow, true),\n    "showAllVideosRow": coalesce(showAllVideosRow, true)\n  }\n': FILMS_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "film" && defined(slug.current)].slug.current\n': ALL_FILM_SLUGS_QUERY_RESULT;
-    '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
-    '\n  *[_type == "program"] {\n    _id, slug, heroImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;
+    '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
+    '\n  *[_type == "program"] {\n    _id, slug, heroImage, panelImage, overviewImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;
+    '\n  *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {\n    ctaImage\n  }\n': ACADEMY_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "teamMember"] | order(sortOrder asc) {\n    _id, name, slug, photo, title, shortBio, specialties, socialLinks, featured\n  }\n': TEAM_MEMBERS_QUERY_RESULT;
     '\n  *[_type == "teamMember" && defined(slug.current)].slug.current\n': ALL_TEAM_MEMBER_SLUGS_QUERY_RESULT;
     '\n  *[_type == "teamMember" && slug.current == $slug][0] {\n    _id, name, slug, photo, title, shortBio, fullBio, specialties, socialLinks\n  }\n': TEAM_MEMBER_BY_SLUG_QUERY_RESULT;

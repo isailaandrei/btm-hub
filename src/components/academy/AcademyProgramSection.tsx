@@ -20,9 +20,9 @@ type AcademyProgramSectionProps = {
   applyHref: string;
   detailHref: string;
   isOpen: boolean;
-  /** Real programme photo from Sanity; falls back to placeholderImage. */
-  heroImage?: SanityImageSource | null;
-  placeholderImage: string;
+  /** Real programme photo from Sanity; falls back to {@link fallbackImage}. */
+  image?: SanityImageSource | null;
+  fallbackImage: string;
 };
 
 /**
@@ -43,8 +43,8 @@ export function AcademyProgramSection({
   applyHref,
   detailHref,
   isOpen,
-  heroImage,
-  placeholderImage,
+  image,
+  fallbackImage,
 }: AcademyProgramSectionProps) {
   const reverse = index % 2 === 1;
   const number = String(index + 1).padStart(2, "0");
@@ -58,9 +58,9 @@ export function AcademyProgramSection({
         {/* Image — the programme's single photo */}
         <div className={cn("relative", reverse ? "md:order-2" : "md:order-1")}>
           <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
-            {heroImage ? (
+            {image ? (
               <SanityImage
-                source={heroImage}
+                source={image}
                 alt={name}
                 fill
                 className="object-cover"
@@ -68,7 +68,7 @@ export function AcademyProgramSection({
               />
             ) : (
               <Image
-                src={placeholderImage}
+                src={fallbackImage}
                 alt=""
                 aria-hidden
                 fill
