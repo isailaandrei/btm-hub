@@ -325,6 +325,107 @@ describe("conversation data layer", () => {
     expect(exists).toBe(true);
   });
 
+  it("lists digests from the correction-overlaid view with both effective and model labels", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery([
+      {
+        id: "digest-1",
+        content_hash: "hash-1",
+        window_start: "2026-06-11T10:00:00Z",
+        window_end: "2026-06-11T10:30:00Z",
+        // Effective label = the correction (status); model said profile.
+        is_noise: false,
+        relevance: "status",
+        summary: "Arrival logistics for the July trip.",
+        model_is_noise: false,
+        model_relevance: "profile",
+        correction_created_at: "2026-07-09T09:00:00Z",
+      },
+      {
+        id: "digest-2",
+        content_hash: "hash-2",
+        window_start: "2026-06-10T10:00:00Z",
+        window_end: "2026-06-10T10:30:00Z",
+        // No correction: effective = model.
+        is_noise: false,
+        relevance: "profile",
+        summary: "Runs a dive school in Bali.",
+        model_is_noise: false,
+        model_relevance: "profile",
+        correction_created_at: null,
+      },
+    ]);
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { listContactConversationDigests } = await import("./conversations");
+    const result = await listContactConversationDigests("contact-1");
+
+    // Reads the effective view (corrections overlaid), NOT the raw table.
+    expect(client.from).toHaveBeenCalledWith("conversation_digests_effective");
+    expect(client.from).not.toHaveBeenCalledWith("conversation_digests");
+    expect(query.eq).toHaveBeenCalledWith("contact_id", "contact-1");
+    expect(query.order).toHaveBeenCalledWith("window_end", { ascending: false });
+    expect(result).toEqual([
+      {
+        id: "digest-1",
+        contentHash: "hash-1",
+        windowStart: "2026-06-11T10:00:00Z",
+        windowEnd: "2026-06-11T10:30:00Z",
+        isNoise: false,
+        relevance: "status",
+        summary: "Arrival logistics for the July trip.",
+        modelIsNoise: false,
+        modelRelevance: "profile",
+        correctedAt: "2026-07-09T09:00:00Z",
+      },
+      {
+        id: "digest-2",
+        contentHash: "hash-2",
+        windowStart: "2026-06-10T10:00:00Z",
+        windowEnd: "2026-06-10T10:30:00Z",
+        isNoise: false,
+        relevance: "profile",
+        summary: "Runs a dive school in Bali.",
+        modelIsNoise: false,
+        modelRelevance: "profile",
+        correctedAt: null,
+      },
+    ]);
+  });
+
+  it("upserts digest label corrections keyed by content hash", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery([]);
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { upsertConversationDigestCorrection } = await import("./conversations");
+    await upsertConversationDigestCorrection({
+      contentHash: "hash-1",
+      correctedRelevance: null,
+      correctedIsNoise: true,
+      originalRelevance: "profile",
+      originalIsNoise: false,
+      correctedBy: "admin-1",
+    });
+
+    expect(client.from).toHaveBeenCalledWith("conversation_digest_corrections");
+    expect(query.upsert).toHaveBeenCalledWith(
+      [
+        {
+          content_hash: "hash-1",
+          corrected_relevance: null,
+          corrected_is_noise: true,
+          original_relevance: "profile",
+          original_is_noise: false,
+          corrected_by: "admin-1",
+        },
+      ],
+      { onConflict: "content_hash" },
+    );
+  });
+
   it("lists only messages after each contact digest watermark for digesting", async () => {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const client = {

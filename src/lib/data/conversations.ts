@@ -295,24 +295,40 @@ export async function getConversationMessageMediaUrl(
 
 export type ContactConversationDigest = {
   id: string;
+  /** Stable across recalibration re-digests of the identical window — the
+   * correction join key (see conversation_digest_corrections). */
+  contentHash: string;
   windowStart: string;
   windowEnd: string;
+  /** EFFECTIVE label (correction-overlaid, if one exists). */
   isNoise: boolean;
   relevance: "profile" | "status" | null;
   summary: string;
+  /** The model's ORIGINAL label, regardless of any correction — the
+   * calibration reference point ("corrected from X" in the UI). */
+  modelIsNoise: boolean;
+  modelRelevance: "profile" | "status" | null;
+  /** Set when an admin correction exists for this digest's content hash. */
+  correctedAt: string | null;
 };
 
 /**
  * All of a contact's digest windows (signal AND noise), newest first — the
  * AI-visibility surfaces need noise rows too, to explain filtered exchanges.
+ * Reads `conversation_digests_effective` so admin corrections (see
+ * `upsertConversationDigestCorrection`) are already applied to `isNoise` /
+ * `relevance` — every consumer of this loader (badges, the AI-memory section)
+ * inherits corrections automatically without its own overlay logic.
  */
 export async function listContactConversationDigests(
   contactId: string,
 ): Promise<ContactConversationDigest[]> {
   const supabase = await createAdminClient();
   const { data, error } = await supabase
-    .from("conversation_digests")
-    .select("id, window_start, window_end, is_noise, relevance, summary")
+    .from("conversation_digests_effective")
+    .select(
+      "id, content_hash, window_start, window_end, is_noise, relevance, summary, model_is_noise, model_relevance, correction_created_at",
+    )
     .eq("contact_id", contactId)
     .order("window_end", { ascending: false });
   if (error) {
@@ -320,19 +336,74 @@ export async function listContactConversationDigests(
   }
   return ((data ?? []) as Array<{
     id: string;
+    content_hash: string;
     window_start: string;
     window_end: string;
     is_noise: boolean;
     relevance: "profile" | "status" | null;
     summary: string;
+    model_is_noise: boolean;
+    model_relevance: "profile" | "status" | null;
+    correction_created_at: string | null;
   }>).map((row) => ({
     id: row.id,
+    contentHash: row.content_hash,
     windowStart: row.window_start,
     windowEnd: row.window_end,
     isNoise: row.is_noise,
     relevance: row.relevance,
     summary: row.summary,
+    modelIsNoise: row.model_is_noise,
+    modelRelevance: row.model_relevance,
+    correctedAt: row.correction_created_at,
   }));
+}
+
+export type ConversationDigestCorrectionInput = {
+  contentHash: string;
+  /** null maps to a noise correction (see correctContactDigestLabel). */
+  correctedRelevance: "profile" | "status" | null;
+  correctedIsNoise: boolean;
+  /** The model's original label — always pass the TRUE original (from
+   * `modelRelevance`/`modelIsNoise`), never a previous correction, so
+   * re-correcting the same digest doesn't corrupt the calibration dataset. */
+  originalRelevance: string | null;
+  originalIsNoise: boolean;
+  correctedBy: string;
+};
+
+/**
+ * Records (or replaces) an admin's correction of a digest's label, keyed by
+ * content hash so it survives a recalibration wipe + re-digest of the
+ * identical window. Never touches `conversation_digests` — the model's
+ * original output is data. Every read path overlays this via
+ * `conversation_digests_effective`.
+ */
+export async function upsertConversationDigestCorrection(
+  input: ConversationDigestCorrectionInput,
+): Promise<void> {
+  const supabase = await createAdminClient();
+  const { error } = await supabase
+    .from("conversation_digest_corrections")
+    .upsert(
+      [
+        {
+          content_hash: input.contentHash,
+          corrected_relevance: input.correctedRelevance,
+          corrected_is_noise: input.correctedIsNoise,
+          original_relevance: input.originalRelevance,
+          original_is_noise: input.originalIsNoise,
+          corrected_by: input.correctedBy,
+        },
+      ],
+      { onConflict: "content_hash" },
+    );
+
+  if (error) {
+    throw new Error(
+      `Failed to upsert conversation digest correction: ${error.message}`,
+    );
+  }
 }
 
 export type ContactConversationCurrentFact = {

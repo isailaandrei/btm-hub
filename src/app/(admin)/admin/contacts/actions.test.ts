@@ -50,6 +50,16 @@ vi.mock("@/lib/data/profiles", () => ({
   updateProfilePreferences: mockUpdateProfilePreferences,
 }));
 
+const mockUpsertConversationDigestCorrection = vi.fn();
+
+vi.mock("@/lib/data/conversations", () => ({
+  listContactConversationDigests: vi.fn(),
+  listContactConversationMessages: vi.fn(),
+  listContactCurrentConversationFacts: vi.fn(),
+  setConversationMessageDeactivated: vi.fn(),
+  upsertConversationDigestCorrection: mockUpsertConversationDigestCorrection,
+}));
+
 vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
 }));
@@ -61,6 +71,7 @@ const {
   editContact,
   deleteApplication,
   loadContactEmailSection,
+  correctContactDigestLabel,
 } = await import(
   "./actions"
 );
@@ -298,5 +309,124 @@ describe("bulkUnassignTag", () => {
   it("does nothing for empty array", async () => {
     await bulkUnassignTag([], VALID_UUID);
     expect(mockBulkUnassignTags).not.toHaveBeenCalled();
+  });
+});
+
+describe("correctContactDigestLabel", () => {
+  const CONTENT_HASH = "a".repeat(64);
+
+  beforeEach(() => {
+    mockRevalidatePath.mockReset();
+    mockUpsertConversationDigestCorrection
+      .mockReset()
+      .mockResolvedValue(undefined);
+  });
+
+  it("throws for an invalid contact UUID before touching the data layer", async () => {
+    await expect(
+      correctContactDigestLabel({
+        contactId: "not-a-uuid",
+        contentHash: CONTENT_HASH,
+        label: "status",
+        originalRelevance: "profile",
+        originalIsNoise: false,
+      }),
+    ).rejects.toThrow("Invalid");
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed content hash", async () => {
+    await expect(
+      correctContactDigestLabel({
+        contactId: VALID_UUID,
+        contentHash: "not-a-hash",
+        label: "status",
+        originalRelevance: "profile",
+        originalIsNoise: false,
+      }),
+    ).rejects.toThrow();
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("rejects labels outside profile/status/noise", async () => {
+    await expect(
+      correctContactDigestLabel({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        // @ts-expect-error — invalid label must be rejected at runtime too
+        label: "spam",
+        originalRelevance: "profile",
+        originalIsNoise: false,
+      }),
+    ).rejects.toThrow();
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("maps a noise correction to corrected_is_noise with no relevance", async () => {
+    await correctContactDigestLabel({
+      contactId: VALID_UUID,
+      contentHash: CONTENT_HASH,
+      label: "noise",
+      originalRelevance: "profile",
+      originalIsNoise: false,
+    });
+
+    expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith({
+      contentHash: CONTENT_HASH,
+      correctedRelevance: null,
+      correctedIsNoise: true,
+      originalRelevance: "profile",
+      originalIsNoise: false,
+      // Attribution comes from requireAdmin's profile, never the client.
+      correctedBy: mockProfile.id,
+    });
+  });
+
+  it("maps profile/status corrections to a relevance with is_noise false", async () => {
+    await correctContactDigestLabel({
+      contactId: VALID_UUID,
+      contentHash: CONTENT_HASH,
+      label: "status",
+      originalRelevance: "profile",
+      originalIsNoise: false,
+    });
+
+    expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correctedRelevance: "status",
+        correctedIsNoise: false,
+      }),
+    );
+
+    await correctContactDigestLabel({
+      contactId: VALID_UUID,
+      contentHash: CONTENT_HASH,
+      label: "profile",
+      originalRelevance: null,
+      originalIsNoise: true,
+    });
+
+    expect(mockUpsertConversationDigestCorrection).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        correctedRelevance: "profile",
+        correctedIsNoise: false,
+        originalRelevance: null,
+        originalIsNoise: true,
+      }),
+    );
+  });
+
+  it("revalidates the contact detail path after a correction", async () => {
+    await correctContactDigestLabel({
+      contactId: VALID_UUID,
+      contentHash: CONTENT_HASH,
+      label: "status",
+      originalRelevance: "profile",
+      originalIsNoise: false,
+    });
+
+    expect(mockRevalidatePath).toHaveBeenCalledWith(
+      `/admin/contacts/${VALID_UUID}`,
+    );
   });
 });
