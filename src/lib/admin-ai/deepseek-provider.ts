@@ -33,6 +33,13 @@ const VALID_REASONING_EFFORTS = new Set(["high", "max"]);
 // this is deliberately generous rather than a retry trigger.
 const DEEPSEEK_REQUEST_TIMEOUT_MS = 360_000;
 const PROVIDER_UNAVAILABLE_REASON = "Admin AI is not configured yet.";
+// 429 (rate limit) and 5xx (upstream/server error) are transient — 2 EXTRA
+// attempts (3 total) with jittered backoff before failing loud. Other HTTP
+// statuses (4xx auth/validation errors) are not retried; retrying a bad
+// request just burns the same error three times.
+const HTTP_STATUS_RETRY_ATTEMPTS = 2;
+const HTTP_STATUS_RETRY_BACKOFF_MIN_MS = 2_000;
+const HTTP_STATUS_RETRY_BACKOFF_MAX_MS = 8_000;
 
 type DeepSeekChatCompletion = {
   id?: string;
@@ -98,6 +105,34 @@ function getBaseUrl(): string {
   // override exists so the same code can later point at US/EU hosts serving
   // DeepSeek weights.
   return raw.replace(/\/+$/, "");
+}
+
+/**
+ * Thrown for a non-ok DeepSeek HTTP response, carrying the status code so
+ * `callDeepSeekWithStatusRetry` can decide whether it's retryable (429/5xx)
+ * without re-parsing the error message, and so the final failure states the
+ * status explicitly (fail loud, never silently degrade).
+ */
+class DeepSeekHttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "DeepSeekHttpError";
+    this.status = status;
+  }
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+function jitteredHttpRetryBackoffMs(): number {
+  const span = HTTP_STATUS_RETRY_BACKOFF_MAX_MS - HTTP_STATUS_RETRY_BACKOFF_MIN_MS;
+  return HTTP_STATUS_RETRY_BACKOFF_MIN_MS + Math.random() * span;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function parseErrorResponse(response: Response): Promise<string> {
@@ -250,7 +285,10 @@ async function callDeepSeek(input: {
       httpStatus: response.status,
       error: message,
     });
-    throw new Error(`DeepSeek admin AI request failed: ${message}`);
+    throw new DeepSeekHttpError(
+      response.status,
+      `DeepSeek admin AI request failed (HTTP ${response.status}): ${message}`,
+    );
   }
 
   // The body read sits outside the fetch try/catch above, but DeepSeek streams
@@ -287,6 +325,40 @@ async function callDeepSeek(input: {
     outputChars: content.length,
   });
   return { payload, content };
+}
+
+/**
+ * Wraps a single `callDeepSeek` round trip with a bounded retry for
+ * transient provider failures — HTTP 429 (rate limit) and 5xx (upstream/
+ * server error) — distinct from the empty-content retry in
+ * `requestDeepSeekJson`. Composes with it rather than duplicating: EVERY
+ * `callDeepSeek` invocation (the first attempt AND the empty-content retry)
+ * goes through this wrapper, so both failure modes are covered without a
+ * second retry loop. Non-retryable statuses (4xx other than 429) and non-HTTP
+ * errors (timeouts, network failures) pass through immediately — those are
+ * not this wrapper's concern and keep their existing (non-retried) behavior.
+ */
+async function callDeepSeekWithStatusRetry(
+  args: Parameters<typeof callDeepSeek>[0],
+): Promise<{ payload: DeepSeekChatCompletion; content: string }> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await callDeepSeek(args);
+    } catch (error) {
+      const retryable =
+        error instanceof DeepSeekHttpError && isRetryableHttpStatus(error.status);
+      if (!retryable || attempt >= HTTP_STATUS_RETRY_ATTEMPTS) throw error;
+      const backoffMs = jitteredHttpRetryBackoffMs();
+      adminAiDebugLog("deepseek-status-retry", {
+        scope: args.scope,
+        status: (error as DeepSeekHttpError).status,
+        attempt: attempt + 1,
+        maxAttempts: HTTP_STATUS_RETRY_ATTEMPTS + 1,
+        backoffMs: Math.round(backoffMs),
+      });
+      await delay(backoffMs);
+    }
+  }
 }
 
 type ParsedJsonEnvelope = { value: unknown };
@@ -342,7 +414,7 @@ async function requestDeepSeekJson<T>(input: {
     printPayload: input.printPayload,
   };
 
-  let { payload, content } = await callDeepSeek(callArgs);
+  let { payload, content } = await callDeepSeekWithStatusRetry(callArgs);
   let parsed = input.parse(content);
   if (parsed === null) {
     // DeepSeek's json_object mode may occasionally return empty/invalid
@@ -351,7 +423,7 @@ async function requestDeepSeekJson<T>(input: {
       scope: input.scope,
       contentChars: content.length,
     });
-    ({ payload, content } = await callDeepSeek(callArgs));
+    ({ payload, content } = await callDeepSeekWithStatusRetry(callArgs));
     parsed = input.parse(content);
     if (parsed === null) {
       throw new Error(

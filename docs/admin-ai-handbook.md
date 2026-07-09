@@ -151,7 +151,7 @@ see §6.
 ## 4. The eval suite — the only safe way to change anything
 
 ```
-RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-ai-eval.test.ts --disableConsoleIntercept
+RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrency=3 scripts/admin-ai-eval.test.ts --disableConsoleIntercept
 ```
 
 ~$0.30–0.45 and ~5 min per run against the LIVE DB + DeepSeek (keys from

@@ -10,6 +10,19 @@
  */
 import { parseOptionalBooleanEnv } from "./env";
 
+// Debug-dump filenames are stamped with the current millisecond, which can
+// collide when multiple questions/calls fire concurrently (e.g. the eval
+// harness running its 11 questions with describe.concurrent, each fanning out
+// ~11-15 parallel DeepSeek calls). A module-level monotonic counter guarantees
+// a unique suffix regardless of timestamp collisions — debug-only, no effect
+// on the actual request/response pipeline.
+let debugFileSequence = 0;
+
+function nextDebugFileSequence(): number {
+  debugFileSequence += 1;
+  return debugFileSequence;
+}
+
 function shouldPrintRequestPayload(): boolean {
   const explicit = parseOptionalBooleanEnv(
     process.env.ADMIN_AI_PRINT_OPENAI_PAYLOAD,
@@ -32,7 +45,8 @@ async function writeAdminAiPayloadDebugFiles(input: {
   const dir = path.join(process.cwd(), ".admin-ai-debug");
   await mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const base = path.join(dir, `${stamp}-${input.scope}`);
+  const sequence = nextDebugFileSequence();
+  const base = path.join(dir, `${stamp}-${sequence}-${input.scope}`);
   await Promise.all([
     writeFile(`${base}.system.txt`, input.systemPrompt, "utf8"),
     writeFile(`${base}.user.txt`, input.userPrompt, "utf8"),

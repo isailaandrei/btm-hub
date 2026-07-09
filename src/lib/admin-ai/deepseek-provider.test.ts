@@ -230,19 +230,89 @@ describe("deepSeekAdminAiProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("surfaces the DeepSeek error message on HTTP failure without retrying", async () => {
+  it("surfaces the DeepSeek error message on a non-retryable HTTP failure without retrying", async () => {
+    // 400 is neither 429 nor 5xx, so it must fail on the first attempt —
+    // retrying a bad request just burns the same error three times.
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
-      status: 429,
-      statusText: "Too Many Requests",
-      json: async () => ({ error: { message: "Rate limit reached" } }),
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({ error: { message: "Invalid request" } }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
       deepSeekAdminAiProvider.generate(makeGenerateInput()),
-    ).rejects.toThrow("Rate limit reached");
+    ).rejects.toThrow("Invalid request");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("HTTP status retry (429/5xx)", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("retries on 429 then 503 (jittered backoff, floor >= 2s) and succeeds on the third attempt", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+          json: async () => ({ error: { message: "Rate limit reached" } }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: "Service Unavailable",
+          json: async () => ({ error: { message: "Upstream overloaded" } }),
+        })
+        .mockResolvedValueOnce(makeCompletionResponse(JSON.stringify(OK_PAYLOAD)));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = deepSeekAdminAiProvider.generate(makeGenerateInput());
+
+      // Backoff floor is 2s — well under that, no retry should have fired yet.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Two retries, each capped at 8s, comfortably finish within 20s total.
+      await vi.advanceTimersByTimeAsync(19_000);
+      const result = await promise;
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(result.response.shortlist?.[0]?.contactName).toBe("Marina Costa");
+    });
+
+    it("exhausts the retry budget on repeated 429s and fails loud with the status in the error", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: "Too Many Requests",
+        json: async () => ({ error: { message: "Rate limit reached" } }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const outcome = deepSeekAdminAiProvider
+        .generate(makeGenerateInput())
+        .then(
+          () => ({ ok: true as const }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await outcome;
+
+      // 1 initial attempt + 2 retries = 3 total, never a 4th.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBeInstanceOf(Error);
+        expect((result.error as Error).message).toContain("HTTP 429");
+        expect((result.error as Error).message).toContain("Rate limit reached");
+      }
+    });
   });
 
   it("maps a timeout during the response body read to the descriptive error", async () => {
@@ -432,6 +502,28 @@ describe("deepSeekAdminAiProvider", () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(result.json).toEqual(JSON.parse(MAP_CONTENT));
+    });
+
+    it("retries on HTTP 5xx and succeeds — same status-retry wrapper as generate()", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          json: async () => ({ error: { message: "boom" } }),
+        })
+        .mockResolvedValueOnce(makeCompletionResponse(MAP_CONTENT));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = deepSeekAdminAiProvider.completeJson!(completeJsonInput());
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await promise;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.json).toEqual(JSON.parse(MAP_CONTENT));
+      vi.useRealTimers();
     });
   });
 });

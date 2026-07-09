@@ -2,7 +2,7 @@
 
 One page: what each eval question asserts and the product rule it encodes.
 Every rule here is a decision Andrei owns — veto or amend any line and the
-suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-ai-eval.test.ts --disableConsoleIntercept` (~$0.30).
+suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrency=3 scripts/admin-ai-eval.test.ts --disableConsoleIntercept` (~$0.30). The 11 questions run concurrently (capped at 3) — do not raise the cap: each question already fans out ~11-15 parallel DeepSeek calls, so 3 concurrent questions can burst to ~45 in-flight provider calls and risks 429/5xx rate limiting.
 
 ## The 11 questions
 

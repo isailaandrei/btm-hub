@@ -2,7 +2,7 @@
  * Admin-AI live eval harness — a repeatable scorecard for the admin AI so every
  * future prompt/architecture change is measured, not vibed.
  *
- * Run: RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-ai-eval.test.ts
+ * Run: RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrency=3 scripts/admin-ai-eval.test.ts
  *
  * Gated behind RUN_ADMIN_AI_EVAL so the normal suite never runs it. It hits the
  * live DB (.env.development.local service-role key) and the real DeepSeek API,
@@ -11,9 +11,20 @@
  * are the join key; the one id constant below is a documented canary).
  *
  * Env is forced within the run (saved/restored): ADMIN_AI_PROVIDER=deepseek,
- * ADMIN_AI_SCAN_MODE=map_reduce, DEEPSEEK_THINKING off. Each question is one
- * serial it() (600s timeout) and is independent — a scored assertion failing
- * fails only that question. Full JSON is written to .admin-ai-debug/.
+ * ADMIN_AI_SCAN_MODE=map_reduce, DEEPSEEK_THINKING off. The 11 questions run
+ * CONCURRENTLY (describe.concurrent) — each it() is still independent (a scored
+ * assertion failing fails only that question) and its own timeout is preserved
+ * (600s normal, 1_800_000ms for Q11). Concurrency is capped at 3 via the CLI
+ * `--maxConcurrency=3` flag above (vitest 4 has no per-suite concurrency-limit
+ * option, only the global/CLI one) — DO NOT run with a higher cap: each
+ * question internally fans out ~11-15 parallel DeepSeek calls for its own
+ * map/reduce, so 3 concurrent questions can already burst to ~45 in-flight
+ * provider calls and risks 429/5xx rate limiting. `results` is a shared array
+ * (each test only ever appends via `results.push`, which is safe under
+ * concurrent execution — JS is single-threaded and push() is synchronous) but
+ * completion order is no longer question order, so the scorecard/JSON sort by
+ * canonical `order` before printing/writing (see QUESTION_ORDER below). Full
+ * JSON is written to .admin-ai-debug/.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -45,8 +56,40 @@ const YANG_YANG_ID = "6b21215b-c67a-4e71-84f0-f343fd5601a1";
 const CORAL = "26 Coral Catch";
 const SCUBASPA = "26 Maldives Academy ScubaSpa";
 
+// Canonical question order (matches the file's written order, Q1-Q11) — the
+// suite now runs describe.concurrent, so completion order is no longer
+// question order. The scorecard/JSON must stay deterministic regardless of
+// which question's DeepSeek calls finish first, so every EvalResult carries
+// an `order` looked up from this fixed list rather than push order.
+const QUESTION_ORDER = [
+  "cohort-recall",
+  "cohort-big",
+  "status-trap",
+  "structured-fact",
+  "note-canary",
+  "negative-control",
+  "declined-recall",
+  "broad-advisory",
+  "qualifier-trap",
+  "program-cohort",
+  "demographic-multi",
+] as const;
+
+// Fails loud (never silently mis-sorts) if a question's `key` isn't in
+// QUESTION_ORDER — e.g. a future question added without updating the list.
+function orderOf(key: string): number {
+  const index = QUESTION_ORDER.indexOf(key as (typeof QUESTION_ORDER)[number]);
+  if (index === -1) {
+    throw new Error(
+      `[admin-ai-eval] unknown question key "${key}" — add it to QUESTION_ORDER`,
+    );
+  }
+  return index;
+}
+
 type EvalResult = {
   key: string;
+  order: number;
   question: string;
   truthCount: number | null;
   recall: number | null;
@@ -279,7 +322,7 @@ function writeResults(results: EvalResult[]): void {
 // Suite
 // ---------------------------------------------------------------------------
 
-describe.runIf(gateEnabled)("admin-ai eval", () => {
+describe.runIf(gateEnabled).concurrent("admin-ai eval", () => {
   const env: Record<string, string> = (() => {
     try {
       return loadEnv(".env.development.local");
@@ -325,6 +368,11 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       else process.env[key] = original;
     }
     if (results.length > 0) {
+      // Concurrent execution means push order tracks completion order, not
+      // question order — sort by the canonical order before either consumer
+      // sees the array, so the scorecard/JSON report is deterministic
+      // regardless of which DeepSeek calls finished first.
+      results.sort((a, b) => a.order - b.order);
       writeResults(results);
       printScorecard(results);
     }
@@ -358,6 +406,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
 
   type EvalBase = Omit<
     EvalResult,
+    | "order"
     | "costUsd"
     | "shortlistCount"
     | "additionalCount"
@@ -393,6 +442,7 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     const union = unionIds(out.response);
     const full: EvalResult = {
       ...base,
+      order: orderOf(base.key),
       truthIds,
       unionIds: [...union],
       missingIds: truthIds.filter((id) => !union.has(id)),
