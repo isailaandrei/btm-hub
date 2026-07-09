@@ -37,13 +37,24 @@ const MAX_ITERATIONS = 100;
 // admin client from process.env, which Vitest's global setup points at a
 // not-running local stack — OVERWRITE (plain assignment) from
 // .env.development.local, restore after.
-const OVERRIDE_ENV_KEYS = [
+//
+// REQUIRED vs OPTIONAL: the DB target and provider key must be present — a
+// missing one would silently point this at the wrong project or run with no
+// provider key, so throw loudly. DEEPSEEK_MODEL/DEEPSEEK_BASE_URL are just
+// provider tuning knobs that the DeepSeek client already defaults when unset,
+// so they're overridden only when present in the env file.
+const REQUIRED_ENV_KEYS = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
   "ADMIN_AI_PROVIDER",
   "DEEPSEEK_API_KEY",
-  "DEEPSEEK_MODEL",
-  "DEEPSEEK_BASE_URL",
+] as const;
+
+const OPTIONAL_ENV_KEYS = ["DEEPSEEK_MODEL", "DEEPSEEK_BASE_URL"] as const;
+
+const OVERRIDE_ENV_KEYS = [
+  ...REQUIRED_ENV_KEYS,
+  ...OPTIONAL_ENV_KEYS,
 ] as const;
 
 describe.runIf(gateEnabled)("contact AI summaries backfill", () => {
@@ -56,7 +67,7 @@ describe.runIf(gateEnabled)("contact AI summaries backfill", () => {
     {};
 
   beforeAll(() => {
-    for (const key of OVERRIDE_ENV_KEYS) {
+    for (const key of REQUIRED_ENV_KEYS) {
       const value = env[key];
       if (!value) {
         throw new Error(`.env.development.local is missing ${key}`);
@@ -64,6 +75,12 @@ describe.runIf(gateEnabled)("contact AI summaries backfill", () => {
       const current = process.env[key];
       if (current !== undefined) savedEnv[key] = current;
       process.env[key] = value;
+    }
+    for (const key of OPTIONAL_ENV_KEYS) {
+      const current = process.env[key];
+      if (current !== undefined) savedEnv[key] = current;
+      const value = env[key];
+      if (value !== undefined) process.env[key] = value;
     }
   });
 
