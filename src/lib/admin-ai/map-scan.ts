@@ -23,7 +23,15 @@ const USAGE_KEYS = [
 type MapScanUsage = Record<(typeof USAGE_KEYS)[number], number>;
 
 export type MapScanResult = {
+  // Corpus-ordered, deduped union of every flagged candidate (strong + weak).
+  // Progress reporting and the "small corpus" reduce path both treat this as
+  // "total flagged" — that meaning is unchanged by strength grading.
   candidateIds: Set<string>;
+  // Corpus-ordered subsets of candidateIds, disjoint from each other by
+  // construction (each candidate carries exactly one strength; chunks partition
+  // the corpus so a contact is graded by exactly one chunk).
+  strongIds: Set<string>;
+  weakIds: Set<string>;
   // Corpus-ordered, deduped near-miss ids (disjoint from candidateIds). Consulted
   // by the reduce ONLY when the full-match union is empty (see orchestrator).
   nearMissIds: Set<string>;
@@ -32,6 +40,8 @@ export type MapScanResult = {
     chunkCount: number;
     chunkSize: number;
     candidateCount: number;
+    strongCount: number;
+    weakCount: number;
     nearMissCount: number;
     retriedChunkCount: number;
     usage: MapScanUsage;
@@ -61,11 +71,13 @@ export function buildMapExtractionSystemPrompt(): string {
     "Err on the side of inclusion only WHEN a specific quotable statement exists but its relevance is uncertain — include it and let a later stage judge. Missing a contact who has such a statement is the failure mode; flagging vague interest is noise.",
     "When you are unsure whether a specific statement satisfies the question, include the candidate — relevance uncertainty is resolved by the next stage, and rare or niche criteria especially warrant inclusion on partial matches (e.g. a related environment, activity, or experience).",
     "`evidenceSummary` MUST contain the decisive statement quoted verbatim from the card; name its source line label too (for example `Call note` or `Ultimate Vision`).",
+    "Grade every candidate's `strength` as `strong` or `weak`. `strong` means the quoted evidence DIRECTLY satisfies the question's core criterion — it is a clear, specific match, not merely related. `weak` means the evidence is real and quotable but its relevance to the question's core criterion is partial or uncertain — a related but not exact match, a plausible fit that requires interpretation, or evidence that only partially covers a multi-part question.",
+    "Grading strength never changes whether you include a candidate: err-on-inclusion is unchanged — when unsure, include the candidate and grade it `weak`. NEVER omit a candidate because its evidence is weak; only omit when there is no specific quotable statement at all.",
     "When — and ONLY when — NO contact in this batch is a full match AND the question states a RARE, highly specific, or multi-part criterion, you MAY record up to 3 `nearMisses`: contacts whose card holds real PARTIAL evidence toward the question.",
     "Each near-miss MUST quote the real partial evidence verbatim in `evidenceSummary` and name the specific aspect of the question it does NOT satisfy in `missingAspect`. Never invent evidence or overstate a partial match.",
     "When selecting near-misses, prefer candidates whose evidence matches the question's RAREST and most DISTINCTIVE terms — a named environment, place, specialty, or activity — over candidates who merely match its common theme: a card containing the question's distinctive term is always a stronger near-miss than generic topical overlap.",
     "If ANY contact in this batch is a full match, or the question is broad or common, return `nearMisses` empty.",
-    'Return valid JSON matching this contract: {"candidates":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string"}],"nearMisses":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string","missingAspect":"string"}]}.',
+    'Return valid JSON matching this contract: {"candidates":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string","strength":"strong"|"weak"}],"nearMisses":[{"contactId":"uuid","contactName":"string","evidenceSummary":"string","missingAspect":"string"}]}.',
     'Return {"candidates":[],"nearMisses":[]} when no contact in this batch has a specific quotable statement relevant to the question.',
   ].join(" ");
 }
@@ -137,6 +149,22 @@ export async function runMapScan(input: {
     });
     // Zod-validate the extraction here (fail loud on a malformed chunk).
     const parsed = mapExtractionSchema.parse(json);
+    // A missing `strength` is defaulted to "strong" by the schema (inclusion-safe:
+    // never trimmed by the reduce cap) — log the omission for calibration, never
+    // throw over grading noise. Index-matched against the raw candidates because
+    // a successful parse validates every element in place (same length/order).
+    const rawCandidates = Array.isArray((json as { candidates?: unknown })?.candidates)
+      ? ((json as { candidates: unknown[] }).candidates)
+      : [];
+    parsed.candidates.forEach((candidate, i) => {
+      const raw = rawCandidates[i] as { strength?: unknown } | undefined;
+      if (raw && raw.strength === undefined) {
+        adminAiDebugLog("map-strength-missing", {
+          chunkIndex,
+          contactId: candidate.contactId,
+        });
+      }
+    });
     results[chunkIndex] = {
       candidates: parsed.candidates,
       nearMisses: parsed.nearMisses,
@@ -170,6 +198,8 @@ export async function runMapScan(input: {
   }
 
   const flagged = new Set<string>();
+  const flaggedStrong = new Set<string>();
+  const flaggedWeak = new Set<string>();
   const flaggedNearMiss = new Set<string>();
   results.forEach((result, chunkIndex) => {
     const candidates = result?.candidates ?? [];
@@ -193,6 +223,11 @@ export async function runMapScan(input: {
         continue;
       }
       flagged.add(candidate.contactId);
+      if (candidate.strength === "weak") {
+        flaggedWeak.add(candidate.contactId);
+      } else {
+        flaggedStrong.add(candidate.contactId);
+      }
     }
     // Per-chunk gate: near-misses count ONLY from a chunk that produced zero full
     // matches (prevents candidate re-inflation on chunks that already qualified).
@@ -214,10 +249,16 @@ export async function runMapScan(input: {
   });
 
   // Dedupe by contactId while preserving corpus (oldest-first) order. Near-miss
-  // ids are kept disjoint from full-match candidates.
+  // ids are kept disjoint from full-match candidates. strongIds/weakIds are
+  // disjoint from each other by construction (each candidate has exactly one
+  // strength, and chunks partition the corpus without overlap).
   const candidateIds = new Set<string>();
+  const strongIds = new Set<string>();
+  const weakIds = new Set<string>();
   for (const card of cards) {
     if (flagged.has(card.contactId)) candidateIds.add(card.contactId);
+    if (flaggedStrong.has(card.contactId)) strongIds.add(card.contactId);
+    if (flaggedWeak.has(card.contactId)) weakIds.add(card.contactId);
   }
   const nearMissIds = new Set<string>();
   for (const card of cards) {
@@ -242,18 +283,24 @@ export async function runMapScan(input: {
   timer.end({
     status: "ok",
     candidateCount: candidateIds.size,
+    strongCount: strongIds.size,
+    weakCount: weakIds.size,
     nearMissCount: nearMissIds.size,
     retriedChunkCount,
   });
 
   return {
     candidateIds,
+    strongIds,
+    weakIds,
     nearMissIds,
     scanMetadata: {
       mode: "map_reduce",
       chunkCount: chunks.length,
       chunkSize: MAP_CHUNK_SIZE,
       candidateCount: candidateIds.size,
+      strongCount: strongIds.size,
+      weakCount: weakIds.size,
       nearMissCount: nearMissIds.size,
       retriedChunkCount,
       usage,

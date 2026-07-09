@@ -26,6 +26,7 @@ import {
 } from "./admin-ai-live-lib";
 import { deepSeekAdminAiProvider } from "@/lib/admin-ai/deepseek-provider";
 import {
+  REDUCE_CANDIDATE_CAP,
   runGlobalSynthesis,
   type GlobalSynthesisDiagnostics,
 } from "@/lib/admin-ai/orchestrator";
@@ -65,6 +66,12 @@ type EvalResult = {
   // The map-union candidate ids fed to the reduce — reveals whether a dropped
   // contact was lost by the map or the reduce. JSON-only (off the scorecard).
   candidateIds: string[];
+  // Strength-graded reduce assembly (task 4): strong candidates are never
+  // trimmed; weak candidates fill the remaining REDUCE_CANDIDATE_CAP capacity.
+  strongCount: number;
+  weakFlaggedCount: number;
+  weakIncludedCount: number;
+  analysisNote: string | undefined;
   nearMissCandidateCount: number;
   nearMissModeUsed: boolean;
   // Evidence rescue scan over field/budget-dropped contacts (JSON-only forensics).
@@ -347,6 +354,10 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
     | "prefilteredCount"
     | "candidateCount"
     | "candidateIds"
+    | "strongCount"
+    | "weakFlaggedCount"
+    | "weakIncludedCount"
+    | "analysisNote"
     | "nearMissCandidateCount"
     | "nearMissModeUsed"
     | "rescueScanUsed"
@@ -380,6 +391,10 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       prefilteredCount: d.prefilteredCount,
       candidateCount: d.candidateCount,
       candidateIds: d.candidateIds,
+      strongCount: d.strongCount,
+      weakFlaggedCount: d.weakFlaggedCount,
+      weakIncludedCount: d.weakIncludedCount,
+      analysisNote: d.analysisNote,
       nearMissCandidateCount: d.nearMissCandidateCount,
       nearMissModeUsed: d.nearMissModeUsed,
       rescueScanUsed: d.rescueScanUsed,
@@ -729,6 +744,29 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
       "shortlist must respect the 10-entry cap",
     ).toBeLessThanOrEqual(10);
     expect(nonIncreasing, "matchStrength must be non-increasing across the shortlist").toBe(true);
+
+    // Strength-graded reduce cap (task 4, owner-approved 2026-07-08): the
+    // confirmed reduce set (strong + included-weak candidates) must never
+    // exceed max(REDUCE_CANDIDATE_CAP, strongCount) — strong evidence is never
+    // trimmed, even past the cap, and weak evidence only fills the remainder.
+    const reduceSetSize = out.diagnostics.strongCount + out.diagnostics.weakIncludedCount;
+    expect(
+      reduceSetSize,
+      "confirmed reduce set (strong + included-weak) must respect max(REDUCE_CANDIDATE_CAP, strongCount)",
+    ).toBeLessThanOrEqual(Math.max(REDUCE_CANDIDATE_CAP, out.diagnostics.strongCount));
+
+    // When the weak tier is capped, the trim must be disclosed, never silent —
+    // either in the code-composed analysisNote fed to the reduce, or (best
+    // effort) echoed by the model into `uncertainty`.
+    if (out.diagnostics.weakFlaggedCount > out.diagnostics.weakIncludedCount) {
+      const disclosureFragment =
+        "showed weaker or partial evidence for this question and were not analyzed in depth";
+      const combinedDisclosureText = `${out.diagnostics.analysisNote ?? ""} ${out.response.uncertainty.join(" ")}`;
+      expect(
+        combinedDisclosureText,
+        "weak-tier cap trim must be disclosed via analysisNote or the response's uncertainty",
+      ).toContain(disclosureFragment);
+    }
   }, 600_000);
 
   it("qualifier-trap: 'professional equipment' must rank, not hard-filter, the cohort", async (ctx) => {

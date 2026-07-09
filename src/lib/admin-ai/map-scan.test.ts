@@ -42,7 +42,11 @@ function cardsInPrompt(
 }
 
 function completion(
-  candidates: Array<{ contactId: string; contactName: string }>,
+  candidates: Array<{
+    contactId: string;
+    contactName: string;
+    strength?: "strong" | "weak";
+  }>,
   usage: Record<string, unknown> | null = null,
 ) {
   return {
@@ -132,6 +136,43 @@ describe("mapExtractionSchema nearMisses", () => {
         nearMisses: [
           { contactId: uuid(0), contactName: "C0", evidenceSummary: "partial" },
         ],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("mapExtractionSchema strength", () => {
+  const uuid = (i: number) =>
+    `${String(i).padStart(8, "0")}-1111-4111-8111-111111111111`;
+  const baseCandidate = (i: number) => ({
+    contactId: uuid(i),
+    contactName: `C${i}`,
+    evidenceSummary: "quote",
+  });
+
+  it("defaults strength to 'strong' when the model omits it (inclusion-safe)", () => {
+    const parsed = mapExtractionSchema.parse({ candidates: [baseCandidate(0)] });
+    expect(parsed.candidates[0]!.strength).toBe("strong");
+  });
+
+  it("accepts an explicit 'weak' grade", () => {
+    const parsed = mapExtractionSchema.parse({
+      candidates: [{ ...baseCandidate(0), strength: "weak" }],
+    });
+    expect(parsed.candidates[0]!.strength).toBe("weak");
+  });
+
+  it("accepts an explicit 'strong' grade", () => {
+    const parsed = mapExtractionSchema.parse({
+      candidates: [{ ...baseCandidate(0), strength: "strong" }],
+    });
+    expect(parsed.candidates[0]!.strength).toBe("strong");
+  });
+
+  it("rejects a strength value outside the strong/weak enum", () => {
+    expect(
+      mapExtractionSchema.safeParse({
+        candidates: [{ ...baseCandidate(0), strength: "medium" }],
       }).success,
     ).toBe(false);
   });
@@ -376,6 +417,83 @@ describe("runMapScan onChunkComplete", () => {
     expect(events.map((event) => event.candidateCount)).toEqual([1, 1]);
     expect(new Set(events.map((event) => event.chunkIndex))).toEqual(
       new Set([0, 1]),
+    );
+  });
+});
+
+describe("runMapScan strength grading", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("splits flagged candidates into disjoint strongIds/weakIds, corpus-ordered", async () => {
+    const cards = Array.from({ length: 40 }, (_, i) => makeCard(i));
+    const provider = makeProvider(async ({ userPrompt }) => {
+      const inChunk = cardsInPrompt(userPrompt);
+      // Chunk 0's first card is graded strong; chunk 1's first card is weak.
+      const strength = inChunk[0]!.contactId === cards[0]!.contactId ? "strong" : "weak";
+      return completion([{ ...inChunk[0]!, strength }]);
+    });
+
+    const result = await runMapScan({ provider, cards, question: "q" });
+
+    expect([...result.strongIds]).toEqual([cards[0]!.contactId]);
+    expect([...result.weakIds]).toEqual([cards[30]!.contactId]);
+    // candidateIds keeps its existing "total flagged" meaning — the union.
+    expect([...result.candidateIds]).toEqual([cards[0]!.contactId, cards[30]!.contactId]);
+    expect(result.scanMetadata.strongCount).toBe(1);
+    expect(result.scanMetadata.weakCount).toBe(1);
+    expect(result.scanMetadata.candidateCount).toBe(2);
+  });
+
+  it("defaults an omitted strength to 'strong' (inclusion-safe) end-to-end", async () => {
+    const cards = [makeCard(0)];
+    const provider = makeProvider(async ({ userPrompt }) => {
+      const inChunk = cardsInPrompt(userPrompt);
+      // No `strength` field on the candidate at all.
+      return completion([{ contactId: inChunk[0]!.contactId, contactName: inChunk[0]!.contactName }]);
+    });
+
+    const result = await runMapScan({ provider, cards, question: "q" });
+
+    expect([...result.strongIds]).toEqual([cards[0]!.contactId]);
+    expect(result.weakIds.size).toBe(0);
+  });
+
+  it("logs map-strength-missing (never throws) when a candidate omits strength", async () => {
+    vi.stubEnv("DEBUG_ADMIN_AI", "1");
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const cards = [makeCard(0)];
+    const provider = makeProvider(async ({ userPrompt }) => {
+      const inChunk = cardsInPrompt(userPrompt);
+      return completion([{ contactId: inChunk[0]!.contactId, contactName: inChunk[0]!.contactName }]);
+    });
+
+    await expect(
+      runMapScan({ provider, cards, question: "q" }),
+    ).resolves.toBeDefined();
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[admin-ai][debug] map-strength-missing",
+      expect.objectContaining({ chunkIndex: 0, contactId: cards[0]!.contactId }),
+    );
+  });
+
+  it("does not log map-strength-missing when the model supplies an explicit strength", async () => {
+    vi.stubEnv("DEBUG_ADMIN_AI", "1");
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const cards = [makeCard(0)];
+    const provider = makeProvider(async ({ userPrompt }) => {
+      const inChunk = cardsInPrompt(userPrompt);
+      return completion([{ ...inChunk[0]!, strength: "weak" }]);
+    });
+
+    await runMapScan({ provider, cards, question: "q" });
+
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      "[admin-ai][debug] map-strength-missing",
+      expect.anything(),
     );
   });
 });

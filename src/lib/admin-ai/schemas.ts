@@ -230,6 +230,12 @@ export const mapExtractionSchema = z.object({
       contactId: uuidSchema,
       contactName: z.string(),
       evidenceSummary: z.string(),
+      // strong = the quoted evidence DIRECTLY satisfies the question's core
+      // criterion; weak = real quotable evidence whose relevance is partial or
+      // uncertain. Defaults to "strong" when the model omits it (inclusion-safe:
+      // an ungraded candidate is never trimmed by the reduce cap). The map-scan
+      // caller logs the omission for calibration; it never fails the parse.
+      strength: z.enum(["strong", "weak"]).default("strong"),
     }),
   ),
   // Emitted ONLY when a chunk has zero full matches and the question states a

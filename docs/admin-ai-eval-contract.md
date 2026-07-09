@@ -42,6 +42,14 @@ suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run scripts/admin-a
    queries can't inflate.
 7. **Budget minimums** parse the budget field + conversation facts; "under /
    below / limited" fail; missing budget now goes through the rescue scan (rule 4).
+8. **Strong evidence is never trimmed; weak evidence may be capped (60) with
+   disclosure.** Map candidates are strength-graded (`strong` = evidence
+   directly satisfies the question's core criterion; `weak` = real quotable
+   evidence with partial/uncertain relevance). The reduce set is ALL strong
+   candidates in corpus order, plus weak candidates in corpus order up to
+   `REDUCE_CANDIDATE_CAP` (60) — strong candidates are included regardless of
+   the cap. Trimmed weak candidates are counted and disclosed, never silently
+   dropped. *(Andrei owner-approved 2026-07-08.)*
 
 ## Open questions (not yet decided — flag if you care)
 

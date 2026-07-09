@@ -495,6 +495,73 @@ function buildRescueAnalysisNote(rescuedNames: string[]): string {
   return `Contacts [${names}] did NOT satisfy the deterministic filter(s) via structured data, but a scan of their other evidence (notes, call logs, messages, essay answers) suggests they may qualify. Field-confirmed contacts are authoritative. Include rescued contacts only with explicit uncertainty stating that the structured field does not confirm them — the admin makes the final decision.`;
 }
 
+// Reduce-set cap for strength-graded map candidates (task 4, owner-approved
+// 2026-07-08): strong evidence is NEVER trimmed, even past this cap; weak
+// evidence fills the remaining capacity in corpus order and any overflow is
+// counted and disclosed rather than silently dropped (see `assembleReduceSet`).
+export const REDUCE_CANDIDATE_CAP = 60;
+
+export type AssembleReduceSetInput = {
+  // Ids the map scan graded "strong" — never trimmed, regardless of `cap`.
+  strongIds: Set<string>;
+  // Ids the map scan graded "weak" — fill the remaining capacity under `cap`,
+  // in corpus order; any beyond that are trimmed (counted, never silently lost).
+  weakIds: Set<string>;
+  // Full corpus in the SAME order the cards were sent to the map (oldest-first),
+  // so both tiers are appended in stable, deterministic order.
+  corpusOrder: string[];
+  cap?: number;
+};
+
+export type AssembleReduceSetResult = {
+  // Corpus-ordered ids to send to the reduce: every strong id, then as many
+  // weak ids (in corpus order) as fit under the cap.
+  confirmedIds: string[];
+  strongCount: number;
+  // How many weak candidates the map flagged in total (before capping).
+  weakFlaggedCount: number;
+  // How many weak candidates actually made it into confirmedIds.
+  weakIncludedCount: number;
+  // weakFlaggedCount - weakIncludedCount — the disclosed, never-silent overflow.
+  weakTrimmedCount: number;
+};
+
+/**
+ * Pure assembly rule for the strength-graded map → reduce set. Kept separate
+ * from the orchestrator's I/O so cap-boundary and ordering behavior can be
+ * unit-tested directly, without mocking the whole pipeline.
+ */
+export function assembleReduceSet(
+  input: AssembleReduceSetInput,
+): AssembleReduceSetResult {
+  const { strongIds, weakIds, corpusOrder, cap = REDUCE_CANDIDATE_CAP } = input;
+  const strongOrdered: string[] = [];
+  const weakOrdered: string[] = [];
+  for (const id of corpusOrder) {
+    if (strongIds.has(id)) strongOrdered.push(id);
+    else if (weakIds.has(id)) weakOrdered.push(id);
+  }
+  const strongCount = strongOrdered.length;
+  const weakFlaggedCount = weakOrdered.length;
+  const remainingCapacity = Math.max(cap - strongCount, 0);
+  const includedWeak = weakOrdered.slice(0, remainingCapacity);
+  const weakIncludedCount = includedWeak.length;
+  return {
+    confirmedIds: [...strongOrdered, ...includedWeak],
+    strongCount,
+    weakFlaggedCount,
+    weakIncludedCount,
+    weakTrimmedCount: weakFlaggedCount - weakIncludedCount,
+  };
+}
+
+// Code-driven disclosure injected into the reduce (composed with any near-miss/
+// rescue note, exactly like `buildRescueAnalysisNote`) when the weak-tier cap
+// trims candidates — a deterministic, always-true fact, never a judgment call.
+function buildWeakCapAnalysisNote(trimmedCount: number): string {
+  return `${trimmedCount} additional contacts showed weaker or partial evidence for this question and were not analyzed in depth — narrow the question to surface them.`;
+}
+
 /**
  * A prefilter outcome shared by both global-scope paths (constraint planner and
  * the legacy deterministic filters) so downstream synthesis, disclosure, the
@@ -867,6 +934,14 @@ export type GlobalSynthesisDiagnostics = {
   // The map-union candidate ids fed to the reduce (forensics: whether a contact
   // was dropped by the map or the reduce). JSON-only; kept off the scorecard.
   candidateIds: string[];
+  // Strength-graded reduce assembly (task 4): how many strong/weak candidates
+  // the map flagged, and how many weak ones actually made it past the
+  // REDUCE_CANDIDATE_CAP. strongCount is 0 when the map did not run (mapUsed
+  // false) or the small-corpus path was taken. weakFlaggedCount > weakIncludedCount
+  // means the cap trimmed candidates — always disclosed via `analysisNote`.
+  strongCount: number;
+  weakFlaggedCount: number;
+  weakIncludedCount: number;
   // Near-miss tier (double-gated): how many partial-match ids the map surfaced,
   // and whether the reduce actually ran over them (full union was empty).
   nearMissCandidateCount: number;
@@ -879,6 +954,10 @@ export type GlobalSynthesisDiagnostics = {
   appendedByEnumeration: number;
   idRepairs: number;
   idDrops: number;
+  // The code-composed near-miss/rescue/weak-cap disclosure sent to the reduce as
+  // guidance (see NEAR_MISS_ANALYSIS_NOTE / buildRescueAnalysisNote /
+  // buildWeakCapAnalysisNote). Undefined when no disclosure applied.
+  analysisNote: string | undefined;
   usage: PipelineUsage;
 };
 
@@ -937,6 +1016,9 @@ export async function runGlobalSynthesis(input: {
     mapUsed: false,
     candidateCount: 0,
     candidateIds: [],
+    strongCount: 0,
+    weakFlaggedCount: 0,
+    weakIncludedCount: 0,
     nearMissCandidateCount: 0,
     nearMissModeUsed: false,
     rescueScanUsed: false,
@@ -945,6 +1027,7 @@ export async function runGlobalSynthesis(input: {
     appendedByEnumeration: 0,
     idRepairs: 0,
     idDrops: 0,
+    analysisNote: undefined,
     usage,
     ...extra,
   });
@@ -1031,6 +1114,9 @@ export async function runGlobalSynthesis(input: {
   let synthesisChatEvidence = chatEvidence;
   let scanMetadata: MapScanResult["scanMetadata"] | null = null;
   let mapUsed = false;
+  let strongCount = 0;
+  let weakFlaggedCount = 0;
+  let weakIncludedCount = 0;
   let nearMissCandidateCount = 0;
   let nearMissModeUsed = false;
   let rescueScanUsed = false;
@@ -1107,8 +1193,31 @@ export async function runGlobalSynthesis(input: {
         // Small confirmed corpus: every confirmed card goes to the reduce.
         confirmedCards = cards;
       } else if (mainResult.candidateIds.size > 0) {
-        const { candidateIds } = mainResult;
-        confirmedCards = cards.filter((card) => candidateIds.has(card.contactId));
+        // Strength-graded assembly (task 4): ALL strong candidates always reach
+        // the reduce; weak candidates fill the remaining REDUCE_CANDIDATE_CAP
+        // capacity in corpus order. Trimmed weaks are counted and disclosed via
+        // `analysisNote`, never silently dropped.
+        const corpusOrder = cards.map((card) => card.contactId);
+        const assembled = assembleReduceSet({
+          strongIds: mainResult.strongIds,
+          weakIds: mainResult.weakIds,
+          corpusOrder,
+        });
+        strongCount = assembled.strongCount;
+        weakFlaggedCount = assembled.weakFlaggedCount;
+        weakIncludedCount = assembled.weakIncludedCount;
+        const confirmedIdSet = new Set(assembled.confirmedIds);
+        confirmedCards = cards.filter((card) => confirmedIdSet.has(card.contactId));
+        if (assembled.weakTrimmedCount > 0) {
+          const weakCapNote = buildWeakCapAnalysisNote(assembled.weakTrimmedCount);
+          analysisNote = analysisNote ? `${analysisNote}\n\n${weakCapNote}` : weakCapNote;
+          adminAiDebugLog("map-weak-cap-trim", {
+            strongCount,
+            weakFlaggedCount,
+            weakIncludedCount,
+            weakTrimmedCount: assembled.weakTrimmedCount,
+          });
+        }
       } else if (mainResult.nearMissIds.size > 0) {
         // Near-miss tier: no full match among confirmed cards, only partials.
         nearMissModeUsed = true;
@@ -1240,6 +1349,9 @@ export async function runGlobalSynthesis(input: {
           mapUsed,
           candidateCount: synthesisCards.length,
           candidateIds: synthesisCards.map((card) => card.contactId),
+          strongCount,
+          weakFlaggedCount,
+          weakIncludedCount,
           nearMissCandidateCount,
           nearMissModeUsed,
           rescueScanUsed,
@@ -1247,6 +1359,7 @@ export async function runGlobalSynthesis(input: {
           rescuedIds,
           idRepairs: repaired.idRepairs,
           idDrops: repaired.idDrops,
+          analysisNote,
         }),
       };
     }
@@ -1270,6 +1383,16 @@ export async function runGlobalSynthesis(input: {
       droppedShortlistContactIds: droppedContactIds,
     },
     ...(scanMetadata ? { scan: scanMetadata } : {}),
+    ...(strongCount > 0 || weakFlaggedCount > 0
+      ? {
+          weakCap: {
+            cap: REDUCE_CANDIDATE_CAP,
+            strongCount,
+            weakFlaggedCount,
+            weakIncludedCount,
+          },
+        }
+      : {}),
     ...(nearMissModeUsed
       ? { nearMiss: { candidateCount: nearMissCandidateCount, modeUsed: true } }
       : {}),
@@ -1301,6 +1424,9 @@ export async function runGlobalSynthesis(input: {
       mapUsed,
       candidateCount: synthesisCards.length,
       candidateIds: synthesisCards.map((card) => card.contactId),
+      strongCount,
+      weakFlaggedCount,
+      weakIncludedCount,
       nearMissCandidateCount,
       nearMissModeUsed,
       rescueScanUsed,
@@ -1309,6 +1435,7 @@ export async function runGlobalSynthesis(input: {
       appendedByEnumeration: enumResult.appended,
       idRepairs: repaired.idRepairs,
       idDrops: repaired.idDrops,
+      analysisNote,
     }),
   };
 }

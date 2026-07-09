@@ -2116,3 +2116,148 @@ describe("runGlobalSynthesis (evidence rescue scan)", () => {
     expect(generateArg.cards.map((c) => c.contactId)).toEqual([CONTACT_ID]);
   });
 });
+
+describe("assembleReduceSet (strength-graded reduce cap, task 4)", () => {
+  it("exports REDUCE_CANDIDATE_CAP as 60", async () => {
+    const { REDUCE_CANDIDATE_CAP } = await import("./orchestrator");
+    expect(REDUCE_CANDIDATE_CAP).toBe(60);
+  });
+
+  it("preserves corpus order for both the strong and weak tiers", async () => {
+    const { assembleReduceSet } = await import("./orchestrator");
+    const corpusOrder = ["d", "c", "b", "a"];
+    const result = assembleReduceSet({
+      strongIds: new Set(["b", "d"]),
+      weakIds: new Set(["a", "c"]),
+      corpusOrder,
+    });
+
+    // Strongs first, in corpus order, then weaks, in corpus order.
+    expect(result.confirmedIds).toEqual(["d", "b", "c", "a"]);
+    expect(result.strongCount).toBe(2);
+    expect(result.weakFlaggedCount).toBe(2);
+    expect(result.weakIncludedCount).toBe(2);
+    expect(result.weakTrimmedCount).toBe(0);
+  });
+
+  it("sends ALL strong candidates even when they alone exceed the cap, including zero weak", async () => {
+    const { assembleReduceSet } = await import("./orchestrator");
+    const corpusOrder = Array.from({ length: 70 }, (_, i) => `s${i}`).concat([
+      "w0",
+      "w1",
+    ]);
+    const strongIds = new Set(corpusOrder.slice(0, 65)); // 65 strong ids, > cap
+    const weakIds = new Set(["w0", "w1"]);
+    const result = assembleReduceSet({
+      strongIds,
+      weakIds,
+      corpusOrder,
+      cap: 60,
+    });
+
+    expect(result.strongCount).toBe(65);
+    expect(result.weakFlaggedCount).toBe(2);
+    expect(result.weakIncludedCount).toBe(0);
+    expect(result.weakTrimmedCount).toBe(2);
+    // Every strong id made it in, in corpus order; no weak ids at all.
+    expect(result.confirmedIds).toEqual(corpusOrder.slice(0, 65));
+    expect(result.confirmedIds.length).toBe(65);
+  });
+
+  it("cap boundary: strong count exactly at the cap includes zero weak", async () => {
+    const { assembleReduceSet } = await import("./orchestrator");
+    const strongOrder = Array.from({ length: 10 }, (_, i) => `s${i}`);
+    const weakOrder = Array.from({ length: 5 }, (_, i) => `w${i}`);
+    const result = assembleReduceSet({
+      strongIds: new Set(strongOrder),
+      weakIds: new Set(weakOrder),
+      corpusOrder: [...strongOrder, ...weakOrder],
+      cap: 10, // cap === strongCount
+    });
+
+    expect(result.strongCount).toBe(10);
+    expect(result.weakIncludedCount).toBe(0);
+    expect(result.weakTrimmedCount).toBe(5);
+    expect(result.confirmedIds).toEqual(strongOrder);
+  });
+
+  it("fills the remaining capacity under the cap with weak ids in corpus order, trimming the overflow", async () => {
+    const { assembleReduceSet } = await import("./orchestrator");
+    const strongOrder = Array.from({ length: 10 }, (_, i) => `s${i}`);
+    const weakOrder = Array.from({ length: 8 }, (_, i) => `w${i}`);
+    const result = assembleReduceSet({
+      strongIds: new Set(strongOrder),
+      weakIds: new Set(weakOrder),
+      corpusOrder: [...strongOrder, ...weakOrder],
+      cap: 15, // remaining capacity = 15 - 10 = 5
+    });
+
+    expect(result.strongCount).toBe(10);
+    expect(result.weakFlaggedCount).toBe(8);
+    expect(result.weakIncludedCount).toBe(5);
+    expect(result.weakTrimmedCount).toBe(3);
+    // The first 5 weak ids in corpus order are included; the rest are trimmed.
+    expect(result.confirmedIds).toEqual([...strongOrder, ...weakOrder.slice(0, 5)]);
+  });
+
+  it("uses REDUCE_CANDIDATE_CAP (60) as the default cap when none is supplied", async () => {
+    const { assembleReduceSet } = await import("./orchestrator");
+    const strongOrder = Array.from({ length: 55 }, (_, i) => `s${i}`);
+    const weakOrder = Array.from({ length: 10 }, (_, i) => `w${i}`);
+    const result = assembleReduceSet({
+      strongIds: new Set(strongOrder),
+      weakIds: new Set(weakOrder),
+      corpusOrder: [...strongOrder, ...weakOrder],
+    });
+
+    // remaining capacity = 60 - 55 = 5
+    expect(result.weakIncludedCount).toBe(5);
+    expect(result.weakTrimmedCount).toBe(5);
+  });
+
+  it("returns an empty set with all-zero counts when nothing was flagged", async () => {
+    const { assembleReduceSet } = await import("./orchestrator");
+    const result = assembleReduceSet({
+      strongIds: new Set(),
+      weakIds: new Set(),
+      corpusOrder: ["a", "b", "c"],
+    });
+
+    expect(result.confirmedIds).toEqual([]);
+    expect(result.strongCount).toBe(0);
+    expect(result.weakFlaggedCount).toBe(0);
+    expect(result.weakIncludedCount).toBe(0);
+    expect(result.weakTrimmedCount).toBe(0);
+  });
+
+  it("disclosure count math: weakTrimmedCount always equals weakFlaggedCount minus weakIncludedCount", async () => {
+    const { assembleReduceSet } = await import("./orchestrator");
+    const cases = [
+      { strong: 0, weak: 0, cap: 60 },
+      { strong: 3, weak: 0, cap: 60 },
+      { strong: 0, weak: 3, cap: 60 },
+      { strong: 59, weak: 10, cap: 60 },
+      { strong: 60, weak: 10, cap: 60 },
+      { strong: 61, weak: 10, cap: 60 },
+      { strong: 5, weak: 5, cap: 5 },
+    ];
+    for (const { strong, weak, cap } of cases) {
+      const strongOrder = Array.from({ length: strong }, (_, i) => `s${i}`);
+      const weakOrder = Array.from({ length: weak }, (_, i) => `w${i}`);
+      const result = assembleReduceSet({
+        strongIds: new Set(strongOrder),
+        weakIds: new Set(weakOrder),
+        corpusOrder: [...strongOrder, ...weakOrder],
+        cap,
+      });
+      expect(result.weakTrimmedCount).toBe(
+        result.weakFlaggedCount - result.weakIncludedCount,
+      );
+      // Strong is NEVER trimmed, even past the cap.
+      expect(result.strongCount).toBe(strong);
+      expect(result.confirmedIds.filter((id) => id.startsWith("s")).length).toBe(
+        strong,
+      );
+    }
+  });
+});
