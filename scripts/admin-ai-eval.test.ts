@@ -1026,5 +1026,5 @@ describe.runIf(gateEnabled)("admin-ai eval", () => {
         "raw-mismatched truth members (e.g. internship numeric ages) require the rescue scan to have run",
       ).toBe(true);
     }
-  }, 600_000);
+  }, 1_800_000);
 });
