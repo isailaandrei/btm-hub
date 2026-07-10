@@ -9,8 +9,6 @@ import {
   renameEmailTemplate,
 } from "@/lib/data/email-templates";
 import {
-  assertMailyDocument,
-  renderMailyDocument,
 } from "@/lib/email/rendering/maily";
 import { createTemplateVersionFromDocument } from "@/lib/email/template-authoring";
 import { validateUUID } from "@/lib/validation-helpers";
@@ -130,26 +128,6 @@ export async function getTemplateVersionForEditorAction(
     subjectTemplate: version.subject_template ?? "",
     previewText: version.preview_text ?? "",
   };
-}
-
-// Sample values so variable placeholders (e.g. {{ contact.name }}) render as
-// realistic text in the preview instead of falling back to their default.
-const PREVIEW_SAMPLE_VARIABLES = {
-  contact: { name: "Alex Rivera", email: "alex@example.com" },
-  owner: { name: "Behind The Mask", email: "hello@behind-the-mask.com" },
-};
-
-export async function renderTemplatePreviewAction(input: {
-  builderJson: unknown;
-  previewText?: string;
-}): Promise<{ html: string }> {
-  await requireAdmin();
-  const document = assertMailyDocument(input.builderJson);
-  const rendered = await renderMailyDocument(document, {
-    previewText: input.previewText?.trim() || undefined,
-    variables: PREVIEW_SAMPLE_VARIABLES,
-  });
-  return { html: rendered.html };
 }
 
 const renameTemplateSchema = z.object({

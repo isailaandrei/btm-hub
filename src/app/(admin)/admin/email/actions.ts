@@ -696,27 +696,6 @@ async function createEmailSend(input: ParsedEmailSendInput) {
   return send;
 }
 
-export async function confirmEmailSendAction(
-  sendId: string,
-): Promise<{ ok: true }> {
-  await requireAdmin();
-  validateUUID(sendId, "email send");
-  const provider = getEmailProvider();
-  const send = await queueEmailSend(sendId);
-
-  after(async () => {
-    const result = await processEmailSendChunks({
-      sendId: send.id,
-      provider,
-    });
-    if (result.hasMore) {
-      await triggerEmailWorker(send.id);
-    }
-  });
-
-  return { ok: true };
-}
-
 export async function sendEmailNowAction(input: {
   kind: EmailSendKind;
   name?: string;

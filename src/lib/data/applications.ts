@@ -2,7 +2,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/data/auth";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { escapeSearchTerm, isValidISODate } from "@/lib/validation-helpers";
+import { isValidISODate } from "@/lib/validation-helpers";
 import { VersionConflictError } from "@/lib/optimistic-concurrency";
 import type {
   Application,
@@ -21,50 +21,8 @@ export { getApplicantName } from "./applicant-name";
 export { escapeSearchTerm } from "@/lib/validation-helpers";
 
 // ---------------------------------------------------------------------------
-// Filters / pagination
-// ---------------------------------------------------------------------------
-
-export interface ApplicationFilters {
-  program?: ProgramSlug;
-  status?: ApplicationStatus;
-  tag?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}
-
-// ---------------------------------------------------------------------------
 // Read
 // ---------------------------------------------------------------------------
-
-export const getApplications = cache(async function getApplications(
-  filters: ApplicationFilters = {},
-): Promise<{ data: Application[]; count: number }> {
-  const supabase = await createClient();
-  const { page = 1, limit = 20, program, status, tag, search } = filters;
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
-  let query = supabase
-    .from("applications")
-    .select("*", { count: "exact" })
-    .order("submitted_at", { ascending: false })
-    .range(from, to);
-
-  if (program) query = query.eq("program", program);
-  if (status) query = query.eq("status", status);
-  if (tag) query = query.contains("tags", [tag]);
-  if (search) {
-    const escaped = escapeSearchTerm(search);
-    query = query.or(`answers->>first_name.ilike.%${escaped}%,answers->>last_name.ilike.%${escaped}%,answers->>email.ilike.%${escaped}%`);
-  }
-
-  const { data, count, error } = await query;
-
-  if (error) throw new Error(`Failed to fetch applications: ${error.message}`);
-
-  return { data: data ?? [], count: count ?? 0 };
-});
 
 export const getApplicationById = cache(async function getApplicationById(
   id: string,

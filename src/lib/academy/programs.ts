@@ -45,6 +45,3 @@ export function getProgram(slug: string): ProgramDefinition | undefined {
   return PROGRAMS[slug as ProgramSlug];
 }
 
-export function getOpenPrograms(): ProgramDefinition[] {
-  return Object.values(PROGRAMS).filter((p) => p.applicationOpen);
-}
