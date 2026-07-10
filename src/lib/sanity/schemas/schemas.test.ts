@@ -141,6 +141,19 @@ describe("sanity schemas", () => {
     expect(posterField?.validation).toBeUndefined();
   });
 
+  it("film schema offers an optional wide hero backdrop image with hotspot + optional alt", () => {
+    const backdropField = fieldsFor("film").find((f) => f.name === "backdrop");
+    const alt = backdropField?.fields?.find((f) => f.name === "alt");
+
+    expect(backdropField?.type).toBe("image");
+    expect(backdropField?.options?.hotspot).toBe(true);
+    // Optional override only — falls back to poster / auto thumbnail.
+    expect(backdropField?.validation).toBeUndefined();
+    // Decorative behind the hero scrims — alt stays optional.
+    expect(alt?.type).toBe("string");
+    expect(isRequired(alt)).toBe(false);
+  });
+
   it("film schema only accepts supported YouTube or Vimeo video URLs", () => {
     const videoValidator = customValidatorFor("film", "videoEmbed");
 

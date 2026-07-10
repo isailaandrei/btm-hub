@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FILMS_QUERY,
   FILM_BY_SLUG_QUERY,
   PROGRAM_BY_SLUG_QUERY,
   ALL_PROGRAMS_CMS_QUERY,
@@ -16,6 +17,12 @@ describe("film detail query", () => {
     expect(FILM_BY_SLUG_QUERY).not.toContain("gallery");
     expect(FILM_BY_SLUG_QUERY).not.toContain("heroImage");
     expect(FILM_BY_SLUG_QUERY).not.toContain("thumbnailImage");
+  });
+});
+
+describe("films listing query", () => {
+  it("projects the hero backdrop image for the featured-film hero", () => {
+    expect(FILMS_QUERY).toContain("backdrop");
   });
 });
 

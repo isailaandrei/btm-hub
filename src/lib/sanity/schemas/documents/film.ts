@@ -68,6 +68,22 @@ export const film = defineType({
       options: { hotspot: true },
     }),
     defineField({
+      name: "backdrop",
+      title: "Hero backdrop",
+      type: "image",
+      group: "content",
+      description:
+        "Wide, high-resolution still shown as the full-screen backdrop when this film is featured in the Films page hero (ideally 2560px+ wide). Leave empty to fall back to the poster / auto video thumbnail.",
+      options: { hotspot: true },
+      fields: [
+        {
+          name: "alt",
+          type: "string",
+          title: "Alt Text",
+        },
+      ],
+    }),
+    defineField({
       name: "description",
       title: "Description",
       type: "portableText",

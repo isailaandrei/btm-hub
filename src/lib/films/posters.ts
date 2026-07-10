@@ -38,6 +38,38 @@ export function uploadedPosterImageUrl(
     .url();
 }
 
+/** Minimal shape needed to resolve a featured film's hero backdrop. */
+type FilmHeroImageSource = {
+  /** Dedicated wide, hi-res still uploaded for the hero. */
+  backdrop?: PosterImageSource;
+  /** 16:9 still shared with cards; second choice for the hero. */
+  poster?: PosterImageSource;
+  /** Already-resolved auto video thumbnail (lowest quality); last resort. */
+  posterUrl?: string | null;
+};
+
+/**
+ * Resolves the Films-page hero backdrop URL for a featured film, in priority
+ * order:
+ *   1. the dedicated wide `backdrop` upload (the editor's hi-res still),
+ *   2. the `poster` upload rendered at hero resolution (same as the prior
+ *      behaviour, kept so films with only a poster don't regress),
+ *   3. the auto-derived video thumbnail (`posterUrl`) — lowest quality, last.
+ * Returns null only when the film has none of the three.
+ */
+export function filmHeroBackdropUrl(
+  film: FilmHeroImageSource | null | undefined,
+  width: number,
+  height: number,
+): string | null {
+  return (
+    uploadedPosterImageUrl(film?.backdrop, width, height) ??
+    uploadedPosterImageUrl(film?.poster, width, height) ??
+    film?.posterUrl ??
+    null
+  );
+}
+
 function isHttpsUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
 

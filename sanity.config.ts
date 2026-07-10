@@ -17,33 +17,52 @@ export default defineConfig({
         S.list()
           .title("Content")
           .items([
-            // The three things admins manage day-to-day, up top.
-            S.documentTypeListItem("film").title("Films"),
-            S.documentTypeListItem("filmCollection").title("Collections"),
+            // Everything films-related in one place.
+            S.listItem()
+              .title("Films")
+              .child(
+                S.list()
+                  .title("Films")
+                  .items([
+                    S.documentTypeListItem("film").title("All films"),
+                    S.documentTypeListItem("filmCollection").title(
+                      "Collections",
+                    ),
+                    S.listItem()
+                      .title("Page settings")
+                      .schemaType("filmsPageSettings")
+                      .child(
+                        S.document()
+                          .title("Films Page Settings")
+                          .schemaType("filmsPageSettings")
+                          .documentId("filmsPageSettings"),
+                      ),
+                  ]),
+              ),
+            // Everything academy-related in one place.
+            S.listItem()
+              .title("Academy")
+              .child(
+                S.list()
+                  .title("Academy")
+                  .items([
+                    S.documentTypeListItem("program").title("Programmes"),
+                    S.listItem()
+                      .title("Page settings")
+                      .schemaType("academyPageSettings")
+                      .child(
+                        S.document()
+                          .title("Academy Page Settings")
+                          .schemaType("academyPageSettings")
+                          .documentId("academyPageSettings"),
+                      ),
+                  ]),
+              ),
             S.documentTypeListItem("teamMember").title("Team"),
-            S.documentTypeListItem("program").title("Programs"),
             S.documentTypeListItem("homepageVideo").title("Homepage videos"),
             S.divider(),
             // Less-frequent content, tucked below.
             S.documentTypeListItem("partner").title("Partners"),
-            S.listItem()
-              .title("Films Page Settings")
-              .schemaType("filmsPageSettings")
-              .child(
-                S.document()
-                  .title("Films Page Settings")
-                  .schemaType("filmsPageSettings")
-                  .documentId("filmsPageSettings"),
-              ),
-            S.listItem()
-              .title("Academy Page Settings")
-              .schemaType("academyPageSettings")
-              .child(
-                S.document()
-                  .title("Academy Page Settings")
-                  .schemaType("academyPageSettings")
-                  .documentId("academyPageSettings"),
-              ),
           ]),
     }),
     presentationTool({

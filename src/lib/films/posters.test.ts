@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  filmHeroBackdropUrl,
   resolveFilmPosterUrl,
   withCollectionFilmPosterUrls,
   withFilmPosterUrls,
@@ -128,6 +129,44 @@ describe("withFilmPosterUrls", () => {
     // The uploaded still wins; no provider thumbnail is used or fetched.
     expect(film.posterUrl).not.toContain("ytimg");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("filmHeroBackdropUrl", () => {
+  const backdrop = { asset: { _ref: "image-backdropimg-2560x1440-jpg" } };
+  const poster = { asset: { _ref: "image-posterimg-1920x1080-jpg" } };
+  const thumb = "https://i.ytimg.com/vi/abc123DEF45/hqdefault.jpg";
+
+  it("prefers the dedicated hero backdrop upload", () => {
+    const url = filmHeroBackdropUrl(
+      { backdrop, poster, posterUrl: thumb },
+      2400,
+      1350,
+    );
+    expect(url).toContain("cdn.sanity.io");
+    expect(url).toContain("backdropimg");
+    expect(url).toContain("w=2400");
+    expect(url).not.toContain("posterimg");
+    expect(url).not.toContain("ytimg");
+  });
+
+  it("falls back to the poster (at hero resolution) when no backdrop is set", () => {
+    const url = filmHeroBackdropUrl({ poster, posterUrl: thumb }, 2400, 1350);
+    expect(url).toContain("cdn.sanity.io");
+    expect(url).toContain("posterimg");
+    expect(url).toContain("w=2400");
+    expect(url).not.toContain("ytimg");
+  });
+
+  it("falls back to the auto video thumbnail when there is no upload", () => {
+    expect(filmHeroBackdropUrl({ posterUrl: thumb }, 2400, 1350)).toBe(thumb);
+  });
+
+  it("returns null when the film has no backdrop, poster or thumbnail", () => {
+    expect(filmHeroBackdropUrl({}, 2400, 1350)).toBeNull();
+    expect(filmHeroBackdropUrl({ posterUrl: null }, 2400, 1350)).toBeNull();
+    expect(filmHeroBackdropUrl(null, 2400, 1350)).toBeNull();
+    expect(filmHeroBackdropUrl(undefined, 2400, 1350)).toBeNull();
   });
 });
 

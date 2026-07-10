@@ -258,6 +258,14 @@ export type Film = {
     crop?: SanityImageCrop;
     _type: "image";
   };
+  backdrop?: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt?: string;
+    _type: "image";
+  };
   description?: PortableText;
   videoEmbed: string;
   credits?: Array<{
@@ -473,7 +481,7 @@ export type AllSanitySchemaTypes =
 
 // Source: src/lib/sanity/queries.ts
 // Variable: FILMS_QUERY
-// Query: *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {      _id,  title,  slug,  tagline,  videoEmbed,  duration,  releaseYear,  status,  featured,  sortOrder,  locations,  subjects,  formats,  skills,  displayTags,  poster  }
+// Query: *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {      _id,  title,  slug,  tagline,  videoEmbed,  duration,  releaseYear,  status,  featured,  sortOrder,  locations,  subjects,  formats,  skills,  displayTags,  poster,    backdrop  }
 export type FILMS_QUERY_RESULT = Array<{
   _id: string;
   title: string;
@@ -495,6 +503,14 @@ export type FILMS_QUERY_RESULT = Array<{
     media?: unknown;
     hotspot?: SanityImageHotspot;
     crop?: SanityImageCrop;
+    _type: "image";
+  } | null;
+  backdrop: {
+    asset?: SanityImageAssetReference;
+    media?: unknown;
+    hotspot?: SanityImageHotspot;
+    crop?: SanityImageCrop;
+    alt?: string;
     _type: "image";
   } | null;
 }>;
@@ -848,7 +864,7 @@ export type FEATURED_PARTNERS_QUERY_RESULT = Array<{
 import "@sanity/client";
 declare module "@sanity/client" {
   interface SanityQueries {
-    '\n  *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n  }\n': FILMS_QUERY_RESULT;
+    '\n  *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n,\n    backdrop\n  }\n': FILMS_QUERY_RESULT;
     '\n  *[_type == "film" && slug.current == $slug][0] {\n    _id, title, slug, tagline, description, videoEmbed,\n    credits[]{\n      role,\n      name,\n      "teamMember": teamMember->{ _id, name, slug },\n      externalLinks[]{ label, url }\n    },\n    releaseYear, duration, status, featured, sortOrder,\n    locations, subjects, formats, skills, displayTags\n  }\n': FILM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n  }\n': FEATURED_FILMS_QUERY_RESULT;
     '\n  *[_type == "homepageVideo"] | order(sortOrder asc) {\n    _id,\n    title,\n    youtubeId\n  }\n': HOMEPAGE_VIDEOS_QUERY_RESULT;

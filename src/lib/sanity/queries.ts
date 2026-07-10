@@ -25,7 +25,8 @@ const FILM_CARD_FIELDS = `
 
 export const FILMS_QUERY = defineQuery(`
   *[_type == "film" && defined(slug.current)] | order(sortOrder asc, releaseYear desc) {
-    ${FILM_CARD_FIELDS}
+    ${FILM_CARD_FIELDS},
+    backdrop
   }
 `);
 
