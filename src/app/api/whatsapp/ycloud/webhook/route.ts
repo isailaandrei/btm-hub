@@ -232,7 +232,7 @@ export async function POST(request: Request) {
 
   const type = eventType(event);
 
-  let message: NormalizedConversationMessage;
+  let message: NormalizedConversationMessage | null;
   try {
     if (type === INBOUND_EVENT_TYPE) {
       message = new YCloudWhatsAppAdapter().parse(event);
@@ -250,6 +250,11 @@ export async function POST(request: Request) {
       { error: "Invalid YCloud payload", detail },
       { status: 400 },
     );
+  }
+
+  if (message === null) {
+    // Contentless errors-type entry — deliberately skipped, disclosed here.
+    return NextResponse.json({ ok: true, skipped: true, type });
   }
 
   const result = await ingestMessage(message);

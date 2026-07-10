@@ -203,7 +203,12 @@ export function ContactWhatsAppSection({
   );
 
   const { active, removed } = useMemo(() => {
-    const all = messages ?? [];
+    // Contentless rows (no body, no media — YCloud `errors`-type history
+    // entries ingested before Jul 10 2026; new ones are skipped at ingestion)
+    // render as empty bubbles and can't carry signal — hide them entirely.
+    const all = (messages ?? []).filter(
+      (message) => message.body.trim() !== "" || message.media.length > 0,
+    );
     return {
       active: all.filter((message) => !message.deactivatedAt),
       removed: all.filter((message) => message.deactivatedAt),

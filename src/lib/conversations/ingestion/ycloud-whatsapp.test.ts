@@ -121,8 +121,8 @@ describe("YCloudWhatsAppAdapter", () => {
 
     const message = new YCloudWhatsAppAdapter().parse(event);
 
-    expect(message.body).toBe("Go for a walk.");
-    expect(message.media).toEqual([
+    expect(message!.body).toBe("Go for a walk.");
+    expect(message!.media).toEqual([
       {
         url: "https://api.ycloud.com/v2/whatsapp/media/download/abc",
         contentType: "image/jpeg",
@@ -143,7 +143,7 @@ describe("YCloudWhatsAppAdapter", () => {
       },
     });
 
-    expect(message.providerMessageId).toBe("wamid.only");
+    expect(message!.providerMessageId).toBe("wamid.only");
   });
 
   it("falls back to the YCloud id only when no wamid is present", () => {
@@ -158,7 +158,7 @@ describe("YCloudWhatsAppAdapter", () => {
       },
     });
 
-    expect(message.providerMessageId).toBe("63f872f6741c165b4342a751");
+    expect(message!.providerMessageId).toBe("63f872f6741c165b4342a751");
   });
 
   it("fails loudly when the sender is missing", () => {
@@ -299,13 +299,59 @@ describe("parseYCloudEchoEvent", () => {
       },
     });
 
-    expect(echo.providerMessageId).toBe(OUTBOUND_MESSAGE_ID);
-    expect(history.providerMessageId).toBe(echo.providerMessageId);
+    expect(echo!.providerMessageId).toBe(OUTBOUND_MESSAGE_ID);
+    expect(history!.providerMessageId).toBe(echo!.providerMessageId);
   });
 
   it("fails loudly when the echoed message container is missing", () => {
     expect(() =>
       parseYCloudEchoEvent({ type: "whatsapp.smb.message.echoes" }),
     ).toThrow(/whatsappMessage/);
+  });
+});
+
+describe("errors-type entries (contentless)", () => {
+  it("skips an errors-type outbound history entry", () => {
+    expect(
+      parseYCloudHistoryEvent({
+        type: "whatsapp.smb.history",
+        whatsappMessage: {
+          id: "h-err-1",
+          from: "+351939054063",
+          to: "+41796447382",
+          sendTime: "2026-06-15T13:11:04.000Z",
+          type: "errors",
+          status: "sent",
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("skips an errors-type echo", () => {
+    expect(
+      parseYCloudEchoEvent({
+        type: "whatsapp.smb.message.echoes",
+        whatsappMessage: {
+          id: "echo-err-1",
+          from: "+351939054063",
+          to: "+41796447382",
+          sendTime: "2026-07-10T07:04:48.000Z",
+          type: "errors",
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("skips an errors-type inbound event", () => {
+    expect(
+      new YCloudWhatsAppAdapter().parse({
+        whatsappInboundMessage: {
+          id: "in-err-1",
+          from: "+41796447382",
+          to: "+351939054063",
+          type: "errors",
+        },
+      }),
+    ).toBeNull();
   });
 });

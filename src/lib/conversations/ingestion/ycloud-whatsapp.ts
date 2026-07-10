@@ -104,12 +104,20 @@ export function whatsappMessageIdFromWamid(wamid: string): string | null {
  * `whatsappInboundMessage` or `whatsappMessage`) into a source-agnostic message.
  * `from`/`to` are stored as sent: for inbound `from` is the customer, for
  * outbound `from` is the business number.
+ *
+ * Returns `null` for `type: "errors"` entries — history/echo artifacts for
+ * messages that errored or are unsupported. They carry no text and no media,
+ * so ingesting them only produced contentless rows that rendered as empty
+ * chat bubbles and could never carry CRM signal (owner decision Jul 10 2026:
+ * skip them; the caller discloses the skip in its response).
  */
 function normalizeMessageObject(
   message: Record<string, unknown>,
   direction: ConversationDirection,
   rawPayload: Record<string, unknown>,
-): NormalizedConversationMessage {
+): NormalizedConversationMessage | null {
+  if (nonEmptyString(message.type) === "errors") return null;
+
   // Dedupe identity: the stable message id derived from the wamid, falling back
   // to the full wamid, and only as a last resort to YCloud's ephemeral `id`
   // (which changes on every re-delivery — never a reliable key). See
@@ -148,7 +156,7 @@ function normalizeMessageObject(
  * events before calling this.
  */
 export class YCloudWhatsAppAdapter implements ConversationIngestAdapter {
-  parse(event: unknown): NormalizedConversationMessage {
+  parse(event: unknown): NormalizedConversationMessage | null {
     const root = asRecord(event, "payload");
     const message = asRecord(
       root.whatsappInboundMessage,
@@ -166,7 +174,7 @@ export class YCloudWhatsAppAdapter implements ConversationIngestAdapter {
  */
 export function parseYCloudHistoryEvent(
   event: unknown,
-): NormalizedConversationMessage {
+): NormalizedConversationMessage | null {
   const root = asRecord(event, "payload");
 
   if (root.whatsappInboundMessage && typeof root.whatsappInboundMessage === "object") {
@@ -199,7 +207,7 @@ export function parseYCloudHistoryEvent(
  */
 export function parseYCloudEchoEvent(
   event: unknown,
-): NormalizedConversationMessage {
+): NormalizedConversationMessage | null {
   const root = asRecord(event, "payload");
   const message = asRecord(root.whatsappMessage, "whatsappMessage");
   return normalizeMessageObject(message, "outbound", root);

@@ -19,5 +19,8 @@ export type NormalizedConversationMessage = {
 };
 
 export interface ConversationIngestAdapter {
-  parse(event: unknown): NormalizedConversationMessage;
+  /** Returns null when the event is deliberately skipped (e.g. contentless
+   * `errors`-type entries); callers must disclose the skip, not drop it
+   * silently. */
+  parse(event: unknown): NormalizedConversationMessage | null;
 }

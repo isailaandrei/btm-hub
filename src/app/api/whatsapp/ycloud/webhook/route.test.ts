@@ -340,4 +340,30 @@ describe("POST /api/whatsapp/ycloud/webhook", () => {
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
   });
+it("acknowledges and skips contentless errors-type entries without storing them", async () => {
+    mockLoadContactPhoneIndexRecords.mockResolvedValue([
+      makeRecord(CONTACT_ID, "+12133734253"),
+    ]);
+
+    const response = await postSigned({
+      id: "evt_h_err",
+      type: "whatsapp.smb.history",
+      whatsappMessage: {
+        id: "hist-err-1",
+        from: "+351939054063",
+        to: "+12133734253",
+        sendTime: "2026-06-15T13:11:04.000Z",
+        type: "errors",
+        status: "sent",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({ ok: true, skipped: true }),
+    );
+    // Deliberately skipped — nothing stored, nothing matched.
+    expect(mockUpsertConversationMessage).not.toHaveBeenCalled();
+    expect(mockUpdateConversationMessageMatch).not.toHaveBeenCalled();
+  });
 });
