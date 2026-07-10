@@ -415,7 +415,7 @@ prompt.
 
 ---
 
-## 6. Hard-constraint gaps: DONE Jul 9 + one refinement open
+## 6. Hard-constraint gaps: DONE Jul 9 — refinement ALSO DONE (656fa9f)
 
 > **IMPLEMENTED Jul 9 2026 (Sonnet agent, Fable-audited, merged to main):**
 > program membership is now a hard TAG-CLASS constraint (deterministic
@@ -427,14 +427,14 @@ prompt.
 > question; Q11 runtime-built demographic multi-value). ACTIVATION: Andrei's
 > cold live eval run must be 11/11.
 
-**Open refinement (small, Opus-able):** the field applier compares RAW answer
-values against bucket vocabulary, so internship's raw-numeric ages ("21")
-miss the deterministic age prefilter and rely on the (disclosed) rescue path.
-Fix: apply the field registry's age normalizer (`normalizeAgeToRange`, used
-by the card renderer) inside `recordMatchesFieldConstraint` for fields that
-declare a normalizer, then tighten Q11's assertion from
-recall-via-rescue to exact prefilter equality. Unit tests: raw "21" matches
-the bucket containing 21; non-numeric garbage still falls through to rescue.
+**Refinement SHIPPED Jul 9 2026 (656fa9f, owner-approved; stale "open" note
+corrected Jul 10):** `recordMatchesFieldConstraint` runs raw field values
+through the registry's `canonical.normalize` hook (age's
+`normalizeAgeToRange`) before the intersection test — generic, so any field
+that later gains a `canonical` mapping gets it for free. Q11's
+prefilteredCount assertion tightened to exact equality; unit tests cover
+raw-numeric match, bucket-stored match, garbage-falls-to-rescue, and
+no-normalizer fields.
 
 ---
 
