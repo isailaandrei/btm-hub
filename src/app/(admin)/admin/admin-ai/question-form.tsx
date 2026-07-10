@@ -18,24 +18,6 @@ const INITIAL_STATE: AdminAiAskFormState = {
 
 const PROGRESS_POLL_INTERVAL_MS = 2000;
 
-// Example questions surfaced as one-click chips under the hero ask box.
-// Copy mirrors real owner questions so the chips teach the query vocabulary
-// the corpus actually answers well. Only include question TYPES the pipeline
-// has proven on (eval-backed); e.g. a "commitments/travel" chip was removed
-// Jul 2026 because the corpus can't answer it meaningfully yet.
-const SUGGESTIONS: Array<{ label: string; question: string }> = [
-  {
-    label: "Shortlist candidates",
-    question:
-      "Who are the strongest candidates for the 26 Coral Catch? Rank them and name your concerns.",
-  },
-  {
-    label: "Find a skill",
-    question:
-      "Which contacts have professional underwater photo or video experience?",
-  },
-];
-
 // Copy rule: counts must never read as coverage limits. Every contact in the
 // corpus is examined by the scan; "flagged" is the scan's OUTPUT. An admin
 // once read "164 candidates" as "only 164 of 308 were analyzed" — hence the
@@ -93,7 +75,6 @@ export function QuestionForm({
     INITIAL_STATE,
   );
   const handledRef = useRef<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // One progress id per ask; rotated after each resolution (render-time
   // adjustment below) so a stale row from the previous answer can never bleed
   // into the next one's display. Poll results carry the id they were fetched
@@ -168,13 +149,6 @@ export function QuestionForm({
     onResolved(state);
   }, [onResolved, resolvedSignature, state]);
 
-  function applySuggestion(question: string) {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.value = question;
-    textarea.focus();
-  }
-
   function submitOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || disabled) return;
     if (!event.currentTarget.value.trim()) return;
@@ -234,7 +208,6 @@ export function QuestionForm({
     >
       <div className="relative rounded-[calc(var(--radius)+7px)] bg-white">
         <textarea
-          ref={textareaRef}
           name="question"
           rows={isHero ? 4 : 3}
           maxLength={2000}
@@ -324,21 +297,6 @@ export function QuestionForm({
           )}
 
           <div className="mt-6">{askBox}</div>
-
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            {SUGGESTIONS.map(({ label, question }) => (
-              <button
-                key={label}
-                type="button"
-                disabled={disabled}
-                onClick={() => applySuggestion(question)}
-                title={question}
-                className="rounded-full border border-border bg-white/80 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
 
           {feedback}
         </div>
