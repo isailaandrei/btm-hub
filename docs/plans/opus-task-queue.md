@@ -25,8 +25,8 @@ READ-ONLY (no override actions).
 **Context you need:**
 - The AI never reads raw messages; it reads `conversation_digests` rows
   (window summaries) + `conversation_facts`. Digests are built per contact from
-  INBOUND, matched, non-deactivated messages, in session windows (30-min gap,
-  see `src/lib/conversations/digests.ts`).
+  INBOUND, matched, non-deactivated messages, in session windows (3-hour gap
+  since 2026-07-10, see `src/lib/conversations/digests.ts`).
 - Digest columns that matter: `contact_id`, `window_start`, `window_end`,
   `is_noise` (noise marker rows have empty summaries), `relevance`
   (`'profile' | 'status'`, null on noise rows), `summary`.

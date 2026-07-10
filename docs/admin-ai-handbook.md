@@ -211,7 +211,8 @@ out of prod env until OpenAI billing is restored.
 ## 6. The WhatsApp knowledge feed (summary — runbook has the operations)
 
 Raw messages NEVER enter the AI corpus. Inbound, contact-matched,
-non-deactivated messages are windowed (30-min session gaps) and distilled at
+non-deactivated messages are windowed (3-hour session gaps; 30 min until
+2026-07-10) and distilled at
 temperature 0 into:
 - **Digests** — one dated summary per window, tagged `profile` (durable:
   skills, preferences, aspirations, relationships, decisions/commitments) or

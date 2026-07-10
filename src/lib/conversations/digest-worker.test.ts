@@ -93,7 +93,7 @@ describe("processConversationDigestWindows", () => {
     const { processConversationDigestWindows } = await import("./digests");
     await expect(
       processConversationDigestWindows({
-        now: Date.parse("2026-06-11T11:00:00Z"),
+        now: Date.parse("2026-06-11T14:00:00Z"),
       }),
     ).resolves.toEqual({
       processedWindows: 1,
@@ -142,7 +142,7 @@ describe("processConversationDigestWindows", () => {
     const { processConversationDigestWindows } = await import("./digests");
     await expect(
       processConversationDigestWindows({
-        now: Date.parse("2026-06-11T11:00:00Z"),
+        now: Date.parse("2026-06-11T14:00:00Z"),
       }),
     ).resolves.toEqual({
       processedWindows: 0,
@@ -174,7 +174,8 @@ describe("processConversationDigestWindows", () => {
         contactId: "contact-1",
         direction: "inbound",
         body: "Still active conversation continues here.",
-        happenedAt: "2026-06-11T10:45:00Z",
+        // > 3 h after message-1 (its own window), < 3 h before `now` (open).
+        happenedAt: "2026-06-11T12:30:00Z",
       },
     ]);
     mockListMessagesMissingEmbeddings.mockResolvedValue([]);
@@ -188,7 +189,7 @@ describe("processConversationDigestWindows", () => {
     const { processConversationDigestWindows } = await import("./digests");
     await expect(
       processConversationDigestWindows({
-        now: Date.parse("2026-06-11T11:00:00Z"),
+        now: Date.parse("2026-06-11T14:00:00Z"),
       }),
     ).resolves.toEqual({
       processedWindows: 1,
@@ -236,7 +237,7 @@ describe("processConversationDigestWindows", () => {
 
     const { processConversationDigestWindows } = await import("./digests");
     const summary = await processConversationDigestWindows({
-      now: Date.parse("2026-06-11T11:00:00Z"),
+      now: Date.parse("2026-06-11T14:00:00Z"),
     });
 
     expect(summary).toMatchObject({
@@ -267,7 +268,7 @@ describe("processConversationDigestWindows", () => {
 
     const { processConversationDigestWindows } = await import("./digests");
     const summary = await processConversationDigestWindows({
-      now: Date.parse("2026-06-11T11:00:00Z"),
+      now: Date.parse("2026-06-11T14:00:00Z"),
     });
 
     expect(mockExtractConversationDigest).toHaveBeenCalledTimes(1);
@@ -308,7 +309,7 @@ describe("processConversationDigestWindows", () => {
 
     const { processConversationDigestWindows } = await import("./digests");
     const summary = await processConversationDigestWindows({
-      now: Date.parse("2026-06-11T11:00:00Z"),
+      now: Date.parse("2026-06-11T14:00:00Z"),
       maxWindows: 2,
     });
 
@@ -328,7 +329,7 @@ describe("processConversationDigestWindows", () => {
 
     const { processConversationDigestWindows } = await import("./digests");
     const summary = await processConversationDigestWindows({
-      now: Date.parse("2026-06-11T11:00:00Z"),
+      now: Date.parse("2026-06-11T14:00:00Z"),
     });
 
     // Skipped, not thrown: the count is reported and a later configured run
@@ -363,7 +364,7 @@ describe("processConversationDigestWindows", () => {
 
     const { processConversationDigestWindows } = await import("./digests");
     const summary = await processConversationDigestWindows({
-      now: Date.parse("2026-06-11T11:00:00Z"),
+      now: Date.parse("2026-06-11T14:00:00Z"),
     });
 
     expect(summary).toMatchObject({
@@ -400,7 +401,7 @@ describe("processConversationDigestWindows", () => {
 
     const { processConversationDigestWindows } = await import("./digests");
     const summary = await processConversationDigestWindows({
-      now: Date.parse("2026-06-11T11:00:00Z"),
+      now: Date.parse("2026-06-11T14:00:00Z"),
     });
 
     expect(summary).toMatchObject({ noiseWindows: 1, factsCreated: 0 });

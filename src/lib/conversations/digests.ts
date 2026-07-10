@@ -18,7 +18,16 @@ import { buildConversationFactInputs } from "./facts";
 import type { ConversationDirection, ConversationSource } from "./ingestion/adapter";
 
 export const DIGEST_GENERATOR_VERSION = "conversation-digest-v1";
-export const DIGEST_WINDOW_SESSION_GAP_MS = 30 * 60 * 1000;
+// A conversation is "ongoing" until this much silence passes. The gap plays
+// both roles: messages closer together than the gap join the same digest
+// window, and a window is only digested once its last message is older than
+// the gap (never summarize mid-conversation). Owner decision 2026-07-10:
+// 30 min → 3 h, so an afternoon exchange with long pauses reads as ONE
+// conversation. NOTE: window membership feeds buildDigestContentHash, so a
+// recalibration wipe AFTER this change re-windows history under the 3 h rule
+// and produces new content hashes — label corrections keyed to old-rule
+// hashes will not re-attach (see conversation_digest_corrections).
+export const DIGEST_WINDOW_SESSION_GAP_MS = 3 * 60 * 60 * 1000;
 
 // Per-invocation cap so a large backlog drains across cron runs rather than
 // running to the function's max duration on the first call.
