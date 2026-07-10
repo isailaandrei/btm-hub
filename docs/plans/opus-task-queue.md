@@ -96,15 +96,15 @@ yet." Do not change any write path.
 > `ContactAiMemorySection`, and the nightly cron (`/api/cron/contact-ai-
 > summaries`) must NEVER be scheduled (it was never scheduled in prod —
 > `vercel.json` never carried it, and the `cron.schedule(...)` SQL below was
-> never run). The `contact_ai_summaries` table stays dormant (309 rows,
-> nothing reads it). The previously-noted "Tatiana" summary-prompt fix is
+> never run). The `contact_ai_summaries` table held 309 unaudited rows that
+> nothing read. The previously-noted "Tatiana" summary-prompt fix is
 > moot — the prompt it targets no longer renders anywhere. The summary was never
 > part of the AI's corpus, so this withdrawal is a UI-only change; no AI
-> behavior changes. **Optional cleanup task (Opus-able, low priority):**
-> delete the dormant code (`src/lib/admin-ai/contact-summary.ts` + test,
+> behavior changes. **Cleanup EXECUTED 2026-07-10:** the dormant code
+> (`src/lib/admin-ai/contact-summary.ts` + test,
 > `src/lib/data/contact-ai-summaries.ts`, `src/app/api/cron/contact-ai-
-> summaries/`, `scripts/contact-ai-summaries-backfill.test.ts`) and add a
-> migration dropping the `contact_ai_summaries` table.
+> summaries/`, `scripts/contact-ai-summaries-backfill.test.ts`) is deleted
+> and migration `20260710000001` drops the `contact_ai_summaries` table.
 >
 > **STATUS: CODE IMPLEMENTED Jul 7 2026 (same branch as task 1); ACTIVATION
 > GATED on the owner's calibration round.** `contact_ai_summaries` table

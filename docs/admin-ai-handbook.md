@@ -246,10 +246,13 @@ Plausible next levers, in rough value order:
 - **Enumeration >50** — the shortlist+additionalMatches contract caps at ~50
   before code appends; large rosters already work via the append, but the UI
   answer for "list all 150 X" may deserve its own rendering.
-- **Per-contact AI summaries + email ingestion** — the contact scope (one
-  card, no map-reduce) already supports this; specced in
-  `docs/plans/opus-task-queue.md` §1c. Requires contact-scope eval questions
-  before shipping (the current suite is global-only).
+- **Email ingestion** — the contact scope (one card, no map-reduce) can
+  support per-contact features, but the per-contact AI summary built on it
+  was withdrawn by the owner Jul 9 2026 and deleted Jul 10 (see
+  `docs/plans/opus-task-queue.md` §1c) — do not rebuild without a fresh owner
+  decision. Email ingestion itself remains design-sketch only, and any
+  contact-scope feature still needs contact-scope eval questions first (the
+  current suite is global-only).
 - **Digest consolidation** — when contacts accumulate many windows, compress
   old ones into a per-contact profile summary (planned-for but deliberately
   not built at current scale).

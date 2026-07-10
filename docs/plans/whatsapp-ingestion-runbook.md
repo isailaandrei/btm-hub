@@ -183,67 +183,18 @@ answers 410 for media that expired before archiving. In order:
 Prod env prerequisite: `YCLOUD_API_KEY` must be set wherever the cron route
 runs, or the batch throws (fail loud) and the run does nothing.
 
-## Contact AI-summary activation (feat/ai-visibility-and-summaries)
+## Contact AI-summary activation — REMOVED
 
-> **WITHDRAWN by owner 2026-07-09 — do not run these steps; kept for
-> history.** The per-contact summary was a misunderstanding of what the
-> owner wanted (the WhatsApp digest display, which already existed); the UI
-> block has been removed and this cron must never be scheduled. See
-> `docs/plans/opus-task-queue.md` §1c.
-
-Per-contact AI summaries (queue task 1c): one CRM summary per eligible
-contact, regenerated only when the rendered card's content hash changes.
-Requires `ADMIN_AI_PROVIDER=deepseek` + `DEEPSEEK_API_KEY` wherever it runs.
-**Activation gate (owner):** audit the first batch's summaries on a few
-contact pages (include a declined and a committed contact) before scheduling —
-this is the calibration round; the contact-scope eval questions remain open
-(see the queue doc).
-
-1. **Apply the migration** (`20260707000005_contact_ai_summaries.sql`).
-2. **DRY-RUN** (hash check only — no model calls, no writes):
-   ```
-   RUN_CONTACT_AI_SUMMARIES=1 SUMMARIES_DRY_RUN=1 npx vitest run scripts/contact-ai-summaries-backfill.test.ts
-   ```
-3. **GENERATE** (~300 contacts ≈ $0.5–1 cold):
-   ```
-   RUN_CONTACT_AI_SUMMARIES=1 npx vitest run scripts/contact-ai-summaries-backfill.test.ts
-   ```
-4. **Audit** the summaries in the contact pages' "AI conversation memory"
-   section, then schedule nightly — 20 min after the digest job so fresh
-   digests are already inside the summarized card:
-   ```sql
-   select vault.create_secret(
-     'https://btm-hub.vercel.app/api/cron/contact-ai-summaries',
-     'contact_ai_summaries_url',
-     'Contact AI-summary cron endpoint (hub prod host; update at host cutover)'
-   );
-
-   select cron.schedule(
-     'contact-ai-summaries',
-     '30 3 * * *',
-     $$
-     select net.http_get(
-       url := (
-         select decrypted_secret from vault.decrypted_secrets
-         where name = 'contact_ai_summaries_url'
-       ),
-       headers := jsonb_build_object(
-         'Authorization',
-         'Bearer ' || (
-           select decrypted_secret from vault.decrypted_secrets
-           where name = 'email_cron_secret'
-         )
-       )
-     );
-     $$
-   );
-   ```
-   Verify: `select * from cron.job where jobname = 'contact-ai-summaries';`
-   Rollback: `select cron.unschedule('contact-ai-summaries');`
+> **WITHDRAWN by owner 2026-07-09; code and table DELETED 2026-07-10** (files,
+> `/api/cron/contact-ai-summaries` route, backfill script, and migration
+> `20260710000001` dropping `contact_ai_summaries`). The per-contact summary
+> was a misunderstanding of what the owner wanted (the WhatsApp digest
+> display, which already existed). No vault secret or cron job ever existed
+> for it. History: `docs/plans/opus-task-queue.md` §1c.
 
 ## Hostinger cutover note
 
-At the Vercel → Hostinger cutover `btm-hub.vercel.app` dies, so **ALL FOUR**
+At the Vercel → Hostinger cutover `btm-hub.vercel.app` dies, so **ALL THREE**
 cron URL secrets must be updated to the hub's new domain (whatever is chosen
 at cutover) — the schedules and routes themselves stay put:
 
@@ -259,10 +210,6 @@ select vault.update_secret(
 select vault.update_secret(
   (select id from vault.secrets where name = 'whatsapp_media_archive_url'),
   'https://NEW-HUB-DOMAIN/api/cron/whatsapp-media-archive'
-);
-select vault.update_secret(
-  (select id from vault.secrets where name = 'contact_ai_summaries_url'),
-  'https://NEW-HUB-DOMAIN/api/cron/contact-ai-summaries'
 );
 ```
 
