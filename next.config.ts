@@ -51,14 +51,36 @@ const nextConfig: NextConfig = {
     },
   },
   async headers() {
+    // Baseline security headers (every deployment). Deliberately the SAFE set:
+    // no CSP (needs a dedicated allowlist audit for Sanity/Supabase/Stream/
+    // YouTube/Vimeo before it can ship without breaking embeds) and no
+    // COOP/COEP (can break OAuth popups). HSTS is ignored by browsers over
+    // plain-HTTP localhost, so it is harmless in dev; no includeSubDomains
+    // because the hub may later live beside sibling subdomains it must not
+    // constrain. X-Frame-Options SAMEORIGIN is safe for the embedded Sanity
+    // studio (served same-origin at /studio).
+    const securityHeaders = [
+      { key: "Strict-Transport-Security", value: "max-age=15552000" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      {
+        key: "Permissions-Policy",
+        value: "camera=(), microphone=(), geolocation=()",
+      },
+    ];
+
     // Non-production deployments (the Hostinger pilot, previews, local) are a
     // publicly crawlable clone of production and there is no robots.ts/sitemap,
-    // so keep them out of search indexes. Production returns no extra header.
-    if (isProductionDeployment) return [];
+    // so keep them out of search indexes. Production adds no robots header.
+    const robotsHeaders = isProductionDeployment
+      ? []
+      : [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
+
     return [
       {
         source: "/:path*",
-        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+        headers: [...securityHeaders, ...robotsHeaders],
       },
     ];
   },
