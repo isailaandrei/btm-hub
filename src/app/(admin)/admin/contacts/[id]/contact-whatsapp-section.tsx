@@ -384,7 +384,10 @@ function MediaAttachment({
         controls
         preload="none"
         src={proxySrc}
-        className="mt-1 block h-10 w-full max-w-xs"
+        // Fixed width, not w-full: the bubble is shrink-to-fit, so a
+        // percentage width resolves cyclically to 0px and the player
+        // collapses to an empty sliver (Jul 2026 voice-note bug).
+        className="mt-1 block h-10 w-72 max-w-full"
       />
     );
   }
