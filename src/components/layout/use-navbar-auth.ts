@@ -31,11 +31,24 @@ export function useNavbarAuth(initialUser?: NavbarUser): {
     const supabase = createClient();
 
     async function fetchProfile(userId: string) {
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from("profiles")
         .select("display_name, avatar_url, role")
         .eq("id", userId)
         .single();
+
+      // A transient query failure is NOT "signed out": keep whatever state we
+      // have (server-seeded user or cached), disclose, and let the next auth
+      // event retry — flipping the navbar to logged-out on a network blip
+      // would fake a state we know is wrong (the session was just validated).
+      // PGRST116 (no row) is a genuinely missing profile and falls through.
+      if (error && error.code !== "PGRST116") {
+        console.warn("[navbar-auth] profile fetch failed; keeping current state", {
+          code: error.code,
+          message: error.message,
+        });
+        return;
+      }
 
       if (profile) {
         const navUser: NavbarUser = {

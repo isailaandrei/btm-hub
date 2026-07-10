@@ -6,10 +6,21 @@ interface WebhookPayload {
   _type: string;
 }
 
+// Provider-callback route: keep it storm-proof per the repo webhook rule —
+// small explicit time bound, and never a 5xx (Sanity retries 5xx; a permanent
+// misconfig would retry forever without ever succeeding).
+export const maxDuration = 15;
+
 export async function POST(req: NextRequest) {
   const secret = process.env.SANITY_REVALIDATE_SECRET;
   if (!secret) {
-    return new Response("Missing SANITY_REVALIDATE_SECRET", { status: 500 });
+    console.error(
+      "[sanity-revalidate] SANITY_REVALIDATE_SECRET is not configured; acknowledging without revalidating",
+    );
+    return NextResponse.json(
+      { revalidated: false, reason: "missing secret" },
+      { status: 200 },
+    );
   }
 
   const { isValidSignature, body } = await parseBody<WebhookPayload>(

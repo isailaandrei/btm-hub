@@ -285,8 +285,24 @@ async function processRecipient(input: {
           },
           message,
         });
-      } catch {
-        // The provider already accepted the email; avoid marking it as failed.
+      } catch (reconcileError) {
+        // The provider already accepted the email; avoid marking it as
+        // failed. But surface the double failure — this recipient's tracking
+        // now silently diverges from reality until the reconcile cron
+        // re-links the provider events (fail loud, never fake).
+        console.error(
+          "[send-pipeline] reconciliation-marking failed after provider acceptance",
+          {
+            sendId: input.send.id,
+            recipientId: input.recipient.id,
+            provider: acceptedResult.provider,
+            providerMessageId: acceptedResult.providerMessageId,
+            message:
+              reconcileError instanceof Error
+                ? reconcileError.message
+                : String(reconcileError),
+          },
+        );
       }
       return;
     }
