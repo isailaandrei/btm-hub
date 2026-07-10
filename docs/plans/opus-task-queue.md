@@ -402,9 +402,12 @@ prompt.
    a server action + RPC or plain insert (admins write; RLS admin-insert).
 4. **Calibration loop:** a gated script that prints correction pairs
    (original → corrected + summary text) so Andrei/Fable-successor can tune
-   the taxonomy prompt against real mistakes; bump the digest prompt version
-   + recalibration wipe applies the improved taxonomy while corrections
-   persist.
+   the taxonomy prompt against real mistakes; a recalibration wipe applies
+   the improved taxonomy while corrections persist. **Corrected Jul 10 2026
+   (owner-approved):** do NOT bump `DIGEST_GENERATOR_VERSION` for prompt-only
+   changes — the version is baked into the content hash, so bumping it
+   re-keys every window and orphans all corrections. The wipe alone applies
+   the new prompt; bump the version only when the windowing rule changes.
 5. **Watch:** 45-day expiry semantics — a profile→status correction makes the
    digest age out (that's the point); a status→profile correction makes it
    permanent. The AI-visibility badges pick this up automatically once the

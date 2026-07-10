@@ -2,9 +2,12 @@
  * Digest-correction calibration export — a gated, READ-ONLY live-DB report of
  * every admin label correction (original -> corrected + the digest's summary
  * text) for tuning the digest taxonomy prompt against real mistakes. After a
- * prompt revision, bump the digest generator version and run a recalibration
- * wipe (runbook §Recalibration wipe) — corrections persist across the wipe
- * because they are keyed by content hash.
+ * prompt revision, run a recalibration wipe (runbook §Recalibration wipe) —
+ * corrections persist across the wipe because they are keyed by content hash.
+ * Do NOT bump DIGEST_GENERATOR_VERSION for prompt-only changes: the version is
+ * an input to buildDigestContentHash, so bumping it re-keys every window and
+ * ORPHANS all corrections. Bump it only when window membership itself changes
+ * (e.g. a windowing-rule change), where re-keying is unavoidable anyway.
  *
  * Run:
  *   RUN_DIGEST_CORRECTION_PAIRS=1 npx vitest run scripts/digest-correction-pairs.test.ts
