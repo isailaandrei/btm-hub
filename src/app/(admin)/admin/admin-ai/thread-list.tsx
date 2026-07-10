@@ -1,6 +1,9 @@
 "use client";
 
+import { Loader2, MessageCircleQuestion, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { formatRelative } from "@/lib/format-relative";
+import { cn } from "@/lib/utils";
 import type { AdminAiThreadSummary } from "@/types/admin-ai";
 
 export function ThreadList({
@@ -60,8 +63,11 @@ export function ThreadList({
 
   if (threads.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
-        No past questions yet. Ask one above to log your first analysis.
+      <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border bg-muted/30 px-6 py-10 text-center">
+        <MessageCircleQuestion className="size-6 text-muted-foreground/60" />
+        <p className="text-sm text-muted-foreground">
+          No past questions yet. Ask one above to log your first analysis.
+        </p>
       </div>
     );
   }
@@ -77,43 +83,68 @@ export function ThreadList({
         return (
           <div
             key={thread.id}
-            className={`rounded-lg border p-3 transition-colors ${
+            className={cn(
+              "group rounded-xl border bg-white p-4 shadow-sm transition-all",
               isActive
-                ? "border-primary bg-primary/5"
-                : "border-border hover:bg-muted/40"
-            }`}
+                ? "border-primary/50 bg-primary/[0.03] ring-1 ring-primary/20"
+                : "border-border hover:border-primary/30 hover:shadow-md",
+            )}
           >
-            <button
-              type="button"
-              onClick={() => {
-                if (isActive && onDeselect) {
-                  onDeselect();
-                } else {
-                  onSelect(thread);
+            <div className="flex items-start justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isActive && onDeselect) {
+                    onDeselect();
+                  } else {
+                    onSelect(thread);
+                  }
+                }}
+                aria-pressed={isActive}
+                title={
+                  isActive
+                    ? "Click to close this past question"
+                    : "Click to view this past question"
                 }
-              }}
-              aria-pressed={isActive}
-              title={
-                isActive
-                  ? "Click to close this past question"
-                  : "Click to view this past question"
-              }
-              className="w-full text-left"
-            >
-              <div className="flex items-center justify-between gap-3">
+                className="min-w-0 flex-1 text-left"
+              >
                 <p className="line-clamp-2 text-sm font-medium text-foreground">
                   {thread.title}
                 </p>
-                {isLoading && (
-                  <span className="text-xs text-muted-foreground">Loading…</span>
-                )}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {new Date(thread.updatedAt).toLocaleString()}
-              </p>
-            </button>
+                <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{formatRelative(thread.updatedAt)}</span>
+                  {isLoading && (
+                    <span className="inline-flex items-center gap-1 text-primary">
+                      <Loader2 className="size-3 animate-spin" />
+                      Loading
+                    </span>
+                  )}
+                </p>
+              </button>
 
-            {isRenaming ? (
+              {!isRenaming && !isConfirmingDelete && (
+                <div className="flex shrink-0 gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => beginRename(thread)}
+                    aria-label={`Rename "${thread.title}"`}
+                    className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => beginDelete(thread)}
+                    aria-label={`Delete "${thread.title}"`}
+                    className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {isRenaming && (
               <div className="mt-3 space-y-2">
                 <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Rename
@@ -122,27 +153,29 @@ export function ThreadList({
                   type="text"
                   value={renameValue}
                   onChange={(event) => setRenameValue(event.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                 />
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => submitRename(thread)}
-                    className="text-xs font-medium text-foreground hover:opacity-80"
+                    className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
                   >
                     Save
                   </button>
                   <button
                     type="button"
                     onClick={cancelRename}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     Cancel
                   </button>
                 </div>
               </div>
-            ) : isConfirmingDelete ? (
-              <div className="mt-3 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            )}
+
+            {isConfirmingDelete && (
+              <div className="mt-3 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
                 <p className="text-sm text-foreground">
                   Delete <span className="font-medium">{thread.title}</span>?
                 </p>
@@ -153,35 +186,18 @@ export function ThreadList({
                       onDelete(thread);
                       cancelDelete();
                     }}
-                    className="text-xs font-medium text-destructive hover:opacity-80"
+                    className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
                   >
                     Delete
                   </button>
                   <button
                     type="button"
                     onClick={cancelDelete}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     Cancel
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => beginRename(thread)}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  onClick={() => beginDelete(thread)}
-                  className="text-xs text-destructive hover:opacity-80"
-                >
-                  Delete
-                </button>
               </div>
             )}
           </div>

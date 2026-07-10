@@ -1,9 +1,10 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { ArrowUp, Loader2, Plane, Sparkles, Video } from "lucide-react";
 import { useActionState, useEffect, useRef, useState } from "react";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiProgressSnapshot } from "@/lib/admin-ai/progress";
+import { cn } from "@/lib/utils";
 import type { AdminAiAskFormState } from "./actions";
 import { askAdminAiQuestion } from "./actions";
 
@@ -16,6 +17,30 @@ const INITIAL_STATE: AdminAiAskFormState = {
 };
 
 const PROGRESS_POLL_INTERVAL_MS = 2000;
+
+// Example questions surfaced as one-click chips under the hero ask box.
+// Copy mirrors real owner questions (shortlist / experience / commitment) so
+// the chips teach the query vocabulary the corpus actually answers well.
+const SUGGESTIONS: Array<{ icon: typeof Sparkles; label: string; question: string }> = [
+  {
+    icon: Sparkles,
+    label: "Shortlist candidates",
+    question:
+      "Who are the strongest candidates for the 26 Coral Catch? Rank them and name your concerns.",
+  },
+  {
+    icon: Video,
+    label: "Find a skill",
+    question:
+      "Which contacts have professional underwater photo or video experience?",
+  },
+  {
+    icon: Plane,
+    label: "Check commitments",
+    question:
+      "Who has committed to joining a program but hasn't confirmed travel dates yet?",
+  },
+];
 
 // Copy rule: counts must never read as coverage limits. Every contact in the
 // corpus is examined by the scan; "flagged" is the scan's OUTPUT. An admin
@@ -59,17 +84,22 @@ export function QuestionForm({
   contactId,
   providerAvailability,
   onResolved,
+  variant = "compact",
 }: {
   scope: "global" | "contact";
   contactId?: string;
   providerAvailability: AdminAiProviderAvailability;
   onResolved: (state: AdminAiAskFormState) => void;
+  /** "hero" renders the large centered ask box (global AI tab); "compact"
+   * keeps the dense inline form (contact page panel). */
+  variant?: "hero" | "compact";
 }) {
   const [state, formAction, isPending] = useActionState(
     askAdminAiQuestion,
     INITIAL_STATE,
   );
   const handledRef = useRef<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // One progress id per ask; rotated after each resolution (render-time
   // adjustment below) so a stale row from the previous answer can never bleed
   // into the next one's display. Poll results carry the id they were fetched
@@ -144,74 +174,182 @@ export function QuestionForm({
     onResolved(state);
   }, [onResolved, resolvedSignature, state]);
 
-  return (
-    <form action={formAction} className="space-y-3">
-      <input type="hidden" name="scope" value={scope} />
-      <input type="hidden" name="progressId" value={progressId} />
-      {contactId && <input type="hidden" name="contactId" value={contactId} />}
+  function applySuggestion(question: string) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.value = question;
+    textarea.focus();
+  }
 
-      {isUnavailable && (
-        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {unavailableReason} Add `OPENAI_API_KEY` on the server, then restart the app.
+  function submitOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || disabled) return;
+    if (!event.currentTarget.value.trim()) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
+  const isHero = variant === "hero";
+
+  const feedback = (
+    <>
+      {state.errors?.question && (
+        <p className={cn("mt-2 text-sm text-destructive", isHero && "text-center")}>
+          {state.errors.question[0]}
         </p>
       )}
+      {state.errors?.contactId && (
+        <p className={cn("mt-2 text-sm text-destructive", isHero && "text-center")}>
+          {state.errors.contactId[0]}
+        </p>
+      )}
+      {state.message && (
+        <p
+          className={cn(
+            "mt-2 text-sm",
+            state.success ? "text-muted-foreground" : "text-destructive",
+            isHero && "text-center",
+          )}
+        >
+          {state.message}
+        </p>
+      )}
+      {isPending && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "mt-3 flex items-center gap-2 rounded-full border border-primary/20 bg-white/90 px-4 py-2 text-sm text-muted-foreground shadow-sm",
+            isHero ? "mx-auto w-fit" : "w-fit",
+          )}
+        >
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span>{progress ? describeProgress(progress) : "AI is thinking"}</span>
+        </div>
+      )}
+    </>
+  );
 
-      <div>
+  const askBox = (
+    <div
+      className={cn(
+        "rounded-2xl bg-gradient-to-r from-chart-2 via-primary to-chart-1 p-px transition-shadow",
+        isHero
+          ? "shadow-lg shadow-primary/15 focus-within:shadow-xl focus-within:shadow-primary/25"
+          : "shadow-sm focus-within:shadow-md focus-within:shadow-primary/15",
+      )}
+    >
+      <div className="relative rounded-[calc(var(--radius)+7px)] bg-white">
         <textarea
+          ref={textareaRef}
           name="question"
-          rows={4}
+          rows={isHero ? 4 : 3}
           maxLength={2000}
+          onKeyDown={submitOnEnter}
           placeholder={
             scope === "contact"
               ? "Ask about this contact's fit, signals, and concerns..."
               : "Ask for a shortlist, synthesis, or grounded contact insight..."
           }
           disabled={disabled}
-          className="w-full resize-none rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground shadow-sm placeholder-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-60"
+          className={cn(
+            "w-full resize-none rounded-[inherit] bg-transparent text-foreground outline-none placeholder:text-muted-foreground/80 disabled:opacity-60",
+            isHero ? "px-5 py-4 pr-16 text-base" : "px-4 py-3 pr-14 text-sm",
+          )}
         />
-        {state.errors?.question && (
-          <p className="mt-1 text-sm text-destructive">
-            {state.errors.question[0]}
-          </p>
-        )}
-        {state.errors?.contactId && (
-          <p className="mt-1 text-sm text-destructive">
-            {state.errors.contactId[0]}
-          </p>
-        )}
-      </div>
-
-      {state.message && (
-        <p
-          className={`text-sm ${
-            state.success ? "text-muted-foreground" : "text-destructive"
-          }`}
-        >
-          {state.message}
-        </p>
-      )}
-
-      {isPending && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 rounded-lg border border-primary/20 bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm"
-        >
-          <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          <span>{progress ? describeProgress(progress) : "AI is thinking"}</span>
-        </div>
-      )}
-
-      <div className="flex justify-start">
         <button
           type="submit"
           disabled={disabled}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          aria-label="Ask AI"
+          className={cn(
+            "absolute grid place-items-center rounded-full bg-primary text-primary-foreground transition-all hover:opacity-90 disabled:opacity-40",
+            isHero ? "bottom-3 right-3 size-10" : "bottom-2.5 right-2.5 size-8",
+          )}
         >
-          {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-          <span>{isPending ? "Thinking..." : "Ask AI"}</span>
+          {isPending ? (
+            <Loader2 className={cn("animate-spin", isHero ? "size-5" : "size-4")} />
+          ) : (
+            <ArrowUp className={isHero ? "size-5" : "size-4"} />
+          )}
         </button>
       </div>
+    </div>
+  );
+
+  const hiddenFields = (
+    <>
+      <input type="hidden" name="scope" value={scope} />
+      <input type="hidden" name="progressId" value={progressId} />
+      {contactId && <input type="hidden" name="contactId" value={contactId} />}
+    </>
+  );
+
+  if (!isHero) {
+    return (
+      <form action={formAction} className="space-y-1">
+        {hiddenFields}
+        {isUnavailable && (
+          <p className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {unavailableReason} Add `OPENAI_API_KEY` on the server, then restart
+            the app.
+          </p>
+        )}
+        {askBox}
+        {feedback}
+      </form>
+    );
+  }
+
+  return (
+    <form action={formAction}>
+      {hiddenFields}
+      <section className="relative overflow-hidden rounded-3xl border border-primary/15 bg-gradient-to-b from-primary/10 via-primary/[0.04] to-transparent px-6 py-10 sm:px-10 sm:py-12">
+        {/* Atmosphere: two soft ocean glows behind the content. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-28 left-1/2 h-64 w-[38rem] -translate-x-1/2 rounded-full bg-primary/20 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-36 right-[-8%] h-72 w-72 rounded-full bg-chart-2/25 blur-3xl"
+        />
+
+        <div className="relative mx-auto max-w-3xl">
+          <h2 className="text-center text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            What do you want to know?
+          </h2>
+          <p className="mt-2 text-center text-sm text-muted-foreground">
+            Shortlists, rankings, and grounded answers — across every contact
+            and conversation.
+          </p>
+
+          {isUnavailable && (
+            <p className="mx-auto mt-5 max-w-xl rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {unavailableReason} Add `OPENAI_API_KEY` on the server, then
+              restart the app.
+            </p>
+          )}
+
+          <div className="mt-6">{askBox}</div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {SUGGESTIONS.map(({ icon: Icon, label, question }) => (
+              <button
+                key={label}
+                type="button"
+                disabled={disabled}
+                onClick={() => applySuggestion(question)}
+                title={question}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
+              >
+                <Icon className="size-3.5 text-primary" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {feedback}
+        </div>
+      </section>
     </form>
   );
 }

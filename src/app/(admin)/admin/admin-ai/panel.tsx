@@ -114,19 +114,20 @@ export function AdminAiPanel({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <QuestionForm
         scope={scope}
         contactId={contactId}
         providerAvailability={providerAvailability}
         onResolved={handleAskResolved}
+        variant={scope === "global" ? "hero" : "compact"}
       />
 
       {selectedThread && (
-        <section className="space-y-4 rounded-xl border border-primary/20 bg-white p-4 shadow-sm ring-1 ring-primary/10">
+        <section className="space-y-4 rounded-2xl border border-primary/20 bg-white p-5 shadow-sm ring-1 ring-primary/10">
           <header className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-medium uppercase tracking-wide text-primary">
                 Past question
               </p>
               <h3 className="mt-1 text-base font-semibold text-foreground">
@@ -151,9 +152,16 @@ export function AdminAiPanel({
       )}
 
       <div className="space-y-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Past questions
-        </p>
+        <div className="flex items-baseline gap-2">
+          <h3 className="text-sm font-semibold text-foreground">
+            Past questions
+          </h3>
+          {threads.length > 0 && (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {threads.length}
+            </span>
+          )}
+        </div>
         <ThreadList
           threads={threads}
           selectedThreadId={selectedThreadId}
