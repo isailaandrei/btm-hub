@@ -461,6 +461,13 @@ export const deepSeekAdminAiProvider: AdminAiProvider = {
       maxTokens: thinking.enabled
         ? DEEPSEEK_THINKING_MAX_OUTPUT_TOKENS
         : DEEPSEEK_MAX_OUTPUT_TOKENS,
+      // Deterministic synthesis (owner decision 2026-07-10, queue §7): an
+      // analyst answers identical questions identically, and default-
+      // temperature sampling made ~2 of 11 eval assertions a dice roll
+      // (empty assumptions / dropped citations arrays). Same doctrine as
+      // completeJson. Thinking mode sends no sampling params (unsupported
+      // alongside DeepSeek reasoning), matching the map calls' behavior.
+      temperature: thinking.enabled ? undefined : 0,
       printPayload: true,
       parse: parseDeepSeekContent,
     });

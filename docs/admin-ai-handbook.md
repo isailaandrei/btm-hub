@@ -80,8 +80,9 @@ Providers (`provider.ts`, `deepseek-provider.ts`): DeepSeek chat-completions,
 `json_object` mode, zod-validated, retry-once-then-fail-loud, thinking
 explicitly DISABLED (DeepSeek reasons by default if the field is omitted —
 this once silently ate 86% of output budget), `temperature: 0` on
-`completeJson` only (extraction/planning are classification; synthesis keeps
-the API default). Prompt-cache engineering: the big stable card corpus renders
+`completeJson` AND (since Jul 10 2026, owner-approved) on `generate` when
+thinking is off — identical questions get identical answers; thinking mode
+still sends no sampling params. Prompt-cache engineering: the big stable card corpus renders
 FIRST, per-question content LAST, cards ordered oldest-first so new contacts
 append to the cacheable prefix's tail. ANY system-prompt edit invalidates the
 whole prefix → the next query runs cold (~$0.15) — batch prompt changes.
@@ -139,10 +140,14 @@ see §6.
    Rescued and near-miss candidates always reach the admin with explicit
    uncertainty — the system surfaces, the human decides.
 
-7. **Determinism where mechanical.** Extraction and planning are
+7. **Determinism everywhere it can live.** Extraction and planning are
    classification → temperature 0 (an unset temperature caused eval flake:
-   the same contact was near-missed one run and skipped the next). Synthesis
-   keeps sampling freedom.
+   the same contact was near-missed one run and skipped the next). Since
+   Jul 10 2026 the reduce/synthesis call is ALSO pinned to 0 (owner decision,
+   queue §7): default-temperature synthesis made ~2 of 11 eval assertions a
+   dice roll (empty assumptions, dropped citations arrays), and an analyst
+   should answer identical questions identically. Sampling freedom bought
+   nothing the product wants.
 
 8. **Memory needs forgetting** (see §6): durable profile facts persist;
    operational status expires from the AI's view after 45 days; noise never

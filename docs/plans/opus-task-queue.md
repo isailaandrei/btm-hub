@@ -438,7 +438,7 @@ no-normalizer fields.
 
 ---
 
-## 7. PENDING OWNER DECISION: pin the reduce (generate) to temperature 0
+## 7. DECIDED + IMPLEMENTED Jul 10: reduce (generate) pinned to temperature 0
 
 **Observed (Jul 9, concurrent eval runs):** two eval questions flaked on one
 run and passed on the next, identical code — the REDUCE call (`generate` in
@@ -447,6 +447,14 @@ run and passed on the next, identical code — the REDUCE call (`generate` in
 (d78634a). Failure modes seen: reduce emitted zero `assumptions`
 (judgment variance) and omitted `citations` arrays (shape variance → loud
 ZodError). Roughly 2-in-11 assertions are exposed per dice roll.
+
+**DECISION (owner, 2026-07-10):** approved. Implemented same day: `generate`
+now pins `temperature: 0` whenever thinking is disabled (the prod state;
+thinking mode continues to send no sampling params, matching DeepSeek's
+constraint). The optional Zod-parse retry was deliberately NOT added: under
+temperature 0 a bad shape is (near-)deterministic, so an identical retry
+mostly doubles cost without changing the outcome — revisit only if shape
+flake survives the pin. Gated by before/after live eval runs (see commit).
 
 **Recommendation (Fable):** pin `temperature: 0` on the `generate` path too
 — same determinism doctrine, an admin analyst should answer identically to

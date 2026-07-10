@@ -158,8 +158,9 @@ describe("deepSeekAdminAiProvider", () => {
     expect(body).not.toHaveProperty("reasoning_effort");
     // Cache key is OpenAI-only; DeepSeek caching is automatic and unkeyed.
     expect(body).not.toHaveProperty("prompt_cache_key");
-    // Synthesis omits temperature so the API's tuned default (1.0) stands.
-    expect(body).not.toHaveProperty("temperature");
+    // Deterministic synthesis (queue §7, owner-approved 2026-07-10):
+    // temperature pinned to 0 whenever thinking is off.
+    expect(body.temperature).toBe(0);
 
     const systemMessage = body.messages?.find((m) => m.role === "system");
     const userMessage = body.messages?.find((m) => m.role === "user");
