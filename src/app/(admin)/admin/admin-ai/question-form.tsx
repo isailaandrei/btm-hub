@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Loader2, Plane, Sparkles, Video } from "lucide-react";
+import { ArrowUp, Loader2 } from "lucide-react";
 import { useActionState, useEffect, useRef, useState } from "react";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiProgressSnapshot } from "@/lib/admin-ai/progress";
@@ -19,26 +19,20 @@ const INITIAL_STATE: AdminAiAskFormState = {
 const PROGRESS_POLL_INTERVAL_MS = 2000;
 
 // Example questions surfaced as one-click chips under the hero ask box.
-// Copy mirrors real owner questions (shortlist / experience / commitment) so
-// the chips teach the query vocabulary the corpus actually answers well.
-const SUGGESTIONS: Array<{ icon: typeof Sparkles; label: string; question: string }> = [
+// Copy mirrors real owner questions so the chips teach the query vocabulary
+// the corpus actually answers well. Only include question TYPES the pipeline
+// has proven on (eval-backed); e.g. a "commitments/travel" chip was removed
+// Jul 2026 because the corpus can't answer it meaningfully yet.
+const SUGGESTIONS: Array<{ label: string; question: string }> = [
   {
-    icon: Sparkles,
     label: "Shortlist candidates",
     question:
       "Who are the strongest candidates for the 26 Coral Catch? Rank them and name your concerns.",
   },
   {
-    icon: Video,
     label: "Find a skill",
     question:
       "Which contacts have professional underwater photo or video experience?",
-  },
-  {
-    icon: Plane,
-    label: "Check commitments",
-    question:
-      "Who has committed to joining a program but hasn't confirmed travel dates yet?",
   },
 ];
 
@@ -332,16 +326,15 @@ export function QuestionForm({
           <div className="mt-6">{askBox}</div>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            {SUGGESTIONS.map(({ icon: Icon, label, question }) => (
+            {SUGGESTIONS.map(({ label, question }) => (
               <button
                 key={label}
                 type="button"
                 disabled={disabled}
                 onClick={() => applySuggestion(question)}
                 title={question}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
+                className="rounded-full border border-border bg-white/80 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
               >
-                <Icon className="size-3.5 text-primary" />
                 {label}
               </button>
             ))}
