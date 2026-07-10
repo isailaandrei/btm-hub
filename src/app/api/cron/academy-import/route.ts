@@ -2,6 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 
 import { executeAcademyImportRun } from "@/lib/academy/import-runner";
 
+// Explicit bound like the sibling crons (the Sheets fetch is itself bounded
+// by AbortSignal.timeout(30s); this is the route-level ceiling).
+export const maxDuration = 300;
+
 function constantTimeAuthEqual(provided: string, expected: string): boolean {
   // Use a constant-time compare so an attacker cannot probe the cron secret
   // byte-by-byte via response timing. Lengths must match for the underlying

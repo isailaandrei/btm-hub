@@ -6,6 +6,11 @@ import { createStreamServerClient } from "@/lib/stream/server";
 import { toStreamUser } from "@/lib/stream/user";
 import { isUUID } from "@/lib/validation-helpers";
 
+// Stream SDK HTTP calls carry a 3s default timeout; this route-level ceiling
+// is defense-in-depth so a pathological hang can't hold a Fluid instance to
+// the 300s project default.
+export const maxDuration = 60;
+
 export const runtime = "nodejs";
 
 const directChannelSchema = z.object({

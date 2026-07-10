@@ -6,6 +6,11 @@ import { toStreamUser } from "@/lib/stream/user";
 
 export const runtime = "nodejs";
 
+// Stream SDK HTTP calls carry a 3s default timeout; this route-level ceiling
+// is defense-in-depth so a pathological hang can't hold a Fluid instance to
+// the 300s project default.
+export const maxDuration = 60;
+
 export async function GET() {
   const supabase = await createClient();
   const {
