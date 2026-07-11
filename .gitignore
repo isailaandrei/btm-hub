@@ -70,6 +70,7 @@ e2e/screenshots
 !/scripts/admin-ai-memory/**
 # Admin-AI tooling (gated live suites; run via RUN_* env flags)
 !/scripts/admin-ai-live-lib.ts
+!/scripts/hostinger-deploy.sh
 !/scripts/admin-ai-eval.test.ts
 !/scripts/analyze-admin-ai-payload.test.ts
 !/scripts/deepseek-smoke.test.ts
@@ -107,3 +108,5 @@ supabase/snippets/
 dev-server.log
 # Admin AI request dumps (raw prompts built from real contact data — PII)
 .admin-ai-debug/
+.hostinger-deploys.log
+.server-actions-key.local

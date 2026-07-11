@@ -98,7 +98,7 @@ Provider selection is **solely `EMAIL_PROVIDER`** (`getEmailProviderName()`, `sr
 - [ ] Manually hit `/api/cron/academy-import` with `Bearer CRON_SECRET`
 - [ ] 6 MB server-action body passes the proxy
 - [ ] Light load (~20 concurrent SSR) — watch CPU/RAM
-- [ ] **Redeploy on push: measure downtime** (no atomic-deploy claim exists in Hostinger docs)
+- [ ] **Redeploy on push: measure downtime** (no atomic-deploy claim exists in Hostinger docs) — *instrumented Jul 11: availability poller + deploy script ready; number lands with the next pilot deploy*
 - [ ] **Single-instance check:** a `revalidatePath` flow propagates (no divergent caches → confirms one worker)
 - [ ] No idle-sleep: warm response after >1 h idle
 - [ ] Crash recovery: process manager restarts the app
@@ -153,10 +153,41 @@ Production goes down with no rollback target. Promote the pilot to interim produ
 Validated working: build (Next auto-detected, ~2.5 min, no OOM on 4 GB, Node 20), SSR (warm ~0.5 s), `proxy.ts` auth-gating (307→/login), `next/image` sharp optimization, noindex header, SSL+CDN (`hcdn`), login (server actions work through the proxy), admin dashboard with 304 real contacts (service-role key via new `sb_secret_...` key works at runtime), Google Forms academy import (preview flow), Sanity content. Env: user imported the full `.env` into hPanel's env store (Hostinger's encrypted store, takes precedence over the archive file) — the auto-mode guard correctly blocked the assistant from shipping secrets to this third-party box, so the human did it.
 
 **Two findings that become cutover requirements:**
-1. **Server Action skew (self-hosting gotcha Vercel auto-handles).** After each redeploy, CDN/browser-cached client bundles reference stale action IDs → "Server Action … was not found" until a fresh load. **Required step: purge the Hostinger CDN cache after every deploy** (hPanel → website → Dashboard → Cache → Clear cache; no MCP tool exists for it). Consider also setting a fixed `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` and/or cache-control so the CDN doesn't cache dynamic HTML/RSC. Deploying multiple times in quick succession makes it worse (each build = new IDs).
+1. **Server Action skew (self-hosting gotcha Vercel auto-handles).** After each redeploy, CDN/browser-cached client bundles reference stale action IDs → "Server Action … was not found" until a fresh load. **Required step: purge the Hostinger CDN cache after every deploy** (scriptable since Jul 2026: `hosting_clearWebsiteCacheV1` MCP tool / `POST .../cache/clear` REST — `scripts/hostinger-deploy.sh` does it automatically; manual fallback: hPanel → Dashboard → Cache → Clear cache). Consider also setting a fixed `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` and/or cache-control so the CDN doesn't cache dynamic HTML/RSC. Deploying multiple times in quick succession makes it worse (each build = new IDs).
 2. **Admin AI is dev-only-gated, by design.** `admin-ai/visibility.ts` → `isLocalAdminAiEnabled()` requires `NODE_ENV !== "production"`, so it never renders on a production build regardless of `NEXT_PUBLIC_SHOW_ADMIN_AI` or any `?tab=ai` URL (double-gated at `admin-dashboard.tsx:212`). Not a Hostinger issue; matches the global-AI-parked-on-OpenAI-TPM state. To run the **proxy request-timeout test** (the one remaining platform unknown — does Hostinger's proxy kill requests before ~180 s?), the gate must be temporarily relaxed + redeployed. Lower urgency than first framed: the AI isn't production-exposed, and long email work runs in `after()` (post-response), not in-request.
 
 Cosmetic note: hPanel "Last deployment: Build failed" is the redundant duplicate MCP build that lost a race; the app runs the prior **completed** build (verified serving).
+
+## Deploy hardening (Jul 11 2026 — owner-approved)
+
+Decisions and facts from the deploy-model review (Docker/VPS explicitly NOT
+worth it at current stakes; revisit only at >1 instance or painful deploy
+blips — the recorded scale-up path is VPS + Redis `cacheHandler`):
+
+- **Platform constraint (decisive):** Hostinger's Node.js Apps pipeline
+  REQUIRES source-only archives and always builds server-side ("archive must
+  ONLY contain application source files"). CI-built artifacts CANNOT be
+  uploaded. Consequences: rollback is always a ~2.5 min rebuild of a
+  known-good SHA, and the CI build gate (which already runs on every push,
+  clean `npm ci`) is the only pre-deploy build verification — check CI is
+  green before deploying.
+- **Deploy/rollback script:** `scripts/hostinger-deploy.sh` — git-archives a
+  SHA, uploads, polls the build (fail-loud; a failed build leaves the
+  previous app serving), purges website+CDN cache, smoke-checks
+  (`/`→200, `/login`→200, `/admin`→3xx), logs to `.hostinger-deploys.log`
+  (gitignored). Rollback = run it with the previous logged SHA. Needs
+  `HOSTINGER_API_TOKEN` + `HOSTINGER_USERNAME` env.
+- **Server-Action skew, permanent fix:** set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`
+  in the hPanel env store (key generated Jul 11, handed to Andrei via
+  `.server-actions-key.local` — NOT in the repo). With a fixed key, action IDs
+  survive deploys, so stale cached bundles keep working instead of throwing
+  "Server Action not found". The post-deploy cache purge stays (stale
+  HTML/RSC), but stops being load-bearing. Optionally set the same key on
+  Vercel (dashboard → env) for the same benefit there.
+- **REST endpoints** (base `https://developers.hostinger.com/api/hosting/v1`,
+  Bearer auth): `POST .../websites/{domain}/nodejs/builds/from-archive`
+  (multipart `archive`), `GET .../nodejs/builds`, `GET .../nodejs/builds/{uuid}/logs`,
+  `POST .../cache/clear`, `POST .../nodejs/server/restart`.
 
 ## Open items
 
