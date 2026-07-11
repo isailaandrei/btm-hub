@@ -98,7 +98,18 @@ Provider selection is **solely `EMAIL_PROVIDER`** (`getEmailProviderName()`, `sr
 - [ ] Manually hit `/api/cron/academy-import` with `Bearer CRON_SECRET`
 - [ ] 6 MB server-action body passes the proxy
 - [ ] Light load (~20 concurrent SSR) — watch CPU/RAM
-- [ ] **Redeploy on push: measure downtime** (no atomic-deploy claim exists in Hostinger docs) — *instrumented Jul 11: availability poller + deploy script ready; number lands with the next pilot deploy*
+- [x] **Redeploy on push: measure downtime — MEASURED Jul 11 2026: effectively ZERO.**
+  Full deploy of origin/main 546009f (upload → 6m22s server build → swap →
+  cache purge) polled at ~1s cadence on the CDN path (1,363 samples, all 200)
+  AND a controlled `nodejs/server/restart` polled at ~300ms cadence on a
+  cache-bypassed origin path (488 samples, all 200). No failed request at
+  either layer — the swap/restart holds or drains connections rather than
+  dropping them. Caveats: measured at zero concurrent load beyond the poller;
+  a request in-flight at the exact swap instant may still see added latency
+  (not measured); and the CDN result relies on cached pages continuing to
+  serve during the build (which also means STALE pages serve until the purge —
+  hence the mandatory post-deploy purge + fixed
+  NEXT_SERVER_ACTIONS_ENCRYPTION_KEY, both in place since this deploy).
 - [ ] **Single-instance check:** a `revalidatePath` flow propagates (no divergent caches → confirms one worker)
 - [ ] No idle-sleep: warm response after >1 h idle
 - [ ] Crash recovery: process manager restarts the app
