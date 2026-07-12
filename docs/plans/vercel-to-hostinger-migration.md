@@ -1,7 +1,31 @@
 # Vercel → Hostinger migration plan
 
-**Status:** v2 — red-team reviewed; **BLOCKED 2026-07-02 on a third-party-account/trust issue (see ⚠️ section below).** Phase 0 code done + verified; Phase 1 on hold pending two owner decisions.
+**Status:** **CUTOVER EXECUTED 2026-07-12 — production now runs on Hostinger at `https://preview.behind-the-mask.com`** (interim production URL; official launch on the final domain still pending — see the Launch runbook). Vercel kept warm ~30 days as rollback (until ~2026-08-11). Phases 0/1/2 done; Phase 3 executed against the interim URL. History below: v2 red-team review; BLOCKED 2026-07-02 on a third-party-account/trust issue (⚠️ section) — proceeded on the third-party box with key-rotation under Andrei's own accounts as the kill-switch.
 **Builds on:** branch `chore/hostinger-portability` (2 commits, unmerged — analytics removal, `APP_ENV` prod detection, Node pin) and its analysis doc `docs/plans/hostinger-migration-overhead.md`.
+
+## Cutover executed 2026-07-12 — production now runs on preview.behind-the-mask.com
+
+Production moved to **`https://preview.behind-the-mask.com`** on Hostinger — commit **`4f16157`** deployed (build `019f562d-04e1-724e-ae6e-216162fbd8b4`). This is the **INTERIM production URL**; the official launch on the final domain is still pending (see **Launch runbook** below). What Phase 3 called "cutover" is done except for the final-domain repoint.
+
+**Env model decision — `APP_ENV` deliberately NOT set.** Leaving `APP_ENV` unset keeps the preview URL **noindexed pre-launch** (the noindex header keys off `APP_ENV !== "production"`). Production email semantics are instead enforced via **`EMAIL_REQUIRE_REAL_PROVIDER=true` + `EMAIL_PROVIDER=brevo`** — `isProductionEmailEnvironment()` treats that flag as production, so fake-provider fallback is forbidden and real sends go out. **`APP_ENV=production` is the launch-day switch** (drops noindex + belt-and-suspenders prod detection).
+
+**Env-store drift incident (lesson).** The hPanel env store was a **Jul-2 snapshot predating the DeepSeek provider switch**, so the admin AI silently fell back to the old OpenAI provider (quota-dead key) on the pilot. Fixed by syncing against the Vercel dashboard — added `ADMIN_AI_PROVIDER`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_REASONING_EFFORT`, `DEEPSEEK_THINKING`, `ADMIN_AI_SCAN_MODE`. **LESSON: the hPanel env store does NOT track Vercel** — any new env var must be added in **BOTH** places until Vercel is decommissioned.
+
+**External references repointed (all verified working):**
+- **Supabase Vault URLs → preview:** `email_drain_url`, `conversation_digest_url`, `whatsapp_media_archive_url`; **new `academy_import_url` created**. (The plan predated the digest + media-archive crons — live `cron.job` now has **5 jobs**.)
+- **pg_cron `academy-import`** scheduled `15 2 * * *` (jobid 5) **AFTER** the vercel.json cron-removal commit `4f16157` landed (ordering per the script header — no double-execution window).
+- **email-drain verified:** `200 {"ok":true,"sends":[]}` every minute against preview → CRON_SECRET / Vault parity confirmed.
+- **Brevo** transactional webhook (id `1980683`) → `https://preview.behind-the-mask.com/api/email/webhooks/brevo`.
+- **Supabase Auth Site URL** → preview (Andrei, dashboard).
+- **YCloud WhatsApp webhook RE-ENABLED** → preview `/api/whatsapp/ycloud/webhook` (deactivated since the Jun 29 fluid-burn; the storm-proofed code is now live).
+- **Sanity revalidate webhook** → preview (Andrei, dashboard).
+- **Stream webhook — FINDING:** the dashboard webhook pointed at a **dead ngrok dev tunnel** — chat `message.new` notifications were **silently broken in production for an unknown period**. Repointed to preview `/api/stream/webhook` (`message.new` is the only event the route handles — correct as-is).
+
+**Verification results (2026-07-12):**
+- Smoke: `/`→200, `/login`→200, `/admin`→307.
+- **Load:** 60-request / 20-concurrency burst all 200, avg **0.80 s**.
+- **Admin AI end-to-end on DeepSeek:** answer in **29 s** server-side — proves the proxy ceiling is **>29 s only**. The 180 s question **remains open**; the documented fallback (background job + poll) still stands if a real >proxy-cap request appears.
+- **Real email send:** `12:27:15Z` → Brevo → `delivered_at 12:27:18Z`, delivered status applied via the **repointed** Brevo webhook (validates the full send→webhook→DB loop on preview).
 
 ## Context
 
@@ -86,18 +110,18 @@ Provider selection is **solely `EMAIL_PROVIDER`** (`getEmailProviderName()`, `sr
 
 ## Phase 2 — Pilot validation checklist (in order)
 
-- [ ] **1. Submit the login form** — server actions behind their proxy (Origin vs x-forwarded-host). If it fails: apply the prepared `allowedOrigins` fix
-- [ ] Auth session across navigation; `/admin` gate via `proxy.ts`; logout
+- [x] **1. Submit the login form** — server actions behind their proxy (Origin vs x-forwarded-host). **DONE (pilot + 2026-07-12): works through the proxy, no `allowedOrigins` fix needed.**
+- [x] Auth session across navigation; `/admin` gate via `proxy.ts`; logout — **DONE (`/admin`→307 verified 2026-07-12)**
 - [ ] Marketing pages render Sanity content; `/studio` loads (after CORS step)
-- [ ] Admin dashboard incl. Supabase Realtime; community pages; Stream Chat connects
-- [ ] **Timeout ceiling (decisive):** run an admin-AI question >60 s; find the proxy's request cap. If <~180 s: rework admin AI to background+poll before cutover
+- [x] Admin dashboard incl. Supabase Realtime; community pages; Stream Chat connects — **DONE: admin dashboard verified; Stream webhook repointed 2026-07-12**
+- [x] **Timeout ceiling (decisive):** run an admin-AI question >60 s; find the proxy's request cap. **PARTIAL 2026-07-12: admin AI answered end-to-end on DeepSeek in 29 s — proxy cap proven >29 s only; the 180 s question stays OPEN, background+poll fallback still on the table**
 - [ ] `/_next/image` optimizes (sharp) — check hPanel CPU during an image-heavy page burst
-- [ ] WhatsApp media proxy streams (no buffering)
-- [ ] Email: pipeline-shape with `EMAIL_PROVIDER=fake` on pilot-created sends only; then the **one real send** via `EMAIL_TEST_RECIPIENT_OVERRIDE=isailaandrei.i@gmail.com` (see email model)
-- [ ] Webhook signature checks with test payloads (Brevo: if a pilot webhook entry is created in Brevo's dashboard, **delete it after testing** — a forgotten duplicate double-delivers after cutover)
-- [ ] Manually hit `/api/cron/academy-import` with `Bearer CRON_SECRET`
-- [ ] 6 MB server-action body passes the proxy
-- [ ] Light load (~20 concurrent SSR) — watch CPU/RAM
+- [ ] WhatsApp media proxy streams (no buffering) — **not re-verified at cutover; low risk (storm-proofed code live, YCloud webhook re-enabled)**
+- [x] Email: pipeline-shape then the **one real send** — **DONE 2026-07-12: real send `12:27:15Z` → Brevo → `delivered_at 12:27:18Z` on preview (prod semantics now via `EMAIL_REQUIRE_REAL_PROVIDER=true`; the old `fake`/`EMAIL_TEST_RECIPIENT_OVERRIDE` pilot dance is retired)**
+- [x] Webhook signature checks — **DONE 2026-07-12: Brevo webhook (id `1980683`) repointed to preview and validated end-to-end by the real send's delivered-status apply; no duplicate left behind**
+- [x] ~~Manually hit `/api/cron/academy-import` with `Bearer CRON_SECRET`~~ — **SUPERSEDED: live email-drain returns 200 every minute against preview + `academy-import` pg_cron scheduled (jobid 5); CRON_SECRET/Vault parity confirmed**
+- [ ] 6 MB server-action body passes the proxy — **not re-verified at cutover; low risk**
+- [x] Light load (~20 concurrent SSR) — **DONE 2026-07-12: 60-request / 20-concurrency burst all 200, avg 0.80 s**
 - [x] **Redeploy on push: measure downtime — MEASURED Jul 11 2026: effectively ZERO.**
   Full deploy of origin/main 546009f (upload → 6m22s server build → swap →
   cache purge) polled at ~1s cadence on the CDN path (1,363 samples, all 200)
@@ -116,25 +140,41 @@ Provider selection is **solely `EMAIL_PROVIDER`** (`getEmailProviderName()`, `sr
 
 ## Phase 3 — Cutover (STRICTLY ORDERED — the drain cron fires every minute)
 
-1. **Env first, then rebuild:** set final env on Hostinger — `APP_ENV=production`, `EMAIL_PROVIDER=brevo`, remove `EMAIL_TEST_RECIPIENT_OVERRIDE`, `NEXT_PUBLIC_SITE_URL` + `EMAIL_WORKER_ORIGIN` = final domain — and **redeploy** (NEXT_PUBLIC_* is baked at build). Verify on the temp subdomain.
-2. **Land the repo commit** that deletes the cron from `vercel.json` (kills Vercel-side academy-import everywhere — both platforms deploy from main, so no double-execution window; the importer's duplicate check is check-then-insert and races under concurrent runs).
-3. **Attach the release hostname** (hPanel, same-account): either the apex — which replaces the WordPress site's routing (WP files stay in hPanel; remap it to `old.`/`films.` first if it should stay reachable) — or the chosen permanent subdomain. Then plan `preview.*`'s removal in Phase 4.
-4. **Repoint external references** (only now):
+> **EXECUTED 2026-07-12 against the interim `preview.behind-the-mask.com` URL** (see the Cutover section up top). Steps 1/2/4/5 are done; step 3 (final release hostname) + the final-domain re-repoint are deferred to the **Launch runbook** below. The env in step 1 was applied in the interim variant — `APP_ENV` left UNSET (noindex), prod email semantics via `EMAIL_REQUIRE_REAL_PROVIDER=true`.
+
+1. **Env first, then rebuild:** ~~set final env on Hostinger — `APP_ENV=production`, `EMAIL_PROVIDER=brevo`, remove `EMAIL_TEST_RECIPIENT_OVERRIDE`, `NEXT_PUBLIC_SITE_URL` + `EMAIL_WORKER_ORIGIN` = final domain~~ — **DONE in interim form 2026-07-12**: `EMAIL_PROVIDER=brevo` + `EMAIL_REQUIRE_REAL_PROVIDER=true`, `APP_ENV` UNSET, `NEXT_PUBLIC_SITE_URL`/`EMAIL_WORKER_ORIGIN` = preview URL. The `APP_ENV=production` + final-domain variant runs at launch (Launch runbook).
+2. **Land the repo commit** that deletes the cron from `vercel.json` — **DONE: commit `4f16157`** (kills Vercel-side academy-import everywhere; both platforms deploy from main, so no double-execution window).
+3. ~~**Attach the release hostname** (hPanel, same-account): either the apex … or the chosen permanent subdomain.~~ **DEFERRED to the Launch runbook** — still gated on the apex-vs-`hub.*` owner decision. Interim production stays on `preview.*`; plan its removal in Phase 4 after launch.
+4. **Repoint external references** (~~only now~~ **DONE to preview 2026-07-12 — repeat against the final domain at launch**):
    - Supabase Auth **Site URL** → final domain (fixes confirmation-email links)
    - Supabase **Vault `email_drain_url`** → `https://<domain>/api/cron/email-drain`; **verify the ported `CRON_SECRET` equals Vault `email_cron_secret`** (mismatch = drain 401s forever, emails stall)
    - Run `supabase/scripts/academy-import-cron.sql` (new pg_cron job)
-   - Brevo webhook URL; Sanity revalidate webhook + CORS for final domain; Stream webhook (**verify it's actually configured in Stream's dashboard first — unverified**); YCloud webhook re-enable → `https://<domain>/api/whatsapp/ycloud/webhook`
+   - Brevo webhook URL; Sanity revalidate webhook + CORS for final domain; Stream webhook (~~**verify it's actually configured in Stream's dashboard first — unverified**~~ **RESOLVED 2026-07-12: it WAS configured but pointed at a dead ngrok dev tunnel — `message.new` chat notifications were silently broken in prod; repointed to preview**); YCloud webhook re-enable → `https://<domain>/api/whatsapp/ycloud/webhook`
    - ~~Community revalidate DB webhook~~ — **does not exist in production** (verified live `pg_trigger`: no `supabase_functions.http_request` trigger). Decide separately whether to create it; nothing to repoint.
-5. Re-run the Phase 2 checklist top items against the final domain (login, one email, one webhook event, cron fire).
+5. ~~Re-run the Phase 2 checklist top items against the final domain~~ — **DONE against preview 2026-07-12** (login 200, one real email delivered, Brevo webhook applied the delivered status, drain 200s, academy-import cron scheduled). Repeat at launch against the final domain.
+
+## Launch runbook (final domain — pending owner decision)
+
+The 2026-07-12 cutover put production on the interim `preview.*` URL. **Official launch = repeat the external repoint against the final domain + flip on production indexing.** Blocked on one owner decision: **apex vs `hub.*`** — apex requires deciding WordPress routing FIRST (the apex currently serves the live WP brand site; a `hub.*`/`community.*` subdomain leaves WP on the apex untouched). Steps, in order:
+
+1. **Attach the final hostname** in hPanel (same-account subdomain; or the apex after the WP routing decision — remap WP to `old.`/`films.` first if it should stay reachable).
+2. **Set final env + redeploy:** `APP_ENV=production`, `NEXT_PUBLIC_SITE_URL` + `EMAIL_WORKER_ORIGIN` = final URL, then **redeploy** (`NEXT_PUBLIC_*` is baked at build). Keep `EMAIL_REQUIRE_REAL_PROVIDER=true` + `EMAIL_PROVIDER=brevo`. `APP_ENV=production` **drops the noindex header automatically**.
+3. **Repoint external references to the final domain** (same list executed at cutover): 4 Supabase Vault URLs (`email_drain_url`, `conversation_digest_url`, `whatsapp_media_archive_url`, `academy_import_url`); Brevo transactional webhook; Supabase Auth Site URL; YCloud WhatsApp webhook; Sanity CORS + revalidate webhook; Stream webhook.
+4. **Verify:** login, one real email (send→webhook→`delivered_at`), drain/cron 200s, one webhook event; confirm the noindex header is gone.
+5. Then remove `preview.*` per Phase 4.
 
 ## Break-glass — if Vercel pauses before cutover
+
+> **HISTORICAL (moot after the 2026-07-12 cutover — Hostinger is now production).** Kept for the record.
 
 Production goes down with no rollback target. Promote the pilot to interim production immediately: set Phase 3 step 1 env on Hostinger (final env but `NEXT_PUBLIC_SITE_URL`/`EMAIL_WORKER_ORIGIN` = temp subdomain), redeploy; flip Supabase Site URL + Vault drain URL to the temp subdomain; announce the temp URL. The "repoint once" decision deliberately bends here. When the real domain lands, repoint again (Phase 3 order).
 
 ## Phase 4 — Decommission Vercel
 
-1. **Keep the Vercel project warm ~30 days** as rollback (its cron is already gone via the Phase 3 commit — do NOT "pause" the project, pausing destroys the rollback path).
-2. **Declare `btm-hub.vercel.app` admin off-limits post-cutover** — it remains a live production write-path (prod DB, real Brevo key, `VERCEL_ENV=production` fallback) until deleted; any admin action there writes real data and diverges caches.
+> **Quarantine active as of 2026-07-12 (adjusted).** Vercel stays warm as the rollback target through **~2026-08-11** (~30 days post-cutover). Its cron is already gone (commit `4f16157`); Brevo, Supabase Vault, Stream, and Sanity no longer reference it. Do NOT pause the project (pausing destroys the rollback path).
+
+1. **Keep the Vercel project warm ~30 days** (through ~2026-08-11) as rollback (its cron is already gone via commit `4f16157` — do NOT "pause" the project, pausing destroys the rollback path).
+2. **`btm-hub.vercel.app` admin is OFF-LIMITS post-cutover** — it remains a live production write-path (prod DB, real Brevo key, `VERCEL_ENV=production` fallback) until deleted; any admin action there writes real data and diverges caches. Use the Hostinger admin only.
 3. After the window: delete the Vercel project; old `btm-hub.vercel.app` links die (acceptable). Remove `vercel.json` remnants from the repo.
 4. Remove/redirect the temp `*.hostingersite.com` site (there is no "stop" button for Node apps — removal is the documented way).
 5. Ops guardrails: external uptime monitor on `/`; watch hPanel CPU/RAM after YCloud re-enable (storms now cost CPU, not money); runtime logs live in hPanel.
@@ -221,7 +261,9 @@ blips — the recorded scale-up path is VPS + Redis `cacheHandler`):
 
 ## Open items
 
-- **Production domain** — `behind-the-mask.com` sits ready in the Hostinger account; user decision gates Phase 3
-- Whether to create the community-revalidate DB webhook (doesn't exist today) and whether to schedule `conversation-digest` (scheduled nowhere)
+- **Final launch domain (apex vs `hub.*`)** — the sole owner decision gating official launch off the interim `preview.*` URL; apex needs the WordPress-routing call first. See the **Launch runbook**.
+- **Admin-AI proxy ceiling >180 s** — still unproven; cutover only proved >29 s. Background+poll rework stays on the table if a real long request appears.
+- Whether to create the community-revalidate DB webhook (doesn't exist today). ~~Whether to schedule `conversation-digest`~~ — **now scheduled** (Vault `conversation_digest_url` + pg_cron; live `cron.job` has 5 jobs as of 2026-07-12).
 - Analytics replacement — deferred
 - Scale-up path if >1 instance ever needed: VPS + Redis `cacheHandler`
+- **Env-store parity** — the hPanel env store does not track Vercel; add every new env var in both until Vercel is decommissioned (~2026-08-11).
