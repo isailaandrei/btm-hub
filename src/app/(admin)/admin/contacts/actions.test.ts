@@ -51,8 +51,10 @@ vi.mock("@/lib/data/profiles", () => ({
 }));
 
 const mockUpsertConversationDigestCorrection = vi.fn();
+const mockGetDigestModelSummary = vi.fn();
 
 vi.mock("@/lib/data/conversations", () => ({
+  getDigestModelSummary: mockGetDigestModelSummary,
   listContactConversationDigests: vi.fn(),
   listContactConversationMessages: vi.fn(),
   listContactCurrentConversationFacts: vi.fn(),
@@ -71,7 +73,7 @@ const {
   editContact,
   deleteApplication,
   loadContactEmailSection,
-  correctContactDigestLabel,
+  correctContactDigest,
 } = await import(
   "./actions"
 );
@@ -312,7 +314,7 @@ describe("bulkUnassignTag", () => {
   });
 });
 
-describe("correctContactDigestLabel", () => {
+describe("correctContactDigest", () => {
   const CONTENT_HASH = "a".repeat(64);
 
   beforeEach(() => {
@@ -320,14 +322,21 @@ describe("correctContactDigestLabel", () => {
     mockUpsertConversationDigestCorrection
       .mockReset()
       .mockResolvedValue(undefined);
+    // Default: the digest has a model summary, so a signal label without a
+    // correctedSummary is allowed (effective summary won't be empty).
+    mockGetDigestModelSummary
+      .mockReset()
+      .mockResolvedValue("Runs a dive school in Bali.");
   });
 
   it("throws for an invalid contact UUID before touching the data layer", async () => {
     await expect(
-      correctContactDigestLabel({
+      correctContactDigest({
         contactId: "not-a-uuid",
         contentHash: CONTENT_HASH,
         label: "status",
+        correctedSummary: null,
+        correctedEventDate: null,
         originalRelevance: "profile",
         originalIsNoise: false,
       }),
@@ -337,10 +346,12 @@ describe("correctContactDigestLabel", () => {
 
   it("rejects a malformed content hash", async () => {
     await expect(
-      correctContactDigestLabel({
+      correctContactDigest({
         contactId: VALID_UUID,
         contentHash: "not-a-hash",
         label: "status",
+        correctedSummary: null,
+        correctedEventDate: null,
         originalRelevance: "profile",
         originalIsNoise: false,
       }),
@@ -350,11 +361,13 @@ describe("correctContactDigestLabel", () => {
 
   it("rejects labels outside profile/status/noise", async () => {
     await expect(
-      correctContactDigestLabel({
+      correctContactDigest({
         contactId: VALID_UUID,
         contentHash: CONTENT_HASH,
         // @ts-expect-error — invalid label must be rejected at runtime too
         label: "spam",
+        correctedSummary: null,
+        correctedEventDate: null,
         originalRelevance: "profile",
         originalIsNoise: false,
       }),
@@ -362,11 +375,67 @@ describe("correctContactDigestLabel", () => {
     expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
   });
 
+  it("rejects a malformed event date", async () => {
+    await expect(
+      correctContactDigest({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        label: "status",
+        correctedSummary: null,
+        correctedEventDate: "2026-13-40",
+        originalRelevance: "status",
+        originalIsNoise: false,
+      }),
+    ).rejects.toThrow();
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("rejects a signal label that would leave the effective summary empty", async () => {
+    // Rescuing a noise-marker window (empty model summary) with no human summary.
+    mockGetDigestModelSummary.mockResolvedValue("");
+    await expect(
+      correctContactDigest({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        label: "status",
+        correctedSummary: null,
+        correctedEventDate: null,
+        originalRelevance: null,
+        originalIsNoise: true,
+      }),
+    ).rejects.toThrow(/needs a summary/);
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("rescues a noise window when a human summary is provided", async () => {
+    mockGetDigestModelSummary.mockResolvedValue("");
+    await correctContactDigest({
+      contactId: VALID_UUID,
+      contentHash: CONTENT_HASH,
+      label: "status",
+      correctedSummary: "T-shirt size L, rashguard XL.",
+      correctedEventDate: "2026-08-17",
+      originalRelevance: null,
+      originalIsNoise: true,
+    });
+
+    expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correctedRelevance: "status",
+        correctedIsNoise: false,
+        correctedSummary: "T-shirt size L, rashguard XL.",
+        correctedEventDate: "2026-08-17",
+      }),
+    );
+  });
+
   it("maps a noise correction to corrected_is_noise with no relevance", async () => {
-    await correctContactDigestLabel({
+    await correctContactDigest({
       contactId: VALID_UUID,
       contentHash: CONTENT_HASH,
       label: "noise",
+      correctedSummary: null,
+      correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
     });
@@ -375,18 +444,24 @@ describe("correctContactDigestLabel", () => {
       contentHash: CONTENT_HASH,
       correctedRelevance: null,
       correctedIsNoise: true,
+      correctedSummary: null,
+      correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
       // Attribution comes from requireAdmin's profile, never the client.
       correctedBy: mockProfile.id,
     });
+    // A noise correction never needs the empty-summary guard.
+    expect(mockGetDigestModelSummary).not.toHaveBeenCalled();
   });
 
   it("maps profile/status corrections to a relevance with is_noise false", async () => {
-    await correctContactDigestLabel({
+    await correctContactDigest({
       contactId: VALID_UUID,
       contentHash: CONTENT_HASH,
       label: "status",
+      correctedSummary: null,
+      correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
     });
@@ -398,10 +473,12 @@ describe("correctContactDigestLabel", () => {
       }),
     );
 
-    await correctContactDigestLabel({
+    await correctContactDigest({
       contactId: VALID_UUID,
       contentHash: CONTENT_HASH,
       label: "profile",
+      correctedSummary: null,
+      correctedEventDate: null,
       originalRelevance: null,
       originalIsNoise: true,
     });
@@ -417,10 +494,12 @@ describe("correctContactDigestLabel", () => {
   });
 
   it("revalidates the contact detail path after a correction", async () => {
-    await correctContactDigestLabel({
+    await correctContactDigest({
       contactId: VALID_UUID,
       contentHash: CONTENT_HASH,
       label: "status",
+      correctedSummary: null,
+      correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
     });

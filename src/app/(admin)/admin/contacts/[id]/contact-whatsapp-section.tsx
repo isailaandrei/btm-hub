@@ -17,17 +17,34 @@ import {
   computeThreadAiVisibility,
   type MessageAiVisibility,
 } from "@/lib/conversations/ai-visibility";
+import type { ContactConversationDigest } from "@/lib/data/conversations";
 import {
+  correctContactDigest,
   deactivateContactWhatsAppMessage,
   loadContactWhatsAppMessages,
   restoreContactWhatsAppMessage,
   type ContactAiMemoryData,
 } from "../actions";
-import { loadContactAiMemoryShared } from "./contact-ai-memory-loader";
+import {
+  invalidateContactAiMemoryShared,
+  loadContactAiMemoryShared,
+  subscribeContactAiMemory,
+} from "./contact-ai-memory-loader";
+import { DigestCorrectionPopover } from "./digest-correction-popover";
+import type { DigestCorrectionPayload } from "./digest-label-control";
 
 type ConversationMessage = Awaited<
   ReturnType<typeof loadContactWhatsAppMessages>
 >[number];
+
+/** What a message's badge needs to become a click-to-correct popover trigger. */
+type CorrectionTarget = {
+  digest: ContactConversationDigest;
+  fallbackSummary: string;
+  contextNote: string;
+  disabled: boolean;
+  onSubmit: (payload: DigestCorrectionPayload) => void;
+};
 
 const REALTIME_DEBOUNCE_MS = 150;
 
@@ -69,20 +86,40 @@ export function ContactWhatsAppSection({
   >(null);
   const [aiMemoryFailed, setAiMemoryFailed] = useState(false);
 
+  // Guards against a fetch resolving after unmount (mounted false) — shared by
+  // the initial load and the correction-event refresh.
+  const aiMemoryMountedRef = useRef(true);
   useEffect(() => {
-    let active = true;
+    aiMemoryMountedRef.current = true;
+    return () => {
+      aiMemoryMountedRef.current = false;
+    };
+  }, []);
+
+  const loadAiMemory = useCallback(() => {
     loadContactAiMemoryShared(contactId)
       .then((data) => {
-        if (active) setAiMemory({ ...data, nowMs: Date.now() });
+        if (!aiMemoryMountedRef.current) return;
+        setAiMemory({ ...data, nowMs: Date.now() });
+        setAiMemoryFailed(false);
       })
       .catch((error) => {
         console.warn(`AI visibility load failed for contact ${contactId}`, error);
-        if (active) setAiMemoryFailed(true);
+        if (aiMemoryMountedRef.current) setAiMemoryFailed(true);
       });
-    return () => {
-      active = false;
-    };
   }, [contactId]);
+
+  useEffect(() => {
+    loadAiMemory();
+  }, [loadAiMemory]);
+
+  // Live-refresh when a correction is made anywhere for this contact (this
+  // thread's popover OR the AI-memory card): the cache was just evicted, so
+  // re-fetching lands fresh server truth and the badges recompute. Unsubscribe
+  // on unmount, so a notify after unmount is a no-op.
+  useEffect(() => {
+    return subscribeContactAiMemory(contactId, loadAiMemory);
+  }, [contactId, loadAiMemory]);
 
   const applyMessages = useCallback(
     (next: ConversationMessage[]) => {
@@ -221,9 +258,112 @@ export function ContactWhatsAppSection({
       messages,
       digests: aiMemory.digests,
       freshnessDays: aiMemory.freshnessDays,
+      eventGraceDays: aiMemory.eventGraceDays,
       nowMs: aiMemory.nowMs,
     });
   }, [aiMemory, messages]);
+
+  const digestByHash = useMemo(() => {
+    const map = new Map<string, ContactConversationDigest>();
+    for (const digest of aiMemory?.digests ?? []) map.set(digest.contentHash, digest);
+    return map;
+  }, [aiMemory]);
+
+  // The joined inbound bodies of a digest's window — the prefill when rescuing a
+  // summary-less (noise) window: the human authors a summary from what was said.
+  const windowBodies = useCallback(
+    (digest: ContactConversationDigest): string => {
+      const start = Date.parse(digest.windowStart);
+      const end = Date.parse(digest.windowEnd);
+      return (messages ?? [])
+        .filter(
+          (message) =>
+            message.direction === "inbound" &&
+            message.matchStatus === "matched" &&
+            !message.deactivatedAt,
+        )
+        .filter((message) => {
+          const at = Date.parse(message.happenedAt);
+          return at >= start && at <= end;
+        })
+        .map((message) => message.body.trim())
+        .filter(Boolean)
+        .join("\n");
+    },
+    [messages],
+  );
+
+  // Optimistic digest correction from the thread: patch the local AI-memory
+  // snapshot so every badge recomputes immediately, persist the COMPLETE merged
+  // state, evict the shared cache so the sibling memory card refetches, and roll
+  // back visibly on failure.
+  const correctDigest = useCallback(
+    (digest: ContactConversationDigest, payload: DigestCorrectionPayload) => {
+      let previous: (ContactAiMemoryData & { nowMs: number }) | null = null;
+      const nowIso = new Date().toISOString();
+      setAiMemory((current) => {
+        previous = current;
+        if (!current) return current;
+        return {
+          ...current,
+          digests: current.digests.map((candidate) =>
+            candidate.contentHash === digest.contentHash
+              ? {
+                  ...candidate,
+                  isNoise: payload.label === "noise",
+                  relevance: payload.label === "noise" ? null : payload.label,
+                  summary: payload.correctedSummary ?? candidate.modelSummary,
+                  eventDate:
+                    payload.correctedEventDate ?? candidate.modelEventDate,
+                  correctedAt: nowIso,
+                }
+              : candidate,
+          ),
+        };
+      });
+      startMutation(async () => {
+        try {
+          await correctContactDigest({
+            contactId,
+            contentHash: digest.contentHash,
+            label: payload.label,
+            correctedSummary: payload.correctedSummary,
+            correctedEventDate: payload.correctedEventDate,
+            originalRelevance: digest.modelRelevance,
+            originalIsNoise: digest.modelIsNoise,
+          });
+          invalidateContactAiMemoryShared(contactId);
+        } catch (error) {
+          setAiMemory(previous);
+          console.error(
+            `Digest correction failed for contact ${contactId}`,
+            error,
+          );
+          toast.error("Couldn't save the correction. Please try again.");
+        }
+      });
+    },
+    [contactId],
+  );
+
+  // A message is a correction target when it maps to a digest window (its badge
+  // becomes a click-to-correct trigger); pending/undigested and unmatched
+  // messages resolve to null and keep their static badge.
+  const resolveCorrection = useCallback(
+    (visibility: MessageAiVisibility | undefined): CorrectionTarget | null => {
+      if (!visibility?.digestContentHash) return null;
+      const digest = digestByHash.get(visibility.digestContentHash);
+      if (!digest) return null;
+      return {
+        digest,
+        fallbackSummary: windowBodies(digest),
+        contextNote: describeAiVisibility(visibility),
+        disabled: isMutating,
+        onSubmit: (payload) => correctDigest(digest, payload),
+      };
+    },
+    [correctDigest, digestByHash, isMutating, windowBodies],
+  );
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -286,6 +426,7 @@ export function ContactWhatsAppSection({
                     key={message.id}
                     message={message}
                     aiVisibility={aiStates?.get(message.id) ?? null}
+                    correction={resolveCorrection(aiStates?.get(message.id))}
                     disabled={isMutating}
                     action={{
                       label: "Remove",
@@ -315,6 +456,7 @@ export function ContactWhatsAppSection({
                         key={message.id}
                         message={message}
                         aiVisibility={aiStates?.get(message.id) ?? null}
+                        correction={resolveCorrection(aiStates?.get(message.id))}
                         muted
                         disabled={isMutating}
                         action={{
@@ -454,8 +596,10 @@ function describeAiVisibility(visibility: MessageAiVisibility): string {
 
 function AiVisibilityBadge({
   visibility,
+  correction,
 }: {
   visibility: MessageAiVisibility;
+  correction?: CorrectionTarget | null;
 }) {
   // Excluded normally gets no marker (outbound bubbles and the Removed group
   // already communicate it) — EXCEPT removed messages that were digested
@@ -475,6 +619,29 @@ function AiVisibilityBadge({
     ) : (
       <Clock className="h-3 w-3 text-muted-foreground/60" />
     );
+
+  // A message that maps to a digest window becomes a click-to-correct trigger:
+  // the popover (label + summary + event date) carries the same info the
+  // tooltip would plus the controls, so we don't also nest a tooltip on it.
+  if (correction) {
+    return (
+      <DigestCorrectionPopover
+        digest={correction.digest}
+        fallbackSummary={correction.fallbackSummary}
+        contextNote={correction.contextNote}
+        disabled={correction.disabled}
+        onSubmit={correction.onSubmit}
+      >
+        <button
+          type="button"
+          className="inline-flex shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          aria-label={`Correct AI visibility (${visibility.state})`}
+        >
+          {icon}
+        </button>
+      </DigestCorrectionPopover>
+    );
+  }
 
   return (
     <Tooltip>
@@ -504,12 +671,14 @@ function MessageBubble({
   disabled,
   muted,
   aiVisibility,
+  correction,
 }: {
   message: ConversationMessage;
   action?: { label: string; onClick: () => void };
   disabled?: boolean;
   muted?: boolean;
   aiVisibility?: MessageAiVisibility | null;
+  correction?: CorrectionTarget | null;
 }) {
   const isInbound = message.direction === "inbound";
   return (
@@ -553,7 +722,9 @@ function MessageBubble({
         ) : null}
       </div>
       <span className="mt-1 flex items-center gap-1.5">
-        {aiVisibility ? <AiVisibilityBadge visibility={aiVisibility} /> : null}
+        {aiVisibility ? (
+          <AiVisibilityBadge visibility={aiVisibility} correction={correction} />
+        ) : null}
         <time
           dateTime={message.happenedAt}
           className="text-[11px] text-muted-foreground"

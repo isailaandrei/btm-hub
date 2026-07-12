@@ -90,8 +90,8 @@ whole prefix → the next query runs cold (~$0.15) — batch prompt changes.
 The corpus (`src/lib/data/contact-cards.ts`): contacts WITH ≥1 application
 (owner decision Jul 2026 — WhatsApp-only contacts are invisible; revisit only
 with the owner). Cards include conversation digests filtered by
-`is_noise = false AND (relevance = 'profile' OR window_end within 45 days)` —
-see §6.
+`is_noise = false AND (relevance = 'profile' OR window_end within 45 days OR
+event_date within 14 days of passing)` — see §6.
 
 ## 3. The principles (learned the hard way — do not relearn them)
 
@@ -150,8 +150,11 @@ see §6.
    nothing the product wants.
 
 8. **Memory needs forgetting** (see §6): durable profile facts persist;
-   operational status expires from the AI's view after 45 days; noise never
-   enters. A CRM corpus without decay eventually lies about the present.
+   operational status expires from the AI's view after 45 days — or, when the
+   exchange names a concrete future event, until that event passes (owner-
+   approved 2026-07-12: a "will arrive Aug 17" status must not age out on its
+   message date, before the arrival); noise never enters. A CRM corpus without
+   decay eventually lies about the present.
 
 ## 4. The eval suite — the only safe way to change anything
 
@@ -222,12 +225,29 @@ temperature 0 into:
 - **Digests** — one dated summary per window, tagged `profile` (durable:
   skills, preferences, aspirations, relationships, decisions/commitments) or
   `status` (operational: arrivals, logistics, waiting-on-X; visible to the AI
-  for 45 days past the window, then auto-expired by a read-time filter) —
-  or marked noise (`is_noise`, incl. ALL call/meeting scheduling).
+  until `max(window_end + 45d, event_date + 14d)`, then auto-expired by a
+  read-time filter) — or marked noise (`is_noise`, incl. ALL call/meeting
+  scheduling). `event_date` is an AI-extracted `YYYY-MM-DD` (the latest concrete
+  upcoming date the exchange names; clamped to a real day ≤18 months out), so a
+  dated trip/arrival stays in view until the event itself rather than aging out
+  on message date (owner-approved 2026-07-12; grace = `STATUS_EVENT_GRACE_DAYS`).
 - **Facts** — structured `fieldKey`/value entries, profile-grade content only
   (the PROMPT owns that rule; code accepts facts from any signal window —
   a window-level code veto once silently discarded a contact's confirmed
-  attendance; don't reintroduce it).
+  attendance; don't reintroduce it). Apparel/gear sizes (t-shirt, rashguard,
+  wetsuit) are PROFILE-grade and carry `fieldKey = apparel_sizes`.
+- **Corrections** — an admin can relabel a digest (profile/status/noise),
+  rewrite its summary, and set its event date from the contact page (the
+  WhatsApp badges and the AI-memory card). Corrections live in
+  `conversation_digest_corrections` (hash-keyed, so they survive a recalibration
+  wipe) and overlay the model's output via the `conversation_digests_effective`
+  view — `corrected_summary`/`corrected_event_date` coalesce over the model's
+  values, never mutating the original rows. This is also the ONLY way to rescue
+  a code-gated noise window (a short info-dense exchange marked noise with an
+  EMPTY model summary and hidden from the memory list): a human-authored
+  `corrected_summary` gives it signal, and the effective-summary guard in the
+  correction action refuses a profile/status label that would leave the summary
+  empty (owner-approved 2026-07-12).
 Phone matching is digit-suffix based with a uniqueness guard (exact → unique
 last-9; ambiguity refused). Recalibration = wipe derived tables + re-drain
 (runbook §Recalibration wipe) — cheap (~$0.05), deterministic, and the

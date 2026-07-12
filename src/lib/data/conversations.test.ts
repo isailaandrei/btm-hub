@@ -294,6 +294,7 @@ describe("conversation data layer", () => {
       generatorVersion: "v1",
       isNoise: false,
       relevance: "profile",
+      eventDate: "2026-08-17",
     });
 
     expect(client.from).toHaveBeenCalledWith("conversation_digests");
@@ -303,6 +304,7 @@ describe("conversation data layer", () => {
           content_hash: "hash-1",
           is_noise: false,
           relevance: "profile",
+          event_date: "2026-08-17",
         }),
       ],
       { onConflict: "content_hash" },
@@ -337,8 +339,11 @@ describe("conversation data layer", () => {
         is_noise: false,
         relevance: "status",
         summary: "Arrival logistics for the July trip.",
+        event_date: "2026-08-17",
         model_is_noise: false,
         model_relevance: "profile",
+        model_summary: "Runs a dive school in Bali.",
+        model_event_date: "2026-08-10",
         correction_created_at: "2026-07-09T09:00:00Z",
       },
       {
@@ -350,8 +355,11 @@ describe("conversation data layer", () => {
         is_noise: false,
         relevance: "profile",
         summary: "Runs a dive school in Bali.",
+        event_date: null,
         model_is_noise: false,
         model_relevance: "profile",
+        model_summary: "Runs a dive school in Bali.",
+        model_event_date: null,
         correction_created_at: null,
       },
     ]);
@@ -375,8 +383,11 @@ describe("conversation data layer", () => {
         isNoise: false,
         relevance: "status",
         summary: "Arrival logistics for the July trip.",
+        eventDate: "2026-08-17",
         modelIsNoise: false,
         modelRelevance: "profile",
+        modelSummary: "Runs a dive school in Bali.",
+        modelEventDate: "2026-08-10",
         correctedAt: "2026-07-09T09:00:00Z",
       },
       {
@@ -387,8 +398,11 @@ describe("conversation data layer", () => {
         isNoise: false,
         relevance: "profile",
         summary: "Runs a dive school in Bali.",
+        eventDate: null,
         modelIsNoise: false,
         modelRelevance: "profile",
+        modelSummary: "Runs a dive school in Bali.",
+        modelEventDate: null,
         correctedAt: null,
       },
     ]);
@@ -403,10 +417,12 @@ describe("conversation data layer", () => {
     const { upsertConversationDigestCorrection } = await import("./conversations");
     await upsertConversationDigestCorrection({
       contentHash: "hash-1",
-      correctedRelevance: null,
-      correctedIsNoise: true,
-      originalRelevance: "profile",
-      originalIsNoise: false,
+      correctedRelevance: "status",
+      correctedIsNoise: false,
+      correctedSummary: "T-shirt size L, rashguard XL.",
+      correctedEventDate: "2026-08-17",
+      originalRelevance: null,
+      originalIsNoise: true,
       correctedBy: "admin-1",
     });
 
@@ -415,15 +431,32 @@ describe("conversation data layer", () => {
       [
         {
           content_hash: "hash-1",
-          corrected_relevance: null,
-          corrected_is_noise: true,
-          original_relevance: "profile",
-          original_is_noise: false,
+          corrected_relevance: "status",
+          corrected_is_noise: false,
+          corrected_summary: "T-shirt size L, rashguard XL.",
+          corrected_event_date: "2026-08-17",
+          original_relevance: null,
+          original_is_noise: true,
           corrected_by: "admin-1",
         },
       ],
       { onConflict: "content_hash" },
     );
+  });
+
+  it("reads the model summary for one digest by content hash", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery({ model_summary: "Runs a dive school in Bali." });
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { getDigestModelSummary } = await import("./conversations");
+    const summary = await getDigestModelSummary("hash-1");
+
+    expect(client.from).toHaveBeenCalledWith("conversation_digests_effective");
+    expect(query.select).toHaveBeenCalledWith("model_summary");
+    expect(query.eq).toHaveBeenCalledWith("content_hash", "hash-1");
+    expect(summary).toBe("Runs a dive school in Bali.");
   });
 
   it("lists only messages after each contact digest watermark for digesting", async () => {

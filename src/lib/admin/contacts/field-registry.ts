@@ -601,6 +601,18 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     curated: false,
   },
   {
+    // Durable apparel/gear sizes (t-shirt, rashguard, wetsuit…) — sourced from
+    // WhatsApp conversation facts, not an application form, so free-text with
+    // no options list. Present here so it flows into FACT_FIELD_KEYS and the
+    // digest prompt can tag a size window with this key.
+    key: "apparel_sizes",
+    label: "Apparel sizes",
+    type: "text",
+    options: [],
+    programs: ["filmmaking", "photography", "freediving", "internship"],
+    curated: false,
+  },
+  {
     key: "ultimate_vision",
     label: "Ultimate Vision",
     type: "text",

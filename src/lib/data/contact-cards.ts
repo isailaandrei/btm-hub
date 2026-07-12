@@ -16,6 +16,17 @@ import type {
 export const STATUS_DIGEST_FRESHNESS_DAYS = 45;
 
 /**
+ * How long a STATUS digest carrying an `event_date` stays visible PAST that
+ * event (a short trailing grace so an arrival/trip stays in view through the
+ * event itself and a few days after). The effective visible-until of a status
+ * digest is therefore `max(window_end + 45d, event_date + 14d)`: the message-age
+ * rule keeps a recent no-date exchange visible; the event rule keeps a distant
+ * dated commitment visible until the event happens, whichever is later. The
+ * eval live-lib mirror imports this so both read paths agree.
+ */
+export const STATUS_EVENT_GRACE_DAYS = 14;
+
+/**
  * ISO cutoff for status-digest freshness: digests whose `window_end` is at or
  * after this are still visible to the AI. Injectable `now` for tests.
  */
@@ -23,6 +34,18 @@ export function signalDigestFreshnessCutoff(now: number = Date.now()): string {
   return new Date(
     now - STATUS_DIGEST_FRESHNESS_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
+}
+
+/**
+ * Date cutoff for the event-aware rule: a status digest whose `event_date` is at
+ * or after this stays visible, because `event_date + 14d >= now` is equivalent
+ * to `event_date >= now - 14d`. Returns a `YYYY-MM-DD` date string (event_date
+ * is a DATE column). Injectable `now` for tests.
+ */
+export function statusEventFreshnessCutoff(now: number = Date.now()): string {
+  return new Date(now - STATUS_EVENT_GRACE_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 }
 
 export type ContactCardTag = {
@@ -182,10 +205,15 @@ async function loadChunkRows(
         "id, contact_id, source, window_start, window_end, summary, source_message_count",
       )
       .in("contact_id", chunkIds)
-      // Noise-marker digests never render; status digests age out after the
-      // freshness window, profile digests stay permanently.
+      // Noise-marker digests never render; profile digests stay permanently;
+      // a status digest is visible while EITHER its window is within the
+      // message-age freshness window OR its event_date is still within grace
+      // (event_date + 14d >= now  <=>  event_date >= now - 14d) — the latter
+      // keeps a distant dated commitment in view until the event happens.
       .eq("is_noise", false)
-      .or(`relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()}`)
+      .or(
+        `relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()},event_date.gte.${statusEventFreshnessCutoff()}`,
+      )
       .order("window_end", { ascending: false }),
     // Intentionally read the append-only ledger instead of a current-facts view:
     // raw contact cards must surface conflicts, not collapse them away.

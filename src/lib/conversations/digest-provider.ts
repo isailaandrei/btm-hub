@@ -15,9 +15,42 @@ export type ConversationDigestExtraction = {
   // Signal windows are "profile" (durable) or "status" (short-lived); noise
   // windows (empty summary) are null.
   relevance: ConversationDigestRelevance | null;
+  // The calendar date (YYYY-MM-DD) of the future event the window references —
+  // how STATUS content stays visible until the trip happens rather than aging
+  // out 45 days after the message. null when the window references no concrete
+  // upcoming date. Clamped deterministically (see clampEventDate).
+  eventDate: string | null;
   facts: ExtractedConversationFact[];
   model: string;
 };
+
+// A model-emitted event_date is coerced to null unless it is a real calendar
+// date at most this far in the future — a fail-safe against a hallucinated or
+// absurd date silently pinning a digest visible for years. Past dates pass
+// (they simply don't extend visibility). Owner-approved 2026-07-12.
+const EVENT_DATE_MAX_FUTURE_DAYS = 548; // 18 months
+const EVENT_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Deterministic clamp shared by both provider paths: returns the date only when
+ * it is a strict `YYYY-MM-DD` that round-trips to a real calendar day and is no
+ * more than 18 months ahead of `nowMs`; otherwise null.
+ */
+export function clampEventDate(
+  raw: string | null | undefined,
+  nowMs: number = Date.now(),
+): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!EVENT_DATE_PATTERN.test(trimmed)) return null;
+  const parsed = Date.parse(`${trimmed}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) return null;
+  // Reject overflow dates JS silently rolls forward (e.g. 2026-02-30 -> Mar 2).
+  if (new Date(parsed).toISOString().slice(0, 10) !== trimmed) return null;
+  if (parsed - nowMs > EVENT_DATE_MAX_FUTURE_DAYS * DAY_MS) return null;
+  return trimmed;
+}
 
 // Fact fieldKey allowlist surfaced to the model, derived from the shared field
 // registry so a new curated column automatically joins it. Facts legitimately
@@ -40,12 +73,14 @@ export function buildDigestSystemPrompt(): string {
     "NOISE — ignore entirely: greetings, thanks, emoji-only messages, link drops without discussion, broadcast/campaign-style outbound with no reply. CALL/MEETING SCHEDULING IS ALWAYS NOISE, however specific (e.g. 'free Monday afternoon', 'let's talk Tuesday'). 'Availability' counts as SIGNAL only when it is about joining a trip or program, never about scheduling a chat.",
     'If the window is entirely NOISE, return {"summary": "", "relevance": null, "facts": []} — this is a valid, expected outcome.',
     'When there IS signal, write a concise `summary` (2-4 sentences) of what an admin should remember, and set `relevance` to "profile" or "status" by the DOMINANT content of the window. When a window mixes a durable kernel with logistics, put the durable kernel into `facts` and tag the summary by what remains.',
+    "If the exchange references a concrete calendar date for an upcoming trip, arrival, booking, or event, return the LATEST such date as `event_date` in YYYY-MM-DD form; otherwise null. STATUS content about a trip stays relevant until the trip happens — `event_date` is how it stays in view instead of aging out on message date.",
+    "Clothing and gear sizes (t-shirt, rashguard, wetsuit size, etc.) are PROFILE-grade durable facts: classify such a window PROFILE and emit a fact with fieldKey `apparel_sizes`.",
     "Extract `facts` ONLY for PROFILE-grade content (skills, preferences, decisions, constraints, relationships). STATUS content yields a summary line but NEVER a fact.",
     "Write the `summary` and every fact's `valueText` in ENGLISH, regardless of the language the conversation is in (translate non-English content). Preserve proper nouns as written.",
     "Facts are append-only. If values conflict, keep both facts with the same `conflictGroup`.",
     `Set each fact's \`fieldKey\` to one of these known keys when the fact maps to one, else null: ${FACT_FIELD_KEYS.join(", ")}.`,
     "Each fact has `valueText` (the stated value), `valueJson` (always null), `confidence` (\"high\" | \"medium\" | \"low\"), and `conflictGroup` (a stable grouping key, or null).",
-    "Return JSON matching this contract: {\"summary\": \"string\", \"relevance\": \"profile|status|null\", \"facts\": [{\"fieldKey\": \"string|null\", \"valueText\": \"string\", \"valueJson\": null, \"confidence\": \"high|medium|low\", \"conflictGroup\": \"string|null\"}]}.",
+    "Return JSON matching this contract: {\"summary\": \"string\", \"relevance\": \"profile|status|null\", \"event_date\": \"YYYY-MM-DD|null\", \"facts\": [{\"fieldKey\": \"string|null\", \"valueText\": \"string\", \"valueJson\": null, \"confidence\": \"high|medium|low\", \"conflictGroup\": \"string|null\"}]}.",
   ].join(" ");
 }
 
@@ -60,8 +95,28 @@ const factSchema = z.object({
 const digestExtractionSchema = z.object({
   summary: z.string(),
   relevance: z.enum(["profile", "status"]).nullable().default(null),
+  // Raw model output; clamped to a valid, bounded date in buildExtraction.
+  event_date: z.string().nullable().default(null),
   facts: z.array(factSchema).default([]),
 });
+
+/**
+ * Shared provider-return normalization: applies the deterministic event-date
+ * clamp so both the DeepSeek completeJson path and the OpenAI json_schema path
+ * yield identical, validated shapes.
+ */
+function buildExtraction(
+  parsed: z.infer<typeof digestExtractionSchema>,
+  model: string,
+): ConversationDigestExtraction {
+  return {
+    summary: parsed.summary,
+    relevance: parsed.relevance,
+    eventDate: clampEventDate(parsed.event_date),
+    facts: toExtractedFacts(parsed.facts),
+    model,
+  };
+}
 
 function toExtractedFacts(
   facts: z.infer<typeof digestExtractionSchema>["facts"],
@@ -101,12 +156,7 @@ async function extractViaCompleteJson(
   }
   const model =
     typeof modelMetadata.model === "string" ? modelMetadata.model : "deepseek";
-  return {
-    summary: parsed.data.summary,
-    relevance: parsed.data.relevance,
-    facts: toExtractedFacts(parsed.data.facts),
-    model,
-  };
+  return buildExtraction(parsed.data, model);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +171,9 @@ const DIGEST_JSON_SCHEMA = {
     summary: { type: "string" },
     relevance: {
       anyOf: [{ type: "string", enum: ["profile", "status"] }, { type: "null" }],
+    },
+    event_date: {
+      anyOf: [{ type: "string" }, { type: "null" }],
     },
     facts: {
       type: "array",
@@ -144,7 +197,7 @@ const DIGEST_JSON_SCHEMA = {
       },
     },
   },
-  required: ["summary", "relevance", "facts"],
+  required: ["summary", "relevance", "event_date", "facts"],
 } as const;
 
 type OpenAiResponsePayload = {
@@ -231,12 +284,7 @@ async function extractViaOpenAi(
       `Conversation digest returned JSON that failed schema validation: ${parsed.error.message}`,
     );
   }
-  return {
-    summary: parsed.data.summary,
-    relevance: parsed.data.relevance,
-    facts: toExtractedFacts(parsed.data.facts),
-    model: payload.model ?? model,
-  };
+  return buildExtraction(parsed.data, payload.model ?? model);
 }
 
 /**

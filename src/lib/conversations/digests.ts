@@ -231,6 +231,8 @@ export async function processConversationDigestWindows(input?: {
         generatorVersion: DIGEST_GENERATOR_VERSION,
         isNoise: true,
         relevance: null,
+        // No model call, so no event to extract.
+        eventDate: null,
       });
       summary.processedWindows += 1;
       summary.noiseWindows += 1;
@@ -259,6 +261,9 @@ export async function processConversationDigestWindows(input?: {
       generatorVersion: DIGEST_GENERATOR_VERSION,
       isNoise,
       relevance,
+      // Only meaningful for signal windows; a noise (empty-summary) extraction
+      // carries none, but pass it through uniformly rather than special-casing.
+      eventDate: isNoise ? null : (extraction.eventDate ?? null),
     });
 
     summary.processedWindows += 1;

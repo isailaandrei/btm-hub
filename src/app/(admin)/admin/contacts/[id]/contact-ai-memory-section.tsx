@@ -3,42 +3,40 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { statusDigestExpiry } from "@/lib/conversations/ai-visibility";
+import { statusDigestExpiryParts } from "@/lib/conversations/ai-visibility";
 import type { ContactConversationDigest } from "@/lib/data/conversations";
-import { correctContactDigestLabel, type ContactAiMemoryData } from "../actions";
+import { correctContactDigest, type ContactAiMemoryData } from "../actions";
+import {
+  buildDigestCorrectionPayload,
+  DigestLabelControl,
+  effectiveLabelOf,
+  modelLabelOf,
+  type DigestCorrectionPayload,
+  type DigestLabel,
+} from "./digest-label-control";
 import {
   invalidateContactAiMemoryShared,
   loadContactAiMemoryShared,
+  subscribeContactAiMemory,
 } from "./contact-ai-memory-loader";
 
-type DigestLabel = "profile" | "status" | "noise";
-
-function effectiveLabelOf(digest: ContactConversationDigest): DigestLabel {
-  if (digest.isNoise) return "noise";
-  return digest.relevance === "profile" ? "profile" : "status";
-}
-
-function modelLabelOf(digest: ContactConversationDigest): DigestLabel {
-  if (digest.modelIsNoise) return "noise";
-  return digest.modelRelevance === "profile" ? "profile" : "status";
-}
+type MemoryState = ContactAiMemoryData & { nowMs: number };
 
 /**
- * Calibration surface (task 1b + digest-label feedback): the AI's conversation
- * memory for this contact — signal digests (what the AI reads instead of raw
- * messages) and current structured facts. Admins can correct a digest's label
- * (profile / status / noise) inline; corrections are hash-keyed so they
- * survive recalibration wipes, and every AI read path overlays them via
+ * Calibration surface: the AI's conversation memory for this contact — signal
+ * digests (what the AI reads instead of raw messages) and current structured
+ * facts. Admins can correct a digest's label (profile / status / noise) and, on
+ * status digests, the event date that keeps it visible until the trip. Every
+ * correction sends the COMPLETE merged state so a label flip never wipes a
+ * previously corrected summary/date; corrections are hash-keyed (survive
+ * recalibration wipes) and every AI read path overlays them via
  * `conversation_digests_effective`. Mirrors the sibling sections' lazy-load +
- * error/retry convention and the WhatsApp section's optimistic+rollback
- * mutation pattern.
+ * error/retry convention and the WhatsApp section's optimistic+rollback pattern.
  */
 export function ContactAiMemorySection({ contactId }: { contactId: string }) {
   // `nowMs` captured at load time (render must stay pure); precise enough for
-  // a 45-day freshness horizon.
-  const [data, setData] = useState<
-    (ContactAiMemoryData & { nowMs: number }) | null
-  >(null);
+  // the freshness horizons.
+  const [data, setData] = useState<MemoryState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isMutating, startMutation] = useTransition();
@@ -64,12 +62,21 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
     loadData();
   }, [data, isPending, loadData, loadError]);
 
-  // Optimistic label correction, mirroring the WhatsApp section's runMutation:
-  // patch local state immediately, then persist; on failure roll back to the
-  // exact prior snapshot and surface the error via toast (fail loud).
-  const correctLabel = useCallback(
-    (digest: ContactConversationDigest, label: DigestLabel) => {
-      let previous: (ContactAiMemoryData & { nowMs: number }) | null = null;
+  // Live-refresh when a correction is made anywhere for this contact (this card
+  // OR the WhatsApp thread popover): the cache was just evicted, so re-fetching
+  // via loadData lands fresh server truth. Unsubscribe on unmount, so a notify
+  // after unmount is a no-op.
+  useEffect(() => {
+    return subscribeContactAiMemory(contactId, loadData);
+  }, [contactId, loadData]);
+
+  // Optimistic correction, mirroring the WhatsApp section's runMutation: patch
+  // local state immediately with the resulting effective values, then persist;
+  // on failure roll back to the exact prior snapshot and surface the error via
+  // toast (fail loud). The payload is always the COMPLETE merged state.
+  const applyCorrection = useCallback(
+    (digest: ContactConversationDigest, payload: DigestCorrectionPayload) => {
+      let previous: MemoryState | null = null;
       const nowIso = new Date().toISOString();
       setData((current) => {
         previous = current;
@@ -80,8 +87,11 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
             candidate.contentHash === digest.contentHash
               ? {
                   ...candidate,
-                  isNoise: label === "noise",
-                  relevance: label === "noise" ? null : label,
+                  isNoise: payload.label === "noise",
+                  relevance: payload.label === "noise" ? null : payload.label,
+                  summary: payload.correctedSummary ?? candidate.modelSummary,
+                  eventDate:
+                    payload.correctedEventDate ?? candidate.modelEventDate,
                   correctedAt: nowIso,
                 }
               : candidate,
@@ -90,12 +100,14 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
       });
       startMutation(async () => {
         try {
-          await correctContactDigestLabel({
+          await correctContactDigest({
             contactId,
             contentHash: digest.contentHash,
-            label,
-            // Always the model's TRUE original (never a previous correction's
-            // values) so the calibration dataset's "original" stays honest.
+            label: payload.label,
+            correctedSummary: payload.correctedSummary,
+            correctedEventDate: payload.correctedEventDate,
+            // Always the model's TRUE original (never a previous correction) so
+            // the calibration dataset's "original" stays honest.
             originalRelevance: digest.modelRelevance,
             originalIsNoise: digest.modelIsNoise,
           });
@@ -105,21 +117,54 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
         } catch (error) {
           setData(previous);
           console.error(
-            `Digest label correction failed for contact ${contactId}`,
+            `Digest correction failed for contact ${contactId}`,
             error,
           );
-          toast.error("Couldn't save the label correction. Please try again.");
+          toast.error("Couldn't save the correction. Please try again.");
         }
       });
     },
     [contactId],
   );
 
+  const correctLabel = useCallback(
+    (digest: ContactConversationDigest, label: DigestLabel) => {
+      // Display text = the EFFECTIVE summary/date, so an existing summary or
+      // event-date correction is preserved through a label-only flip.
+      applyCorrection(
+        digest,
+        buildDigestCorrectionPayload({
+          label,
+          summaryText: digest.summary,
+          eventDateText: digest.eventDate ?? "",
+          modelSummary: digest.modelSummary,
+          modelEventDate: digest.modelEventDate,
+        }),
+      );
+    },
+    [applyCorrection],
+  );
+
+  const correctEventDate = useCallback(
+    (digest: ContactConversationDigest, eventDateText: string) => {
+      applyCorrection(
+        digest,
+        buildDigestCorrectionPayload({
+          label: effectiveLabelOf(digest),
+          summaryText: digest.summary,
+          eventDateText,
+          modelSummary: digest.modelSummary,
+          modelEventDate: digest.modelEventDate,
+        }),
+      );
+    },
+    [applyCorrection],
+  );
+
   const nowMs = data?.nowMs ?? 0;
-  // Originally-noise digests carry empty summaries (nothing to review), so
-  // they stay hidden — EXCEPT corrected rows, which must remain visible
-  // (muted, "corrected to noise") so the correction is auditable and
-  // revertible. A correction that vanishes can't be undone.
+  // Originally-noise digests carry empty summaries (nothing to review), so they
+  // stay hidden — EXCEPT corrected rows, which must remain visible (muted,
+  // "corrected to noise") so the correction is auditable and revertible.
   const visibleDigests =
     data?.digests.filter(
       (digest) => !digest.isNoise || digest.correctedAt !== null,
@@ -158,48 +203,20 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
           <div className="flex flex-col gap-4">
             {visibleDigests.length > 0 && (
               <ol className="flex flex-col gap-3">
-                {visibleDigests.map((digest) => {
-                  const label = effectiveLabelOf(digest);
-                  const expiresAt =
-                    label === "status"
-                      ? statusDigestExpiry(digest.windowEnd, data.freshnessDays)
-                      : null;
-                  const aged =
-                    expiresAt !== null && Date.parse(expiresAt) <= nowMs;
-                  return (
-                    <li
-                      key={digest.id}
-                      className={`rounded-md border border-border/60 p-3 ${
-                        aged || label === "noise" ? "opacity-60" : ""
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                        <span>
-                          {new Date(digest.windowStart).toLocaleDateString()}
-                          {" – "}
-                          {new Date(digest.windowEnd).toLocaleString()}
-                        </span>
-                        <DigestLabelControl
-                          digest={digest}
-                          disabled={isMutating}
-                          onCorrect={(next) => correctLabel(digest, next)}
-                        />
-                        {label === "noise" ? (
-                          <span>filtered — not visible to AI</span>
-                        ) : expiresAt ? (
-                          <span>
-                            {aged
-                              ? `no longer visible to AI (aged out ${new Date(expiresAt).toLocaleDateString()})`
-                              : `visible to AI until ${new Date(expiresAt).toLocaleDateString()}`}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-1.5 text-sm text-foreground">
-                        {digest.summary}
-                      </p>
-                    </li>
-                  );
-                })}
+                {visibleDigests.map((digest) => (
+                  <DigestRow
+                    key={digest.id}
+                    digest={digest}
+                    freshnessDays={data.freshnessDays}
+                    eventGraceDays={data.eventGraceDays}
+                    nowMs={nowMs}
+                    disabled={isMutating}
+                    onCorrectLabel={(label) => correctLabel(digest, label)}
+                    onCorrectEventDate={(value) =>
+                      correctEventDate(digest, value)
+                    }
+                  />
+                ))}
               </ol>
             )}
 
@@ -234,64 +251,125 @@ export function ContactAiMemorySection({ contactId }: { contactId: string }) {
   );
 }
 
-const LABEL_CHIP_ACTIVE: Record<DigestLabel, string> = {
-  profile: "border-primary/40 text-primary",
-  status: "border-amber-300 text-amber-700",
-  noise: "border-border text-muted-foreground",
-};
-
-/**
- * Inline label corrector: three tiny chips (profile / status / noise). The
- * EFFECTIVE label renders as the active chip; clicking another chip records a
- * correction. When a correction exists the control shows "(corrected)" with
- * the model's original label in the tooltip.
- */
-function DigestLabelControl({
+function DigestRow({
   digest,
+  freshnessDays,
+  eventGraceDays,
+  nowMs,
   disabled,
-  onCorrect,
+  onCorrectLabel,
+  onCorrectEventDate,
 }: {
   digest: ContactConversationDigest;
+  freshnessDays: number;
+  eventGraceDays: number;
+  nowMs: number;
   disabled: boolean;
-  onCorrect: (label: DigestLabel) => void;
+  onCorrectLabel: (label: DigestLabel) => void;
+  onCorrectEventDate: (value: string) => void;
 }) {
-  const effective = effectiveLabelOf(digest);
-  const original = modelLabelOf(digest);
-  const isCorrected = digest.correctedAt !== null;
+  const label = effectiveLabelOf(digest);
+  const expiry =
+    label === "status"
+      ? statusDigestExpiryParts(
+          digest.windowEnd,
+          freshnessDays,
+          digest.eventDate,
+          eventGraceDays,
+        )
+      : null;
+  const aged = expiry !== null && Date.parse(expiry.expiresAt) <= nowMs;
+  const eventSuffix =
+    expiry?.eventDriven && digest.eventDate ? ` · event ${digest.eventDate}` : "";
 
   return (
-    <span
-      className="flex items-center gap-1"
-      title={
-        isCorrected
-          ? `Corrected by an admin — the model originally labeled this "${original}".`
-          : undefined
-      }
+    <li
+      className={`rounded-md border border-border/60 p-3 ${
+        aged || label === "noise" ? "opacity-60" : ""
+      }`}
     >
-      {(["profile", "status", "noise"] as const).map((label) => {
-        const isActive = label === effective;
-        return (
-          <button
-            key={label}
-            type="button"
-            disabled={disabled || isActive}
-            aria-pressed={isActive}
-            onClick={() => onCorrect(label)}
-            className={`rounded-full border px-1.5 py-0.5 font-medium transition-colors disabled:cursor-default ${
-              isActive
-                ? LABEL_CHIP_ACTIVE[label]
-                : "border-transparent text-muted-foreground/60 hover:border-border hover:text-foreground disabled:opacity-50"
-            }`}
-          >
-            {label}
-          </button>
-        );
-      })}
-      {isCorrected ? (
-        <span className="text-[10px] italic text-muted-foreground">
-          (corrected)
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <span>
+          {new Date(digest.windowStart).toLocaleDateString()}
+          {" – "}
+          {new Date(digest.windowEnd).toLocaleString()}
         </span>
+        <DigestLabelControl
+          value={label}
+          disabled={disabled}
+          onSelect={onCorrectLabel}
+          correctedFromLabel={
+            digest.correctedAt !== null ? modelLabelOf(digest) : null
+          }
+        />
+        {label === "noise" ? (
+          <span>filtered — not visible to AI</span>
+        ) : expiry ? (
+          <span>
+            {aged
+              ? `no longer visible to AI (aged out ${new Date(expiry.expiresAt).toLocaleDateString()})${eventSuffix}`
+              : `visible to AI until ${new Date(expiry.expiresAt).toLocaleDateString()}${eventSuffix}`}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1.5 text-sm text-foreground">{digest.summary}</p>
+      {label === "status" ? (
+        <label className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <span>Event date</span>
+          <EventDateInput
+            // Re-key on the committed value so an external change (e.g. a
+            // correction from the WhatsApp popover on this same digest) resets
+            // the draft — a reset-by-key instead of setState-in-useEffect.
+            key={digest.eventDate ?? "none"}
+            value={digest.eventDate ?? ""}
+            disabled={disabled}
+            onCommit={onCorrectEventDate}
+          />
+          {digest.modelEventDate && digest.modelEventDate !== digest.eventDate ? (
+            <span>AI suggested {digest.modelEventDate}</span>
+          ) : null}
+        </label>
       ) : null}
-    </span>
+    </li>
+  );
+}
+
+/**
+ * Controlled date input that commits only on blur or Enter — never per
+ * keystroke. A native date input fires `change` for each edited segment (typing
+ * a year emits "0002-…", "0020-…", "0202-…"), so committing on change would fire
+ * several server corrections with bogus intermediate dates. The draft is local;
+ * the parent re-keys this component to reset it when the committed value changes
+ * from elsewhere.
+ */
+function EventDateInput({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: string;
+  disabled: boolean;
+  onCommit: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const commit = () => {
+    if (draft !== value) onCommit(draft);
+  };
+  return (
+    <input
+      type="date"
+      value={draft}
+      disabled={disabled}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+        }
+      }}
+      className="h-7 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-50"
+    />
   );
 }

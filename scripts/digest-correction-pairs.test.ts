@@ -27,6 +27,8 @@ type CorrectionRow = {
   content_hash: string;
   corrected_relevance: "profile" | "status" | null;
   corrected_is_noise: boolean;
+  corrected_summary: string | null;
+  corrected_event_date: string | null;
   original_relevance: "profile" | "status" | null;
   original_is_noise: boolean;
   corrected_by: string | null;
@@ -61,7 +63,7 @@ describe.runIf(gateEnabled)("digest correction pairs", () => {
     const { data: corrections, error: correctionsError } = await supabase
       .from("conversation_digest_corrections")
       .select(
-        "content_hash, corrected_relevance, corrected_is_noise, original_relevance, original_is_noise, corrected_by, created_at",
+        "content_hash, corrected_relevance, corrected_is_noise, corrected_summary, corrected_event_date, original_relevance, original_is_noise, corrected_by, created_at",
       )
       .order("created_at", { ascending: true });
     if (correctionsError) throw new Error(correctionsError.message);
@@ -105,6 +107,12 @@ describe.runIf(gateEnabled)("digest correction pairs", () => {
       console.log(
         `  corrected: ${correction.created_at} by ${correction.corrected_by ?? "(deleted admin)"}`,
       );
+      if (correction.corrected_summary) {
+        console.log(`  human summary: ${correction.corrected_summary}`);
+      }
+      if (correction.corrected_event_date) {
+        console.log(`  human event date: ${correction.corrected_event_date}`);
+      }
       if (digest) {
         console.log(
           `  contact: ${digest.contact_id} · window ${digest.window_start} – ${digest.window_end} · generator ${digest.generator_version}`,

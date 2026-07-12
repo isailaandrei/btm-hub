@@ -17,6 +17,7 @@ import {
 import { EvidenceAliasRegistry } from "@/lib/admin-ai/evidence-alias";
 import {
   signalDigestFreshnessCutoff,
+  statusEventFreshnessCutoff,
   type ContactCardRecord,
   type ContactCardTag,
 } from "@/lib/data/contact-cards";
@@ -110,7 +111,9 @@ export async function loadRecords(
         supabase.from("conversation_digests_effective")
           .select("id, contact_id, source, window_start, window_end, summary, source_message_count")
           .in("contact_id", ids).eq("is_noise", false)
-          .or(`relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()}`)
+          .or(
+            `relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()},event_date.gte.${statusEventFreshnessCutoff()}`,
+          )
           .order("window_end", { ascending: false }),
         supabase.from("conversation_facts")
           .select("id, contact_id, source, field_key, value_text, confidence, observed_at, conflict_group")

@@ -17,6 +17,13 @@ const cache = new Map<
   { promise: Promise<ContactAiMemoryData>; at: number }
 >();
 
+// Per-contact listeners: sections mounted on the same contact page (the
+// WhatsApp thread badges and the AI-memory card) subscribe here so a correction
+// made in one live-refreshes the other, instead of leaving it stale until a
+// full page reload. A correction can now originate from EITHER surface (the
+// thread popover or the memory card), so both directions need to sync.
+const listeners = new Map<string, Set<() => void>>();
+
 export function loadContactAiMemoryShared(
   contactId: string,
 ): Promise<ContactAiMemoryData> {
@@ -32,11 +39,39 @@ export function loadContactAiMemoryShared(
 }
 
 /**
- * Evicts the cached entry so the next call re-fetches. Called after a
- * successful digest-label correction: the correcting section already patches
- * its own local state optimistically, but a sibling section mounted later
- * (or a re-mount within the TTL) must not serve the pre-correction snapshot.
+ * Subscribes to correction events for one contact. The listener fires AFTER the
+ * shared cache is evicted, so a re-fetch inside it hits the server for fresh
+ * data. Returns an unsubscribe; call it on unmount so a later notify is a no-op.
+ */
+export function subscribeContactAiMemory(
+  contactId: string,
+  listener: () => void,
+): () => void {
+  let set = listeners.get(contactId);
+  if (!set) {
+    set = new Set();
+    listeners.set(contactId, set);
+  }
+  set.add(listener);
+  return () => {
+    const current = listeners.get(contactId);
+    if (!current) return;
+    current.delete(listener);
+    if (current.size === 0) listeners.delete(contactId);
+  };
+}
+
+/**
+ * Evicts the cached entry so the next call re-fetches, THEN notifies every
+ * mounted subscriber for this contact. Called after a successful digest
+ * correction (from either surface): the correcting section already patched its
+ * own state optimistically, and the notify live-refreshes the sibling section
+ * (and lands server truth in the correcting one too). Listeners are copied
+ * before iterating so one unsubscribing during notify can't disturb the loop.
  */
 export function invalidateContactAiMemoryShared(contactId: string): void {
   cache.delete(contactId);
+  const set = listeners.get(contactId);
+  if (!set) return;
+  for (const listener of [...set]) listener();
 }

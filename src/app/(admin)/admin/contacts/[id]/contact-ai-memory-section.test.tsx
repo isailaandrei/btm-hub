@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 const mockLoadShared = vi.fn();
 const mockInvalidateShared = vi.fn();
+const mockSubscribe = vi.fn(() => () => {});
 const mockCorrectLabel = vi.fn();
 
 vi.mock("sonner", () => ({
@@ -16,14 +17,16 @@ vi.mock("sonner", () => ({
 }));
 
 // Mock the shared loader (not `loadContactAiMemory` in ../actions) so its
-// module-level 30s TTL cache can't leak data between tests.
+// module-level 30s TTL cache can't leak data between tests. `subscribe` returns
+// a no-op unsubscribe.
 vi.mock("./contact-ai-memory-loader", () => ({
   loadContactAiMemoryShared: mockLoadShared,
   invalidateContactAiMemoryShared: mockInvalidateShared,
+  subscribeContactAiMemory: mockSubscribe,
 }));
 
 vi.mock("../actions", () => ({
-  correctContactDigestLabel: mockCorrectLabel,
+  correctContactDigest: mockCorrectLabel,
 }));
 
 const { ContactAiMemorySection } = await import("./contact-ai-memory-section");
@@ -40,15 +43,18 @@ function makeDigest(overrides: Record<string, unknown> = {}) {
     isNoise: false,
     relevance: "profile",
     summary: "Runs a dive school in Bali.",
+    eventDate: null,
     modelIsNoise: false,
     modelRelevance: "profile",
+    modelSummary: "Runs a dive school in Bali.",
+    modelEventDate: null,
     correctedAt: null,
     ...overrides,
   };
 }
 
 function makeMemory(digests: unknown[]) {
-  return { digests, facts: [], freshnessDays: 45 };
+  return { digests, facts: [], freshnessDays: 45, eventGraceDays: 14 };
 }
 
 function labelButton(container: HTMLElement, label: string) {
@@ -131,6 +137,10 @@ describe("ContactAiMemorySection", () => {
       contactId: CONTACT_ID,
       contentHash: CONTENT_HASH,
       label: "status",
+      // A label-only flip preserves (unchanged) summary/date: they match the
+      // model's originals, so both corrections are null.
+      correctedSummary: null,
+      correctedEventDate: null,
       // Always the model's TRUE original, never a previous correction.
       originalRelevance: "profile",
       originalIsNoise: false,

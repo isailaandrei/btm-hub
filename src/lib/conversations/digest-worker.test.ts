@@ -136,6 +136,67 @@ describe("processConversationDigestWindows", () => {
     ]);
   });
 
+  it("threads the extracted event_date into the upserted digest", async () => {
+    mockExtractConversationDigest.mockResolvedValue({
+      summary: "Arrives for the Azores trip on the 17th.",
+      relevance: "status",
+      eventDate: "2026-08-17",
+      facts: [],
+    });
+    mockListMessagesMissingEmbeddings.mockResolvedValue([]);
+    mockBuildConversationEmbeddingRows.mockResolvedValue({
+      rows: [],
+      model: "text-embedding-3-small",
+      version: "message-v1",
+      usage: null,
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T14:00:00Z"),
+    });
+
+    expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relevance: "status",
+        eventDate: "2026-08-17",
+      }),
+    );
+  });
+
+  it("carries a null event_date on the code-level noise-gate marker row", async () => {
+    mockListUndigestedConversationMessages.mockResolvedValue([
+      {
+        id: "message-1",
+        contactId: "contact-1",
+        direction: "inbound",
+        body: "hi",
+        happenedAt: "2026-06-11T10:00:00Z",
+      },
+    ]);
+    mockListMessagesMissingEmbeddings.mockResolvedValue([]);
+    mockBuildConversationEmbeddingRows.mockResolvedValue({
+      rows: [],
+      model: "text-embedding-3-small",
+      version: "message-v1",
+      usage: null,
+    });
+
+    const { processConversationDigestWindows } = await import("./digests");
+    await processConversationDigestWindows({
+      now: Date.parse("2026-06-11T14:00:00Z"),
+    });
+
+    expect(mockExtractConversationDigest).not.toHaveBeenCalled();
+    expect(mockUpsertConversationDigest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isNoise: true,
+        generatorModel: "noise-gate",
+        eventDate: null,
+      }),
+    );
+  });
+
   it("skips already-digested windows by content hash but still embeds missing messages", async () => {
     mockConversationDigestExists.mockResolvedValue(true);
 

@@ -95,6 +95,9 @@ export type ConversationDigestInput = {
   isNoise: boolean;
   /** 'profile' (durable) | 'status' (short-lived) for signal rows; null for noise. */
   relevance: "profile" | "status" | null;
+  /** AI-extracted date (YYYY-MM-DD) of the future event the window references;
+   * keeps STATUS content visible until the event. null for noise/no-date. */
+  eventDate: string | null;
 };
 
 export type ConversationEmbeddingInput = {
@@ -303,11 +306,22 @@ export type ContactConversationDigest = {
   /** EFFECTIVE label (correction-overlaid, if one exists). */
   isNoise: boolean;
   relevance: "profile" | "status" | null;
+  /** EFFECTIVE summary: a non-empty human correction wins, else the model's. */
   summary: string;
+  /** EFFECTIVE event date (correction-overlaid): YYYY-MM-DD or null. Extends
+   * STATUS visibility until the event; see STATUS_EVENT_GRACE_DAYS. */
+  eventDate: string | null;
   /** The model's ORIGINAL label, regardless of any correction — the
    * calibration reference point ("corrected from X" in the UI). */
   modelIsNoise: boolean;
   modelRelevance: "profile" | "status" | null;
+  /** The model's ORIGINAL summary and event date, regardless of any correction.
+   * The client diffs its edits against these to build the COMPLETE correction
+   * payload — an unchanged field stays inherited from the model (correction
+   * null) rather than being pinned as a correction, and the UI can show "AI
+   * suggested <date>" when the human overrode the model's date. */
+  modelSummary: string;
+  modelEventDate: string | null;
   /** Set when an admin correction exists for this digest's content hash. */
   correctedAt: string | null;
 };
@@ -327,7 +341,7 @@ export async function listContactConversationDigests(
   const { data, error } = await supabase
     .from("conversation_digests_effective")
     .select(
-      "id, content_hash, window_start, window_end, is_noise, relevance, summary, model_is_noise, model_relevance, correction_created_at",
+      "id, content_hash, window_start, window_end, is_noise, relevance, summary, event_date, model_is_noise, model_relevance, model_summary, model_event_date, correction_created_at",
     )
     .eq("contact_id", contactId)
     .order("window_end", { ascending: false });
@@ -342,8 +356,11 @@ export async function listContactConversationDigests(
     is_noise: boolean;
     relevance: "profile" | "status" | null;
     summary: string;
+    event_date: string | null;
     model_is_noise: boolean;
     model_relevance: "profile" | "status" | null;
+    model_summary: string;
+    model_event_date: string | null;
     correction_created_at: string | null;
   }>).map((row) => ({
     id: row.id,
@@ -353,17 +370,51 @@ export async function listContactConversationDigests(
     isNoise: row.is_noise,
     relevance: row.relevance,
     summary: row.summary,
+    eventDate: row.event_date,
     modelIsNoise: row.model_is_noise,
     modelRelevance: row.model_relevance,
+    modelSummary: row.model_summary,
+    modelEventDate: row.model_event_date,
     correctedAt: row.correction_created_at,
   }));
 }
 
+/**
+ * Fetches just the model's ORIGINAL summary for one digest window (by content
+ * hash) from the effective view. Used by the correction server action to
+ * enforce the fail-loud rule that a signal (profile/status) correction must not
+ * leave the effective summary empty — the action can compute the resulting
+ * effective summary from the incoming correctedSummary and this base value.
+ * Returns null when no digest row exists for the hash (e.g. mid-recalibration).
+ */
+export async function getDigestModelSummary(
+  contentHash: string,
+): Promise<string | null> {
+  const supabase = await createAdminClient();
+  const { data, error } = await supabase
+    .from("conversation_digests_effective")
+    .select("model_summary")
+    .eq("content_hash", contentHash)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Failed to load digest summary: ${error.message}`);
+  }
+  if (!data) return null;
+  return (data as { model_summary: string | null }).model_summary ?? null;
+}
+
 export type ConversationDigestCorrectionInput = {
   contentHash: string;
-  /** null maps to a noise correction (see correctContactDigestLabel). */
+  /** null maps to a noise correction (see correctContactDigest). */
   correctedRelevance: "profile" | "status" | null;
   correctedIsNoise: boolean;
+  /** Human-authored summary override (noise rescue), or null to leave the
+   * model's summary standing. This is a FULL-ROW upsert on content_hash, so the
+   * caller must send the COMPLETE desired state every time — a label-only edit
+   * that omits this would wipe a previously corrected summary. */
+  correctedSummary: string | null;
+  /** Human-corrected event date (YYYY-MM-DD), or null to leave the model's. */
+  correctedEventDate: string | null;
   /** The model's original label — always pass the TRUE original (from
    * `modelRelevance`/`modelIsNoise`), never a previous correction, so
    * re-correcting the same digest doesn't corrupt the calibration dataset. */
@@ -391,6 +442,8 @@ export async function upsertConversationDigestCorrection(
           content_hash: input.contentHash,
           corrected_relevance: input.correctedRelevance,
           corrected_is_noise: input.correctedIsNoise,
+          corrected_summary: input.correctedSummary,
+          corrected_event_date: input.correctedEventDate,
           original_relevance: input.originalRelevance,
           original_is_noise: input.originalIsNoise,
           corrected_by: input.correctedBy,
@@ -547,6 +600,7 @@ export async function upsertConversationDigest(
           generator_version: input.generatorVersion,
           is_noise: input.isNoise,
           relevance: input.relevance,
+          event_date: input.eventDate,
         },
       ],
       { onConflict: "content_hash" },

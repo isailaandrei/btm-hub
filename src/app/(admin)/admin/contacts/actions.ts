@@ -21,6 +21,7 @@ import {
 import type { EmailSuppressionReason } from "@/types/database";
 import { normalizePhoneNumber } from "@/lib/conversations/phone";
 import {
+  getDigestModelSummary,
   listContactConversationDigests,
   listContactConversationMessages,
   listContactCurrentConversationFacts,
@@ -29,7 +30,10 @@ import {
   type ContactConversationDigest,
   type ContactConversationMessage,
 } from "@/lib/data/conversations";
-import { STATUS_DIGEST_FRESHNESS_DAYS } from "@/lib/data/contact-cards";
+import {
+  STATUS_DIGEST_FRESHNESS_DAYS,
+  STATUS_EVENT_GRACE_DAYS,
+} from "@/lib/data/contact-cards";
 import { getFieldEntry } from "@/lib/admin/contacts/field-registry";
 import { updateProfilePreferences } from "@/lib/data/profiles";
 import {
@@ -124,6 +128,9 @@ export type ContactAiMemoryData = {
     observedAt: string;
   }>;
   freshnessDays: number;
+  /** STATUS_EVENT_GRACE_DAYS — passed alongside freshnessDays so the client's
+   * pure expiry math has both constants without importing server modules. */
+  eventGraceDays: number;
 };
 
 /**
@@ -149,15 +156,38 @@ export async function loadContactAiMemory(
       label: fact.fieldKey ? (getFieldEntry(fact.fieldKey)?.label ?? null) : null,
     })),
     freshnessDays: STATUS_DIGEST_FRESHNESS_DAYS,
+    eventGraceDays: STATUS_EVENT_GRACE_DAYS,
   };
 }
 
-const correctDigestLabelSchema = z.object({
+const DIGEST_EVENT_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const correctDigestSchema = z.object({
   contactId: z.string(),
   contentHash: z
     .string()
     .regex(/^[0-9a-f]{64}$/, "Invalid digest content hash"),
   label: z.enum(["profile", "status", "noise"]),
+  // Human-authored summary override (noise rescue), trimmed; empty coerces to
+  // null (no summary correction) so the model's summary stands.
+  correctedSummary: z
+    .string()
+    .trim()
+    .max(2000, "Summary is too long (max 2000 characters)")
+    .nullable()
+    .transform((value) => (value && value.length > 0 ? value : null)),
+  // Human-corrected event date — strict YYYY-MM-DD that is a real calendar day.
+  correctedEventDate: z
+    .string()
+    .regex(DIGEST_EVENT_DATE_PATTERN, "Event date must be YYYY-MM-DD")
+    .refine((value) => {
+      const ms = Date.parse(`${value}T00:00:00.000Z`);
+      return (
+        Number.isFinite(ms) &&
+        new Date(ms).toISOString().slice(0, 10) === value
+      );
+    }, "Event date must be a real calendar date")
+    .nullable(),
   // The model's TRUE original label (from ContactConversationDigest's
   // modelRelevance/modelIsNoise) — the caller must never pass a previous
   // correction's values here, or the calibration dataset's "original" column
@@ -166,32 +196,52 @@ const correctDigestLabelSchema = z.object({
   originalIsNoise: z.boolean(),
 });
 
+export type CorrectContactDigestInput = z.input<typeof correctDigestSchema>;
+
 /**
- * Admin correction of a conversation digest's label (profile / status /
- * noise) — the calibration surface the AI-visibility badges exist for
- * (task: digest-label feedback). Every read path (`contact-cards.ts`,
+ * Admin correction of a conversation digest — label (profile / status / noise),
+ * a human-authored summary (the noise-rescue path), and the event date — the
+ * calibration surface the AI-visibility badges exist for. The caller sends the
+ * COMPLETE desired correction state every time (a full-row upsert on
+ * content_hash), so a label-only edit must merge existing summary/event-date
+ * values in rather than wiping them. Every read path (`contact-cards.ts`,
  * `listContactConversationDigests`, the eval live-lib mirror) overlays
  * corrections via `conversation_digests_effective`, so this takes effect for
- * the AI corpus immediately. Never mutates `conversation_digests` — the
- * model's original output stays intact as data, alongside the correction
- * pair for taxonomy-prompt tuning (see
- * `scripts/digest-correction-pairs.test.ts`).
+ * the AI corpus immediately. Never mutates `conversation_digests` — the model's
+ * original output stays intact as data, alongside the correction pair for
+ * taxonomy-prompt tuning (see `scripts/digest-correction-pairs.test.ts`).
  */
-export async function correctContactDigestLabel(
-  input: z.infer<typeof correctDigestLabelSchema>,
+export async function correctContactDigest(
+  input: CorrectContactDigestInput,
 ): Promise<void> {
   const profile = await requireAdmin();
-  const parsed = correctDigestLabelSchema.parse(input);
+  const parsed = correctDigestSchema.parse(input);
   validateUUID(parsed.contactId);
 
   const correctedIsNoise = parsed.label === "noise";
   const correctedRelevance: "profile" | "status" | null =
     parsed.label === "noise" ? null : parsed.label;
 
+  // Fail loud: a signal (profile/status) label must not leave the effective
+  // summary empty. The resulting effective summary is the correctedSummary when
+  // present, else the model's original — so rescuing a noise-marker window (empty
+  // model summary) REQUIRES a human-authored summary. Verified server-side
+  // rather than trusting a client flag.
+  if (!correctedIsNoise && parsed.correctedSummary === null) {
+    const modelSummary = await getDigestModelSummary(parsed.contentHash);
+    if (!modelSummary || modelSummary.trim() === "") {
+      throw new Error(
+        "A profile or status label needs a summary — add one to rescue this exchange.",
+      );
+    }
+  }
+
   await upsertConversationDigestCorrection({
     contentHash: parsed.contentHash,
     correctedRelevance,
     correctedIsNoise,
+    correctedSummary: parsed.correctedSummary,
+    correctedEventDate: parsed.correctedEventDate,
     originalRelevance: parsed.originalRelevance,
     originalIsNoise: parsed.originalIsNoise,
     correctedBy: profile.id,
