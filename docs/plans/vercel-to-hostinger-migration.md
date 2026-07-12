@@ -164,7 +164,7 @@ Production goes down with no rollback target. Promote the pilot to interim produ
 Validated working: build (Next auto-detected, ~2.5 min, no OOM on 4 GB, Node 20), SSR (warm ~0.5 s), `proxy.ts` auth-gating (307→/login), `next/image` sharp optimization, noindex header, SSL+CDN (`hcdn`), login (server actions work through the proxy), admin dashboard with 304 real contacts (service-role key via new `sb_secret_...` key works at runtime), Google Forms academy import (preview flow), Sanity content. Env: user imported the full `.env` into hPanel's env store (Hostinger's encrypted store, takes precedence over the archive file) — the auto-mode guard correctly blocked the assistant from shipping secrets to this third-party box, so the human did it.
 
 **Two findings that become cutover requirements:**
-1. **Server Action skew (self-hosting gotcha Vercel auto-handles).** After each redeploy, CDN/browser-cached client bundles reference stale action IDs → "Server Action … was not found" until a fresh load. **Required step: purge the Hostinger CDN cache after every deploy** (scriptable since Jul 2026: `hosting_clearWebsiteCacheV1` MCP tool / `POST .../cache/clear` REST — `scripts/hostinger-deploy.sh` does it automatically; manual fallback: hPanel → Dashboard → Cache → Clear cache). Consider also setting a fixed `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` and/or cache-control so the CDN doesn't cache dynamic HTML/RSC. Deploying multiple times in quick succession makes it worse (each build = new IDs).
+1. **Server Action skew (self-hosting gotcha Vercel auto-handles).** After each redeploy, CDN/browser-cached client bundles reference stale action IDs → "Server Action … was not found" until a fresh load. **Required step: purge the Hostinger CDN cache after every deploy** (scriptable since Jul 2026: `hosting_clearWebsiteCacheV1` MCP tool / `DELETE .../cache/clear` REST (the old `POST` now 405s) — `scripts/hostinger-deploy.sh` does it automatically; manual fallback: hPanel → Dashboard → Cache → Clear cache). Consider also setting a fixed `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` and/or cache-control so the CDN doesn't cache dynamic HTML/RSC. Deploying multiple times in quick succession makes it worse (each build = new IDs).
 2. **Admin AI is dev-only-gated, by design.** `admin-ai/visibility.ts` → `isLocalAdminAiEnabled()` requires `NODE_ENV !== "production"`, so it never renders on a production build regardless of `NEXT_PUBLIC_SHOW_ADMIN_AI` or any `?tab=ai` URL (double-gated at `admin-dashboard.tsx:212`). Not a Hostinger issue; matches the global-AI-parked-on-OpenAI-TPM state. To run the **proxy request-timeout test** (the one remaining platform unknown — does Hostinger's proxy kill requests before ~180 s?), the gate must be temporarily relaxed + redeployed. Lower urgency than first framed: the AI isn't production-exposed, and long email work runs in `after()` (post-response), not in-request.
 
 Cosmetic note: hPanel "Last deployment: Build failed" is the redundant duplicate MCP build that lost a race; the app runs the prior **completed** build (verified serving).
@@ -196,9 +196,28 @@ blips — the recorded scale-up path is VPS + Redis `cacheHandler`):
   HTML/RSC), but stops being load-bearing. Optionally set the same key on
   Vercel (dashboard → env) for the same benefit there.
 - **REST endpoints** (base `https://developers.hostinger.com/api/hosting/v1`,
-  Bearer auth): `POST .../websites/{domain}/nodejs/builds/from-archive`
-  (multipart `archive`), `GET .../nodejs/builds`, `GET .../nodejs/builds/{uuid}/logs`,
-  `POST .../cache/clear`, `POST .../nodejs/server/restart`.
+  Bearer auth). **Cloudflare note (verified 2026-07-12):** developers.hostinger.com
+  is now behind a Cloudflare bot WAF that 403s multipart POSTs and, more
+  broadly, any plain Node/Python `fetch`/urllib request (even a GET) — it
+  fingerprints the client, and only `curl`-shaped requests pass. So the old
+  one-shot `POST .../nodejs/builds/from-archive` (multipart `archive`) is
+  **DEAD from scripts**; do the upload+build as a sequence instead, and keep
+  every API call on `curl`:
+  - `POST .../files/upload-urls` (body `{username, domain}`) → `{url, auth_key, rest_auth_key}`.
+  - **TUS upload** the `.tar.gz` to the returned file host (`srv*-files.hstgr.io`,
+    NOT Cloudflare-fronted): `POST {url}/{name}?override=true` with `X-Auth`/
+    `X-Auth-Rest` + `Upload-Length`/`Upload-Offset:0` (→201), then chunked
+    `PATCH` (`application/offset+octet-stream`, `Tus-Resumable:1.0.0`, →204).
+    `scripts/hostinger-deploy.sh` does this via the Node companion
+    `scripts/hostinger-tus-upload.mjs`.
+  - `GET .../nodejs/builds/settings/from-archive?archive_path={name}` → auto-detected settings.
+  - `POST .../nodejs/builds` with `{...settings, source_type:"archive", source_options:{archive_path:{name}}}` → `{uuid}`.
+  - `GET .../nodejs/builds`, `GET .../nodejs/builds/{uuid}/logs` (poll/logs, unchanged).
+  - `DELETE .../cache/clear` (cache purge — the old `POST` now returns **405**).
+  - `POST .../nodejs/server/restart` (app restart).
+  - **Interactive shortcut:** the `hosting_deployJsApplication` MCP tool runs
+    this whole upload+build flow end to end (it is the reference implementation
+    the script replicates).
 
 ## Open items
 

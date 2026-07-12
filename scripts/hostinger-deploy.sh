@@ -14,14 +14,38 @@
 # Optional env:
 #   HOSTINGER_DOMAIN      default: preview.behind-the-mask.com
 #
+# ── Why the upload is a TUS dance, not one multipart POST ─────────────────────
+# The old one-shot `POST .../nodejs/builds/from-archive` (multipart `archive`)
+# is DEAD. Hostinger now fronts developers.hostinger.com with Cloudflare bot
+# protection that answers multipart POSTs with a 403 challenge page (verified
+# 2026-07-12). That WAF fingerprints the HTTP client: `curl` passes for
+# non-multipart methods, but a plain Node/Python `fetch`/urllib gets 403 even on
+# a GET. So EVERY developers.hostinger.com call here uses `curl`, and the upload
+# is split into the flow the official hostinger-api-mcp package uses
+# (handleJavascriptApplicationDeploy):
+#   a. POST /files/upload-urls              → { url, auth_key, rest_auth_key }
+#   b. TUS-upload the .tar.gz to that file host (srv*-files.hstgr.io — NOT
+#      Cloudflare-fronted, so plain fetch is fine there). Done by the Node
+#      companion scripts/hostinger-tus-upload.mjs: create (POST → 201) then
+#      chunked PATCH (application/offset+octet-stream → 204).
+#   c. GET  /nodejs/builds/settings/from-archive?archive_path=<name> → settings
+#   d. POST /nodejs/builds  { ...settings, source_type:"archive",
+#                             source_options:{ archive_path:<name> } } → { uuid }
+#   e. poll /nodejs/builds until completed/failed (fail loud; unchanged).
+# Cache purge is now `DELETE .../cache/clear` — the old POST returns 405.
+#
+# Interactive alternative (no script): the hostinger-hosting MCP tool
+# `hosting_deployJsApplication` runs this same upload+build flow end to end.
+#
 # What it does (and why):
 #   1. git-archives the SHA (source only — Hostinger's Node.js Apps pipeline
 #      REQUIRES source archives and always builds server-side; prebuilt
 #      artifacts are not supported by the platform, so "rollback" means
 #      "rebuild a known-good SHA", ~2.5 min).
-#   2. POSTs it to the builds/from-archive endpoint and polls the build to
-#      completed/failed. A FAILED build leaves the previous app serving
-#      (verified pilot behavior) — the script fails loud and touches nothing.
+#   2. Uploads it via the upload-urls + TUS flow above and starts the
+#      server-side build, polling to completed/failed. A FAILED build leaves the
+#      previous app serving (verified pilot behavior) — the script fails loud
+#      and touches nothing.
 #   3. Purges the website/CDN cache — REQUIRED after every deploy: cached
 #      client bundles reference the previous build's Server Action IDs and
 #      throw "Server Action not found" until purged. (The permanent fix is a
@@ -38,6 +62,13 @@
 
 set -euo pipefail
 
+# Tools: curl carries every developers.hostinger.com call (see header); node
+# runs the file-host TUS upload. Resolve both robustly (PATH may be minimal).
+CURL="$(command -v curl || echo /usr/bin/curl)"
+[ -x "$CURL" ] || { echo "!! curl not found (looked on PATH and /usr/bin/curl)" >&2; exit 1; }
+NODE="$(command -v node || true)"
+[ -n "$NODE" ] || { echo "!! node not found on PATH (required for the TUS upload)" >&2; exit 1; }
+
 API="https://developers.hostinger.com/api/hosting/v1"
 DOMAIN="${HOSTINGER_DOMAIN:-preview.behind-the-mask.com}"
 USERNAME="${HOSTINGER_USERNAME:?set HOSTINGER_USERNAME (hosting account username)}"
@@ -46,12 +77,14 @@ SHA="$(git rev-parse "${1:-origin/main}")"
 SHORT="${SHA:0:7}"
 BASE="$API/accounts/$USERNAME/websites/$DOMAIN"
 AUTH=(-H "Authorization: Bearer $TOKEN")
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Deploying $SHORT to $DOMAIN"
 
 # 1. Source archive of the exact commit (never the working tree).
 ARCHIVE="$(mktemp -d)/btm-hub-$SHORT.tar.gz"
 git archive --format=tar.gz -o "$ARCHIVE" "$SHA"
+NAME="$(basename "$ARCHIVE")"
 SIZE=$(du -m "$ARCHIVE" | cut -f1)
 echo "==> Archive: $ARCHIVE (${SIZE}MB)"
 if [ "$SIZE" -ge 50 ]; then
@@ -59,16 +92,52 @@ if [ "$SIZE" -ge 50 ]; then
   exit 1
 fi
 
-# 2. Upload + start the server-side build.
-BUILD_UUID=$(curl -sf "${AUTH[@]}" -F "archive=@$ARCHIVE" \
-  "$BASE/nodejs/builds/from-archive" | python3 -c 'import json,sys; print(json.load(sys.stdin)["uuid"])')
+# 2a. Request a one-time upload URL + auth keys for the website's file host.
+UPLOAD_JSON=$("$CURL" -sf "${AUTH[@]}" -H "Content-Type: application/json" \
+  -X POST "$API/files/upload-urls" \
+  -d "{\"username\":\"$USERNAME\",\"domain\":\"$DOMAIN\"}")
+{ read -r UPLOAD_URL; read -r UPLOAD_AUTH; read -r UPLOAD_AUTH_REST; } < <(
+  printf '%s' "$UPLOAD_JSON" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+d = d.get("data", d) if isinstance(d, dict) and "url" not in d else d
+print(d["url"]); print(d["auth_key"]); print(d["rest_auth_key"])')
+[ -n "${UPLOAD_URL:-}" ] || { echo "!! upload-urls returned no url" >&2; exit 1; }
+
+# 2b. TUS-upload the archive to the (non-Cloudflare) file host. Auth keys go via
+#     env, not argv, so they never surface in `ps`.
+echo "==> Uploading archive via TUS to file host"
+HOSTINGER_UPLOAD_AUTH="$UPLOAD_AUTH" HOSTINGER_UPLOAD_AUTH_REST="$UPLOAD_AUTH_REST" \
+  "$NODE" "$HERE/hostinger-tus-upload.mjs" "$UPLOAD_URL" "$ARCHIVE"
+
+# 3a. Auto-detect build settings for the uploaded archive.
+SETTINGS=$("$CURL" -sf "${AUTH[@]}" \
+  "$BASE/nodejs/builds/settings/from-archive?archive_path=$NAME")
+
+# 3b. Start the server-side build from the archive (settings + archive source).
+#     Body mirrors hostinger-api-mcp's triggerBuild: the auto-detected settings
+#     spread verbatim, with node_version/source_type/source_options set on top.
+BUILD_BODY=$(printf '%s' "$SETTINGS" | python3 -c '
+import json, sys
+s = json.load(sys.stdin)
+body = dict(s)
+body["node_version"] = s.get("node_version") or 20
+body["source_type"] = "archive"
+body["source_options"] = {"archive_path": sys.argv[1]}
+print(json.dumps(body))' "$NAME")
+BUILD_UUID=$("$CURL" -sf "${AUTH[@]}" -H "Content-Type: application/json" \
+  -X POST "$BASE/nodejs/builds" -d "$BUILD_BODY" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(d.get("uuid") or d.get("data", {}).get("uuid", ""))')
+[ -n "${BUILD_UUID:-}" ] || { echo "!! builds POST returned no uuid" >&2; exit 1; }
 echo "==> Build started: $BUILD_UUID"
 
-# 3. Poll to a terminal state (fail loud; a failed build never goes live).
+# 4. Poll to a terminal state (fail loud; a failed build never goes live).
 STATE="pending"
 for _ in $(seq 1 120); do # up to 10 min
   sleep 5
-  STATE=$(curl -sf "${AUTH[@]}" "$BASE/nodejs/builds?per_page=10" |
+  STATE=$("$CURL" -sf "${AUTH[@]}" "$BASE/nodejs/builds?per_page=10" |
     python3 -c 'import json,sys
 uuid = sys.argv[1]
 builds = json.load(sys.stdin)["data"]
@@ -78,22 +147,23 @@ print(next((b["state"] for b in builds if b["uuid"] == uuid), "unknown"))' "$BUI
     completed) break ;;
     failed)
       echo "!! Build FAILED — previous build keeps serving. Logs:" >&2
-      curl -sf "${AUTH[@]}" "$BASE/nodejs/builds/$BUILD_UUID/logs" | tail -40 >&2 || true
+      "$CURL" -sf "${AUTH[@]}" "$BASE/nodejs/builds/$BUILD_UUID/logs" | tail -40 >&2 || true
       exit 1 ;;
   esac
 done
 [ "$STATE" = "completed" ] || { echo "!! Build did not complete in 10 min (state: $STATE)" >&2; exit 1; }
 
-# 4. Purge website + CDN cache (Server-Action skew mitigation — see header).
-curl -sf "${AUTH[@]}" -X POST "$BASE/cache/clear" >/dev/null
+# 5. Purge website + CDN cache (Server-Action skew mitigation — see header).
+#    Method is DELETE: the old POST .../cache/clear now returns 405.
+"$CURL" -sf "${AUTH[@]}" -X DELETE "$BASE/cache/clear" >/dev/null
 echo "==> Cache purged"
 
-# 5. Smoke checks: homepage 200, /login 200, admin gate redirects (307/308).
+# 6. Smoke checks: homepage 200, /login 200, admin gate redirects (307/308).
 sleep 5
 ok=true
 for probe in "/ 200" "/login 200" "/admin 3xx"; do
   path="${probe% *}"; want="${probe#* }"
-  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://$DOMAIN$path")
+  code=$("$CURL" -s -o /dev/null -w "%{http_code}" --max-time 15 "https://$DOMAIN$path")
   case "$want" in
     3xx) [[ "$code" == 3* ]] || ok=false ;;
     *) [ "$code" = "$want" ] || ok=false ;;

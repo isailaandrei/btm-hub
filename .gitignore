@@ -71,6 +71,7 @@ e2e/screenshots
 # Admin-AI tooling (gated live suites; run via RUN_* env flags)
 !/scripts/admin-ai-live-lib.ts
 !/scripts/hostinger-deploy.sh
+!/scripts/hostinger-tus-upload.mjs
 !/scripts/admin-ai-eval.test.ts
 !/scripts/analyze-admin-ai-payload.test.ts
 !/scripts/deepseek-smoke.test.ts
