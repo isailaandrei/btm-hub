@@ -1,3 +1,10 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "destination": "https://preview.behind-the-mask.com/:path*",
+      "permanent": false
+    }
+  ]
 }
