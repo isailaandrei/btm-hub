@@ -90,8 +90,8 @@ whole prefix → the next query runs cold (~$0.15) — batch prompt changes.
 The corpus (`src/lib/data/contact-cards.ts`): contacts WITH ≥1 application
 (owner decision Jul 2026 — WhatsApp-only contacts are invisible; revisit only
 with the owner). Cards include conversation digests filtered by
-`is_noise = false AND (relevance = 'profile' OR window_end within 45 days OR
-event_date within 14 days of passing)` — see §6.
+`is_noise = false AND dismissed_at IS NULL AND (relevance = 'profile' OR
+window_end within 45 days OR event_date within 14 days of passing)` — see §6.
 
 ## 3. The principles (learned the hard way — do not relearn them)
 
@@ -247,7 +247,21 @@ temperature 0 into:
   EMPTY model summary and hidden from the memory list): a human-authored
   `corrected_summary` gives it signal, and the effective-summary guard in the
   correction action refuses a profile/status label that would leave the summary
-  empty (owner-approved 2026-07-12).
+  empty (owner-approved 2026-07-12). Round 2 (owner-approved 2026-07-13) adds
+  two things. A **dismissal** (`dismissed_at`/`dismissed_by`) removes a status
+  digest from AI memory ahead of its natural expiry — an admin saying "this is
+  done, expire it now" — and the corpus filter drops it immediately. It is a
+  reversible overlay, NOT a delete: a recalibration wipe re-digests the identical
+  window and would resurrect a deleted row, and the model audit trail must
+  survive. Only status digests can be dismissed (profile is permanent; noise is
+  already hidden); the action rejects anything else. And the **label pair is now
+  optional**: `corrected_is_noise IS NULL` means the correction carries no label
+  change (only a summary/event-date/dismissal overlay), so the effective view
+  inherits the model's label and the calibration dataset
+  (`scripts/digest-correction-pairs.test.ts`) is not polluted by identity
+  (`profile -> profile`) pairs when only a date or summary was edited. The
+  memory card groups digests into Profile, live Status, and a collapsed "not
+  visible to AI" zone (aged status, corrected-to-noise, dismissed).
 Phone matching is digit-suffix based with a uniqueness guard (exact → unique
 last-9; ambiguity refused). Recalibration = wipe derived tables + re-drain
 (runbook §Recalibration wipe) — cheap (~$0.05), deterministic, and the

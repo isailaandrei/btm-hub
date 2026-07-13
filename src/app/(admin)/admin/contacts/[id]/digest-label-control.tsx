@@ -15,28 +15,41 @@ export function modelLabelOf(digest: ContactConversationDigest): DigestLabel {
 }
 
 export type DigestCorrectionPayload = {
-  label: DigestLabel;
+  /** null = no label correction (the effective label inherits the model's). A
+   * non-null label is recorded as a correction pair with the model's original. */
+  label: DigestLabel | null;
   correctedSummary: string | null;
   correctedEventDate: string | null;
+  /** Complete desired dismissal state (removed from AI memory or not). Carried
+   * through every edit so a label/summary/date change can't silently flip it. */
+  dismissed: boolean;
 };
 
 /**
  * Builds the COMPLETE correction state to send to `correctContactDigest` from
- * the desired DISPLAY state (label + the summary/date text the admin sees).
- * Each field is diffed against the model's original: an unchanged field yields
- * a null correction (the model's value stays inherited via the effective view)
- * rather than being pinned as a correction, and an existing correction is
- * preserved because the display text already reflects it. This is why a
- * label-only flip never wipes a previously corrected summary/date — the caller
- * passes the effective (already-corrected) summary/date as the display text.
+ * the desired DISPLAY state (label + the summary/date text the admin sees + the
+ * dismissal). Every field is diffed against the model's original: an unchanged
+ * field yields a null correction (the model's value stays inherited via the
+ * effective view) rather than being pinned as a correction, and an existing
+ * correction is preserved because the display text already reflects it. This is
+ * why a label-only flip never wipes a previously corrected summary/date, and why
+ * a summary/date/dismissal edit never records a spurious identity LABEL pair:
+ * the LABEL is diffed against `modelLabel`, so an unchanged label sends null.
+ * Callers pass the effective (already-corrected) summary/date/label as the
+ * display state, and the digest's current dismissal unless they toggle it.
  */
 export function buildDigestCorrectionPayload(input: {
   label: DigestLabel;
+  /** The model's original label — the LABEL diff baseline (an unchanged label
+   * records no pair). */
+  modelLabel: DigestLabel;
   summaryText: string;
   eventDateText: string;
   modelSummary: string;
   modelEventDate: string | null;
+  dismissed: boolean;
 }): DigestCorrectionPayload {
+  const label = input.label === input.modelLabel ? null : input.label;
   const trimmed = input.summaryText.trim();
   const correctedSummary =
     trimmed && trimmed !== input.modelSummary.trim() ? trimmed : null;
@@ -45,7 +58,37 @@ export function buildDigestCorrectionPayload(input: {
     input.eventDateText && input.eventDateText !== modelDate
       ? input.eventDateText
       : null;
-  return { label: input.label, correctedSummary, correctedEventDate };
+  return { label, correctedSummary, correctedEventDate, dismissed: input.dismissed };
+}
+
+/**
+ * Reconstructs a digest's EFFECTIVE row after applying a correction payload —
+ * the optimistic patch shared by both correction surfaces (the AI-memory card
+ * and the WhatsApp thread popover), so their local state matches what the
+ * server will return. A label-less payload (`label === null`) leaves the
+ * effective label inherited (untouched); summary/event-date fall back to the
+ * model's when the payload carries no override; a dismissal keeps an existing
+ * dismissed timestamp or stamps `nowIso` for a fresh one.
+ */
+export function applyPayloadToDigest(
+  digest: ContactConversationDigest,
+  payload: DigestCorrectionPayload,
+  nowIso: string,
+): ContactConversationDigest {
+  return {
+    ...digest,
+    isNoise: payload.label !== null ? payload.label === "noise" : digest.isNoise,
+    relevance:
+      payload.label !== null
+        ? payload.label === "noise"
+          ? null
+          : payload.label
+        : digest.relevance,
+    summary: payload.correctedSummary ?? digest.modelSummary,
+    eventDate: payload.correctedEventDate ?? digest.modelEventDate,
+    correctedAt: nowIso,
+    dismissedAt: payload.dismissed ? (digest.dismissedAt ?? nowIso) : null,
+  };
 }
 
 const LABEL_CHIP_ACTIVE: Record<DigestLabel, string> = {

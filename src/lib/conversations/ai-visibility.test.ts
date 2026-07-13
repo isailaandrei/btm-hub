@@ -30,6 +30,7 @@ function digest(overrides: Partial<AiVisibilityDigest> = {}): AiVisibilityDigest
     relevance: "profile",
     summary: "Wants to film a shark documentary.",
     eventDate: null,
+    dismissedAt: null,
     contentHash: "a".repeat(64),
     ...overrides,
   };
@@ -147,6 +148,35 @@ describe("computeMessageAiVisibility", () => {
     expect(compute(msg({ happenedAt: "2026-07-01T10:30:00.000Z" }), d).state).toBe(
       "profile",
     );
+  });
+
+  it("marks a dismissed status digest as dismissed, ahead of the fresh check", () => {
+    // Fresh window (would be status-fresh) but an admin dismissed it → out of
+    // AI memory regardless of freshness; the summary + hash are still carried
+    // so the badge popover can restore it.
+    const result = compute(msg(), [
+      digest({ relevance: "status", dismissedAt: "2026-07-06T00:00:00.000Z" }),
+    ]);
+    expect(result.state).toBe("dismissed");
+    expect(result.digestSummary).toContain("shark");
+    expect(result.digestContentHash).toBe("a".repeat(64));
+    expect(result.expiresAt).toBeNull();
+  });
+
+  it("dismissal wins even over an event-extended (would-be-fresh) status digest", () => {
+    const result = compute(
+      msg({ happenedAt: "2026-01-01T10:10:00.000Z" }),
+      [
+        digest({
+          relevance: "status",
+          windowStart: "2026-01-01T10:00:00.000Z",
+          windowEnd: "2026-01-01T10:30:00.000Z",
+          eventDate: "2026-08-01",
+          dismissedAt: "2026-07-06T00:00:00.000Z",
+        }),
+      ],
+    );
+    expect(result.state).toBe("dismissed");
   });
 
   it("marks undigested messages (newer than every window) as pending", () => {

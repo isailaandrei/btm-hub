@@ -31,7 +31,10 @@ import {
   subscribeContactAiMemory,
 } from "./contact-ai-memory-loader";
 import { DigestCorrectionPopover } from "./digest-correction-popover";
-import type { DigestCorrectionPayload } from "./digest-label-control";
+import {
+  applyPayloadToDigest,
+  type DigestCorrectionPayload,
+} from "./digest-label-control";
 
 type ConversationMessage = Awaited<
   ReturnType<typeof loadContactWhatsAppMessages>
@@ -308,15 +311,7 @@ export function ContactWhatsAppSection({
           ...current,
           digests: current.digests.map((candidate) =>
             candidate.contentHash === digest.contentHash
-              ? {
-                  ...candidate,
-                  isNoise: payload.label === "noise",
-                  relevance: payload.label === "noise" ? null : payload.label,
-                  summary: payload.correctedSummary ?? candidate.modelSummary,
-                  eventDate:
-                    payload.correctedEventDate ?? candidate.modelEventDate,
-                  correctedAt: nowIso,
-                }
+              ? applyPayloadToDigest(candidate, payload, nowIso)
               : candidate,
           ),
         };
@@ -329,8 +324,11 @@ export function ContactWhatsAppSection({
             label: payload.label,
             correctedSummary: payload.correctedSummary,
             correctedEventDate: payload.correctedEventDate,
-            originalRelevance: digest.modelRelevance,
-            originalIsNoise: digest.modelIsNoise,
+            dismissed: payload.dismissed,
+            // Originals accompany a label pair only; a label-less correction
+            // sends null (the effective label inherits the model's).
+            originalRelevance: payload.label !== null ? digest.modelRelevance : null,
+            originalIsNoise: payload.label !== null ? digest.modelIsNoise : null,
           });
           invalidateContactAiMemoryShared(contactId);
         } catch (error) {
@@ -581,6 +579,8 @@ function describeAiVisibility(visibility: MessageAiVisibility): string {
           ? new Date(visibility.expiresAt).toLocaleDateString()
           : "an earlier date"
       }.`;
+    case "dismissed":
+      return "Removed from AI memory by an admin — restore it from the AI memory card or this popover.";
     case "noise":
       return "Filtered as noise — the AI never sees this exchange.";
     case "pending":
@@ -614,7 +614,9 @@ function AiVisibilityBadge({
       <Sparkles className="h-3 w-3 text-amber-500" />
     ) : visibility.state === "status-aged" ? (
       <Sparkles className="h-3 w-3 text-muted-foreground/60" />
-    ) : visibility.state === "noise" || visibility.state === "excluded" ? (
+    ) : visibility.state === "dismissed" ||
+      visibility.state === "noise" ||
+      visibility.state === "excluded" ? (
       <EyeOff className="h-3 w-3 text-muted-foreground/60" />
     ) : (
       <Clock className="h-3 w-3 text-muted-foreground/60" />

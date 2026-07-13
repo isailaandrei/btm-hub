@@ -110,7 +110,7 @@ export async function loadRecords(
         // the eval/live scripts see the same corrected labels the AI does.
         supabase.from("conversation_digests_effective")
           .select("id, contact_id, source, window_start, window_end, summary, source_message_count")
-          .in("contact_id", ids).eq("is_noise", false)
+          .in("contact_id", ids).eq("is_noise", false).is("dismissed_at", null)
           .or(
             `relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()},event_date.gte.${statusEventFreshnessCutoff()}`,
           )

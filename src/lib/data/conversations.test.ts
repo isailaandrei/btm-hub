@@ -345,6 +345,7 @@ describe("conversation data layer", () => {
         model_summary: "Runs a dive school in Bali.",
         model_event_date: "2026-08-10",
         correction_created_at: "2026-07-09T09:00:00Z",
+        dismissed_at: "2026-07-10T09:00:00Z",
       },
       {
         id: "digest-2",
@@ -361,6 +362,7 @@ describe("conversation data layer", () => {
         model_summary: "Runs a dive school in Bali.",
         model_event_date: null,
         correction_created_at: null,
+        dismissed_at: null,
       },
     ]);
     const client = { from: vi.fn(() => query), rpc: vi.fn() };
@@ -389,6 +391,7 @@ describe("conversation data layer", () => {
         modelSummary: "Runs a dive school in Bali.",
         modelEventDate: "2026-08-10",
         correctedAt: "2026-07-09T09:00:00Z",
+        dismissedAt: "2026-07-10T09:00:00Z",
       },
       {
         id: "digest-2",
@@ -404,6 +407,7 @@ describe("conversation data layer", () => {
         modelSummary: "Runs a dive school in Bali.",
         modelEventDate: null,
         correctedAt: null,
+        dismissedAt: null,
       },
     ]);
   });
@@ -423,6 +427,8 @@ describe("conversation data layer", () => {
       correctedEventDate: "2026-08-17",
       originalRelevance: null,
       originalIsNoise: true,
+      dismissedAt: null,
+      dismissedBy: null,
       correctedBy: "admin-1",
     });
 
@@ -437,6 +443,8 @@ describe("conversation data layer", () => {
           corrected_event_date: "2026-08-17",
           original_relevance: null,
           original_is_noise: true,
+          dismissed_at: null,
+          dismissed_by: null,
           corrected_by: "admin-1",
         },
       ],
@@ -444,19 +452,68 @@ describe("conversation data layer", () => {
     );
   });
 
-  it("reads the model summary for one digest by content hash", async () => {
+  it("writes a label-less dismissal correction (null label pair, dismissal set)", async () => {
     const { createAdminClient } = await import("@/lib/supabase/admin");
-    const query = makeQuery({ model_summary: "Runs a dive school in Bali." });
+    const query = makeQuery([]);
     const client = { from: vi.fn(() => query), rpc: vi.fn() };
     vi.mocked(createAdminClient).mockResolvedValue(client as never);
 
-    const { getDigestModelSummary } = await import("./conversations");
-    const summary = await getDigestModelSummary("hash-1");
+    const { upsertConversationDigestCorrection } = await import("./conversations");
+    await upsertConversationDigestCorrection({
+      contentHash: "hash-1",
+      correctedRelevance: null,
+      correctedIsNoise: null,
+      correctedSummary: null,
+      correctedEventDate: null,
+      originalRelevance: null,
+      originalIsNoise: null,
+      dismissedAt: "2026-07-13T10:00:00.000Z",
+      dismissedBy: "admin-1",
+      correctedBy: "admin-1",
+    });
+
+    expect(query.upsert).toHaveBeenCalledWith(
+      [
+        {
+          content_hash: "hash-1",
+          corrected_relevance: null,
+          corrected_is_noise: null,
+          corrected_summary: null,
+          corrected_event_date: null,
+          original_relevance: null,
+          original_is_noise: null,
+          dismissed_at: "2026-07-13T10:00:00.000Z",
+          dismissed_by: "admin-1",
+          corrected_by: "admin-1",
+        },
+      ],
+      { onConflict: "content_hash" },
+    );
+  });
+
+  it("reads the model label + summary for one digest by content hash", async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const query = makeQuery({
+      model_is_noise: false,
+      model_relevance: "profile",
+      model_summary: "Runs a dive school in Bali.",
+    });
+    const client = { from: vi.fn(() => query), rpc: vi.fn() };
+    vi.mocked(createAdminClient).mockResolvedValue(client as never);
+
+    const { getDigestModelState } = await import("./conversations");
+    const state = await getDigestModelState("hash-1");
 
     expect(client.from).toHaveBeenCalledWith("conversation_digests_effective");
-    expect(query.select).toHaveBeenCalledWith("model_summary");
+    expect(query.select).toHaveBeenCalledWith(
+      "model_is_noise, model_relevance, model_summary",
+    );
     expect(query.eq).toHaveBeenCalledWith("content_hash", "hash-1");
-    expect(summary).toBe("Runs a dive school in Bali.");
+    expect(state).toEqual({
+      isNoise: false,
+      relevance: "profile",
+      summary: "Runs a dive school in Bali.",
+    });
   });
 
   it("lists only messages after each contact digest watermark for digesting", async () => {

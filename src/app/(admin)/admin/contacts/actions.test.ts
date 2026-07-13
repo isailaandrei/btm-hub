@@ -51,10 +51,10 @@ vi.mock("@/lib/data/profiles", () => ({
 }));
 
 const mockUpsertConversationDigestCorrection = vi.fn();
-const mockGetDigestModelSummary = vi.fn();
+const mockGetDigestModelState = vi.fn();
 
 vi.mock("@/lib/data/conversations", () => ({
-  getDigestModelSummary: mockGetDigestModelSummary,
+  getDigestModelState: mockGetDigestModelState,
   listContactConversationDigests: vi.fn(),
   listContactConversationMessages: vi.fn(),
   listContactCurrentConversationFacts: vi.fn(),
@@ -322,11 +322,14 @@ describe("correctContactDigest", () => {
     mockUpsertConversationDigestCorrection
       .mockReset()
       .mockResolvedValue(undefined);
-    // Default: the digest has a model summary, so a signal label without a
-    // correctedSummary is allowed (effective summary won't be empty).
-    mockGetDigestModelSummary
-      .mockReset()
-      .mockResolvedValue("Runs a dive school in Bali.");
+    // Default model state: a signal digest with a non-empty summary, so a signal
+    // label without a correctedSummary is allowed (effective summary won't be
+    // empty), and an inherited (label-null) effective label resolves to profile.
+    mockGetDigestModelState.mockReset().mockResolvedValue({
+      isNoise: false,
+      relevance: "profile",
+      summary: "Runs a dive school in Bali.",
+    });
   });
 
   it("throws for an invalid contact UUID before touching the data layer", async () => {
@@ -339,6 +342,7 @@ describe("correctContactDigest", () => {
         correctedEventDate: null,
         originalRelevance: "profile",
         originalIsNoise: false,
+        dismissed: false,
       }),
     ).rejects.toThrow("Invalid");
     expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
@@ -354,6 +358,7 @@ describe("correctContactDigest", () => {
         correctedEventDate: null,
         originalRelevance: "profile",
         originalIsNoise: false,
+        dismissed: false,
       }),
     ).rejects.toThrow();
     expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
@@ -370,6 +375,7 @@ describe("correctContactDigest", () => {
         correctedEventDate: null,
         originalRelevance: "profile",
         originalIsNoise: false,
+        dismissed: false,
       }),
     ).rejects.toThrow();
     expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
@@ -385,6 +391,41 @@ describe("correctContactDigest", () => {
         correctedEventDate: "2026-13-40",
         originalRelevance: "status",
         originalIsNoise: false,
+        dismissed: false,
+      }),
+    ).rejects.toThrow();
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("rejects a label-less correction that still carries the model originals", async () => {
+    // label === null means NO label pair, so originals MUST be null too —
+    // otherwise a spurious identity pair leaks into the calibration dataset.
+    await expect(
+      correctContactDigest({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        label: null,
+        correctedSummary: null,
+        correctedEventDate: null,
+        originalRelevance: "profile",
+        originalIsNoise: false,
+        dismissed: false,
+      }),
+    ).rejects.toThrow();
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("rejects a label correction that omits the model originals", async () => {
+    await expect(
+      correctContactDigest({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        label: "status",
+        correctedSummary: null,
+        correctedEventDate: null,
+        originalRelevance: null,
+        originalIsNoise: null,
+        dismissed: false,
       }),
     ).rejects.toThrow();
     expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
@@ -392,7 +433,11 @@ describe("correctContactDigest", () => {
 
   it("rejects a signal label that would leave the effective summary empty", async () => {
     // Rescuing a noise-marker window (empty model summary) with no human summary.
-    mockGetDigestModelSummary.mockResolvedValue("");
+    mockGetDigestModelState.mockResolvedValue({
+      isNoise: true,
+      relevance: null,
+      summary: "",
+    });
     await expect(
       correctContactDigest({
         contactId: VALID_UUID,
@@ -402,13 +447,41 @@ describe("correctContactDigest", () => {
         correctedEventDate: null,
         originalRelevance: null,
         originalIsNoise: true,
+        dismissed: false,
+      }),
+    ).rejects.toThrow(/needs a summary/);
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("applies the empty-summary guard against an INHERITED (label-null) status label", async () => {
+    // A label-less correction inherits the model's label; here the model is a
+    // (degenerate) status window with an empty summary, so the guard still fires.
+    mockGetDigestModelState.mockResolvedValue({
+      isNoise: false,
+      relevance: "status",
+      summary: "",
+    });
+    await expect(
+      correctContactDigest({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        label: null,
+        correctedSummary: null,
+        correctedEventDate: "2026-08-17",
+        originalRelevance: null,
+        originalIsNoise: null,
+        dismissed: false,
       }),
     ).rejects.toThrow(/needs a summary/);
     expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
   });
 
   it("rescues a noise window when a human summary is provided", async () => {
-    mockGetDigestModelSummary.mockResolvedValue("");
+    mockGetDigestModelState.mockResolvedValue({
+      isNoise: true,
+      relevance: null,
+      summary: "",
+    });
     await correctContactDigest({
       contactId: VALID_UUID,
       contentHash: CONTENT_HASH,
@@ -417,6 +490,7 @@ describe("correctContactDigest", () => {
       correctedEventDate: "2026-08-17",
       originalRelevance: null,
       originalIsNoise: true,
+      dismissed: false,
     });
 
     expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith(
@@ -425,6 +499,30 @@ describe("correctContactDigest", () => {
         correctedIsNoise: false,
         correctedSummary: "T-shirt size L, rashguard XL.",
         correctedEventDate: "2026-08-17",
+      }),
+    );
+  });
+
+  it("records NO label pair for a label-less correction (inherited label)", async () => {
+    await correctContactDigest({
+      contactId: VALID_UUID,
+      contentHash: CONTENT_HASH,
+      label: null,
+      correctedSummary: "Sharpened event date only.",
+      correctedEventDate: "2026-08-17",
+      originalRelevance: null,
+      originalIsNoise: null,
+      dismissed: false,
+    });
+
+    expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correctedIsNoise: null,
+        correctedRelevance: null,
+        originalRelevance: null,
+        originalIsNoise: null,
+        dismissedAt: null,
+        dismissedBy: null,
       }),
     );
   });
@@ -438,6 +536,7 @@ describe("correctContactDigest", () => {
       correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
+      dismissed: false,
     });
 
     expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith({
@@ -448,11 +547,14 @@ describe("correctContactDigest", () => {
       correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
+      dismissedAt: null,
+      dismissedBy: null,
       // Attribution comes from requireAdmin's profile, never the client.
       correctedBy: mockProfile.id,
     });
-    // A noise correction never needs the empty-summary guard.
-    expect(mockGetDigestModelSummary).not.toHaveBeenCalled();
+    // A noise correction (explicit label, not dismissed) never needs the model
+    // state — no effective-label derivation, no empty-summary guard.
+    expect(mockGetDigestModelState).not.toHaveBeenCalled();
   });
 
   it("maps profile/status corrections to a relevance with is_noise false", async () => {
@@ -464,6 +566,7 @@ describe("correctContactDigest", () => {
       correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
+      dismissed: false,
     });
 
     expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith(
@@ -481,6 +584,7 @@ describe("correctContactDigest", () => {
       correctedEventDate: null,
       originalRelevance: null,
       originalIsNoise: true,
+      dismissed: false,
     });
 
     expect(mockUpsertConversationDigestCorrection).toHaveBeenLastCalledWith(
@@ -493,6 +597,59 @@ describe("correctContactDigest", () => {
     );
   });
 
+  it("dismisses a status digest — sets dismissed_at and dismissed_by from the admin profile", async () => {
+    await correctContactDigest({
+      contactId: VALID_UUID,
+      contentHash: CONTENT_HASH,
+      label: "status",
+      correctedSummary: null,
+      correctedEventDate: null,
+      originalRelevance: "status",
+      originalIsNoise: false,
+      dismissed: true,
+    });
+
+    expect(mockUpsertConversationDigestCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dismissedAt: expect.any(String),
+        dismissedBy: mockProfile.id,
+      }),
+    );
+  });
+
+  it("rejects dismissing a digest whose effective label is profile (explicit label)", async () => {
+    await expect(
+      correctContactDigest({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        label: "profile",
+        correctedSummary: null,
+        correctedEventDate: null,
+        originalRelevance: "status",
+        originalIsNoise: false,
+        dismissed: true,
+      }),
+    ).rejects.toThrow(/Only a status digest/);
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
+  it("rejects dismissing a digest whose INHERITED effective label is profile", async () => {
+    // label null ⇒ effective label inherited from the model (profile by default).
+    await expect(
+      correctContactDigest({
+        contactId: VALID_UUID,
+        contentHash: CONTENT_HASH,
+        label: null,
+        correctedSummary: null,
+        correctedEventDate: null,
+        originalRelevance: null,
+        originalIsNoise: null,
+        dismissed: true,
+      }),
+    ).rejects.toThrow(/Only a status digest/);
+    expect(mockUpsertConversationDigestCorrection).not.toHaveBeenCalled();
+  });
+
   it("revalidates the contact detail path after a correction", async () => {
     await correctContactDigest({
       contactId: VALID_UUID,
@@ -502,6 +659,7 @@ describe("correctContactDigest", () => {
       correctedEventDate: null,
       originalRelevance: "profile",
       originalIsNoise: false,
+      dismissed: false,
     });
 
     expect(mockRevalidatePath).toHaveBeenCalledWith(

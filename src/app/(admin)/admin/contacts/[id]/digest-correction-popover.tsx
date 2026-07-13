@@ -16,11 +16,13 @@ import {
  * Popover editor for a single conversation digest: relabel (profile / status /
  * noise), rewrite its summary (the noise-rescue path — a code-gated noise
  * window has an empty model summary and this is the only way to give it one),
- * and set the event date that keeps STATUS content visible until the trip. It
- * emits the COMPLETE merged correction state; the parent owns the optimistic
- * mutation + rollback + shared-cache invalidation. The trigger is whatever the
- * parent passes as children (a message badge in the thread, a button in the
- * memory card).
+ * set the event date that keeps STATUS content visible until the trip, and
+ * remove/restore a status digest from AI memory (dismissal, revertible). It
+ * emits the COMPLETE merged correction state — including the digest's current
+ * dismissal, so a label/summary/date edit never silently flips it; the parent
+ * owns the optimistic mutation + rollback + shared-cache invalidation. The
+ * trigger is whatever the parent passes as children (a message badge in the
+ * thread, a button in the memory card).
  */
 export function DigestCorrectionPopover({
   digest,
@@ -89,15 +91,36 @@ function DigestCorrectionForm({
   );
 
   const original = modelLabelOf(digest);
+  const dismissed = digest.dismissedAt !== null;
   // A signal label needs a non-empty summary; a code-gated noise window has an
   // empty model summary, so rescuing it REQUIRES text here (server enforces too).
   const summaryRequired = label !== "noise" && digest.modelSummary.trim() === "";
   const summaryMissing = summaryRequired && summaryText.trim() === "";
 
+  // Builds the COMPLETE correction from the form's current edits. `dismissed`
+  // defaults to the digest's current state (a label/summary/date edit preserves
+  // it); Remove/Restore pass an explicit override.
+  const build = (overrideDismissed?: boolean): DigestCorrectionPayload =>
+    buildDigestCorrectionPayload({
+      label,
+      modelLabel: original,
+      summaryText,
+      eventDateText,
+      modelSummary: digest.modelSummary,
+      modelEventDate: digest.modelEventDate,
+      dismissed: overrideDismissed ?? dismissed,
+    });
+
   return (
     <div className="flex flex-col gap-3 text-sm">
       {contextNote ? (
         <p className="text-[11px] text-muted-foreground">{contextNote}</p>
+      ) : null}
+      {dismissed ? (
+        <p className="text-[11px] text-muted-foreground">
+          Removed from AI memory. Restore it to bring it back into the AI&apos;s
+          view.
+        </p>
       ) : null}
       <div className="flex flex-col gap-1.5">
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -155,6 +178,28 @@ function DigestCorrectionForm({
         </label>
       ) : null}
 
+      {/* Dismissal affordance: a status digest can be removed from AI memory
+          early (revertible). Quiet, not destructive-red — it's reversible. */}
+      {dismissed ? (
+        <button
+          type="button"
+          onClick={() => onSubmit(build(false))}
+          disabled={disabled}
+          className="w-fit text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+        >
+          Restore to AI memory
+        </button>
+      ) : label === "status" ? (
+        <button
+          type="button"
+          onClick={() => onSubmit(build(true))}
+          disabled={disabled}
+          className="w-fit text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+        >
+          Remove from AI memory
+        </button>
+      ) : null}
+
       <div className="flex items-center justify-end gap-2 pt-1">
         <button
           type="button"
@@ -166,17 +211,7 @@ function DigestCorrectionForm({
         </button>
         <button
           type="button"
-          onClick={() =>
-            onSubmit(
-              buildDigestCorrectionPayload({
-                label,
-                summaryText,
-                eventDateText,
-                modelSummary: digest.modelSummary,
-                modelEventDate: digest.modelEventDate,
-              }),
-            )
-          }
+          onClick={() => onSubmit(build())}
           disabled={disabled || summaryMissing}
           className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
         >

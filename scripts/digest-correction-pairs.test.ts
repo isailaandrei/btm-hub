@@ -25,13 +25,16 @@ const gateEnabled = process.env.RUN_DIGEST_CORRECTION_PAIRS === "1";
 
 type CorrectionRow = {
   content_hash: string;
+  // Label-pair fields are null on a label-less correction (summary/event-date/
+  // dismissal only) — those are NOT calibration pairs and are filtered out below.
   corrected_relevance: "profile" | "status" | null;
-  corrected_is_noise: boolean;
+  corrected_is_noise: boolean | null;
   corrected_summary: string | null;
   corrected_event_date: string | null;
   original_relevance: "profile" | "status" | null;
-  original_is_noise: boolean;
+  original_is_noise: boolean | null;
   corrected_by: string | null;
+  dismissed_at: string | null;
   created_at: string;
 };
 
@@ -44,7 +47,8 @@ type DigestRow = {
   generator_version: string;
 };
 
-function labelOf(isNoise: boolean, relevance: string | null): string {
+function labelOf(isNoise: boolean | null, relevance: string | null): string {
+  if (isNoise === null) return "(no label)";
   return isNoise ? "noise" : (relevance ?? "(unlabeled)");
 }
 
@@ -63,14 +67,30 @@ describe.runIf(gateEnabled)("digest correction pairs", () => {
     const { data: corrections, error: correctionsError } = await supabase
       .from("conversation_digest_corrections")
       .select(
-        "content_hash, corrected_relevance, corrected_is_noise, corrected_summary, corrected_event_date, original_relevance, original_is_noise, corrected_by, created_at",
+        "content_hash, corrected_relevance, corrected_is_noise, corrected_summary, corrected_event_date, original_relevance, original_is_noise, corrected_by, dismissed_at, created_at",
       )
       .order("created_at", { ascending: true });
     if (correctionsError) throw new Error(correctionsError.message);
 
-    const rows = (corrections ?? []) as CorrectionRow[];
+    const allRows = (corrections ?? []) as CorrectionRow[];
+    // Only rows carrying a LABEL correction are calibration pairs. Label-less
+    // corrections (summary/event-date/dismissal overlays) have no original ->
+    // corrected label to learn from; report their count and move on.
+    const rows = allRows.filter(
+      (row): row is CorrectionRow & { corrected_is_noise: boolean } =>
+        row.corrected_is_noise !== null,
+    );
+    const labelLessCount = allRows.length - rows.length;
+    const dismissedCount = allRows.filter(
+      (row) => row.dismissed_at !== null,
+    ).length;
+    if (labelLessCount > 0 || dismissedCount > 0) {
+      console.log(
+        `(${labelLessCount} label-less correction(s), ${dismissedCount} dismissal(s) — not calibration pairs)`,
+      );
+    }
     if (rows.length === 0) {
-      console.log("No digest corrections recorded yet.");
+      console.log("No digest label corrections recorded yet.");
       return;
     }
 

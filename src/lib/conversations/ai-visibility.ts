@@ -16,6 +16,7 @@ export type MessageAiState =
   | "profile" // in AI memory permanently (durable profile signal)
   | "status-fresh" // in AI memory until windowEnd + freshnessDays
   | "status-aged" // was status signal; aged out of AI memory
+  | "dismissed" // an admin removed this (status) digest from AI memory early
   | "noise" // digested and filtered — AI never sees it
   | "pending" // inbound + matched but not yet digested
   | "excluded"; // outbound / unmatched / removed — never shared with AI
@@ -29,6 +30,9 @@ export interface AiVisibilityDigest {
   /** Effective event date (YYYY-MM-DD) of the window, or null. Extends STATUS
    * visibility until the event (see statusDigestExpiry). */
   eventDate: string | null;
+  /** Set when an admin dismissed this (status) digest from AI memory early — it
+   * is out of the corpus regardless of freshness. null = not dismissed. */
+  dismissedAt: string | null;
   /** Correction join key — lets the thread UI open a correction editor keyed to
    * the exact window a message maps to. */
   contentHash: string;
@@ -158,6 +162,17 @@ export function computeMessageAiVisibility(input: {
 
   if (digest.isNoise) {
     return { state: "noise", ...base, digestContentHash: digest.contentHash };
+  }
+  if (digest.dismissedAt !== null) {
+    // An admin removed this signal digest from AI memory ahead of its expiry —
+    // out of the corpus regardless of freshness (checked before fresh/aged).
+    // Carry the summary + hash so the badge popover can restore it.
+    return {
+      state: "dismissed",
+      ...base,
+      digestSummary: digest.summary,
+      digestContentHash: digest.contentHash,
+    };
   }
   if (digest.relevance === "profile") {
     return {

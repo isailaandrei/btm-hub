@@ -209,8 +209,11 @@ async function loadChunkRows(
       // a status digest is visible while EITHER its window is within the
       // message-age freshness window OR its event_date is still within grace
       // (event_date + 14d >= now  <=>  event_date >= now - 14d) — the latter
-      // keeps a distant dated commitment in view until the event happens.
+      // keeps a distant dated commitment in view until the event happens. A
+      // digest an admin dismissed from AI memory (dismissed_at set) leaves the
+      // corpus immediately, regardless of freshness.
       .eq("is_noise", false)
+      .is("dismissed_at", null)
       .or(
         `relevance.eq.profile,window_end.gte.${signalDigestFreshnessCutoff()},event_date.gte.${statusEventFreshnessCutoff()}`,
       )

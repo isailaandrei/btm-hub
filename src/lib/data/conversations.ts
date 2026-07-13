@@ -324,6 +324,10 @@ export type ContactConversationDigest = {
   modelEventDate: string | null;
   /** Set when an admin correction exists for this digest's content hash. */
   correctedAt: string | null;
+  /** Set when an admin dismissed this (status) digest from AI memory ahead of
+   * its natural expiry — it drops out of the AI corpus immediately, stays in
+   * this list (muted, restorable) for audit. null = not dismissed. */
+  dismissedAt: string | null;
 };
 
 /**
@@ -341,7 +345,7 @@ export async function listContactConversationDigests(
   const { data, error } = await supabase
     .from("conversation_digests_effective")
     .select(
-      "id, content_hash, window_start, window_end, is_noise, relevance, summary, event_date, model_is_noise, model_relevance, model_summary, model_event_date, correction_created_at",
+      "id, content_hash, window_start, window_end, is_noise, relevance, summary, event_date, model_is_noise, model_relevance, model_summary, model_event_date, correction_created_at, dismissed_at",
     )
     .eq("contact_id", contactId)
     .order("window_end", { ascending: false });
@@ -362,6 +366,7 @@ export async function listContactConversationDigests(
     model_summary: string;
     model_event_date: string | null;
     correction_created_at: string | null;
+    dismissed_at: string | null;
   }>).map((row) => ({
     id: row.id,
     contentHash: row.content_hash,
@@ -376,38 +381,60 @@ export async function listContactConversationDigests(
     modelSummary: row.model_summary,
     modelEventDate: row.model_event_date,
     correctedAt: row.correction_created_at,
+    dismissedAt: row.dismissed_at,
   }));
 }
 
+export type DigestModelState = {
+  isNoise: boolean;
+  relevance: "profile" | "status" | null;
+  summary: string;
+};
+
 /**
- * Fetches just the model's ORIGINAL summary for one digest window (by content
- * hash) from the effective view. Used by the correction server action to
- * enforce the fail-loud rule that a signal (profile/status) correction must not
- * leave the effective summary empty — the action can compute the resulting
- * effective summary from the incoming correctedSummary and this base value.
- * Returns null when no digest row exists for the hash (e.g. mid-recalibration).
+ * Fetches the model's ORIGINAL label + summary for one digest window (by content
+ * hash) from the effective view. The correction server action needs both: the
+ * label to resolve the EFFECTIVE label when the caller sends no label correction
+ * (it is inherited from the model), and the summary to enforce the fail-loud
+ * rule that a signal (profile/status) correction must not leave the effective
+ * summary empty. Returns null when no digest row exists for the hash (e.g.
+ * mid-recalibration).
  */
-export async function getDigestModelSummary(
+export async function getDigestModelState(
   contentHash: string,
-): Promise<string | null> {
+): Promise<DigestModelState | null> {
   const supabase = await createAdminClient();
   const { data, error } = await supabase
     .from("conversation_digests_effective")
-    .select("model_summary")
+    .select("model_is_noise, model_relevance, model_summary")
     .eq("content_hash", contentHash)
     .maybeSingle();
   if (error) {
-    throw new Error(`Failed to load digest summary: ${error.message}`);
+    throw new Error(`Failed to load digest model state: ${error.message}`);
   }
   if (!data) return null;
-  return (data as { model_summary: string | null }).model_summary ?? null;
+  const row = data as {
+    model_is_noise: boolean;
+    model_relevance: "profile" | "status" | null;
+    model_summary: string | null;
+  };
+  return {
+    isNoise: row.model_is_noise,
+    relevance: row.model_relevance,
+    summary: row.model_summary ?? "",
+  };
 }
 
 export type ConversationDigestCorrectionInput = {
   contentHash: string;
-  /** null maps to a noise correction (see correctContactDigest). */
+  /** The label-pair fields (correctedIsNoise + correctedRelevance + originals)
+   * are recorded together or all null. `correctedIsNoise === null` means this
+   * correction carries NO label correction — it exists only for a
+   * summary/event-date/dismissal overlay, and the effective view inherits the
+   * model's label. When non-null: true = noise (relevance null), false = signal
+   * (relevance names profile/status). */
   correctedRelevance: "profile" | "status" | null;
-  correctedIsNoise: boolean;
+  correctedIsNoise: boolean | null;
   /** Human-authored summary override (noise rescue), or null to leave the
    * model's summary standing. This is a FULL-ROW upsert on content_hash, so the
    * caller must send the COMPLETE desired state every time — a label-only edit
@@ -417,9 +444,16 @@ export type ConversationDigestCorrectionInput = {
   correctedEventDate: string | null;
   /** The model's original label — always pass the TRUE original (from
    * `modelRelevance`/`modelIsNoise`), never a previous correction, so
-   * re-correcting the same digest doesn't corrupt the calibration dataset. */
+   * re-correcting the same digest doesn't corrupt the calibration dataset. Null
+   * on a label-less correction (there is no original to record). */
   originalRelevance: string | null;
-  originalIsNoise: boolean;
+  originalIsNoise: boolean | null;
+  /** Dismissal overlay (status digests only): an admin removed this digest from
+   * AI memory ahead of its natural expiry. Both null = not dismissed. Carried
+   * through every full-row upsert so a label/summary edit can't silently clear
+   * an existing dismissal (and vice versa). */
+  dismissedAt: string | null;
+  dismissedBy: string | null;
   correctedBy: string;
 };
 
@@ -446,6 +480,8 @@ export async function upsertConversationDigestCorrection(
           corrected_event_date: input.correctedEventDate,
           original_relevance: input.originalRelevance,
           original_is_noise: input.originalIsNoise,
+          dismissed_at: input.dismissedAt,
+          dismissed_by: input.dismissedBy,
           corrected_by: input.correctedBy,
         },
       ],
