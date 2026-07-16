@@ -72,6 +72,7 @@ export default async function AcademyPage() {
               applyHref={`/academy/${program.slug}/apply`}
               detailHref={`/academy/${program.slug}`}
               isOpen={openBySlug.get(program.slug) ?? program.applicationOpen}
+              applyLabel={settings?.applyButtonLabel || "Apply"}
               image={deepDiveImage(cms)}
             />
           );

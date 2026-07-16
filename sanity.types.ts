@@ -136,6 +136,7 @@ export type Program = {
   tag?: string;
   overline?: string;
   description?: string;
+  shortDescription?: string;
   heroImage?: {
     asset?: SanityImageAssetReference;
     media?: unknown;
@@ -214,6 +215,9 @@ export type AcademyPageSettings = {
   ctaHeading?: string;
   ctaBody?: string;
   ctaButtonLabel?: string;
+  detailApplyHeading?: string;
+  detailApplyBody?: string;
+  applyButtonLabel?: string;
 };
 
 export type FilmsPageSettings = {
@@ -646,10 +650,14 @@ export type ALL_FILM_SLUGS_QUERY_RESULT = Array<string>;
 
 // Source: src/lib/sanity/queries.ts
 // Variable: PROGRAM_BY_SLUG_QUERY
-// Query: *[_type == "program" && slug == $slug][0] {    _id, slug, heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,    curriculum, instructor->{ _id, name, slug, photo, title },    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen  }
+// Query: *[_type == "program" && slug == $slug][0] {    _id, slug, name, overline, shortDescription, description,    heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,    curriculum, instructor->{ _id, name, slug, photo, title },    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen  }
 export type PROGRAM_BY_SLUG_QUERY_RESULT = {
   _id: string;
   slug: "filmmaking" | "freediving" | "internship" | "photography";
+  name: string | null;
+  overline: string | null;
+  shortDescription: string | null;
+  description: string | null;
   heroImage: {
     asset?: SanityImageAssetReference;
     media?: unknown;
@@ -748,7 +756,7 @@ export type ALL_PROGRAMS_CMS_QUERY_RESULT = Array<{
 
 // Source: src/lib/sanity/queries.ts
 // Variable: ACADEMY_PAGE_SETTINGS_QUERY
-// Query: *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {    heroEyebrow, heroHeading, ctaImage, ctaHeading, ctaBody, ctaButtonLabel  }
+// Query: *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {    heroEyebrow, heroHeading, ctaImage, ctaHeading, ctaBody, ctaButtonLabel,    detailApplyHeading, detailApplyBody, applyButtonLabel  }
 export type ACADEMY_PAGE_SETTINGS_QUERY_RESULT = {
   heroEyebrow: string | null;
   heroHeading: string | null;
@@ -763,6 +771,9 @@ export type ACADEMY_PAGE_SETTINGS_QUERY_RESULT = {
   ctaHeading: string | null;
   ctaBody: string | null;
   ctaButtonLabel: string | null;
+  detailApplyHeading: string | null;
+  detailApplyBody: string | null;
+  applyButtonLabel: string | null;
 } | null;
 
 // Source: src/lib/sanity/queries.ts
@@ -890,9 +901,9 @@ declare module "@sanity/client" {
     '\n  *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {\n    _id,\n    title,\n    slug,\n    description,\n    sortOrder,\n    films[]->{\n      \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n    }\n  }\n': FILM_COLLECTIONS_QUERY_RESULT;
     '\n  *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {\n    "showLatestRow": coalesce(showLatestRow, true),\n    "showAllVideosRow": coalesce(showAllVideosRow, true)\n  }\n': FILMS_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "film" && defined(slug.current)].slug.current\n': ALL_FILM_SLUGS_QUERY_RESULT;
-    '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
+    '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, name, overline, shortDescription, description,\n    heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "program"] {\n    _id, slug, name, tag, overline, description, highlights,\n    heroImage, panelImage, overviewImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;
-    '\n  *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {\n    heroEyebrow, heroHeading, ctaImage, ctaHeading, ctaBody, ctaButtonLabel\n  }\n': ACADEMY_PAGE_SETTINGS_QUERY_RESULT;
+    '\n  *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {\n    heroEyebrow, heroHeading, ctaImage, ctaHeading, ctaBody, ctaButtonLabel,\n    detailApplyHeading, detailApplyBody, applyButtonLabel\n  }\n': ACADEMY_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "teamMember"] | order(sortOrder asc) {\n    _id, name, slug, photo, title, shortBio, specialties, socialLinks, featured\n  }\n': TEAM_MEMBERS_QUERY_RESULT;
     '\n  *[_type == "teamMember" && defined(slug.current)].slug.current\n': ALL_TEAM_MEMBER_SLUGS_QUERY_RESULT;
     '\n  *[_type == "teamMember" && slug.current == $slug][0] {\n    _id, name, slug, photo, title, shortBio, fullBio, specialties, socialLinks\n  }\n': TEAM_MEMBER_BY_SLUG_QUERY_RESULT;

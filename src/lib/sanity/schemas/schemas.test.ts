@@ -246,6 +246,27 @@ describe("sanity schemas", () => {
     expect(isRequired(ctaBody)).toBe(false);
   });
 
+  it("academyPageSettings schema exposes editable detail-page apply-band copy + a shared Apply label", () => {
+    const fields = fieldsFor("academyPageSettings");
+    expect(fields.map((field) => field.name)).toEqual(
+      expect.arrayContaining([
+        "detailApplyHeading",
+        "detailApplyBody",
+        "applyButtonLabel",
+      ]),
+    );
+
+    // String, clearable headings/labels; the apply-band body is a text area.
+    for (const fieldName of ["detailApplyHeading", "applyButtonLabel"]) {
+      const field = fields.find((f) => f.name === fieldName);
+      expect(field?.type).toBe("string");
+      expect(isRequired(field)).toBe(false);
+    }
+    const detailApplyBody = fields.find((f) => f.name === "detailApplyBody");
+    expect(detailApplyBody?.type).toBe("text");
+    expect(isRequired(detailApplyBody)).toBe(false);
+  });
+
   it("program schema exposes optional CMS-owned display copy for the Academy page", () => {
     const fields = fieldsFor("program");
     for (const fieldName of ["name", "tag", "overline"]) {
@@ -253,9 +274,11 @@ describe("sanity schemas", () => {
       expect(field?.type).toBe("string");
       expect(isRequired(field)).toBe(false);
     }
-    const description = fields.find((f) => f.name === "description");
-    expect(description?.type).toBe("text");
-    expect(isRequired(description)).toBe(false);
+    for (const fieldName of ["description", "shortDescription"]) {
+      const field = fields.find((f) => f.name === fieldName);
+      expect(field?.type).toBe("text");
+      expect(isRequired(field)).toBe(false);
+    }
   });
 
   it("program schema exposes panel + overview images with hotspot and required alt", () => {

@@ -46,6 +46,25 @@ export const academyPageSettings = defineType({
       title: "CTA Button Label",
       type: "string",
     }),
+    defineField({
+      name: "detailApplyHeading",
+      title: "Detail: Apply-band Heading",
+      type: "string",
+      description:
+        "Closing CTA heading on each programme's detail page. Use {name} for the programme name.",
+    }),
+    defineField({
+      name: "detailApplyBody",
+      title: "Detail: Apply-band Body",
+      type: "text",
+      rows: 2,
+    }),
+    defineField({
+      name: "applyButtonLabel",
+      title: "Apply Button Label",
+      type: "string",
+      description: "Text for every 'Apply' button. Defaults to 'Apply' if empty.",
+    }),
   ],
   preview: {
     prepare: () => ({ title: "Academy Page Settings" }),

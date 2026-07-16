@@ -56,6 +56,14 @@ export const program = defineType({
       description: "Lead paragraph in the deep-dive section.",
     }),
     defineField({
+      name: "shortDescription",
+      title: "Short Description (hero lead)",
+      type: "text",
+      rows: 2,
+      description:
+        "Lead paragraph under the name in the detail-page hero. Clear to hide.",
+    }),
+    defineField({
       name: "heroImage",
       title: "Hero Image",
       type: "image",

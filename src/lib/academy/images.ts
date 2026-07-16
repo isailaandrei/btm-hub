@@ -2,10 +2,11 @@ import type { SanityImageSource } from "@sanity/image-url";
 
 /**
  * Resolvers that map a CMS `program` document (nullable) to the Sanity image
- * for each Academy image slot. Each returns the CMS image or `null`; callers
- * supply the shipped design-approved local fallback when the result is `null`.
+ * for each Academy image slot. Each returns the CMS image or `null`; a `null`
+ * result means the slot renders nothing (the Academy pages are fully CMS-driven,
+ * with no local fallbacks).
  *
- * Slot mapping (single source of truth — mirror it in {@link PROGRAM_MARKETING}):
+ * Slot mapping (single source of truth):
  *  - Listing panel grid    → panelImage
  *  - Listing deep-dive     → overviewImage, then legacy heroImage
  *  - Detail-page hero      → heroImage

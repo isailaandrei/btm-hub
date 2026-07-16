@@ -21,6 +21,8 @@ type AcademyProgramSectionProps = {
   applyHref: string;
   detailHref: string;
   isOpen: boolean;
+  /** Editable label for the Apply button (site-wide, from academy settings). */
+  applyLabel: string;
   /** Real programme photo from Sanity; renders nothing when unset. */
   image?: SanityImageSource | null;
 };
@@ -47,6 +49,7 @@ export function AcademyProgramSection({
   applyHref,
   detailHref,
   isOpen,
+  applyLabel,
   image,
 }: AcademyProgramSectionProps) {
   const reverse = index % 2 === 1;
@@ -123,7 +126,7 @@ export function AcademyProgramSection({
                 href={applyHref}
                 className="inline-flex items-center rounded-full bg-white px-7 py-3 font-display text-sm text-neutral-950 transition-colors hover:bg-white/90"
               >
-                Apply
+                {applyLabel}
               </Link>
             ) : (
               <span className="inline-flex items-center rounded-full border border-white/20 px-7 py-3 font-display text-sm text-white/50">

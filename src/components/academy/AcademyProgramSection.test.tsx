@@ -24,6 +24,7 @@ const base = {
   applyHref: "/academy/photography/apply",
   detailHref: "/academy/photography",
   isOpen: true,
+  applyLabel: "Apply",
   image: null,
 }
 
@@ -83,6 +84,14 @@ describe("AcademyProgramSection", () => {
     expect(html).toContain('id="photography"')
     expect(html).toContain('href="/academy/photography/apply"')
     expect(html).toContain("Learn more")
+  })
+
+  it("uses the editable Apply-button label", () => {
+    const html = renderToStaticMarkup(
+      <AcademyProgramSection {...base} applyLabel="Start your application" />,
+    )
+    expect(html).toContain("Start your application")
+    expect(html).toContain('href="/academy/photography/apply"')
   })
 
   it("shows 'Applications closed' (no apply link) when the programme is closed", () => {

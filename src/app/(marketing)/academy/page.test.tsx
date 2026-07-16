@@ -56,6 +56,7 @@ vi.mock("@/components/academy/AcademyProgramSection", () => ({
     name,
     slug,
     applyHref,
+    applyLabel,
     overline,
     description,
     highlights,
@@ -63,6 +64,7 @@ vi.mock("@/components/academy/AcademyProgramSection", () => ({
     name?: string | null
     slug: string
     applyHref: string
+    applyLabel: string
     overline?: string | null
     description?: string | null
     highlights: string[]
@@ -72,6 +74,7 @@ vi.mock("@/components/academy/AcademyProgramSection", () => ({
       data-name={name ?? ""}
       data-slug={slug}
       data-apply={applyHref}
+      data-apply-label={applyLabel}
       data-overline={overline ?? ""}
       data-description={description ?? ""}
       data-highlights={highlights.length}
@@ -110,6 +113,9 @@ const settings = {
   ctaHeading: "Not sure which path is yours?",
   ctaBody: "Every programme is mentorship-based.",
   ctaButtonLabel: "Get in touch",
+  detailApplyHeading: "Ready to join {name}?",
+  detailApplyBody: "Send your application and we'll be in touch.",
+  applyButtonLabel: "Start your application",
 } satisfies AcademyPageSettings
 
 beforeEach(() => {
@@ -162,6 +168,9 @@ describe("AcademyPage", () => {
       'data-description="Learn to capture life beneath the surface."',
     )
     expect(html).toContain('data-highlights="3"')
+
+    // The site-wide editable Apply label flows to every programme section.
+    expect(html).toContain('data-apply-label="Start your application"')
   })
 
   it("omits every content field when Sanity has none (cleared → absent, no crash)", async () => {
@@ -183,5 +192,7 @@ describe("AcademyPage", () => {
     expect(html).toContain('data-description=""')
     expect(html).toContain('data-highlights="0"')
     expect(html).toContain('data-button=""')
+    // The Apply button can't be blank — it defaults to "Apply" when unset.
+    expect(html).toContain('data-apply-label="Apply"')
   })
 })

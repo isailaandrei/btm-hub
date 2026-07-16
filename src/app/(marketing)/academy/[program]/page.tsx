@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -7,10 +6,10 @@ import { PortableText } from "@portabletext/react";
 import { SanityImage } from "@/components/sanity/SanityImage";
 import { portableTextComponents } from "@/lib/sanity/portable-text";
 import { getProgramShowcase } from "@/lib/data/programs";
+import { getAcademyPageSettings } from "@/lib/data/sanity";
 import { PROGRAM_SLUGS } from "@/lib/academy/programs";
-import { PROGRAM_MARKETING } from "@/lib/academy/marketing";
 import { detailHeroImage, detailOverviewImage } from "@/lib/academy/images";
-import type { ProgramSlug } from "@/types/database";
+import { cn } from "@/lib/utils";
 
 const FLOURISH = "/images/home/flourish.svg";
 
@@ -27,8 +26,11 @@ export async function generateMetadata({
   const data = await getProgramShowcase(slug);
   if (!data) return {};
   return {
-    title: `${data.config.name} — Behind The Mask Academy`,
-    description: data.cms?.seoDescription ?? data.config.shortDescription,
+    title: `${data.cms?.name ?? data.config.name} — Behind The Mask Academy`,
+    description:
+      data.cms?.seoDescription ??
+      data.cms?.shortDescription ??
+      data.config.shortDescription,
   };
 }
 
@@ -38,39 +40,31 @@ export default async function ProgramPage({
   params: Promise<{ program: string }>;
 }) {
   const { program: programSlug } = await params;
-  const data = await getProgramShowcase(programSlug);
+  const [data, settings] = await Promise.all([
+    getProgramShowcase(programSlug),
+    getAcademyPageSettings(),
+  ]);
   if (!data) return notFound();
 
   const { config: program, cms } = data;
-  // Local marketing copy + academy photos are the always-present baseline;
-  // Sanity CMS fields enrich the page when they exist.
-  const marketing = PROGRAM_MARKETING[program.slug as ProgramSlug];
+  // All on-page display copy + imagery is Sanity-owned — a cleared field renders
+  // nothing (no local fallback). `program` (static config) survives only for
+  // notFound/identity/metadata safety. The Apply button can't be blank, so it
+  // defaults to "Apply".
+  const applyLabel = settings?.applyButtonLabel || "Apply";
   const heroImage = detailHeroImage(cms);
   const overviewImage = detailOverviewImage(cms);
-  const highlights =
-    cms?.highlights && cms.highlights.length > 0
-      ? cms.highlights
-      : marketing.highlights;
+  const highlights = cms?.highlights ?? [];
 
   return (
     <div className="dark min-h-screen bg-[#020306] text-white">
       {/* Hero — the programme's signature photo (same shot as its Academy panel) */}
       <section className="relative isolate flex min-h-[70vh] w-full items-end overflow-hidden bg-[#020306] md:min-h-[80vh]">
         <div className="absolute inset-0 -z-10">
-          {heroImage ? (
+          {heroImage && (
             <SanityImage
               source={heroImage}
-              alt={cms?.heroImage?.alt || program.name}
-              fill
-              priority
-              sizes="100vw"
-              className="object-cover"
-            />
-          ) : (
-            <Image
-              src={marketing.panelImage}
-              alt=""
-              aria-hidden
+              alt={cms?.heroImage?.alt || cms?.name || ""}
               fill
               priority
               sizes="100vw"
@@ -89,22 +83,28 @@ export default async function ProgramPage({
             <ArrowLeftIcon className="size-3.5" />
             Academy
           </Link>
-          <p className="mt-6 font-display text-xs uppercase tracking-[0.3em] text-white/70">
-            {marketing.overline}
-          </p>
-          <h1 className="mt-3 font-display text-4xl leading-[1.05] text-white sm:text-5xl md:text-6xl">
-            {program.name}
-          </h1>
-          <p className="mt-5 max-w-xl font-serif text-base leading-relaxed text-white/80 sm:text-lg">
-            {program.shortDescription}
-          </p>
+          {cms?.overline && (
+            <p className="mt-6 font-display text-xs uppercase tracking-[0.3em] text-white/70">
+              {cms.overline}
+            </p>
+          )}
+          {cms?.name && (
+            <h1 className="mt-3 font-display text-4xl leading-[1.05] text-white sm:text-5xl md:text-6xl">
+              {cms.name}
+            </h1>
+          )}
+          {cms?.shortDescription && (
+            <p className="mt-5 max-w-xl font-serif text-base leading-relaxed text-white/80 sm:text-lg">
+              {cms.shortDescription}
+            </p>
+          )}
           <div className="mt-8">
             {program.applicationOpen ? (
               <Link
                 href={`/academy/${programSlug}/apply`}
                 className="inline-flex items-center rounded-full bg-white px-7 py-3 font-display text-sm text-neutral-950 transition-colors hover:bg-white/90"
               >
-                Apply
+                {applyLabel}
               </Link>
             ) : (
               <span className="inline-flex items-center rounded-full border border-white/20 px-7 py-3 font-display text-sm text-white/50">
@@ -115,30 +115,28 @@ export default async function ProgramPage({
         </div>
       </section>
 
-      {/* Overview — the pitch + what you'll get, alongside a second photo */}
+      {/* Overview — the pitch + what you'll get, alongside a second photo.
+          When there's no overview photo the layout collapses to a single
+          full-width text column (same approach as the listing sections). */}
       <section className="border-t border-white/5 py-16 md:py-24">
-        <div className="mx-auto grid max-w-[1420px] items-center gap-10 px-5 sm:px-8 md:grid-cols-2 md:gap-16 lg:px-16">
-          <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
-            {overviewImage ? (
+        <div
+          className={cn(
+            "mx-auto grid max-w-[1420px] items-center gap-10 px-5 sm:px-8 md:gap-16 lg:px-16",
+            overviewImage && "md:grid-cols-2",
+          )}
+        >
+          {overviewImage && (
+            <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
               <SanityImage
                 source={overviewImage}
-                alt={program.name}
+                alt={cms?.name ?? ""}
                 fill
                 className="object-cover"
                 sizes="(min-width: 768px) 50vw, 100vw"
               />
-            ) : (
-              <Image
-                src={marketing.placeholderImage}
-                alt=""
-                aria-hidden
-                fill
-                className="object-cover"
-                sizes="(min-width: 768px) 50vw, 100vw"
-              />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#020306]/45 to-transparent" />
-          </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-[#020306]/45 to-transparent" />
+            </div>
+          )}
 
           <div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -150,26 +148,30 @@ export default async function ProgramPage({
                   components={portableTextComponents}
                 />
               </div>
-            ) : (
+            ) : cms?.description ? (
               <p className="max-w-xl font-serif text-base leading-relaxed text-white/80 sm:text-lg">
-                {marketing.description}
+                {cms.description}
               </p>
-            )}
+            ) : null}
 
-            <h2 className="mt-8 font-display text-xs uppercase tracking-[0.3em] text-white/60">
-              What you&apos;ll get
-            </h2>
-            <ul className="mt-4 space-y-2.5">
-              {highlights.map((highlight: string) => (
-                <li
-                  key={highlight}
-                  className="flex items-start gap-3 font-serif text-sm text-white/75"
-                >
-                  <CheckIcon className="mt-0.5 size-4 shrink-0 text-white/50" />
-                  {highlight}
-                </li>
-              ))}
-            </ul>
+            {highlights.length > 0 && (
+              <>
+                <h2 className="mt-8 font-display text-xs uppercase tracking-[0.3em] text-white/60">
+                  What you&apos;ll get
+                </h2>
+                <ul className="mt-4 space-y-2.5">
+                  {highlights.map((highlight) => (
+                    <li
+                      key={highlight}
+                      className="flex items-start gap-3 font-serif text-sm text-white/75"
+                    >
+                      <CheckIcon className="mt-0.5 size-4 shrink-0 text-white/50" />
+                      {highlight}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -316,43 +318,67 @@ export default async function ProgramPage({
         </div>
       )}
 
-      {/* Closing apply band */}
+      {/* Closing apply band. Open state uses the editable academy-settings copy
+          (each line renders only when set); the closed state keeps its
+          dead-but-safe static fallback. */}
       <section className="border-t border-white/5 px-5 py-20 text-center sm:px-8 md:py-24">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={FLOURISH} alt="" aria-hidden className="mx-auto mb-5 h-4 w-5" />
-        <h2 className="font-display text-3xl text-white sm:text-4xl">
-          {program.applicationOpen
-            ? `Ready to join ${program.name}?`
-            : "Applications aren't open yet"}
-        </h2>
-        <p className="mx-auto mt-4 max-w-md font-serif text-white/75">
-          {program.applicationOpen
-            ? "Every programme is mentorship-based and built around you. Send your application and we'll be in touch."
-            : "This programme isn't taking applications right now — get in touch and we'll let you know when it opens."}
-        </p>
-        <div className="mt-8 flex flex-wrap justify-center gap-4">
-          {program.applicationOpen ? (
-            <Link
-              href={`/academy/${programSlug}/apply`}
-              className="inline-flex items-center rounded-full bg-white px-8 py-3 font-display text-sm text-neutral-950 transition-colors hover:bg-white/90"
-            >
-              Apply
-            </Link>
-          ) : (
-            <Link
-              href="/contact"
-              className="inline-flex items-center rounded-full border border-white px-8 py-3 font-display text-sm text-white transition-colors hover:bg-white/10"
-            >
-              Get in touch
-            </Link>
-          )}
-          <Link
-            href="/academy"
-            className="inline-flex items-center rounded-full border border-white/30 px-8 py-3 font-display text-sm text-white/80 transition-colors hover:bg-white/10"
-          >
-            All programmes
-          </Link>
-        </div>
+        {program.applicationOpen ? (
+          <>
+            {settings?.detailApplyHeading && (
+              <h2 className="font-display text-3xl text-white sm:text-4xl">
+                {settings.detailApplyHeading.replace(
+                  /\{name\}/g,
+                  cms?.name ?? program.name,
+                )}
+              </h2>
+            )}
+            {settings?.detailApplyBody && (
+              <p className="mx-auto mt-4 max-w-md font-serif text-white/75">
+                {settings.detailApplyBody}
+              </p>
+            )}
+            <div className="mt-8 flex flex-wrap justify-center gap-4">
+              <Link
+                href={`/academy/${programSlug}/apply`}
+                className="inline-flex items-center rounded-full bg-white px-8 py-3 font-display text-sm text-neutral-950 transition-colors hover:bg-white/90"
+              >
+                {applyLabel}
+              </Link>
+              <Link
+                href="/academy"
+                className="inline-flex items-center rounded-full border border-white/30 px-8 py-3 font-display text-sm text-white/80 transition-colors hover:bg-white/10"
+              >
+                All programmes
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="font-display text-3xl text-white sm:text-4xl">
+              Applications aren&apos;t open yet
+            </h2>
+            <p className="mx-auto mt-4 max-w-md font-serif text-white/75">
+              This programme isn&apos;t taking applications right now — get in
+              touch and we&apos;ll let you know when it opens.
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-4">
+              <Link
+                href="/contact"
+                className="inline-flex items-center rounded-full border border-white px-8 py-3 font-display text-sm text-white transition-colors hover:bg-white/10"
+              >
+                Get in touch
+              </Link>
+              <Link
+                href="/academy"
+                className="inline-flex items-center rounded-full border border-white/30 px-8 py-3 font-display text-sm text-white/80 transition-colors hover:bg-white/10"
+              >
+                All programmes
+              </Link>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

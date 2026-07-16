@@ -44,6 +44,12 @@ describe("program queries project the admin-editable images", () => {
       expect(ALL_PROGRAMS_CMS_QUERY).toContain(field);
     }
   });
+
+  it("PROGRAM_BY_SLUG_QUERY projects the detail-page display copy", () => {
+    for (const field of ["name", "overline", "shortDescription", "description"]) {
+      expect(PROGRAM_BY_SLUG_QUERY).toContain(field);
+    }
+  });
 });
 
 describe("academy page settings query", () => {
@@ -62,6 +68,16 @@ describe("academy page settings query", () => {
       "ctaHeading",
       "ctaBody",
       "ctaButtonLabel",
+    ]) {
+      expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain(field);
+    }
+  });
+
+  it("projects the detail-page apply-band copy + shared Apply label", () => {
+    for (const field of [
+      "detailApplyHeading",
+      "detailApplyBody",
+      "applyButtonLabel",
     ]) {
       expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain(field);
     }
