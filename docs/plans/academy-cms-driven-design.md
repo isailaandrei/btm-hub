@@ -87,10 +87,11 @@ After schema edits, regenerate types: `npm run typegen` (updates `sanity.types.t
 
 ### 2. Data flow (stega-enabled, no fallbacks)
 
-- `src/lib/data/sanity.ts`: switch the academy fetchers from the plain cached
-  `client` to `sanityFetch` (from `@/lib/sanity/live`) so responses are
-  stega-encoded → Presentation overlays become clickable. Production (non-draft)
-  renders clean, stega-free text automatically.
+- **Already done:** `getAllProgramsCms` and `getAcademyPageSettings` in
+  `src/lib/data/sanity.ts` already use `sanityFetch` (from `@/lib/sanity/live`),
+  so responses are stega-encoded and Presentation overlays already work for these
+  reads. No fetcher change is needed — the return types flow automatically from
+  the generated `sanity.types.ts` after `typegen`.
 - Extend the GROQ projections in `src/lib/sanity/queries.ts`:
   - `ALL_PROGRAMS_CMS_QUERY` → also project `name, tag, overline, description,
     highlights`.
@@ -148,14 +149,18 @@ local-dev parity):
 Idempotent (use deterministic asset handling / `createOrReplace`-style patches).
 Verify counts + field presence via the API afterward.
 
-### 5. Cleanup (after migration verified)
+### 5. Cleanup (scoped — most deletions DEFERRED)
 
-- Delete `src/lib/academy/marketing.ts` (`PROGRAM_MARKETING`) — **only after**
-  confirming no remaining consumer (see Risks).
-- Remove the now-unused `name`/`shortDescription` display usage of `PROGRAMS`
-  where replaced (keep `PROGRAMS` slug/applicationOpen/identity).
-- Delete the shipped `/public/images/academy/*.jpg` fallbacks once the page reads
-  Sanity images exclusively and prod is verified.
+Resolved by the consumer audit: **do NOT delete `src/lib/academy/marketing.ts`
+or the `/public/images/academy/*.jpg` files in this pass.** The detail page
+(`src/app/(marketing)/academy/[program]/page.tsx`) still imports
+`PROGRAM_MARKETING` (line 47) and the image resolvers, so both are load-bearing.
+Their removal is deferred to the detail-page follow-up.
+
+In this pass, only the **listing** page stops importing `PROGRAM_MARKETING`; it
+keeps `PROGRAMS` for slug/`applicationOpen`/identity. The three listing-only
+components (`AcademyPanels`, `AcademyProgramSection`, `AcademyCTABand`) are used
+by no other page, so their prop changes are safe.
 
 ## Error handling (fail loud, never fake)
 
@@ -189,11 +194,13 @@ Verify counts + field presence via the API afterward.
 
 ## Risks / open checks
 
-- **`PROGRAM_MARKETING` / `PROGRAMS.name` other consumers.** Before deleting
-  `marketing.ts` or repointing `name`, grep every importer. If the detail
-  (`/academy/[program]`) or apply pages read the static copy, either migrate those
-  reads in this pass or keep the file until a follow-up — do **not** leave a
-  half-static/half-CMS programme. Decide during planning.
+- **`PROGRAM_MARKETING` consumers — RESOLVED.** Audit found the detail page
+  (`/academy/[program]/page.tsx:47`) also imports `PROGRAM_MARKETING`, and the
+  detail/apply/success/profile pages use `PROGRAMS`/`getProgram` for structural
+  identity. Decision: keep `marketing.ts` and the `/public` images; migrate only
+  the **listing** page now. The detail page stays static until its own follow-up
+  pass — an accepted, explicit half-and-half for one release (listing = CMS,
+  detail = static). Flag to owner.
 - **Dataset split.** The live site reads `production`; local dev reads
   `development` (see `project-sanity-datasets` memory). Seed both; the repo's
   `.env.production` misreports the dataset — trust the datasets, not the file.
