@@ -25,7 +25,6 @@ const base = {
   detailHref: "/academy/photography",
   isOpen: true,
   image: null,
-  fallbackImage: "/images/home/film-3.jpg",
 }
 
 const cmsImage = {
@@ -47,17 +46,43 @@ describe("AcademyProgramSection", () => {
     expect(html).not.toContain("Applications closed")
   })
 
-  it("falls back to the local image when there is no Sanity image", () => {
-    const html = renderToStaticMarkup(<AcademyProgramSection {...base} />)
-    expect(html).toContain("/images/home/film-3.jpg")
-  })
-
-  it("renders the Sanity image (from the CDN) when a CMS image is provided", () => {
+  it("renders the Sanity image (from the CDN) in a two-column layout", () => {
     const html = renderToStaticMarkup(
       <AcademyProgramSection {...base} image={cmsImage} />,
     )
     expect(html).toContain("cdn.sanity.io")
-    expect(html).not.toContain("/images/home/film-3.jpg")
+    // The photo cell + its two-column grid are present when an image is set.
+    expect(html).toContain("md:grid-cols-2")
+    expect(html).toContain("aspect-[4/5]")
+  })
+
+  it("collapses to a single full-width text column when no image is set", () => {
+    const html = renderToStaticMarkup(<AcademyProgramSection {...base} />)
+    // No photo cell and no two-column grid — the text spans the full width.
+    expect(html).not.toContain("md:grid-cols-2")
+    expect(html).not.toContain("aspect-[4/5]")
+    expect(html).not.toContain("cdn.sanity.io")
+  })
+
+  it("omits copy fields that are cleared (no baked-in fallback text)", () => {
+    const html = renderToStaticMarkup(
+      <AcademyProgramSection
+        {...base}
+        name={undefined}
+        overline={undefined}
+        description={undefined}
+        highlights={[]}
+      />,
+    )
+
+    expect(html).not.toContain("Photography")
+    expect(html).not.toContain("Mentorship programme")
+    expect(html).not.toContain("Learn to capture life beneath the surface.")
+    expect(html).not.toContain("<ul")
+    // Structural controls survive the empty content state.
+    expect(html).toContain('id="photography"')
+    expect(html).toContain('href="/academy/photography/apply"')
+    expect(html).toContain("Learn more")
   })
 
   it("shows 'Applications closed' (no apply link) when the programme is closed", () => {
@@ -69,8 +94,12 @@ describe("AcademyProgramSection", () => {
   })
 
   it("puts the image first on even rows and mirrors it on odd rows", () => {
-    const even = renderToStaticMarkup(<AcademyProgramSection {...base} index={0} />)
-    const odd = renderToStaticMarkup(<AcademyProgramSection {...base} index={1} />)
+    const even = renderToStaticMarkup(
+      <AcademyProgramSection {...base} index={0} image={cmsImage} />,
+    )
+    const odd = renderToStaticMarkup(
+      <AcademyProgramSection {...base} index={1} image={cmsImage} />,
+    )
 
     expect(even).toContain("relative md:order-1")
     expect(odd).toContain("relative md:order-2")

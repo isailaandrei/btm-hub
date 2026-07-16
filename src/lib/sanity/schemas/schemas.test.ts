@@ -206,19 +206,56 @@ describe("sanity schemas", () => {
     expect(fields.map((field) => field.type)).toEqual(["boolean", "boolean"]);
   });
 
-  it("academyPageSettings schema exposes a single optional CTA background image", () => {
+  it("academyPageSettings schema exposes the CTA image plus editable hero + CTA copy", () => {
     const settings = schemaTypes.find((s) => s.name === "academyPageSettings");
     const fields = fieldsFor("academyPageSettings");
     const ctaImage = fields.find((field) => field.name === "ctaImage");
 
     expect(settings?.type).toBe("document");
-    expect(fields.map((field) => field.name)).toEqual(["ctaImage"]);
+    expect(fields.map((field) => field.name)).toEqual(
+      expect.arrayContaining([
+        "heroEyebrow",
+        "heroHeading",
+        "ctaImage",
+        "ctaHeading",
+        "ctaBody",
+        "ctaButtonLabel",
+      ]),
+    );
     expect(ctaImage?.type).toBe("image");
     expect(ctaImage?.options?.hotspot).toBe(true);
     // Decorative behind an 80% scrim — alt stays optional.
     const alt = ctaImage?.fields?.find((f) => f.name === "alt");
     expect(alt?.type).toBe("string");
     expect(isRequired(alt)).toBe(false);
+
+    // The copy fields are all optional (clearable) — string, except the
+    // multi-line CTA body which is a text area.
+    for (const fieldName of [
+      "heroEyebrow",
+      "heroHeading",
+      "ctaHeading",
+      "ctaButtonLabel",
+    ]) {
+      const field = fields.find((f) => f.name === fieldName);
+      expect(field?.type).toBe("string");
+      expect(isRequired(field)).toBe(false);
+    }
+    const ctaBody = fields.find((f) => f.name === "ctaBody");
+    expect(ctaBody?.type).toBe("text");
+    expect(isRequired(ctaBody)).toBe(false);
+  });
+
+  it("program schema exposes optional CMS-owned display copy for the Academy page", () => {
+    const fields = fieldsFor("program");
+    for (const fieldName of ["name", "tag", "overline"]) {
+      const field = fields.find((f) => f.name === fieldName);
+      expect(field?.type).toBe("string");
+      expect(isRequired(field)).toBe(false);
+    }
+    const description = fields.find((f) => f.name === "description");
+    expect(description?.type).toBe("text");
+    expect(isRequired(description)).toBe(false);
   });
 
   it("program schema exposes panel + overview images with hotspot and required alt", () => {

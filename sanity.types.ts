@@ -132,6 +132,10 @@ export type Program = {
   _updatedAt: string;
   _rev: string;
   slug: "photography" | "filmmaking" | "freediving" | "internship";
+  name?: string;
+  tag?: string;
+  overline?: string;
+  description?: string;
   heroImage?: {
     asset?: SanityImageAssetReference;
     media?: unknown;
@@ -197,6 +201,8 @@ export type AcademyPageSettings = {
   _createdAt: string;
   _updatedAt: string;
   _rev: string;
+  heroEyebrow?: string;
+  heroHeading?: string;
   ctaImage?: {
     asset?: SanityImageAssetReference;
     media?: unknown;
@@ -205,6 +211,9 @@ export type AcademyPageSettings = {
     alt?: string;
     _type: "image";
   };
+  ctaHeading?: string;
+  ctaBody?: string;
+  ctaButtonLabel?: string;
 };
 
 export type FilmsPageSettings = {
@@ -701,10 +710,15 @@ export type PROGRAM_BY_SLUG_QUERY_RESULT = {
 
 // Source: src/lib/sanity/queries.ts
 // Variable: ALL_PROGRAMS_CMS_QUERY
-// Query: *[_type == "program"] {    _id, slug, heroImage, panelImage, overviewImage, applicationOpen  }
+// Query: *[_type == "program"] {    _id, slug, name, tag, overline, description, highlights,    heroImage, panelImage, overviewImage, applicationOpen  }
 export type ALL_PROGRAMS_CMS_QUERY_RESULT = Array<{
   _id: string;
   slug: "filmmaking" | "freediving" | "internship" | "photography";
+  name: string | null;
+  tag: string | null;
+  overline: string | null;
+  description: string | null;
+  highlights: Array<string> | null;
   heroImage: {
     asset?: SanityImageAssetReference;
     media?: unknown;
@@ -734,8 +748,10 @@ export type ALL_PROGRAMS_CMS_QUERY_RESULT = Array<{
 
 // Source: src/lib/sanity/queries.ts
 // Variable: ACADEMY_PAGE_SETTINGS_QUERY
-// Query: *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {    ctaImage  }
+// Query: *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {    heroEyebrow, heroHeading, ctaImage, ctaHeading, ctaBody, ctaButtonLabel  }
 export type ACADEMY_PAGE_SETTINGS_QUERY_RESULT = {
+  heroEyebrow: string | null;
+  heroHeading: string | null;
   ctaImage: {
     asset?: SanityImageAssetReference;
     media?: unknown;
@@ -744,6 +760,9 @@ export type ACADEMY_PAGE_SETTINGS_QUERY_RESULT = {
     alt?: string;
     _type: "image";
   } | null;
+  ctaHeading: string | null;
+  ctaBody: string | null;
+  ctaButtonLabel: string | null;
 } | null;
 
 // Source: src/lib/sanity/queries.ts
@@ -872,8 +891,8 @@ declare module "@sanity/client" {
     '\n  *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {\n    "showLatestRow": coalesce(showLatestRow, true),\n    "showAllVideosRow": coalesce(showAllVideosRow, true)\n  }\n': FILMS_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "film" && defined(slug.current)].slug.current\n': ALL_FILM_SLUGS_QUERY_RESULT;
     '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
-    '\n  *[_type == "program"] {\n    _id, slug, heroImage, panelImage, overviewImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;
-    '\n  *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {\n    ctaImage\n  }\n': ACADEMY_PAGE_SETTINGS_QUERY_RESULT;
+    '\n  *[_type == "program"] {\n    _id, slug, name, tag, overline, description, highlights,\n    heroImage, panelImage, overviewImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;
+    '\n  *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {\n    heroEyebrow, heroHeading, ctaImage, ctaHeading, ctaBody, ctaButtonLabel\n  }\n': ACADEMY_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "teamMember"] | order(sortOrder asc) {\n    _id, name, slug, photo, title, shortBio, specialties, socialLinks, featured\n  }\n': TEAM_MEMBERS_QUERY_RESULT;
     '\n  *[_type == "teamMember" && defined(slug.current)].slug.current\n': ALL_TEAM_MEMBER_SLUGS_QUERY_RESULT;
     '\n  *[_type == "teamMember" && slug.current == $slug][0] {\n    _id, name, slug, photo, title, shortBio, fullBio, specialties, socialLinks\n  }\n': TEAM_MEMBER_BY_SLUG_QUERY_RESULT;

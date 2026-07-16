@@ -3,7 +3,6 @@ import { AcademyCTABand } from "@/components/academy/AcademyCTABand";
 import { AcademyPanels } from "@/components/academy/AcademyPanels";
 import { AcademyProgramSection } from "@/components/academy/AcademyProgramSection";
 import { RevealOnScroll } from "@/components/home/reveal-on-scroll";
-import { PROGRAM_MARKETING } from "@/lib/academy/marketing";
 import { PROGRAMS } from "@/lib/academy/programs";
 import { panelImage, deepDiveImage } from "@/lib/academy/images";
 import { getAllProgramsCms, getAcademyPageSettings } from "@/lib/data/sanity";
@@ -31,16 +30,19 @@ export default async function AcademyPage() {
 
   // The four programmes *are* the hero (see AcademyPanels). Each panel links
   // to that programme's dedicated page; scrolling past the hero reveals the
-  // deep-dive preview sections.
-  const panels = programs.map((program) => ({
-    slug: program.slug,
-    name: program.name,
-    tag: PROGRAM_MARKETING[program.slug].tag,
-    image: panelImage(cmsBySlug.get(program.slug)),
-    fallbackImage: PROGRAM_MARKETING[program.slug].panelImage,
-    href: `/academy/${program.slug}`,
-    isOpen: openBySlug.get(program.slug) ?? program.applicationOpen,
-  }));
+  // deep-dive preview sections. All display copy + imagery is Sanity-owned —
+  // a cleared field renders nothing (no local fallback).
+  const panels = programs.map((program) => {
+    const cms = cmsBySlug.get(program.slug);
+    return {
+      slug: program.slug,
+      name: cms?.name,
+      tag: cms?.tag,
+      image: panelImage(cms),
+      href: `/academy/${program.slug}`,
+      isOpen: openBySlug.get(program.slug) ?? program.applicationOpen,
+    };
+  });
 
   // `dark` resolves any shadcn token components to dark; the #020306 base +
   // white type carry the homepage's cinematic language. RevealOnScroll is safe
@@ -48,11 +50,14 @@ export default async function AcademyPage() {
   return (
     <div className="dark min-h-screen bg-[#020306] text-white">
       <RevealOnScroll />
-      <AcademyPanels panels={panels} />
+      <AcademyPanels
+        panels={panels}
+        eyebrow={settings?.heroEyebrow}
+        heading={settings?.heroHeading}
+      />
 
       <div id="programmes">
         {programs.map((program, index) => {
-          const marketing = PROGRAM_MARKETING[program.slug];
           const cms = cmsBySlug.get(program.slug);
 
           return (
@@ -60,21 +65,25 @@ export default async function AcademyPage() {
               key={program.slug}
               index={index}
               slug={program.slug}
-              name={program.name}
-              overline={marketing.overline}
-              description={marketing.description}
-              highlights={marketing.highlights}
+              name={cms?.name}
+              overline={cms?.overline}
+              description={cms?.description}
+              highlights={cms?.highlights ?? []}
               applyHref={`/academy/${program.slug}/apply`}
               detailHref={`/academy/${program.slug}`}
               isOpen={openBySlug.get(program.slug) ?? program.applicationOpen}
               image={deepDiveImage(cms)}
-              fallbackImage={marketing.placeholderImage}
             />
           );
         })}
       </div>
 
-      <AcademyCTABand backgroundImage={settings?.ctaImage} />
+      <AcademyCTABand
+        backgroundImage={settings?.ctaImage}
+        heading={settings?.ctaHeading}
+        body={settings?.ctaBody}
+        buttonLabel={settings?.ctaButtonLabel}
+      />
     </div>
   );
 }

@@ -100,13 +100,14 @@ export const PROGRAM_BY_SLUG_QUERY = defineQuery(`
 
 export const ALL_PROGRAMS_CMS_QUERY = defineQuery(`
   *[_type == "program"] {
-    _id, slug, heroImage, panelImage, overviewImage, applicationOpen
+    _id, slug, name, tag, overline, description, highlights,
+    heroImage, panelImage, overviewImage, applicationOpen
   }
 `);
 
 export const ACADEMY_PAGE_SETTINGS_QUERY = defineQuery(`
   *[_type == "academyPageSettings" && _id == "academyPageSettings"][0] {
-    ctaImage
+    heroEyebrow, heroHeading, ctaImage, ctaHeading, ctaBody, ctaButtonLabel
   }
 `);
 

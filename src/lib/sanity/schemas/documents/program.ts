@@ -31,6 +31,31 @@ export const program = defineType({
         }),
     }),
     defineField({
+      name: "name",
+      title: "Name (display)",
+      type: "string",
+      description: "Programme name shown on the Academy page. Clear to hide.",
+    }),
+    defineField({
+      name: "tag",
+      title: "Tag (hero hook)",
+      type: "string",
+      description: "Short hook under the name on the hero panel.",
+    }),
+    defineField({
+      name: "overline",
+      title: "Overline",
+      type: "string",
+      description: "Small kicker above the name in the deep-dive section.",
+    }),
+    defineField({
+      name: "description",
+      title: "Description",
+      type: "text",
+      rows: 4,
+      description: "Lead paragraph in the deep-dive section.",
+    }),
+    defineField({
       name: "heroImage",
       title: "Hero Image",
       type: "image",

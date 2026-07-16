@@ -38,6 +38,12 @@ describe("program queries project the admin-editable images", () => {
     expect(ALL_PROGRAMS_CMS_QUERY).toContain("panelImage");
     expect(ALL_PROGRAMS_CMS_QUERY).toContain("overviewImage");
   });
+
+  it("ALL_PROGRAMS_CMS_QUERY projects the CMS-owned display copy", () => {
+    for (const field of ["name", "tag", "overline", "description", "highlights"]) {
+      expect(ALL_PROGRAMS_CMS_QUERY).toContain(field);
+    }
+  });
 });
 
 describe("academy page settings query", () => {
@@ -47,5 +53,17 @@ describe("academy page settings query", () => {
     );
     expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain('_id == "academyPageSettings"');
     expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain("ctaImage");
+  });
+
+  it("projects the CMS-owned hero + CTA copy", () => {
+    for (const field of [
+      "heroEyebrow",
+      "heroHeading",
+      "ctaHeading",
+      "ctaBody",
+      "ctaButtonLabel",
+    ]) {
+      expect(ACADEMY_PAGE_SETTINGS_QUERY).toContain(field);
+    }
   });
 });

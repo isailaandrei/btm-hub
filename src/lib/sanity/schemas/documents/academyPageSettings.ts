@@ -6,6 +6,16 @@ export const academyPageSettings = defineType({
   type: "document",
   fields: [
     defineField({
+      name: "heroEyebrow",
+      title: "Hero Eyebrow",
+      type: "string",
+    }),
+    defineField({
+      name: "heroHeading",
+      title: "Hero Heading",
+      type: "string",
+    }),
+    defineField({
       name: "ctaImage",
       title: "CTA Background Image",
       type: "image",
@@ -19,6 +29,22 @@ export const academyPageSettings = defineType({
           title: "Alt Text",
         },
       ],
+    }),
+    defineField({
+      name: "ctaHeading",
+      title: "CTA Heading",
+      type: "string",
+    }),
+    defineField({
+      name: "ctaBody",
+      title: "CTA Body",
+      type: "text",
+      rows: 3,
+    }),
+    defineField({
+      name: "ctaButtonLabel",
+      title: "CTA Button Label",
+      type: "string",
     }),
   ],
   preview: {

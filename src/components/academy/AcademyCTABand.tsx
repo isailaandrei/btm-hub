@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { SanityImageSource } from "@sanity/image-url";
 
@@ -12,29 +11,28 @@ const FLOURISH = "/images/home/flourish.svg";
  * dead end. A wide atmospheric still sits behind a heavy #020306 wash so the
  * copy stays legible while the ocean carries the mood.
  *
- * The background is admin-editable via Sanity ({@link backgroundImage}); it
- * falls back to the shipped local still when unset.
+ * All copy + imagery is Sanity-owned: heading, body and button label each
+ * render only when set (an empty label hides the button; the link target is
+ * always `/contact`). With no background image the band is the #020306/80 wash
+ * alone.
  */
 export function AcademyCTABand({
   backgroundImage,
+  heading,
+  body,
+  buttonLabel,
 }: {
   backgroundImage?: SanityImageSource | null;
+  heading?: string | null;
+  body?: string | null;
+  buttonLabel?: string | null;
 }) {
   return (
     <section className="reveal relative isolate overflow-hidden border-t border-white/5 px-5 py-28 text-center sm:px-8">
-      {backgroundImage ? (
+      {backgroundImage && (
         <SanityImage
           source={backgroundImage}
           alt=""
-          fill
-          sizes="100vw"
-          className="-z-10 object-cover"
-        />
-      ) : (
-        <Image
-          src="/images/academy/cta-wide.jpg"
-          alt=""
-          aria-hidden
           fill
           sizes="100vw"
           className="-z-10 object-cover"
@@ -44,22 +42,24 @@ export function AcademyCTABand({
       <div className="mx-auto max-w-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={FLOURISH} alt="" aria-hidden className="mx-auto mb-5 h-4 w-5" />
-        <h2 className="font-display text-3xl text-white sm:text-4xl">
-          Not sure which path is yours?
-        </h2>
-        <p className="mx-auto mt-4 max-w-md font-serif text-white/75">
-          Every programme is mentorship-based and built around you. Tell us where
-          you are and what you want to create — we&apos;ll help you find the right
-          fit.
-        </p>
-        <div className="mt-8 flex justify-center">
-          <Link
-            href="/contact"
-            className="rounded-full border border-white px-8 py-3 font-display text-sm text-white transition-colors hover:bg-white/10"
-          >
-            Get in touch
-          </Link>
-        </div>
+        {heading && (
+          <h2 className="font-display text-3xl text-white sm:text-4xl">
+            {heading}
+          </h2>
+        )}
+        {body && (
+          <p className="mx-auto mt-4 max-w-md font-serif text-white/75">{body}</p>
+        )}
+        {buttonLabel && (
+          <div className="mt-8 flex justify-center">
+            <Link
+              href="/contact"
+              className="rounded-full border border-white px-8 py-3 font-display text-sm text-white transition-colors hover:bg-white/10"
+            >
+              {buttonLabel}
+            </Link>
+          </div>
+        )}
       </div>
     </section>
   );
