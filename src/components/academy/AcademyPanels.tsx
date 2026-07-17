@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import type { SanityImageSource } from "@sanity/image-url";
 
 import { SanityImage } from "@/components/sanity/SanityImage";
+import { editAttr } from "@/lib/sanity/data-attribute";
 
 export type AcademyPanel = {
   slug: string;
@@ -12,6 +13,8 @@ export type AcademyPanel = {
   tag?: string | null;
   /** Admin-set portrait photo from Sanity; renders nothing when unset. */
   image?: SanityImageSource | null;
+  /** The programme document `_id`, so the photo is click-to-edit in Studio. */
+  editId?: string | null;
   /** Link to the programme's dedicated page. */
   href: string;
   /** Drives the subtle "Now enrolling" marker. */
@@ -77,11 +80,14 @@ export function AcademyPanels({
                 fill
                 sizes="(min-width: 768px) 25vw, 50vw"
                 className="object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
+                dataSanity={editAttr(panel.editId, "program", "panelImage")}
               />
             )}
-            {/* legibility scrim + a wash that lifts on hover */}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#020306] via-[#020306]/25 to-transparent" />
-            <div className="absolute inset-0 bg-[#020306]/20 transition-colors duration-500 group-hover:bg-transparent" />
+            {/* legibility scrim + a wash that lifts on hover. `pointer-events-none`
+                so a click reaches the photo beneath — both for the Link's
+                navigation and the Studio Presentation image edit overlay. */}
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#020306] via-[#020306]/25 to-transparent" />
+            <div className="pointer-events-none absolute inset-0 bg-[#020306]/20 transition-colors duration-500 group-hover:bg-transparent" />
 
             <div className="relative z-10 w-full p-5 pb-[11vh] md:p-7 md:pb-[12vh]">
               <span className="font-display text-xs tracking-widest text-white/50">

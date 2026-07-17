@@ -11,6 +11,11 @@ interface SanityImageProps {
   className?: string;
   priority?: boolean;
   sizes?: string;
+  /**
+   * `data-sanity` edit attribute (from {@link editAttr}) that makes the image
+   * click-to-edit in the Studio Presentation tool. Inert in production.
+   */
+  dataSanity?: string;
 }
 
 export function SanityImage({
@@ -22,6 +27,7 @@ export function SanityImage({
   className,
   priority,
   sizes,
+  dataSanity,
 }: SanityImageProps) {
   if (!source) return null;
 
@@ -38,6 +44,7 @@ export function SanityImage({
         className={className}
         priority={priority}
         sizes={sizes ?? "100vw"}
+        data-sanity={dataSanity}
       />
     );
   }
@@ -51,6 +58,7 @@ export function SanityImage({
       className={className}
       priority={priority}
       sizes={sizes}
+      data-sanity={dataSanity}
     />
   );
 }

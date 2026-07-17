@@ -9,6 +9,7 @@ import { getProgramShowcase } from "@/lib/data/programs";
 import { getAcademyPageSettings } from "@/lib/data/sanity";
 import { PROGRAM_SLUGS } from "@/lib/academy/programs";
 import { detailHeroImage, detailOverviewImage } from "@/lib/academy/images";
+import { editAttr } from "@/lib/sanity/data-attribute";
 import { cn } from "@/lib/utils";
 
 const FLOURISH = "/images/home/flourish.svg";
@@ -69,10 +70,11 @@ export default async function ProgramPage({
               priority
               sizes="100vw"
               className="object-cover"
+              dataSanity={editAttr(cms?._id, "program", "heroImage")}
             />
           )}
-          <div className="absolute inset-0 bg-black/35" />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#020306] via-[#020306]/30 to-[#020306]/60" />
+          <div className="pointer-events-none absolute inset-0 bg-black/35" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#020306] via-[#020306]/30 to-[#020306]/60" />
         </div>
 
         <div className="mx-auto w-full max-w-[1420px] px-5 pb-16 pt-28 sm:px-8 md:pb-20 lg:px-16">
@@ -133,8 +135,9 @@ export default async function ProgramPage({
                 fill
                 className="object-cover"
                 sizes="(min-width: 768px) 50vw, 100vw"
+                dataSanity={editAttr(cms?._id, "program", "overviewImage")}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#020306]/45 to-transparent" />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#020306]/45 to-transparent" />
             </div>
           )}
 

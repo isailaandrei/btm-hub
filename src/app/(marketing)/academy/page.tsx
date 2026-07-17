@@ -39,6 +39,7 @@ export default async function AcademyPage() {
       name: cms?.name,
       tag: cms?.tag,
       image: panelImage(cms),
+      editId: cms?._id,
       href: `/academy/${program.slug}`,
       isOpen: openBySlug.get(program.slug) ?? program.applicationOpen,
     };
@@ -74,6 +75,7 @@ export default async function AcademyPage() {
               isOpen={openBySlug.get(program.slug) ?? program.applicationOpen}
               applyLabel={settings?.applyButtonLabel || "Apply"}
               image={deepDiveImage(cms)}
+              editId={cms?._id}
             />
           );
         })}

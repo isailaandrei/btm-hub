@@ -3,6 +3,7 @@ import { CheckIcon } from "lucide-react";
 import type { SanityImageSource } from "@sanity/image-url";
 
 import { SanityImage } from "@/components/sanity/SanityImage";
+import { editAttr } from "@/lib/sanity/data-attribute";
 import { cn } from "@/lib/utils";
 
 const FLOURISH = "/images/home/flourish.svg";
@@ -25,6 +26,8 @@ type AcademyProgramSectionProps = {
   applyLabel: string;
   /** Real programme photo from Sanity; renders nothing when unset. */
   image?: SanityImageSource | null;
+  /** The programme document `_id`, so the photo is click-to-edit in Studio. */
+  editId?: string | null;
 };
 
 /**
@@ -51,6 +54,7 @@ export function AcademyProgramSection({
   isOpen,
   applyLabel,
   image,
+  editId,
 }: AcademyProgramSectionProps) {
   const reverse = index % 2 === 1;
   const number = String(index + 1).padStart(2, "0");
@@ -77,9 +81,10 @@ export function AcademyProgramSection({
                 fill
                 className="object-cover"
                 sizes="(min-width: 768px) 50vw, 100vw"
+                dataSanity={editAttr(editId, "program", "overviewImage")}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#020306]/45 to-transparent" />
-              <span className="absolute left-5 top-4 font-display text-sm text-white/70">
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#020306]/45 to-transparent" />
+              <span className="pointer-events-none absolute left-5 top-4 font-display text-sm text-white/70">
                 {number}
               </span>
             </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { SanityImageSource } from "@sanity/image-url";
 
 import { SanityImage } from "@/components/sanity/SanityImage";
+import { editAttr } from "@/lib/sanity/data-attribute";
 
 const FLOURISH = "/images/home/flourish.svg";
 
@@ -36,9 +37,14 @@ export function AcademyCTABand({
           fill
           sizes="100vw"
           className="-z-10 object-cover"
+          dataSanity={editAttr(
+            "academyPageSettings",
+            "academyPageSettings",
+            "ctaImage",
+          )}
         />
       )}
-      <div className="absolute inset-0 -z-10 bg-[#020306]/80" />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[#020306]/80" />
       <div className="mx-auto max-w-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={FLOURISH} alt="" aria-hidden className="mx-auto mb-5 h-4 w-5" />
