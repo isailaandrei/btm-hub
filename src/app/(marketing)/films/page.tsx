@@ -6,10 +6,11 @@ import {
   getFilmsPageSettings,
 } from "@/lib/data/sanity";
 import {
-  filmHeroBackdropUrl,
+  filmHeroBackdrop,
   withCollectionFilmPosterUrls,
   withFilmPosterUrls,
 } from "@/lib/films/posters";
+import { editAttr } from "@/lib/sanity/data-attribute";
 
 export const metadata: Metadata = {
   title: "Films - Behind The Mask",
@@ -27,8 +28,15 @@ export default async function FilmsPage() {
   const posterUrlsByFilmId = new Map(
     films?.map((film) => [film._id, film.posterUrl]) ?? [],
   );
+  const posterEditAttrsByFilmId = new Map(
+    films?.map((film) => [film._id, film.posterEditAttr]) ?? [],
+  );
   const collections = rawCollections
-    ? withCollectionFilmPosterUrls(rawCollections, posterUrlsByFilmId)
+    ? withCollectionFilmPosterUrls(
+        rawCollections,
+        posterUrlsByFilmId,
+        posterEditAttrsByFilmId,
+      )
     : rawCollections;
 
   if (!films || films.length === 0) {
@@ -46,8 +54,14 @@ export default async function FilmsPage() {
   // to the first (most-recent) film so the page always opens cinematically.
   const featuredFilm = films.find((film) => film.featured) ?? films[0];
   // Hero backdrop chain: dedicated hi-res `backdrop` → uploaded `poster` at hero
-  // resolution → auto video thumbnail (lowest quality). See filmHeroBackdropUrl.
-  const heroImageUrl = filmHeroBackdropUrl(featuredFilm, 2400, 1350);
+  // resolution → auto video thumbnail (lowest quality). See filmHeroBackdrop.
+  const hero = filmHeroBackdrop(featuredFilm, 2400, 1350);
+  const heroEditAttr =
+    hero.source === "backdrop"
+      ? editAttr(featuredFilm._id, "film", "backdrop")
+      : hero.source === "poster"
+        ? editAttr(featuredFilm._id, "film", "poster")
+        : undefined; // auto video thumbnail — not a Sanity asset, nothing to open
 
   // `dark` makes the in-page shadcn controls (filter trigger, etc.) resolve dark
   // tokens; the deep #020306 base + white type carry the homepage's vibe.
@@ -57,7 +71,18 @@ export default async function FilmsPage() {
         films={films}
         collections={collections ?? []}
         featuredFilm={featuredFilm}
-        heroImageUrl={heroImageUrl}
+        heroImageUrl={hero.url}
+        heroEditAttr={heroEditAttr}
+        heroEyebrow={settings?.heroEyebrow}
+        watchButtonLabel={settings?.watchButtonLabel}
+        detailsButtonLabel={settings?.detailsButtonLabel}
+        catalogueHeading={settings?.catalogueHeading}
+        catalogueDescription={settings?.catalogueDescription}
+        rowTitles={{
+          featuredRowTitle: settings?.featuredRowTitle,
+          latestRowTitle: settings?.latestRowTitle,
+          allFilmsRowTitle: settings?.allFilmsRowTitle,
+        }}
         rowVisibility={{
           showLatestRow: settings?.showLatestRow ?? true,
           showAllVideosRow: settings?.showAllVideosRow ?? true,

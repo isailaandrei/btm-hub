@@ -9,6 +9,9 @@ export type FilmBrowserFilm = {
   tagline?: string | null;
   videoEmbed?: string | null;
   posterUrl?: string | null;
+  /** `data-sanity` click-to-edit attribute for the poster, set only when
+   *  `posterUrl` resolved from an uploaded image (not the auto thumbnail). */
+  posterEditAttr?: string | null;
   duration?: string | null;
   releaseYear?: number | null;
   status?: FilmStatus | string | null;
@@ -41,7 +44,13 @@ export type FilmRowVisibilitySettings = {
 
 export type FilmRow = {
   id: string;
-  title: string;
+  title: string | null;
   description?: string | null;
   films: FilmBrowserFilm[];
+};
+
+export type FilmRowTitles = {
+  featuredRowTitle?: string | null;
+  latestRowTitle?: string | null;
+  allFilmsRowTitle?: string | null;
 };

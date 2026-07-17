@@ -14,6 +14,7 @@ import type {
   FilmBrowserCollection,
   FilmBrowserFilm,
   FilmFilterState,
+  FilmRowTitles,
   FilmRowVisibilitySettings,
 } from "@/lib/films/types"
 import { FilmFilterSheet } from "./FilmFilterSheet"
@@ -29,6 +30,20 @@ type FilmsBrowserProps = {
   featuredFilm?: FilmBrowserFilm | null
   /** Hi-res hero backdrop URL (uploaded poster); falls back to the film thumbnail. */
   heroImageUrl?: string | null
+  /** `data-sanity` click-to-edit attribute for whichever field resolved the backdrop. */
+  heroEditAttr?: string
+  /** Small caption above the hero title. Cleared = hidden. */
+  heroEyebrow?: string | null
+  /** Hero play-button label. Defaults to "Watch film" when empty. */
+  watchButtonLabel?: string | null
+  /** "More details" link/button label, shared by the hero and the playback modal. */
+  detailsButtonLabel?: string | null
+  /** Heading above the searchable catalogue. Cleared = hidden. */
+  catalogueHeading?: string | null
+  /** Blurb under the catalogue heading. Cleared = hidden. */
+  catalogueDescription?: string | null
+  /** Titles for the three built-in rows (Featured/Latest/All Films). */
+  rowTitles: FilmRowTitles
 }
 
 export function FilmsBrowser({
@@ -37,6 +52,13 @@ export function FilmsBrowser({
   rowVisibility,
   featuredFilm,
   heroImageUrl,
+  heroEditAttr,
+  heroEyebrow,
+  watchButtonLabel,
+  detailsButtonLabel,
+  catalogueHeading,
+  catalogueDescription,
+  rowTitles,
 }: FilmsBrowserProps) {
   const [search, setSearch] = useState("")
   const [filters, setFilters] = useState<FilmFilterState>(() =>
@@ -58,8 +80,8 @@ export function FilmsBrowser({
         ? visibleFilms.length > 0
           ? [{ id: "matches", title: "Matching Films", films: visibleFilms }]
           : []
-        : buildFilmRows(visibleFilms, collections, rowVisibility),
-    [collections, hasActiveQuery, rowVisibility, visibleFilms]
+        : buildFilmRows(visibleFilms, collections, rowVisibility, rowTitles),
+    [collections, hasActiveQuery, rowVisibility, rowTitles, visibleFilms]
   )
 
   return (
@@ -70,6 +92,10 @@ export function FilmsBrowser({
         <FilmsHero
           film={featuredFilm}
           heroImageUrl={heroImageUrl}
+          dataSanity={heroEditAttr}
+          eyebrow={heroEyebrow}
+          watchLabel={watchButtonLabel}
+          detailsLabel={detailsButtonLabel}
           onPlay={() => setActiveFilm(featuredFilm)}
         />
       )}
@@ -77,13 +103,16 @@ export function FilmsBrowser({
       <div className="mx-auto max-w-[1420px] space-y-10 px-5 py-16 md:px-8 lg:px-12">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-display text-2xl tracking-wide text-white sm:text-3xl">
-              All films
-            </h2>
-            <p className="mt-1 max-w-md font-serif text-sm text-white/70">
-              Browse the full catalogue — search or filter by location, subject,
-              format, and skill.
-            </p>
+            {catalogueHeading && (
+              <h2 className="font-display text-2xl tracking-wide text-white sm:text-3xl">
+                {catalogueHeading}
+              </h2>
+            )}
+            {catalogueDescription && (
+              <p className="mt-1 max-w-md font-serif text-sm text-white/70">
+                {catalogueDescription}
+              </p>
+            )}
           </div>
 
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
@@ -139,6 +168,7 @@ export function FilmsBrowser({
 
       <FilmPlaybackModal
         film={activeFilm}
+        detailsLabel={detailsButtonLabel}
         onOpenChange={(open) => !open && setActiveFilm(null)}
       />
     </>

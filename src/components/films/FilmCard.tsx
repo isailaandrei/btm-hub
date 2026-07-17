@@ -59,6 +59,7 @@ export function FilmCard({ film, onSelect }: FilmCardProps) {
         type="button"
         aria-label={`Play ${film.title ?? "Untitled film"}`}
         onClick={() => onSelect(film)}
+        data-sanity={film.posterEditAttr ?? undefined}
         className="absolute inset-0 z-10 cursor-pointer rounded-md border-0 bg-transparent p-0 focus-visible:outline-none"
       />
 

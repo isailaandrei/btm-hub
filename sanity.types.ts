@@ -228,6 +228,14 @@ export type FilmsPageSettings = {
   _rev: string;
   showLatestRow?: boolean;
   showAllVideosRow?: boolean;
+  heroEyebrow?: string;
+  watchButtonLabel?: string;
+  detailsButtonLabel?: string;
+  catalogueHeading?: string;
+  catalogueDescription?: string;
+  featuredRowTitle?: string;
+  latestRowTitle?: string;
+  allFilmsRowTitle?: string;
 };
 
 export type FilmReference = {
@@ -637,10 +645,18 @@ export type FILM_COLLECTIONS_QUERY_RESULT = Array<{
 
 // Source: src/lib/sanity/queries.ts
 // Variable: FILMS_PAGE_SETTINGS_QUERY
-// Query: *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {    "showLatestRow": coalesce(showLatestRow, true),    "showAllVideosRow": coalesce(showAllVideosRow, true)  }
+// Query: *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {    "showLatestRow": coalesce(showLatestRow, true),    "showAllVideosRow": coalesce(showAllVideosRow, true),    heroEyebrow,    watchButtonLabel,    detailsButtonLabel,    catalogueHeading,    catalogueDescription,    featuredRowTitle,    latestRowTitle,    allFilmsRowTitle  }
 export type FILMS_PAGE_SETTINGS_QUERY_RESULT = {
   showLatestRow: boolean | true;
   showAllVideosRow: boolean | true;
+  heroEyebrow: string | null;
+  watchButtonLabel: string | null;
+  detailsButtonLabel: string | null;
+  catalogueHeading: string | null;
+  catalogueDescription: string | null;
+  featuredRowTitle: string | null;
+  latestRowTitle: string | null;
+  allFilmsRowTitle: string | null;
 } | null;
 
 // Source: src/lib/sanity/queries.ts
@@ -899,7 +915,7 @@ declare module "@sanity/client" {
     '\n  *[_type == "film" && featured == true && defined(slug.current)] | order(sortOrder asc) {\n    \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n  }\n': FEATURED_FILMS_QUERY_RESULT;
     '\n  *[_type == "homepageVideo"] | order(sortOrder asc) {\n    _id,\n    title,\n    youtubeId\n  }\n': HOMEPAGE_VIDEOS_QUERY_RESULT;
     '\n  *[_type == "filmCollection" && enabled == true] | order(sortOrder asc) {\n    _id,\n    title,\n    slug,\n    description,\n    sortOrder,\n    films[]->{\n      \n  _id,\n  title,\n  slug,\n  tagline,\n  videoEmbed,\n  duration,\n  releaseYear,\n  status,\n  featured,\n  sortOrder,\n  locations,\n  subjects,\n  formats,\n  skills,\n  displayTags,\n  poster\n\n    }\n  }\n': FILM_COLLECTIONS_QUERY_RESULT;
-    '\n  *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {\n    "showLatestRow": coalesce(showLatestRow, true),\n    "showAllVideosRow": coalesce(showAllVideosRow, true)\n  }\n': FILMS_PAGE_SETTINGS_QUERY_RESULT;
+    '\n  *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {\n    "showLatestRow": coalesce(showLatestRow, true),\n    "showAllVideosRow": coalesce(showAllVideosRow, true),\n    heroEyebrow,\n    watchButtonLabel,\n    detailsButtonLabel,\n    catalogueHeading,\n    catalogueDescription,\n    featuredRowTitle,\n    latestRowTitle,\n    allFilmsRowTitle\n  }\n': FILMS_PAGE_SETTINGS_QUERY_RESULT;
     '\n  *[_type == "film" && defined(slug.current)].slug.current\n': ALL_FILM_SLUGS_QUERY_RESULT;
     '\n  *[_type == "program" && slug == $slug][0] {\n    _id, slug, name, overline, shortDescription, description,\n    heroImage, panelImage, overviewImage, heroVideo, fullDescription, highlights,\n    curriculum, instructor->{ _id, name, slug, photo, title },\n    gallery, faqs, testimonials, pricing, seoDescription, applicationOpen\n  }\n': PROGRAM_BY_SLUG_QUERY_RESULT;
     '\n  *[_type == "program"] {\n    _id, slug, name, tag, overline, description, highlights,\n    heroImage, panelImage, overviewImage, applicationOpen\n  }\n': ALL_PROGRAMS_CMS_QUERY_RESULT;

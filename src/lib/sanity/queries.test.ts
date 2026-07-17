@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   FILMS_QUERY,
   FILM_BY_SLUG_QUERY,
+  FILMS_PAGE_SETTINGS_QUERY,
   PROGRAM_BY_SLUG_QUERY,
   ALL_PROGRAMS_CMS_QUERY,
   ACADEMY_PAGE_SETTINGS_QUERY,
@@ -23,6 +24,38 @@ describe("film detail query", () => {
 describe("films listing query", () => {
   it("projects the hero backdrop image for the featured-film hero", () => {
     expect(FILMS_QUERY).toContain("backdrop");
+  });
+});
+
+describe("films page settings query", () => {
+  it("selects the fixed singleton and coalesces the row-visibility booleans", () => {
+    expect(FILMS_PAGE_SETTINGS_QUERY).toContain(
+      '_type == "filmsPageSettings"',
+    );
+    expect(FILMS_PAGE_SETTINGS_QUERY).toContain(
+      '_id == "filmsPageSettings"',
+    );
+    expect(FILMS_PAGE_SETTINGS_QUERY).toContain(
+      '"showLatestRow": coalesce(showLatestRow, true)',
+    );
+    expect(FILMS_PAGE_SETTINGS_QUERY).toContain(
+      '"showAllVideosRow": coalesce(showAllVideosRow, true)',
+    );
+  });
+
+  it("projects the CMS-owned hero/catalogue/row copy uncoalesced", () => {
+    for (const field of [
+      "heroEyebrow",
+      "watchButtonLabel",
+      "detailsButtonLabel",
+      "catalogueHeading",
+      "catalogueDescription",
+      "featuredRowTitle",
+      "latestRowTitle",
+      "allFilmsRowTitle",
+    ]) {
+      expect(FILMS_PAGE_SETTINGS_QUERY).toContain(field);
+    }
   });
 });
 

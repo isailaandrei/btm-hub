@@ -8,6 +8,12 @@ const films: FilmBrowserFilm[] = [
   { _id: "film-3", title: "Featured Two", featured: true, releaseYear: 2025, sortOrder: 3 },
 ];
 
+const titles = {
+  featuredRowTitle: "Featured",
+  latestRowTitle: "Latest",
+  allFilmsRowTitle: "All Films",
+};
+
 describe("buildFilmRows", () => {
   it("puts curated collections before fallback rows", () => {
     const collections: FilmBrowserCollection[] = [
@@ -19,12 +25,11 @@ describe("buildFilmRows", () => {
       },
     ];
 
-    expect(buildFilmRows(films, collections).map((row) => row.title)).toEqual([
-      "Ocean Stories",
-      "Featured",
-      "Latest",
-      "All Films",
-    ]);
+    expect(
+      buildFilmRows(films, collections, undefined, titles).map(
+        (row) => row.title,
+      ),
+    ).toEqual(["Ocean Stories", "Featured", "Latest", "All Films"]);
   });
 
   it("removes empty curated collections", () => {
@@ -72,5 +77,12 @@ describe("buildFilmRows", () => {
     const rows = buildFilmRows(films, [], { showAllVideosRow: false });
 
     expect(rows.map((row) => row.id)).toEqual(["featured", "latest"]);
+  });
+
+  it("built-in rows still appear with a null title when no titles are passed", () => {
+    const rows = buildFilmRows(films, []);
+
+    expect(rows.map((row) => row.id)).toEqual(["featured", "latest", "all"]);
+    expect(rows.map((row) => row.title)).toEqual([null, null, null]);
   });
 });

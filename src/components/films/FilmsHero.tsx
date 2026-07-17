@@ -15,6 +15,14 @@ type FilmsHeroProps = {
   onPlay: () => void
   /** Hi-res uploaded-poster URL for the backdrop; falls back to the film thumbnail. */
   heroImageUrl?: string | null
+  /** `data-sanity` click-to-edit attribute for whichever field resolved the backdrop. */
+  dataSanity?: string
+  /** Small caption above the title. Cleared = hidden. */
+  eyebrow?: string | null
+  /** Play-button label. Defaults to "Watch film" when empty. */
+  watchLabel?: string | null
+  /** "More details" link label. Defaults to "More details" when empty. */
+  detailsLabel?: string | null
 }
 
 /**
@@ -29,7 +37,15 @@ type FilmsHeroProps = {
  * the copy via `motion-safe:` utilities — both fully static for users who ask
  * for reduced motion.
  */
-export function FilmsHero({ film, onPlay, heroImageUrl }: FilmsHeroProps) {
+export function FilmsHero({
+  film,
+  onPlay,
+  heroImageUrl,
+  dataSanity,
+  eyebrow,
+  watchLabel,
+  detailsLabel,
+}: FilmsHeroProps) {
   const title = film.title ?? "Untitled film"
   const meta = [film.releaseYear, film.duration].filter(Boolean).join("  ·  ")
   const slug = film.slug?.current
@@ -51,22 +67,27 @@ export function FilmsHero({ film, onPlay, heroImageUrl }: FilmsHeroProps) {
             priority
             sizes="100vw"
             className="films-hero-zoom object-cover"
+            data-sanity={dataSanity}
           />
         ) : (
           <div className="h-full w-full bg-gradient-to-br from-neutral-900 via-slate-900 to-primary/40" />
         )}
         {/* Scrims: a soft overall darken for legibility, a bottom dissolve into
-            the catalog base, and a left wash so the copy always reads. */}
-        <div className="absolute inset-0 bg-black/30" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#020306] via-[#020306]/30 to-[#020306]/70" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#020306]/80 via-[#020306]/20 to-transparent" />
+            the catalog base, and a left wash so the copy always reads.
+            `pointer-events-none` so a Presentation click reaches the backdrop
+            image beneath instead of being swallowed by these overlays. */}
+        <div className="pointer-events-none absolute inset-0 bg-black/30" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#020306] via-[#020306]/30 to-[#020306]/70" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#020306]/80 via-[#020306]/20 to-transparent" />
       </div>
 
       <div className="mx-auto w-full max-w-[1420px] px-5 pb-14 pt-28 sm:px-8 md:pb-20 lg:px-16">
         <div className="max-w-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-4 motion-safe:duration-700">
-          <p className="font-display text-xs uppercase tracking-[0.3em] text-white/70">
-            Featured film
-          </p>
+          {eyebrow && (
+            <p className="font-display text-xs uppercase tracking-[0.3em] text-white/70">
+              {eyebrow}
+            </p>
+          )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={FLOURISH} alt="" aria-hidden className="my-4 h-3.5 w-5" />
           <h2 className="font-display text-4xl leading-[1.05] text-white sm:text-5xl md:text-6xl">
@@ -88,14 +109,14 @@ export function FilmsHero({ film, onPlay, heroImageUrl }: FilmsHeroProps) {
               className="inline-flex items-center gap-2.5 rounded-full bg-white px-7 py-3 font-display text-sm text-neutral-950 transition-colors hover:bg-white/90"
             >
               <PlayIcon className="size-4 fill-current" />
-              Watch film
+              {watchLabel || "Watch film"}
             </button>
             {slug && (
               <Link
                 href={`/films/${slug}`}
                 className="rounded-full border border-white/70 px-7 py-3 font-display text-sm text-white transition-colors hover:bg-white/10"
               >
-                More details
+                {detailsLabel || "More details"}
               </Link>
             )}
           </div>

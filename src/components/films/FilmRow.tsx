@@ -24,20 +24,25 @@ export function FilmRow({ row, onSelectFilm }: FilmRowProps) {
   }
 
   return (
-    <section className="group/row space-y-2" aria-labelledby={`${row.id}-heading`}>
-      <div>
-        <h2
-          id={`${row.id}-heading`}
-          className="text-xl font-semibold text-white"
-        >
-          {row.title}
-        </h2>
-        {row.description && (
-          <p className="mt-1 max-w-2xl text-sm text-white/70">
-            {row.description}
-          </p>
-        )}
-      </div>
+    <section
+      className="group/row space-y-2"
+      aria-labelledby={row.title ? `${row.id}-heading` : undefined}
+    >
+      {row.title && (
+        <div>
+          <h2
+            id={`${row.id}-heading`}
+            className="text-xl font-semibold text-white"
+          >
+            {row.title}
+          </h2>
+          {row.description && (
+            <p className="mt-1 max-w-2xl text-sm text-white/70">
+              {row.description}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="relative -mx-5 md:-mx-8 lg:-mx-12">
         <div
@@ -56,7 +61,7 @@ export function FilmRow({ row, onSelectFilm }: FilmRowProps) {
             className="pointer-events-auto flex h-full w-11 items-center justify-center text-white/65 transition-colors hover:bg-white/10 hover:text-white"
           >
             <ChevronLeftIcon className="size-7" />
-            <span className="sr-only">Scroll {row.title} left</span>
+            <span className="sr-only">Scroll left</span>
           </button>
         </div>
 
@@ -67,7 +72,7 @@ export function FilmRow({ row, onSelectFilm }: FilmRowProps) {
             className="pointer-events-auto flex h-full w-11 items-center justify-center text-white/65 transition-colors hover:bg-white/10 hover:text-white"
           >
             <ChevronRightIcon className="size-7" />
-            <span className="sr-only">Scroll {row.title} right</span>
+            <span className="sr-only">Scroll right</span>
           </button>
         </div>
       </div>

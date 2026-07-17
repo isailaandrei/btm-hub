@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  filmHeroBackdropUrl,
+  filmHeroBackdrop,
   resolveFilmPosterUrl,
   withCollectionFilmPosterUrls,
   withFilmPosterUrls,
@@ -130,15 +130,43 @@ describe("withFilmPosterUrls", () => {
     expect(film.posterUrl).not.toContain("ytimg");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("attaches a posterEditAttr when the uploaded poster resolved", async () => {
+    const [film] = await withFilmPosterUrls([
+      {
+        _id: "film-1",
+        videoEmbed: null,
+        poster: { asset: { _ref: "image-poster123-1920x1080-jpg" } },
+      },
+    ]);
+
+    expect(film.posterEditAttr).toBeDefined();
+  });
+
+  it("leaves posterEditAttr undefined on the auto-thumbnail path", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        thumbnail_url: "https://i.vimeocdn.com/video/123456789-abcd",
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [film] = await withFilmPosterUrls([
+      { _id: "film-1", videoEmbed: "https://vimeo.com/123456789" },
+    ]);
+
+    expect(film.posterEditAttr).toBeUndefined();
+  });
 });
 
-describe("filmHeroBackdropUrl", () => {
+describe("filmHeroBackdrop", () => {
   const backdrop = { asset: { _ref: "image-backdropimg-2560x1440-jpg" } };
   const poster = { asset: { _ref: "image-posterimg-1920x1080-jpg" } };
   const thumb = "https://i.ytimg.com/vi/abc123DEF45/hqdefault.jpg";
 
   it("prefers the dedicated hero backdrop upload", () => {
-    const url = filmHeroBackdropUrl(
+    const { url, source } = filmHeroBackdrop(
       { backdrop, poster, posterUrl: thumb },
       2400,
       1350,
@@ -148,25 +176,39 @@ describe("filmHeroBackdropUrl", () => {
     expect(url).toContain("w=2400");
     expect(url).not.toContain("posterimg");
     expect(url).not.toContain("ytimg");
+    expect(source).toBe("backdrop");
   });
 
   it("falls back to the poster (at hero resolution) when no backdrop is set", () => {
-    const url = filmHeroBackdropUrl({ poster, posterUrl: thumb }, 2400, 1350);
+    const { url, source } = filmHeroBackdrop(
+      { poster, posterUrl: thumb },
+      2400,
+      1350,
+    );
     expect(url).toContain("cdn.sanity.io");
     expect(url).toContain("posterimg");
     expect(url).toContain("w=2400");
     expect(url).not.toContain("ytimg");
+    expect(source).toBe("poster");
   });
 
   it("falls back to the auto video thumbnail when there is no upload", () => {
-    expect(filmHeroBackdropUrl({ posterUrl: thumb }, 2400, 1350)).toBe(thumb);
+    const { url, source } = filmHeroBackdrop({ posterUrl: thumb }, 2400, 1350);
+    expect(url).toBe(thumb);
+    expect(source).toBe("video-thumbnail");
   });
 
-  it("returns null when the film has no backdrop, poster or thumbnail", () => {
-    expect(filmHeroBackdropUrl({}, 2400, 1350)).toBeNull();
-    expect(filmHeroBackdropUrl({ posterUrl: null }, 2400, 1350)).toBeNull();
-    expect(filmHeroBackdropUrl(null, 2400, 1350)).toBeNull();
-    expect(filmHeroBackdropUrl(undefined, 2400, 1350)).toBeNull();
+  it("returns a null url and source when the film has no backdrop, poster or thumbnail", () => {
+    expect(filmHeroBackdrop({}, 2400, 1350)).toEqual({ url: null, source: null });
+    expect(filmHeroBackdrop({ posterUrl: null }, 2400, 1350)).toEqual({
+      url: null,
+      source: null,
+    });
+    expect(filmHeroBackdrop(null, 2400, 1350)).toEqual({ url: null, source: null });
+    expect(filmHeroBackdrop(undefined, 2400, 1350)).toEqual({
+      url: null,
+      source: null,
+    });
   });
 });
 

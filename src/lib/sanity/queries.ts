@@ -78,7 +78,15 @@ export const FILM_COLLECTIONS_QUERY = defineQuery(`
 export const FILMS_PAGE_SETTINGS_QUERY = defineQuery(`
   *[_type == "filmsPageSettings" && _id == "filmsPageSettings"][0] {
     "showLatestRow": coalesce(showLatestRow, true),
-    "showAllVideosRow": coalesce(showAllVideosRow, true)
+    "showAllVideosRow": coalesce(showAllVideosRow, true),
+    heroEyebrow,
+    watchButtonLabel,
+    detailsButtonLabel,
+    catalogueHeading,
+    catalogueDescription,
+    featuredRowTitle,
+    latestRowTitle,
+    allFilmsRowTitle
   }
 `);
 

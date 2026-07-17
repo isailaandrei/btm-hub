@@ -1,4 +1,5 @@
 import type { SanityImageSource } from "@sanity/image-url";
+import { editAttr } from "../sanity/data-attribute";
 import { urlFor } from "../sanity/image";
 import { getFilmVideoInfo, getYouTubeThumbnailUrl } from "./embed";
 import type { FilmBrowserCollection } from "./types";
@@ -17,6 +18,9 @@ type FilmWithVideo = {
 
 type FilmWithPoster<TFilm extends FilmWithVideo> = TFilm & {
   posterUrl: string | null;
+  /** Set only when `posterUrl` resolved from the uploaded `poster` field — the
+   *  `data-sanity` click-to-edit attribute for the card's poster. */
+  posterEditAttr?: string;
 };
 
 /**
@@ -48,6 +52,13 @@ type FilmHeroImageSource = {
   posterUrl?: string | null;
 };
 
+export type FilmHeroBackdrop = {
+  url: string | null;
+  /** Which source resolved: the Sanity field to open on click, or the
+   *  non-editable auto thumbnail. */
+  source: "backdrop" | "poster" | "video-thumbnail" | null;
+};
+
 /**
  * Resolves the Films-page hero backdrop URL for a featured film, in priority
  * order:
@@ -55,19 +66,21 @@ type FilmHeroImageSource = {
  *   2. the `poster` upload rendered at hero resolution (same as the prior
  *      behaviour, kept so films with only a poster don't regress),
  *   3. the auto-derived video thumbnail (`posterUrl`) — lowest quality, last.
- * Returns null only when the film has none of the three.
+ * Returns `{ url: null, source: null }` only when the film has none of the
+ * three. `source` tells the caller which field actually rendered, so the
+ * click-to-edit attribute can target it.
  */
-export function filmHeroBackdropUrl(
+export function filmHeroBackdrop(
   film: FilmHeroImageSource | null | undefined,
   width: number,
   height: number,
-): string | null {
-  return (
-    uploadedPosterImageUrl(film?.backdrop, width, height) ??
-    uploadedPosterImageUrl(film?.poster, width, height) ??
-    film?.posterUrl ??
-    null
-  );
+): FilmHeroBackdrop {
+  const backdrop = uploadedPosterImageUrl(film?.backdrop, width, height);
+  if (backdrop) return { url: backdrop, source: "backdrop" };
+  const poster = uploadedPosterImageUrl(film?.poster, width, height);
+  if (poster) return { url: poster, source: "poster" };
+  if (film?.posterUrl) return { url: film.posterUrl, source: "video-thumbnail" };
+  return { url: null, source: null };
 }
 
 function isHttpsUrl(value: unknown): value is string {
@@ -153,7 +166,11 @@ export async function withFilmPosterUrls<TFilm extends FilmWithVideo>(
       // still — and resolves synchronously with no provider round-trip.
       const uploaded = uploadedPosterImageUrl(film.poster, 1200, 675);
       if (uploaded) {
-        return { ...film, posterUrl: uploaded };
+        return {
+          ...film,
+          posterUrl: uploaded,
+          posterEditAttr: editAttr(film._id, "film", "poster"),
+        };
       }
 
       const videoEmbed = film.videoEmbed?.trim() ?? "";
@@ -175,6 +192,7 @@ export async function withFilmPosterUrls<TFilm extends FilmWithVideo>(
 export function withCollectionFilmPosterUrls(
   collections: FilmBrowserCollection[],
   posterUrlsByFilmId: Map<string, string | null>,
+  posterEditAttrsByFilmId?: Map<string, string | undefined>,
 ): FilmBrowserCollection[] {
   return collections.map((collection) => ({
     ...collection,
@@ -182,6 +200,7 @@ export function withCollectionFilmPosterUrls(
       collection.films?.map((film) => ({
         ...film,
         posterUrl: posterUrlsByFilmId.get(film._id) ?? null,
+        posterEditAttr: posterEditAttrsByFilmId?.get(film._id),
       })) ?? null,
   }));
 }

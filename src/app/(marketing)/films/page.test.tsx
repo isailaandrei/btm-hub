@@ -17,11 +17,19 @@ vi.mock("@/lib/data/sanity", () => ({
   getFilmsPageSettings: vi.fn().mockResolvedValue({
     showLatestRow: true,
     showAllVideosRow: true,
+    heroEyebrow: "Featured film",
+    watchButtonLabel: "Watch film",
+    detailsButtonLabel: "More details",
+    catalogueHeading: "All films",
+    catalogueDescription: "Browse the full catalogue.",
+    featuredRowTitle: "Featured",
+    latestRowTitle: "Latest",
+    allFilmsRowTitle: "All Films",
   }),
 }));
 
 vi.mock("@/lib/films/posters", () => ({
-  filmHeroBackdropUrl: vi.fn(() => null),
+  filmHeroBackdrop: vi.fn(() => ({ url: null, source: null })),
   withCollectionFilmPosterUrls: vi.fn((collections) => collections),
   withFilmPosterUrls: vi.fn((films) => films),
 }));

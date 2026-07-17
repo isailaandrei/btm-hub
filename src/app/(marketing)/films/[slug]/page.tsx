@@ -73,33 +73,29 @@ export default async function FilmPage({
       </section>
 
       <div className="mx-auto max-w-4xl px-5 py-12 md:px-0">
-        <section className="mb-12" aria-labelledby="film-about-heading">
-          <h2
-            id="film-about-heading"
-            className="mb-4 text-2xl font-bold text-foreground"
-          >
-            About
-          </h2>
-          {film.description ? (
+        {film.description && (
+          <section className="mb-12" aria-labelledby="film-about-heading">
+            <h2
+              id="film-about-heading"
+              className="mb-4 text-2xl font-bold text-foreground"
+            >
+              About
+            </h2>
             <PortableText
               value={film.description}
               components={portableTextComponents}
             />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No about copy configured in Sanity.
-            </p>
-          )}
-        </section>
+          </section>
+        )}
 
-        <section className="mb-12" aria-labelledby="film-credits-heading">
-          <h2
-            id="film-credits-heading"
-            className="mb-4 text-2xl font-bold text-foreground"
-          >
-            Credits
-          </h2>
-          {film.credits && film.credits.length > 0 ? (
+        {film.credits && film.credits.length > 0 && (
+          <section className="mb-12" aria-labelledby="film-credits-heading">
+            <h2
+              id="film-credits-heading"
+              className="mb-4 text-2xl font-bold text-foreground"
+            >
+              Credits
+            </h2>
             <div className="divide-y divide-border rounded-lg border border-border bg-background">
               {film.credits.map((credit, i) => {
                 const resolved = resolveFilmCredit(credit);
@@ -176,12 +172,8 @@ export default async function FilmPage({
                 );
               })}
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No credits configured in Sanity.
-            </p>
-          )}
-        </section>
+          </section>
+        )}
 
         <Link
           href="/films"

@@ -2,6 +2,7 @@ import type {
   FilmBrowserCollection,
   FilmBrowserFilm,
   FilmRow,
+  FilmRowTitles,
   FilmRowVisibilitySettings,
 } from "./types";
 
@@ -34,6 +35,7 @@ export function buildFilmRows(
   films: FilmBrowserFilm[],
   collections: FilmBrowserCollection[],
   visibility: Partial<FilmRowVisibilitySettings> = DEFAULT_ROW_VISIBILITY,
+  titles?: FilmRowTitles,
 ): FilmRow[] {
   const rowVisibility = { ...DEFAULT_ROW_VISIBILITY, ...visibility };
   const visibleFilmIds = new Set(films.map((film) => film._id));
@@ -56,12 +58,14 @@ export function buildFilmRows(
 
   return [
     ...curatedRows,
-    ...(featured.length > 0 ? [{ id: "featured", title: "Featured", films: featured }] : []),
+    ...(featured.length > 0
+      ? [{ id: "featured", title: titles?.featuredRowTitle ?? null, films: featured }]
+      : []),
     ...(rowVisibility.showLatestRow && latest.length > 0
-      ? [{ id: "latest", title: "Latest", films: latest }]
+      ? [{ id: "latest", title: titles?.latestRowTitle ?? null, films: latest }]
       : []),
     ...(rowVisibility.showAllVideosRow && all.length > 0
-      ? [{ id: "all", title: "All Films", films: all }]
+      ? [{ id: "all", title: titles?.allFilmsRowTitle ?? null, films: all }]
       : []),
   ];
 }

@@ -194,7 +194,7 @@ describe("sanity schemas", () => {
     expect(filmsField?.validation).toBeTypeOf("function");
   });
 
-  it("filmsPageSettings schema exposes row visibility controls", () => {
+  it("filmsPageSettings schema exposes row visibility controls plus editable hero/catalogue/row copy", () => {
     const settings = schemaTypes.find((s) => s.name === "filmsPageSettings");
     const fields = fieldsFor("filmsPageSettings");
 
@@ -202,8 +202,42 @@ describe("sanity schemas", () => {
     expect(fields.map((field) => field.name)).toEqual([
       "showLatestRow",
       "showAllVideosRow",
+      "heroEyebrow",
+      "watchButtonLabel",
+      "detailsButtonLabel",
+      "catalogueHeading",
+      "catalogueDescription",
+      "featuredRowTitle",
+      "latestRowTitle",
+      "allFilmsRowTitle",
     ]);
-    expect(fields.map((field) => field.type)).toEqual(["boolean", "boolean"]);
+    expect(fields.map((field) => field.type)).toEqual([
+      "boolean",
+      "boolean",
+      "string",
+      "string",
+      "string",
+      "string",
+      "text",
+      "string",
+      "string",
+      "string",
+    ]);
+
+    // All the new copy fields are optional (clearable).
+    for (const fieldName of [
+      "heroEyebrow",
+      "watchButtonLabel",
+      "detailsButtonLabel",
+      "catalogueHeading",
+      "catalogueDescription",
+      "featuredRowTitle",
+      "latestRowTitle",
+      "allFilmsRowTitle",
+    ]) {
+      const field = fields.find((f) => f.name === fieldName);
+      expect(isRequired(field)).toBe(false);
+    }
   });
 
   it("academyPageSettings schema exposes the CTA image plus editable hero + CTA copy", () => {

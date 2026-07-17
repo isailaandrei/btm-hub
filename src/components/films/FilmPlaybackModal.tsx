@@ -18,6 +18,8 @@ import type { FilmBrowserFilm } from "@/lib/films/types"
 type FilmPlaybackModalProps = {
   film: FilmBrowserFilm | null
   onOpenChange: (open: boolean) => void
+  /** "More details" button label. Defaults to "More details" when empty. */
+  detailsLabel?: string | null
 }
 
 function filmHref(film: FilmBrowserFilm): string | null {
@@ -60,6 +62,7 @@ function tagsFor(film: FilmBrowserFilm): string[] {
 export function FilmPlaybackModal({
   film,
   onOpenChange,
+  detailsLabel,
 }: FilmPlaybackModalProps) {
   const open = Boolean(film)
   const embedState = getFilmEmbedState(film?.videoEmbed)
@@ -133,7 +136,7 @@ export function FilmPlaybackModal({
               {href && (
                 <Button asChild variant="secondary">
                   <Link href={href}>
-                    More details
+                    {detailsLabel || "More details"}
                     <ExternalLinkIcon data-icon="inline-end" />
                   </Link>
                 </Button>
