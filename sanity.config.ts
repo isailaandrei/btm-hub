@@ -67,6 +67,12 @@ export default defineConfig({
     }),
     presentationTool({
       previewUrl: {
+        // Default the preview to a page that has the visual-editing bridge.
+        // The homepage (/) is in the (home) route group without the bridge, so
+        // it can't connect ("Unable to connect to visual editing"); landing on
+        // /academy avoids that. (Wiring the homepage itself was tried via a
+        // (home)/layout.tsx and broke route resolution — see the memory note.)
+        preview: "/academy",
         previewMode: {
           enable: "/api/draft-mode/enable",
         },
