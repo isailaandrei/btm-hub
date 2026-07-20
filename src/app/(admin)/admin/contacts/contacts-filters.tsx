@@ -7,16 +7,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TAG_COLOR_CLASSES } from "../constants";
 import { ColumnPicker } from "./column-picker";
-import {
-  PENDING_FILTER_OPTIONS,
-  PendingFilter,
-  type PendingFilterValue,
-} from "./pending-filter";
 
 interface ContactsFiltersProps {
   search: string;
   selectedTagIds: string[];
-  pendingFilter: PendingFilterValue[];
   tagCategories: TagCategory[];
   tags: Tag[];
   visibleColumns: string[];
@@ -26,13 +20,11 @@ interface ContactsFiltersProps {
   onTagToggle: (tagId: string) => void;
   onClearTags: () => void;
   onColumnToggle: (key: string) => void;
-  onPendingFilterChange: (next: PendingFilterValue[]) => void;
 }
 
 export const ContactsFilters = memo(function ContactsFilters({
   search,
   selectedTagIds,
-  pendingFilter,
   tagCategories,
   tags,
   visibleColumns,
@@ -42,7 +34,6 @@ export const ContactsFilters = memo(function ContactsFilters({
   onTagToggle,
   onClearTags,
   onColumnToggle,
-  onPendingFilterChange,
 }: ContactsFiltersProps) {
   const selectedTagIdsSet = useMemo(
     () => new Set(selectedTagIds),
@@ -69,16 +60,9 @@ export const ContactsFilters = memo(function ContactsFilters({
     [tags],
   );
   const tagFilterCount = selectedTagIds.length;
-  const activePendingOptions = PENDING_FILTER_OPTIONS.filter((option) =>
-    pendingFilter.includes(option.value),
-  );
   const selectedTags = selectedTagIds
     .map((tagId) => tagsById.get(tagId))
     .filter((tag): tag is Tag => tag !== undefined);
-
-  function handlePendingChipRemove(value: PendingFilterValue) {
-    onPendingFilterChange(pendingFilter.filter((item) => item !== value));
-  }
 
   function toggleCategory(categoryId: string) {
     setExpandedCategoryIds((previous) => {
@@ -106,12 +90,6 @@ export const ContactsFilters = memo(function ContactsFilters({
             disabled={disabled}
             onChange={(e) => onSearchChange(e.target.value)}
             className="h-9 min-w-60 rounded-lg border border-border bg-card px-3.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
-          />
-
-          <PendingFilter
-            disabled={disabled}
-            value={pendingFilter}
-            onChange={onPendingFilterChange}
           />
 
           {tagCategories.length > 0 && (
@@ -253,19 +231,8 @@ export const ContactsFilters = memo(function ContactsFilters({
         </div>
       </div>
 
-      {(activePendingOptions.length > 0 || selectedTags.length > 0) && (
+      {selectedTags.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          {activePendingOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              disabled={disabled}
-              onClick={() => handlePendingChipRemove(option.value)}
-              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {option.label} ×
-            </button>
-          ))}
           {selectedTags.map((tag) => {
             const category = categoriesById.get(tag.category_id);
             const color = category?.color ?? "blue";
@@ -285,16 +252,14 @@ export const ContactsFilters = memo(function ContactsFilters({
               </button>
             );
           })}
-          {selectedTags.length > 0 && (
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={onClearTags}
-              className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Clear tags
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onClearTags}
+            className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear tags
+          </button>
         </div>
       )}
     </div>

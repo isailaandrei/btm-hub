@@ -72,7 +72,7 @@ describe("contact phone index data", () => {
     expect(client.from).toHaveBeenCalledWith("contacts");
     expect(client.from).toHaveBeenCalledWith("applications");
     expect(contactsQuery.select).toHaveBeenCalledWith(
-      "id, name, email, phone, profile_id, created_at, updated_at",
+      "id, name, email, phone, profile_id, created_at, updated_at, last_application_at",
     );
     expect(applicationsQuery.select).toHaveBeenCalledWith(
       "id, user_id, contact_id, program, status, answers, tags, admin_notes, submitted_at, updated_at",

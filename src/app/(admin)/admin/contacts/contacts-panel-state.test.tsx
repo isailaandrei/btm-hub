@@ -189,7 +189,6 @@ describe("useContactsPanelState", () => {
         search: "zack",
         programFilter: ["academy"],
         selectedTagIds: ["tag-1"],
-        pendingFilter: ["awaiting_btm"],
         columnFilters: { budget: ["1000"] },
         page: 3,
         columnWidths: {
@@ -219,7 +218,6 @@ describe("useContactsPanelState", () => {
     expect(latestState?.search).toBe("zack");
     expect(latestState?.programFilter).toEqual(["academy"]);
     expect(latestState?.selectedTagIds).toEqual(["tag-1"]);
-    expect(latestState?.pendingFilter).toEqual(["awaiting_btm"]);
     expect(latestState?.columnFilters).toEqual({ budget: ["1000"] });
     expect(latestState?.page).toBe(3);
     expect(latestState?.columnWidths).toEqual({

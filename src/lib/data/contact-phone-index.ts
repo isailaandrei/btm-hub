@@ -41,7 +41,7 @@ export async function loadContactPhoneIndexRecords(): Promise<ContactCardRecord[
   ] = await Promise.all([
     supabase
       .from("contacts")
-      .select("id, name, email, phone, profile_id, created_at, updated_at")
+      .select("id, name, email, phone, profile_id, created_at, updated_at, last_application_at")
       .order("name", { ascending: true })
       .abortSignal(AbortSignal.timeout(PHONE_INDEX_DB_TIMEOUT_MS)),
     supabase

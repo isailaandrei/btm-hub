@@ -17,12 +17,7 @@ import {
   compareContacts,
   type SortState,
 } from "./sort-helpers";
-import {
-  deriveContactActivityFromSummary,
-  type ContactActivityDerivation,
-} from "./events-derivation";
 import { contactMatchesSearch } from "./search-helpers";
-import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
 
 const EMPTY_TAG_ID_SET = new Set<string>();
 const EMPTY_CONTACT_TAGS: ContactTag[] = [];
@@ -32,7 +27,6 @@ interface UseContactsPanelViewModelArgs {
   applications: ContactListApplication[] | null;
   contacts: Contact[] | null;
   contactTags: ContactTag[] | null;
-  contactActivitySummaries: ContactActivitySummary[] | null;
   tags: Tag[] | null;
   tagCategories: TagCategory[] | null;
   visibleColumns: string[];
@@ -40,7 +34,6 @@ interface UseContactsPanelViewModelArgs {
   programFilter: ProgramSlug[];
   selectedTagIds: string[];
   columnFilters: Record<string, string[]>;
-  pendingFilter: ("awaiting_applicant" | "awaiting_btm")[];
   sortBy: SortState | null;
   page: number;
   pageSize: number;
@@ -50,7 +43,6 @@ export function useContactsPanelViewModel({
   applications,
   contacts,
   contactTags,
-  contactActivitySummaries,
   tags,
   tagCategories,
   visibleColumns,
@@ -58,7 +50,6 @@ export function useContactsPanelViewModel({
   programFilter,
   selectedTagIds,
   columnFilters,
-  pendingFilter,
   sortBy,
   page,
   pageSize,
@@ -93,26 +84,6 @@ export function useContactsPanelViewModel({
     }
     return map;
   }, [contactTags]);
-
-  const activitySummaryByContact = useMemo(
-    () =>
-      new Map(
-        (contactActivitySummaries ?? []).map((summary) => [
-          summary.contact_id,
-          summary,
-        ]),
-      ),
-    [contactActivitySummaries],
-  );
-
-  const derivationsByContact = useMemo(() => {
-    const map = new Map<string, ContactActivityDerivation>();
-    for (const contact of contacts ?? []) {
-      const summary = activitySummaryByContact.get(contact.id);
-      map.set(contact.id, deriveContactActivityFromSummary(summary));
-    }
-    return map;
-  }, [contacts, activitySummaryByContact]);
 
   const tagsById = useMemo(
     () => new Map((tags ?? []).map((tag) => [tag.id, tag])),
@@ -257,19 +228,6 @@ export function useContactsPanelViewModel({
       });
     }
 
-    if (pendingFilter.length > 0) {
-      const wantApplicant = pendingFilter.includes("awaiting_applicant");
-      const wantBtm = pendingFilter.includes("awaiting_btm");
-      result = result.filter((contact) => {
-        const d = derivationsByContact.get(contact.id);
-        if (!d) return false;
-        return (
-          (wantApplicant && d.awaiting_applicant) ||
-          (wantBtm && d.awaiting_btm)
-        );
-      });
-    }
-
     if (sortBy) {
       const field = getFieldEntry(sortBy.key);
       result = [...result].sort((left, right) =>
@@ -289,8 +247,6 @@ export function useContactsPanelViewModel({
     appsByContact,
     columnFilters,
     contacts,
-    derivationsByContact,
-    pendingFilter,
     programFilter,
     search,
     selectedTagIds,
@@ -304,8 +260,7 @@ export function useContactsPanelViewModel({
     Boolean(search) ||
     programFilter.length > 0 ||
     selectedTagIds.length > 0 ||
-    Object.keys(columnFilters).length > 0 ||
-    pendingFilter.length > 0;
+    Object.keys(columnFilters).length > 0;
 
   const { currentPage, paginated, totalPages } = useMemo(() => {
     const nextTotalPages = Math.ceil(filtered.length / pageSize);
@@ -333,16 +288,9 @@ export function useContactsPanelViewModel({
           uniquePrograms: [...new Set(contactApplications.map((app) => app.program))],
           contactTagEntries:
             contactTagsByContactId.get(contact.id) ?? EMPTY_CONTACT_TAGS,
-          derivation:
-            derivationsByContact.get(contact.id) ?? {
-              last_activity_at: null,
-              last_activity_label: null,
-              awaiting_applicant: false,
-              awaiting_btm: false,
-            },
         };
       }),
-    [appsByContact, contactTagsByContactId, paginated, derivationsByContact],
+    [appsByContact, contactTagsByContactId, paginated],
   );
 
   return {

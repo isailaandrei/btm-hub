@@ -210,14 +210,6 @@ export const FIELD_REGISTRY: FieldRegistryEntry[] = [
     programs: ["filmmaking", "photography", "freediving"],
     curated: true,
   },
-  {
-    key: "last_activity",
-    label: "Last activity",
-    type: "text",
-    options: [],
-    programs: ["filmmaking", "photography", "freediving", "internship"],
-    curated: true,
-  },
 
   // ---- Personal & Health (all programs) ----
   {

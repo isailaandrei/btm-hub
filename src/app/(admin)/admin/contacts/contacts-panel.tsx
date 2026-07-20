@@ -40,7 +40,6 @@ import { BulkActionBar } from "./bulk-action-bar";
 import { useContactsPanelState } from "./contacts-panel-state";
 import { useContactsPanelViewModel } from "./contacts-panel-view-model";
 import { useDebouncedValue } from "./use-debounced-value";
-import { LastActivityCell } from "./last-activity-cell";
 import { parseSocialLinkText } from "./social-links";
 import { warmContactDetail } from "./[id]/contact-detail-loader";
 import { shouldSoftNavigate, softNavigate } from "../admin-soft-nav";
@@ -149,7 +148,6 @@ export function ContactsPanel({
     tagCategories,
     tags,
     contactTags,
-    contactActivitySummaries,
     hasLoadedFullContacts,
     contactsError,
     ensureContacts,
@@ -164,7 +162,6 @@ export function ContactsPanel({
     contacts !== null &&
     applications !== null &&
     contactTags !== null &&
-    contactActivitySummaries !== null &&
     tagCategories !== null &&
     tags !== null;
   const isHydratingFullData = Boolean(initialData) && !hasFullContactsData;
@@ -178,9 +175,6 @@ export function ContactsPanel({
   const effectiveContactTags = useInitialContactsData
     ? (initialData?.contactTags ?? null)
     : contactTags;
-  const effectiveActivitySummaries = useInitialContactsData
-    ? (initialData?.contactActivitySummaries ?? null)
-    : contactActivitySummaries;
   const effectiveTagCategories = useInitialContactsData
     ? (initialData?.tagCategories ?? null)
     : tagCategories;
@@ -213,7 +207,6 @@ export function ContactsPanel({
   const viewModelProgramFilter = isHydratingFullData ? [] : state.programFilter;
   const viewModelSelectedTagIds = isHydratingFullData ? [] : state.selectedTagIds;
   const viewModelColumnFilters = isHydratingFullData ? {} : state.columnFilters;
-  const viewModelPendingFilter = isHydratingFullData ? [] : state.pendingFilter;
   const viewModelSortBy =
     isHydratingFullData && initialData?.isSortApproximateUntilHydration
       ? null
@@ -239,7 +232,6 @@ export function ContactsPanel({
     applications: effectiveApplications,
     contacts: effectiveContacts,
     contactTags: effectiveContactTags,
-    contactActivitySummaries: effectiveActivitySummaries,
     tags: effectiveTags,
     tagCategories: effectiveTagCategories,
     visibleColumns: state.visibleColumns,
@@ -247,7 +239,6 @@ export function ContactsPanel({
     programFilter: viewModelProgramFilter,
     selectedTagIds: viewModelSelectedTagIds,
     columnFilters: viewModelColumnFilters,
-    pendingFilter: viewModelPendingFilter,
     sortBy: viewModelSortBy,
     page: viewModelPage,
     pageSize: viewModelPageSize,
@@ -413,12 +404,10 @@ export function ContactsPanel({
           tags={effectiveTags ?? []}
           visibleColumns={state.visibleColumns}
           previouslySelectedColumns={state.previouslySelectedColumns}
-          pendingFilter={state.pendingFilter}
           onSearchChange={state.handleSearchChange}
           onTagToggle={state.handleTagToggle}
           onClearTags={state.handleClearTags}
           onColumnToggle={state.handleColumnToggle}
-          onPendingFilterChange={state.handlePendingFilterChange}
           disabled={isHydratingFullData}
         />
       </div>
@@ -664,7 +653,6 @@ export function ContactsPanel({
                   contactApplications,
                   uniquePrograms,
                   contactTagEntries,
-                  derivation,
                 }) => {
                   const latestApplicationPhone = contactApplications.find(
                     (application) => typeof application.answers?.phone === "string",
@@ -777,11 +765,7 @@ export function ContactsPanel({
                           className="overflow-hidden whitespace-normal text-[13px] leading-5 text-muted-foreground"
                         >
                           <div className="line-clamp-7 break-words">
-                            {field.key === "last_activity" ? (
-                              <LastActivityCell derivation={derivation} />
-                            ) : (
-                              renderFieldValue(contactApplications, field)
-                            )}
+                            {renderFieldValue(contactApplications, field)}
                           </div>
                         </TableCell>
                       ))}

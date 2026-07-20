@@ -19,6 +19,7 @@ function makeContact(overrides: Partial<Contact> = {}): Contact {
     profile_id: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
+    last_application_at: null,
     ...overrides,
   };
 }

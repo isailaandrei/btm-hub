@@ -22,7 +22,6 @@ export function DeferredContactsPanel({
     tagCategories,
     tags,
     contactTags,
-    contactActivitySummaries,
     hasLoadedFullContacts,
   } = useAdminContactsData();
   const { applications, hasLoadedFullApplications } =
@@ -33,7 +32,6 @@ export function DeferredContactsPanel({
     contacts !== null &&
     applications !== null &&
     contactTags !== null &&
-    contactActivitySummaries !== null &&
     tagCategories !== null &&
     tags !== null;
   const initialData =

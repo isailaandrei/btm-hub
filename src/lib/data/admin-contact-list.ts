@@ -6,7 +6,6 @@ import type {
   Tag,
   TagCategory,
 } from "@/types/database";
-import type { ContactActivitySummary } from "@/lib/data/contact-activity-summary";
 import { logAdminTiming, startAdminTiming } from "@/lib/admin/timing";
 import {
   buildApplicationProjectionSelect,
@@ -21,47 +20,32 @@ import {
 
 const DEFAULT_PAGE_SIZE: ContactsTablePageSize = 25;
 const CONTACT_SELECT =
-  "id, email, name, phone, profile_id, created_at, updated_at";
+  "id, email, name, phone, profile_id, created_at, updated_at, last_application_at";
 const CONTACT_TAG_SELECT = "contact_id, tag_id, assigned_at";
 const TAG_CATEGORY_SELECT =
   "id, name, color, sort_order, created_at, updated_at";
 const TAG_SELECT = "id, category_id, name, sort_order, updated_at";
-const CONTACT_ACTIVITY_SUMMARY_SELECT =
-  "contact_id, last_event_type, last_event_custom_label, last_event_at, awaiting_applicant, awaiting_btm, latest_app_submitted_at";
 
-type NativeContactSortKey = "name" | "email" | "phone";
-type SummaryContactSortKey = "submitted_at";
+type NativeContactSortKey = "name" | "email" | "phone" | "last_application_at";
 
 const DEFAULT_CONTACTS_SORT = {
   key: "submitted_at",
   direction: "desc",
 } as const;
 
-const SUMMARY_SORT_COLUMNS: Record<SummaryContactSortKey, string> = {
-  submitted_at: "latest_app_submitted_at",
-};
-
 export interface AdminContactsInitialQuery {
   pageSize: ContactsTablePageSize;
-  serverSort:
-    | {
-        source: "contacts";
-        key: NativeContactSortKey;
-        ascending: boolean;
-      }
-    | {
-        source: "activity_summary";
-        key: SummaryContactSortKey;
-        column: string;
-        ascending: boolean;
-      };
+  serverSort: {
+    source: "contacts";
+    key: NativeContactSortKey;
+    ascending: boolean;
+  };
   isSortApproximateUntilHydration: boolean;
   answerKeys: string[];
 }
 
 export interface AdminContactsInitialData {
   applications: ContactListApplication[];
-  contactActivitySummaries: ContactActivitySummary[];
   contactTags: ContactTag[];
   contacts: Contact[];
   isSortApproximateUntilHydration: boolean;
@@ -79,8 +63,11 @@ export function getAdminContactsInitialQuery(
   const sortBy = contactsTable.sort_by ?? DEFAULT_CONTACTS_SORT;
   const nativeSortKeys = new Set(["name", "email", "phone"]);
   const hasNativeSort = nativeSortKeys.has(sortBy.key);
-  const summarySortColumn =
-    SUMMARY_SORT_COLUMNS[sortBy.key as SummaryContactSortKey];
+  // "submitted_at" is the UI's default sort (most recently submitted first).
+  // It isn't a native contacts column, but contacts.last_application_at
+  // denormalizes the same value, so it can be served without falling back to
+  // an approximate name sort.
+  const isSubmittedAtSort = sortBy.key === "submitted_at";
 
   return {
     pageSize,
@@ -90,15 +77,14 @@ export function getAdminContactsInitialQuery(
           key: sortBy?.key as NativeContactSortKey,
           ascending: sortBy?.direction !== "desc",
         }
-      : summarySortColumn
+      : isSubmittedAtSort
         ? {
-            source: "activity_summary",
-            key: sortBy.key as SummaryContactSortKey,
-            column: summarySortColumn,
-            ascending: sortBy.direction !== "desc",
+            source: "contacts",
+            key: "last_application_at",
+            ascending: sortBy?.direction !== "desc",
           }
         : { source: "contacts", key: "name", ascending: true },
-    isSortApproximateUntilHydration: !hasNativeSort && !summarySortColumn,
+    isSortApproximateUntilHydration: !hasNativeSort && !isSubmittedAtSort,
     answerKeys: getContactsTableApplicationAnswerKeys({
       columnFilters: {},
       sortBy: sortBy ?? null,
@@ -115,86 +101,33 @@ export const getAdminContactsInitialData = cache(
     const supabase = await createClient();
     const initialQuery = getAdminContactsInitialQuery(preferences);
 
-    let contacts: Contact[];
-    let contactIds: string[];
-    let totalCount: number;
-    let prefetchedActivitySummaries: ContactActivitySummary[] | null = null;
+    const {
+      data: contactsData,
+      error: contactsError,
+      count,
+    } = await supabase
+      .from("contacts")
+      .select(CONTACT_SELECT, { count: "exact" })
+      .order(initialQuery.serverSort.key, {
+        ascending: initialQuery.serverSort.ascending,
+        // No-application contacts have a null last_application_at — always
+        // sort those last, matching the client-side "nulls last" ordering.
+        ...(initialQuery.serverSort.key === "last_application_at"
+          ? { nullsFirst: false }
+          : {}),
+      })
+      .range(0, initialQuery.pageSize - 1);
 
-    if (initialQuery.serverSort.source === "activity_summary") {
-      const {
-        data: activitySummaryPageData,
-        error: activitySummaryPageError,
-        count,
-      } = await supabase
-        .from("contact_activity_summary")
-        .select(CONTACT_ACTIVITY_SUMMARY_SELECT, { count: "exact" })
-        .order(initialQuery.serverSort.column, {
-          ascending: initialQuery.serverSort.ascending,
-          nullsFirst: false,
-        })
-        .range(0, initialQuery.pageSize - 1);
-
-      if (activitySummaryPageError) {
-        throw new Error(
-          `Failed to load initial contact order: ${activitySummaryPageError.message}`,
-        );
-      }
-
-      prefetchedActivitySummaries =
-        (activitySummaryPageData ?? []) as unknown as ContactActivitySummary[];
-      contactIds = prefetchedActivitySummaries.map(
-        (summary) => summary.contact_id,
+    if (contactsError) {
+      throw new Error(
+        `Failed to load initial contacts: ${contactsError.message}`,
       );
-      totalCount = count ?? contactIds.length;
-
-      if (contactIds.length === 0) {
-        contacts = [];
-      } else {
-        const { data: contactsData, error: contactsError } = await supabase
-          .from("contacts")
-          .select(CONTACT_SELECT)
-          .in("id", contactIds);
-
-        if (contactsError) {
-          throw new Error(
-            `Failed to load initial contacts: ${contactsError.message}`,
-          );
-        }
-
-        const contactsById = new Map(
-          ((contactsData ?? []) as unknown as Contact[]).map((contact) => [
-            contact.id,
-            contact,
-          ]),
-        );
-        contacts = contactIds
-          .map((contactId) => contactsById.get(contactId))
-          .filter((contact): contact is Contact => contact !== undefined);
-        contactIds = contacts.map((contact) => contact.id);
-      }
-    } else {
-      const {
-        data: contactsData,
-        error: contactsError,
-        count,
-      } = await supabase
-        .from("contacts")
-        .select(CONTACT_SELECT, { count: "exact" })
-        .order(initialQuery.serverSort.key, {
-          ascending: initialQuery.serverSort.ascending,
-        })
-        .range(0, initialQuery.pageSize - 1);
-
-      if (contactsError) {
-        throw new Error(
-          `Failed to load initial contacts: ${contactsError.message}`,
-        );
-      }
-
-      contacts = (contactsData ?? []) as unknown as Contact[];
-      contactIds = contacts.map((contact) => contact.id);
-      totalCount = count ?? contacts.length;
     }
+
+    const contacts = (contactsData ?? []) as unknown as Contact[];
+    const contactIds = contacts.map((contact) => contact.id);
+    const totalCount = count ?? contacts.length;
+
     const applicationProjection = buildApplicationProjectionSelect(
       initialQuery.answerKeys,
     );
@@ -216,26 +149,14 @@ export const getAdminContactsInitialData = cache(
             .select(CONTACT_TAG_SELECT)
             .in("contact_id", contactIds);
 
-    const activitySummariesPromise =
-      contactIds.length === 0
-        ? Promise.resolve({ data: [], error: null })
-        : prefetchedActivitySummaries
-          ? Promise.resolve({ data: prefetchedActivitySummaries, error: null })
-        : supabase
-            .from("contact_activity_summary")
-            .select(CONTACT_ACTIVITY_SUMMARY_SELECT)
-            .in("contact_id", contactIds);
-
     const [
       { data: applicationsData, error: applicationsError },
       { data: contactTagsData, error: contactTagsError },
-      { data: activitySummariesData, error: activitySummariesError },
       { data: tagCategoriesData, error: tagCategoriesError },
       { data: tagsData, error: tagsError },
     ] = await Promise.all([
       applicationsPromise,
       contactTagsPromise,
-      activitySummariesPromise,
       supabase
         .from("tag_categories")
         .select(TAG_CATEGORY_SELECT)
@@ -244,11 +165,7 @@ export const getAdminContactsInitialData = cache(
     ]);
 
     const fetchError =
-      applicationsError ??
-      contactTagsError ??
-      activitySummariesError ??
-      tagCategoriesError ??
-      tagsError;
+      applicationsError ?? contactTagsError ?? tagCategoriesError ?? tagsError;
     if (fetchError) {
       throw new Error(`Failed to load initial contact rows: ${fetchError.message}`);
     }
@@ -258,8 +175,6 @@ export const getAdminContactsInitialData = cache(
         (applicationsData ?? []) as unknown as Array<Record<string, unknown>>,
         applicationProjection.answerKeys,
       ),
-      contactActivitySummaries:
-        (activitySummariesData ?? []) as unknown as ContactActivitySummary[],
       contactTags: (contactTagsData ?? []) as unknown as ContactTag[],
       contacts,
       isSortApproximateUntilHydration:

@@ -13,7 +13,6 @@ import type { Contact, ProgramSlug } from "@/types/database";
 import { updatePreferences } from "./actions";
 import { pruneSelectedIds } from "./selection-helpers";
 import { BUILTIN_COLUMN, type SortState } from "./sort-helpers";
-import type { PendingFilterValue } from "./pending-filter";
 import {
   CONTACTS_TABLE_PAGE_SIZES,
   readContactsTablePreferences,
@@ -35,7 +34,6 @@ type StoredFilters = {
   programFilter?: ProgramSlug[];
   selectedTagIds?: string[];
   columnFilters?: Record<string, string[]>;
-  pendingFilter?: PendingFilterValue[];
   sortBy?: SortState | null;
   pageSize?: PageSize;
   page?: number;
@@ -90,9 +88,6 @@ export function useContactsPanelState({
   const [search, setSearch] = useState("");
   const [programFilter, setProgramFilter] = useState<ProgramSlug[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [pendingFilter, setPendingFilter] = useState<PendingFilterValue[]>(
-    [],
-  );
   const [pageSize, setPageSizeState] = useState<PageSize>(
     initialContactsTablePreferences.page_size ?? 25,
   );
@@ -144,7 +139,6 @@ export function useContactsPanelState({
           : []),
     );
     setSelectedTagIds(nextStoredFilters.selectedTagIds ?? []);
-    setPendingFilter(nextStoredFilters.pendingFilter ?? []);
     setPage(nextStoredFilters.page ?? 1);
     setColumnFilters(nextStoredFilters.columnFilters ?? {});
     setColumnWidths(nextStoredFilters.columnWidths ?? {});
@@ -196,7 +190,6 @@ export function useContactsPanelState({
           programFilter,
           selectedTagIds,
           columnFilters,
-          pendingFilter,
           sortBy,
           pageSize,
           page,
@@ -212,7 +205,6 @@ export function useContactsPanelState({
     hasLoadedStoredFilters,
     page,
     pageSize,
-    pendingFilter,
     programFilter,
     search,
     selectedTagIds,
@@ -409,15 +401,6 @@ export function useContactsPanelState({
     clearSelection();
   }, [clearSelection]);
 
-  const handlePendingFilterChange = useCallback(
-    (next: PendingFilterValue[]) => {
-      setPendingFilter(next);
-      setPage(1);
-      clearSelection();
-    },
-    [clearSelection],
-  );
-
   const handleColumnToggle = useCallback((key: string) => {
     const wasVisible = visibleColumnsRef.current.includes(key);
     const nextVisible = wasVisible
@@ -511,7 +494,6 @@ export function useContactsPanelState({
     setProgramFilter([]);
     setSelectedTagIds([]);
     setColumnFilters({});
-    setPendingFilter([]);
     sortByRef.current = DEFAULT_CONTACTS_SORT;
     setSortBy(DEFAULT_CONTACTS_SORT);
     setPage(1);
@@ -528,14 +510,12 @@ export function useContactsPanelState({
     handleColumnFilterClear,
     handleColumnFilterToggle,
     handleColumnToggle,
-    handlePendingFilterChange,
     handleProgramFilterClear,
     handleProgramFilterToggle,
     handleSearchChange,
     handleTagToggle,
     page,
     pageSize,
-    pendingFilter,
     previouslySelectedColumns,
     programFilter,
     search,

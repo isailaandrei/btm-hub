@@ -21,7 +21,7 @@ describe("admin contacts initial query", () => {
     });
   });
 
-  it("uses the activity summary read model for the default submitted-date sort", () => {
+  it("serves the default submitted-date sort from the denormalized last_application_at column", () => {
     expect(
       getAdminContactsInitialQuery({
         contacts_table: {
@@ -31,13 +31,46 @@ describe("admin contacts initial query", () => {
     ).toEqual({
       pageSize: 25,
       serverSort: {
-        source: "activity_summary",
-        key: "submitted_at",
-        column: "latest_app_submitted_at",
+        source: "contacts",
+        key: "last_application_at",
         ascending: false,
       },
       isSortApproximateUntilHydration: false,
       answerKeys: ["budget"],
+    });
+  });
+
+  it("serves an ascending submitted-date sort ascending by last_application_at", () => {
+    expect(
+      getAdminContactsInitialQuery({
+        contacts_table: {
+          sort_by: { key: "submitted_at", direction: "asc" },
+        },
+      }),
+    ).toEqual({
+      pageSize: 25,
+      serverSort: {
+        source: "contacts",
+        key: "last_application_at",
+        ascending: true,
+      },
+      isSortApproximateUntilHydration: false,
+      answerKeys: [],
+    });
+  });
+
+  it("uses the native name column for a saved name sort, not approximate", () => {
+    expect(
+      getAdminContactsInitialQuery({
+        contacts_table: {
+          sort_by: { key: "name", direction: "asc" },
+        },
+      }),
+    ).toEqual({
+      pageSize: 25,
+      serverSort: { source: "contacts", key: "name", ascending: true },
+      isSortApproximateUntilHydration: false,
+      answerKeys: [],
     });
   });
 
@@ -60,7 +93,6 @@ describe("admin contacts initial query", () => {
   it("defines the first-page data shape consumed by the admin dashboard", () => {
     const data: AdminContactsInitialData = {
       applications: [],
-      contactActivitySummaries: [],
       contactTags: [],
       contacts: [],
       isSortApproximateUntilHydration: false,

@@ -144,7 +144,7 @@ async function getContactDetailBootstrapFallback(
   const [contactResult, applicationsResult, eventsResult] = await Promise.all([
     supabase
       .from("contacts")
-      .select("id, email, name, phone, profile_id, created_at, updated_at")
+      .select("id, email, name, phone, profile_id, created_at, updated_at, last_application_at")
       .eq("id", contactId)
       .maybeSingle(),
     supabase

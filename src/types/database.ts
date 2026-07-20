@@ -84,6 +84,7 @@ export interface Contact {
   profile_id: string | null;
   created_at: string;
   updated_at: string;
+  last_application_at: string | null;
 }
 
 export interface TagCategory {

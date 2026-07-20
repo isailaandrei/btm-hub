@@ -81,12 +81,10 @@ describe("ContactsFilters", () => {
           ]}
           visibleColumns={[]}
           previouslySelectedColumns={[]}
-          pendingFilter={[]}
           onSearchChange={() => undefined}
           onTagToggle={() => undefined}
           onClearTags={() => undefined}
           onColumnToggle={() => undefined}
-          onPendingFilterChange={() => undefined}
         />,
       );
     });
@@ -107,14 +105,12 @@ describe("ContactsFilters", () => {
       '[data-testid="contacts-table-controls"]',
     );
 
-    expect(filterRow?.textContent).toContain("Pending");
     expect(filterRow?.textContent).toContain("Tags");
     expect(filterRow?.textContent).not.toContain("Columns");
     expect(filterRow?.textContent).not.toContain("Sync");
 
     expect(tableControls?.textContent).toContain("Columns");
     expect(tableControls?.textContent).not.toContain("Sync");
-    expect(tableControls?.textContent).not.toContain("Pending");
 
     expect(filterRow?.textContent).not.toContain("Role");
     expect(filterRow?.textContent).not.toContain("Level");
@@ -139,9 +135,6 @@ describe("ContactsFilters", () => {
     renderFilters({ disabled: true });
 
     const searchInput = container.querySelector("input[type='text']");
-    const pendingButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("Pending"),
-    );
     const filtersButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent?.includes("Tags"),
     );
@@ -150,7 +143,6 @@ describe("ContactsFilters", () => {
     );
 
     expect(searchInput).toHaveProperty("disabled", true);
-    expect(pendingButton).toHaveProperty("disabled", true);
     expect(filtersButton).toHaveProperty("disabled", true);
     expect(columnsButton).toHaveProperty("disabled", true);
   });

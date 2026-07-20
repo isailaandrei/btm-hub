@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
     hasLoadedFullApplications: true,
   },
   contactsContext: {
-    contactActivitySummaries: [],
     contactTags: [],
     // Tests reassign this to null to exercise the not-yet-cached path.
     contacts: [] as unknown[] | null,
@@ -48,7 +47,6 @@ describe("DeferredContactsPanel", () => {
     mocks.contactsPanel.mockClear();
     mocks.contactsContext.contacts = [];
     mocks.contactsContext.contactTags = [];
-    mocks.contactsContext.contactActivitySummaries = [];
     mocks.contactsContext.tagCategories = [];
     mocks.contactsContext.tags = [];
     mocks.contactsContext.hasLoadedFullContacts = true;
