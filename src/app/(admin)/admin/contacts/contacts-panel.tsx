@@ -14,6 +14,7 @@ import {
   useAdminPreferencesData,
 } from "../admin-data-provider";
 import { ContactsFilters } from "./contacts-filters";
+import { formatDate } from "./format-date";
 import { TAG_COLOR_CLASSES, PROGRAM_BADGE_CLASS } from "../constants";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -71,11 +72,6 @@ const BUILTIN_SORTABLE_COLUMNS: { key: string; label: string }[] = [
   { key: BUILTIN_COLUMN.email, label: "Email" },
   { key: BUILTIN_COLUMN.phone, label: "Phone" },
 ];
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
 
 function renderSocialLinkText(value: string): ReactNode {
   const parts = parseSocialLinkText(value);
