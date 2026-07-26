@@ -34,6 +34,30 @@ vi.mock("next/image", () => ({
 
 const { AuthButtons } = await import("./AuthButtons");
 
+const CACHE_KEY = "btm-navbar-user";
+
+const adminUser = {
+  id: "user-1",
+  displayName: "Admin User",
+  avatarUrl: null,
+  role: "admin" as const,
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** Let the checkAuth → fetchProfile microtask chain settle inside act. */
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe("AuthButtons", () => {
   let root: Root;
   let container: HTMLDivElement;
@@ -50,7 +74,7 @@ describe("AuthButtons", () => {
     mockEq.mockClear();
     mockSelect.mockClear();
     mockFrom.mockClear();
-    sessionStorage.clear();
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -65,16 +89,7 @@ describe("AuthButtons", () => {
 
   it("renders an initial server user without an initial client auth fetch", async () => {
     await act(async () => {
-      root.render(
-        <AuthButtons
-          initialUser={{
-            id: "user-1",
-            displayName: "Admin User",
-            avatarUrl: null,
-            role: "admin",
-          }}
-        />,
-      );
+      root.render(<AuthButtons initialUser={adminUser} />);
     });
 
     expect(container.textContent).toContain("Admin");
@@ -83,5 +98,88 @@ describe("AuthButtons", () => {
     expect(mockGetSession).not.toHaveBeenCalled();
     expect(mockFrom).not.toHaveBeenCalled();
     expect(mockOnAuthStateChange).toHaveBeenCalledTimes(1);
+    // Server-provided state seeds the cache for pages without server auth.
+    expect(JSON.parse(window.localStorage.getItem(CACHE_KEY)!)).toMatchObject({
+      id: "user-1",
+      role: "admin",
+    });
+  });
+
+  it("paints a cached user immediately, then refreshes the profile in the background", async () => {
+    window.localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ ...adminUser, displayName: "Cached Name" }),
+    );
+    const session = deferred<{ data: { session: unknown } }>();
+    mockGetSession.mockReturnValue(session.promise);
+    mockSingle.mockResolvedValue({
+      data: { display_name: "Fresh Name", avatar_url: null, role: "admin" },
+      error: null,
+    });
+
+    await act(async () => {
+      root.render(<AuthButtons />);
+    });
+
+    // Painted from cache (initials "CN") before any round-trip resolved.
+    expect(container.textContent).toContain("Admin");
+    expect(container.textContent).toContain("CN");
+    expect(mockFrom).not.toHaveBeenCalled();
+
+    await act(async () => {
+      session.resolve({ data: { session: { user: { id: "user-1" } } } });
+      await flushMicrotasks();
+    });
+
+    expect(mockFrom).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("FN");
+    expect(JSON.parse(window.localStorage.getItem(CACHE_KEY)!)).toMatchObject({
+      displayName: "Fresh Name",
+    });
+  });
+
+  it("collapses a SIGNED_IN event during the mount check into a single profile fetch", async () => {
+    const session = deferred<{ data: { session: unknown } }>();
+    mockGetSession.mockReturnValue(session.promise);
+    mockSingle.mockResolvedValue({
+      data: { display_name: "Admin User", avatar_url: null, role: "admin" },
+      error: null,
+    });
+
+    await act(async () => {
+      root.render(<AuthButtons />);
+    });
+    expect(mockFrom).not.toHaveBeenCalled();
+
+    // supabase-js emits SIGNED_IN on initial load while the mount check is
+    // still awaiting getSession — this used to trigger a second, parallel
+    // profiles query.
+    const authCallback = mockOnAuthStateChange.mock.calls[0][0];
+    await act(async () => {
+      authCallback("SIGNED_IN", { user: { id: "user-1" } });
+    });
+
+    await act(async () => {
+      session.resolve({ data: { session: { user: { id: "user-1" } } } });
+      await flushMicrotasks();
+    });
+
+    expect(mockGetSession).toHaveBeenCalledTimes(1);
+    expect(mockFrom).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Admin");
+  });
+
+  it("corrects and clears a stale cached user when the session is gone", async () => {
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(adminUser));
+    mockGetSession.mockResolvedValue({ data: { session: null } });
+
+    await act(async () => {
+      root.render(<AuthButtons />);
+    });
+
+    expect(container.textContent).toContain("Log In");
+    expect(container.textContent).not.toContain("Admin");
+    expect(mockFrom).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(CACHE_KEY)).toBeNull();
   });
 });

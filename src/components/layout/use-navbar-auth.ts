@@ -8,16 +8,45 @@ import type { NavbarUser } from "@/lib/data/auth";
  * Client-side navbar auth state, shared by every navbar presentation
  * (marketing {@link AuthButtons} and the homepage nav cluster).
  *
- * Behaviour, preserved verbatim from the original AuthButtons effect:
+ * Behaviour:
  * - When `initialUser` is provided (server-rendered), trust it and skip the
  *   client `getSession()` round-trip — only subscribe for live changes.
- * - Otherwise read a `sessionStorage` cache first (no skeleton flash), then
+ * - Otherwise apply the localStorage cache first (no skeleton flash), then
  *   confirm against Supabase and refresh the profile in the background.
+ *   localStorage — not sessionStorage — so the cache survives new tabs: the
+ *   statically-served homepage has no server auth state, and without a cache
+ *   every new tab waited a full hydrate + session + profile round-trip before
+ *   the Admin button could appear. A stale cache can briefly show a logged-in
+ *   header after the session ended elsewhere; the confirm pass corrects and
+ *   clears it.
  * - Stay in sync with `SIGNED_IN` / `SIGNED_OUT` and the app's
  *   `profile-updated` event.
  */
 
 const CACHE_KEY = "btm-navbar-user";
+
+// Storage access is wrapped: localStorage can throw when the browser blocks
+// site data, and a cache miss must never break auth resolution. Explicitly
+// `window.localStorage` — the bare global resolves to Node's experimental
+// (undefined) localStorage in tests. Only called from effect scope.
+function readCachedUser(): NavbarUser | undefined {
+  try {
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as NavbarUser) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCachedUser(user: NavbarUser) {
+  try {
+    if (user) {
+      window.localStorage.setItem(CACHE_KEY, JSON.stringify(user));
+    } else {
+      window.localStorage.removeItem(CACHE_KEY);
+    }
+  } catch {}
+}
 
 export function useNavbarAuth(initialUser?: NavbarUser): {
   user: NavbarUser;
@@ -29,6 +58,11 @@ export function useNavbarAuth(initialUser?: NavbarUser): {
 
   useEffect(() => {
     const supabase = createClient();
+
+    // supabase-js emits SIGNED_IN while the mount check is still running on
+    // initial page load, which used to fetch the same profile row twice in
+    // parallel — collapse concurrent checks into one.
+    let inFlightCheck: Promise<void> | null = null;
 
     async function fetchProfile(userId: string) {
       const { data: profile, error } = await supabase
@@ -58,27 +92,24 @@ export function useNavbarAuth(initialUser?: NavbarUser): {
           role: profile.role,
         };
         setUser(navUser);
-        try {
-          sessionStorage.setItem(CACHE_KEY, JSON.stringify(navUser));
-        } catch {}
+        writeCachedUser(navUser);
       } else {
         setUser(null);
-        sessionStorage.removeItem(CACHE_KEY);
+        writeCachedUser(null);
       }
     }
 
     async function checkAuth({ readCache = true }: { readCache?: boolean } = {}) {
-      // Apply sessionStorage cache immediately (before any await) to avoid skeleton flash
+      // Apply the cached user immediately (before any await) to avoid a
+      // skeleton flash while the session/profile round-trips run.
       let hadCache = false;
       if (readCache) {
-        try {
-          const raw = sessionStorage.getItem(CACHE_KEY);
-          if (raw) {
-            setUser(JSON.parse(raw) as NavbarUser);
-            setLoading(false);
-            hadCache = true;
-          }
-        } catch {}
+        const cached = readCachedUser();
+        if (cached !== undefined) {
+          setUser(cached);
+          setLoading(false);
+          hadCache = true;
+        }
       }
 
       const {
@@ -88,7 +119,7 @@ export function useNavbarAuth(initialUser?: NavbarUser): {
       if (!session?.user) {
         setUser(null);
         setLoading(false);
-        sessionStorage.removeItem(CACHE_KEY);
+        writeCachedUser(null);
         return;
       }
 
@@ -101,21 +132,24 @@ export function useNavbarAuth(initialUser?: NavbarUser): {
       }
     }
 
+    function requestCheckAuth(opts?: { readCache?: boolean }) {
+      if (!inFlightCheck) {
+        inFlightCheck = checkAuth(opts).finally(() => {
+          inFlightCheck = null;
+        });
+      }
+      return inFlightCheck;
+    }
+
     if (hasInitialUser) {
-      try {
-        if (initialUser) {
-          sessionStorage.setItem(CACHE_KEY, JSON.stringify(initialUser));
-        } else {
-          sessionStorage.removeItem(CACHE_KEY);
-        }
-      } catch {}
+      writeCachedUser(initialUser ?? null);
     } else {
-      checkAuth();
+      requestCheckAuth();
     }
 
     function handleProfileUpdate() {
-      sessionStorage.removeItem(CACHE_KEY);
-      checkAuth({ readCache: false });
+      writeCachedUser(null);
+      requestCheckAuth({ readCache: false });
     }
     window.addEventListener("profile-updated", handleProfileUpdate);
 
@@ -125,10 +159,10 @@ export function useNavbarAuth(initialUser?: NavbarUser): {
       if (event === "SIGNED_OUT") {
         setUser(null);
         setLoading(false);
-        sessionStorage.removeItem(CACHE_KEY);
+        writeCachedUser(null);
       } else if (event === "SIGNED_IN") {
-        sessionStorage.removeItem(CACHE_KEY);
-        checkAuth({ readCache: false });
+        writeCachedUser(null);
+        requestCheckAuth({ readCache: false });
       }
     });
 
