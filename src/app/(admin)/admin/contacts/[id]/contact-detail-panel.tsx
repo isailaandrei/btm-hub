@@ -26,6 +26,7 @@ import {
   ContactDetailTimelineSkeleton,
 } from "./contact-detail-skeleton";
 import { ContactTagsSection } from "./contact-tags-section";
+import { ContactInfoSection } from "./contact-info-section";
 import { ContactEmailSection } from "./contact-email-section";
 import { ContactAiMemorySection } from "./contact-ai-memory-section";
 import { ContactWhatsAppSection } from "./contact-whatsapp-section";
@@ -117,6 +118,11 @@ export function ContactDetailPanel({
       }),
     [contactId],
   );
+  const onInfoLoaded = useCallback(
+    (slice: NonNullable<ContactDetailSectionsData["infoSection"]>) =>
+      contactDetailCacheStore.mergeSections(contactId, { infoSection: slice }),
+    [contactId],
+  );
   const providerContact = useMemo(
     () => contacts?.find((contact) => contact.id === contactId) ?? null,
     [contacts, contactId],
@@ -195,6 +201,15 @@ export function ContactDetailPanel({
       {loadError && !data && (
         <ErrorState message={loadError} onRetry={load} pending={isPending} />
       )}
+
+      <div className="mb-8">
+        <ContactInfoSection
+          contactId={contactId}
+          initialData={sections?.infoSection ?? null}
+          revalidateInitialData={revalidateSections}
+          onDataLoaded={onInfoLoaded}
+        />
+      </div>
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="flex min-w-0 flex-col gap-6">

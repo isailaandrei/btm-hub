@@ -11,6 +11,16 @@ export function ContactDetailSkeleton() {
         <Skeleton className="h-5 w-40 bg-card" />
       </div>
 
+      {/* Info card slot — without it, real content shifts everything below
+          down by the card's height on every cold deep link. */}
+      <div className="mb-8 rounded-lg border border-border bg-card p-5">
+        <Skeleton className="mb-4 h-5 w-12" />
+        <div className="flex flex-wrap gap-x-6 gap-y-1">
+          <Skeleton className="h-6 w-24" />
+          <Skeleton className="h-6 w-32" />
+        </div>
+      </div>
+
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0 space-y-6">
           <ContactDetailApplicationsSkeleton />
