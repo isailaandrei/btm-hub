@@ -3,10 +3,15 @@
 import { useEffect, useState } from "react";
 import { Monitor, Smartphone, X } from "lucide-react";
 import type { EmailSend } from "@/types/database";
-import {
-  getEmailSendTemplateInfoAction,
-  type EmailSendTemplateInfo,
-} from "./actions";
+import { getEmailSendTemplateInfoAction } from "./actions";
+
+// Derived from the action instead of re-exported by it: a type-only re-export
+// in a "use server" file becomes a phantom runtime action binding in dev
+// (Turbopack) and poisons the whole merged actions chunk with
+// "EmailSendTemplateInfo is not defined".
+type EmailSendTemplateInfo = NonNullable<
+  Awaited<ReturnType<typeof getEmailSendTemplateInfoAction>>
+>;
 
 const DESKTOP_MAX_WIDTH = 680;
 const MOBILE_WIDTH = 390;

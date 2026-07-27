@@ -1007,8 +1007,6 @@ export async function deleteEmailSendAction(
  * Resolve the saved template name + version a sent campaign was rendered from,
  * so the Sent emails preview can show exactly which template version went out.
  */
-export type { EmailSendTemplateInfo };
-
 export async function getEmailSendTemplateInfoAction(
   sendId: string,
 ): Promise<EmailSendTemplateInfo | null> {
