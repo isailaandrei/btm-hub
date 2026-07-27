@@ -151,6 +151,7 @@ describe("contactDetailCacheStore", () => {
       sections: {
         emailStatus: { excluded: true, reason: "manual" },
         tagSection: null,
+        infoSection: { fields: [], values: [] },
         whatsappMessages: [],
       },
     } as ContactDetailBootstrapData;
@@ -166,6 +167,10 @@ describe("contactDetailCacheStore", () => {
     expect(entry?.data.sections?.emailStatus).toEqual({
       excluded: true,
       reason: "manual",
+    });
+    expect(entry?.data.sections?.infoSection).toEqual({
+      fields: [],
+      values: [],
     });
     expect(entry?.sectionsSource).toBe("cached");
   });
@@ -188,6 +193,30 @@ describe("contactDetailCacheStore", () => {
     expect(entry?.data.sections?.whatsappMessages).toBeNull();
     expect(entry?.sectionsSource).toBe("cached");
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("an infoSection write-back via mergeSections survives a subsequent core-only set()", () => {
+    const store = createContactDetailCacheStore();
+    store.set(ID_A, makeData("Ada"));
+
+    store.mergeSections(ID_A, {
+      infoSection: { fields: [], values: [] },
+    });
+    expect(store.get(ID_A)?.data.sections?.infoSection).toEqual({
+      fields: [],
+      values: [],
+    });
+
+    // A later core-only refresh (client loader / realtime) must not drop the
+    // merged slice — it carries over as "cached".
+    store.set(ID_A, makeData("Ada v2"));
+    const entry = store.get(ID_A);
+    expect(entry?.data.contact.name).toBe("Ada v2");
+    expect(entry?.data.sections?.infoSection).toEqual({
+      fields: [],
+      values: [],
+    });
+    expect(entry?.sectionsSource).toBe("cached");
   });
 
   it("buffers section write-backs that arrive before the core and folds them into the next write", () => {

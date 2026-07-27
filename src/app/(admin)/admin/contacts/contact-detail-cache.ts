@@ -91,6 +91,7 @@ const MAX_CACHE_ENTRIES = 50;
 const EMPTY_SECTIONS: ContactDetailSectionsData = {
   emailStatus: null,
   tagSection: null,
+  infoSection: null,
   whatsappMessages: null,
 };
 

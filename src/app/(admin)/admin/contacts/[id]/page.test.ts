@@ -50,6 +50,7 @@ describe("ContactDetailPage", () => {
       sections: {
         emailStatus: { excluded: false, reason: null },
         tagSection: { allTags: [], categories: [], contactTagRows: [] },
+        infoSection: { fields: [], values: [] },
         whatsappMessages: [],
       },
     });
