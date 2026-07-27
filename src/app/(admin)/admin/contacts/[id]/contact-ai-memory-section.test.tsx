@@ -82,6 +82,13 @@ describe("ContactAiMemorySection", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    // The fixtures below carry fixed window dates, but the grouping they
+    // exercise is clock-relative (a status digest is visible until
+    // windowEnd + freshnessDays), so a real clock silently reclassifies them
+    // once that horizon passes. Pin the clock inside the window. Only `Date`
+    // is faked — React's scheduler needs real timers to drive `act`.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-13T12:00:00Z"));
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -96,6 +103,7 @@ describe("ContactAiMemorySection", () => {
       root.unmount();
     });
     container.remove();
+    vi.useRealTimers();
   });
 
   it("renders digests with their effective label and marks corrections", async () => {
