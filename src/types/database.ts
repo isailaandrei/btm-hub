@@ -114,6 +114,20 @@ export interface ContactTag {
   assigned_at: string;
 }
 
+export interface ContactInfoField {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface ContactInfoValue {
+  contact_id: string;
+  field_id: string;
+  value: string;
+  updated_at: string;
+}
+
 export interface ContactNote {
   id: string;
   contact_id: string;

@@ -7,6 +7,8 @@ const mockGetContactById = vi.fn();
 const mockGetContactTags = vi.fn();
 const mockGetTagCategories = vi.fn();
 const mockGetTags = vi.fn();
+const mockGetContactInfoFields = vi.fn();
+const mockGetContactInfoValues = vi.fn();
 const mockGetActiveSuppressionForContact = vi.fn();
 const mockListContactConversationMessages = vi.fn();
 
@@ -19,6 +21,11 @@ vi.mock("./contacts", () => ({
   getContactTags: mockGetContactTags,
   getTagCategories: mockGetTagCategories,
   getTags: mockGetTags,
+}));
+
+vi.mock("./contact-info", () => ({
+  getContactInfoFields: mockGetContactInfoFields,
+  getContactInfoValues: mockGetContactInfoValues,
 }));
 
 vi.mock("./email-suppressions", () => ({
@@ -55,6 +62,8 @@ describe("getContactDetailPageBootstrap", () => {
     mockGetContactTags.mockReset().mockResolvedValue([]);
     mockGetTagCategories.mockReset().mockResolvedValue([]);
     mockGetTags.mockReset().mockResolvedValue([]);
+    mockGetContactInfoFields.mockReset().mockResolvedValue([]);
+    mockGetContactInfoValues.mockReset().mockResolvedValue([]);
     mockGetActiveSuppressionForContact
       .mockReset()
       .mockResolvedValue({ reason: "manual" });
@@ -77,6 +86,7 @@ describe("getContactDetailPageBootstrap", () => {
     expect(result?.sections).toEqual({
       emailStatus: { excluded: true, reason: "manual" },
       tagSection: { allTags: [], categories: [], contactTagRows: [] },
+      infoSection: { fields: [], values: [] },
       whatsappMessages: [{ id: "m1" }],
     });
     // The WhatsApp slice must pass the normalized E.164 phone through.
@@ -103,12 +113,45 @@ describe("getContactDetailPageBootstrap", () => {
       categories: [],
       contactTagRows: [],
     });
+    expect(result?.sections?.infoSection).toEqual({ fields: [], values: [] });
     expect(result?.sections?.whatsappMessages).toEqual([{ id: "m1" }]);
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("Failed to preload the email section"),
       expect.objectContaining({
         contactId: CONTACT_ID,
         error: "suppressions table on fire",
+      }),
+    );
+  });
+
+  it("nulls the info slice (logged) without failing the page or the other slices", async () => {
+    mockBootstrapRpc();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mockGetContactInfoValues.mockRejectedValue(
+      new Error("contact_info_values table on fire"),
+    );
+
+    const result = await getContactDetailPageBootstrap(CONTACT_ID);
+
+    expect(result).not.toBeNull();
+    expect(result?.sections?.infoSection).toBeNull();
+    expect(result?.sections?.emailStatus).toEqual({
+      excluded: true,
+      reason: "manual",
+    });
+    expect(result?.sections?.tagSection).toEqual({
+      allTags: [],
+      categories: [],
+      contactTagRows: [],
+    });
+    expect(result?.sections?.whatsappMessages).toEqual([{ id: "m1" }]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to preload the info section"),
+      expect.objectContaining({
+        contactId: CONTACT_ID,
+        error: "contact_info_values table on fire",
       }),
     );
   });

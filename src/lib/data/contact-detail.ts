@@ -8,6 +8,7 @@ import {
   getTagCategories,
   getTags,
 } from "./contacts";
+import { getContactInfoFields, getContactInfoValues } from "./contact-info";
 import { getActiveSuppressionForContact } from "./email-suppressions";
 import {
   listContactConversationMessages,
@@ -61,6 +62,10 @@ export interface ContactDetailSectionsData {
     allTags: Awaited<ReturnType<typeof getTags>>;
     categories: Awaited<ReturnType<typeof getTagCategories>>;
     contactTagRows: Awaited<ReturnType<typeof getContactTags>>;
+  } | null;
+  infoSection: {
+    fields: Awaited<ReturnType<typeof getContactInfoFields>>;
+    values: Awaited<ReturnType<typeof getContactInfoValues>>;
   } | null;
   whatsappMessages: ContactConversationMessage[] | null;
 }
@@ -289,7 +294,7 @@ export async function getContactDetailPageBootstrap(
 ): Promise<ContactDetailBootstrapData | null> {
   const startedAt = startAdminTiming();
 
-  const [bootstrap, emailStatus, tagSection, whatsappMessages] =
+  const [bootstrap, emailStatus, tagSection, infoSection, whatsappMessages] =
     await Promise.all([
       getContactDetailBootstrap(contactId),
       loadDetailSection("email", contactId, async () => {
@@ -312,6 +317,13 @@ export async function getContactDetailPageBootstrap(
         ]);
         return { allTags, categories, contactTagRows };
       }),
+      loadDetailSection("info", contactId, async () => {
+        const [fields, values] = await Promise.all([
+          getContactInfoFields(),
+          getContactInfoValues(contactId),
+        ]);
+        return { fields, values };
+      }),
       loadDetailSection("whatsapp", contactId, async () => {
         const contact = await getContactById(contactId);
         if (!contact) return null;
@@ -326,12 +338,13 @@ export async function getContactDetailPageBootstrap(
     contactId,
     emailStatus: emailStatus ? "seeded" : "skipped",
     tagSection: tagSection ? "seeded" : "skipped",
+    infoSection: infoSection ? "seeded" : "skipped",
     whatsappMessages: whatsappMessages ? whatsappMessages.length : "skipped",
   });
 
   return {
     ...bootstrap,
-    sections: { emailStatus, tagSection, whatsappMessages },
+    sections: { emailStatus, tagSection, infoSection, whatsappMessages },
   };
 }
 
