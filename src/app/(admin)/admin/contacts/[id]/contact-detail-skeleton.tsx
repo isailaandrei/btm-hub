@@ -14,7 +14,7 @@ export function ContactDetailSkeleton() {
       {/* Info card slot — without it, real content shifts everything below
           down by the card's height on every cold deep link. */}
       <div className="mb-8 rounded-lg border border-border bg-card p-5">
-        <Skeleton className="mb-4 h-5 w-12" />
+        <Skeleton className="mb-4 h-5 w-24" />
         <div className="flex flex-wrap gap-x-6 gap-y-1">
           <Skeleton className="h-6 w-24" />
           <Skeleton className="h-6 w-32" />

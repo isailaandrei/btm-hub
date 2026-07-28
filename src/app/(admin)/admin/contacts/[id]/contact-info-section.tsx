@@ -46,7 +46,7 @@ function buildOptimisticRow(
 }
 
 /**
- * Full-width "Info" card on the contact detail page: admin-defined
+ * Full-width "Contact Info" card on the contact detail page: admin-defined
  * person-level fields (Insurance number, Address, Rashguard size, …) shown as
  * label/value pairs, with inline add/edit/remove. Fields are shared across
  * contacts; values are per-contact free text. Mirrors `ContactEmailSection`'s
@@ -244,7 +244,9 @@ export function ContactInfoSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm text-muted-foreground">Info</CardTitle>
+        <CardTitle className="text-sm text-muted-foreground">
+          Contact Info
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {loadError ? (
