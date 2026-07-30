@@ -45,7 +45,20 @@
 #   2. Uploads it via the upload-urls + TUS flow above and starts the
 #      server-side build, polling to completed/failed. A FAILED build leaves the
 #      previous app serving (verified pilot behavior) — the script fails loud
-#      and touches nothing.
+#      and touches nothing. It then VERIFIES the build actually ran
+#      `next build` (see "the silent no-op deploy" below).
+#
+# ── The silent no-op deploy (Jul 28 2026) ─────────────────────────────────────
+# `GET /nodejs/builds/settings/from-archive` returned EMPTY settings — no
+# app_type, no build_script, no output_directory. Those were spread verbatim
+# into the build request, so Hostinger ran `npm install`, exited 0, and reported
+# state "completed" while never running `next build`. The deploy of 2b0a31c
+# looked green in every log, but prod kept serving the previous build for days.
+# Two guards now make that unreproducible:
+#   * settings are validated against known-good pins and repaired LOUDLY (3b);
+#   * a completed build is rejected unless its logs show `next build` (4b).
+# node_version is likewise pinned from the deployed SHA's engines.node — that
+# same deploy silently fell back to Node 20 against an engines: 22.x app.
 #   3. Purges the website/CDN cache — REQUIRED after every deploy: cached
 #      client bundles reference the previous build's Server Action IDs and
 #      throw "Server Action not found" until purged. (The permanent fix is a
@@ -114,17 +127,48 @@ HOSTINGER_UPLOAD_AUTH="$UPLOAD_AUTH" HOSTINGER_UPLOAD_AUTH_REST="$UPLOAD_AUTH_RE
 SETTINGS=$("$CURL" -sf "${AUTH[@]}" \
   "$BASE/nodejs/builds/settings/from-archive?archive_path=$NAME")
 
-# 3b. Start the server-side build from the archive (settings + archive source).
+# 3b. Node major comes from the DEPLOYED SHA's engines.node — never a literal
+#     default. Hostinger's hPanel dropdown is decorative for archive deploys,
+#     so this field is the only thing that picks the runtime.
+NODE_MAJOR="$(git show "$SHA:package.json" | python3 -c '
+import json, re, sys
+engines = json.load(sys.stdin).get("engines", {}).get("node", "")
+m = re.search(r"(\d+)", engines)
+if not m:
+    sys.stderr.write("!! no engines.node in package.json at %s\n" % sys.argv[1])
+    sys.exit(1)
+print(m.group(1))' "$SHORT")"
+echo "==> Node version (from engines.node at $SHORT): $NODE_MAJOR"
+
+# 3c. Start the server-side build from the archive (settings + archive source).
 #     Body mirrors hostinger-api-mcp's triggerBuild: the auto-detected settings
 #     spread verbatim, with node_version/source_type/source_options set on top.
+#     Detection is NOT trusted blind — missing build fields are repaired from
+#     pinned known-good values and the substitution is announced (see header).
 BUILD_BODY=$(printf '%s' "$SETTINGS" | python3 -c '
 import json, sys
 s = json.load(sys.stdin)
+name, node_major = sys.argv[1], int(sys.argv[2])
 body = dict(s)
-body["node_version"] = s.get("node_version") or 20
+
+# Without these three, Hostinger installs deps and exits 0 WITHOUT building.
+PINS = {"app_type": "next", "build_script": "build", "output_directory": ".next"}
+missing = [k for k in PINS if not body.get(k)]
+if missing:
+    sys.stderr.write(
+        "!! Build-settings auto-detect returned no %s.\n"
+        "!! Detected: %s\n"
+        "!! Repairing with pinned Next.js values: %s\n"
+        "!! (Unrepaired, this is the Jul 28 2026 silent no-op deploy: npm\n"
+        "!!  install runs, state reports completed, no app is ever built.)\n"
+        % (", ".join(missing), json.dumps(s), json.dumps({k: PINS[k] for k in missing}))
+    )
+    body.update({k: PINS[k] for k in missing})
+
+body["node_version"] = node_major
 body["source_type"] = "archive"
-body["source_options"] = {"archive_path": sys.argv[1]}
-print(json.dumps(body))' "$NAME")
+body["source_options"] = {"archive_path": name}
+print(json.dumps(body))' "$NAME" "$NODE_MAJOR")
 BUILD_UUID=$("$CURL" -sf "${AUTH[@]}" -H "Content-Type: application/json" \
   -X POST "$BASE/nodejs/builds" -d "$BUILD_BODY" | python3 -c '
 import json, sys
@@ -152,6 +196,21 @@ print(next((b["state"] for b in builds if b["uuid"] == uuid), "unknown"))' "$BUI
   esac
 done
 [ "$STATE" = "completed" ] || { echo "!! Build did not complete in 10 min (state: $STATE)" >&2; exit 1; }
+
+# 4b. "completed" is NOT proof anything was built — a settings-less build runs
+#     npm install and exits 0 (see header). Require the compile in the logs
+#     before touching the cache or the rollback ledger. A build that started
+#     `next build` and then failed to compile reports state "failed" above, so
+#     the presence of the invocation is the signal worth gating on.
+BUILD_LOGS=$("$CURL" -sf "${AUTH[@]}" "$BASE/nodejs/builds/$BUILD_UUID/logs" || true)
+if ! printf '%s' "$BUILD_LOGS" | grep -q 'next build'; then
+  echo "!! Build reported 'completed' but never ran \`next build\` — NOT a deploy." >&2
+  echo "!! The previous build keeps serving. Cache was not purged and nothing" >&2
+  echo "!! was written to .hostinger-deploys.log. Last 40 log lines:" >&2
+  printf '%s' "$BUILD_LOGS" | tail -40 >&2
+  exit 1
+fi
+echo "==> Verified: next build ran server-side"
 
 # 5. Purge website + CDN cache (Server-Action skew mitigation — see header).
 #    Method is DELETE: the old POST .../cache/clear now returns 405.
