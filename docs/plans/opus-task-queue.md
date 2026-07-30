@@ -465,6 +465,71 @@ changes → owner sign-off + a fresh 11/11 live eval before shipping.
 
 ---
 
+## 8. Admin-AI ask dies at ~60s on Hostinger: move to start-and-poll
+
+> **STATUS: QUEUED Jul 30 2026 (Andrei). Diagnosed live the same day; Andrei
+> will fix in a separate session.**
+
+**Symptom (live incident, Jul 30 2026 ~14:00 UTC):** a global admin-AI
+question ran ~93s server-side and COMPLETED — thread + assistant answer
+persisted normally (verified in `admin_ai_threads`/`admin_ai_messages`,
+status `complete`), progress row cleaned up — but the browser showed React's
+"An unexpected response was received from the server." The answer was
+recoverable by reopening the thread.
+
+**Root cause:** the ask runs as ONE held Server Action POST
+(`askAdminAiQuestion` in `src/app/(admin)/admin/admin-ai/actions.ts` awaits
+the full `runAdminAiAnalysis`). On Hostinger production
+(preview.behind-the-mask.com; `server: hcdn` edge + LiteSpeed, no Cloudflare)
+the front proxy times out a response that hasn't arrived in ~60s and returns
+an HTML error page; React can't parse it as a Flight response and throws.
+Node keeps running and finishes the work — only the transport dies. Ruled
+out: deploys/restarts (none that day; a killed process couldn't have
+persisted the answer), app-level errors (the action catches those and
+returns them as form state). Any question whose pipeline exceeds ~60s hits
+this (handbook: answers take 7–110s); short asks are unaffected. The exact
+proxy timeout value is inferred (~60s, not directly observed) — confirm by
+timing if needed.
+
+**Fix (recommended): start-and-poll — stop holding one POST for the run.**
+1. Split the action: `startAdminAiQuestion` creates thread + user message +
+   a `running` placeholder assistant message, kicks off the analysis WITHOUT
+   awaiting it, returns `{threadId, assistantMessageId, progressId}`
+   immediately. (Hostinger runs a long-lived `next start` Node process, so a
+   detached promise survives the response — this is NOT serverless. Verify
+   where assistant messages are persisted today — the orchestrator persist
+   path — and make the background run update the placeholder row rather than
+   insert a second row.)
+2. Client (`question-form.tsx`): it ALREADY polls
+   `GET /api/admin-ai/progress` every ~2s while waiting. Extend that route's
+   payload (or poll `loadAdminAiThread`) to also report the assistant
+   message's status; when it leaves `running`, fetch the persisted message
+   and render it. UI states already exist for running/failed messages.
+3. Failure hygiene (fail loud, never fake): if the background run throws,
+   write the error onto the placeholder (status `failed`) — the existing
+   catch in `askAdminAiQuestion` shows the shape. Add a stale-run guard so a
+   process restart mid-run can't leave a placeholder `running` forever
+   (e.g. the poll/read path marks runs older than ~10 min failed, or the UI
+   times out with a clear message naming the thread to check).
+4. `revalidateAdminAiViews` currently runs inside the action after analysis;
+   in start-and-poll the completion happens outside a request scope where
+   `revalidatePath` may not work — the poll path must read the DB directly
+   (loadAdminAiThread does) and not depend on cache revalidation.
+
+**Do NOT:** change `runGlobalSynthesis` semantics (eval-gated, handbook
+protocol), touch the progress reporter contract (fire-and-forget, must never
+affect the answer), or try to raise the proxy timeout (hcdn/LiteSpeed limits
+aren't configurable on this hosting tier — and a fixed cliff would remain).
+A lighter stopgap — on the specific transport error, client polls the thread
+for the late answer — keeps the 60s cliff and is NOT the preferred fix.
+
+**Acceptance:** a >60s global question completes in the UI on
+preview.behind-the-mask.com with no transport error; mid-run refresh +
+reopening the thread shows the running state and then the answer; a killed
+run surfaces as a failed message, never a stuck spinner.
+
+---
+
 ## Deploy checklist (Andrei's own actions, not coding tasks)
 
 - Prod cron scheduling for conversation digests: SQL in
