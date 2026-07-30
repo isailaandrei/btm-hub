@@ -21,9 +21,13 @@ export type AdminAiMode = "global_search" | "contact_synthesis";
  * to the three listed operators per the implementation plan. Range and
  * existence checks will be routed through textFocus for now and can
  * be re-introduced in a later phase by widening this union and the
- * matching SQL helpers.
+ * matching SQL helpers. `"gte"` and `"excludes"` were added 2026-07-30 for
+ * the persisted query-plan DISPLAY representation only (an honest floor /
+ * exclusion reading in disclosure and the synthesis prompt) — the actual
+ * filter logic runs through `PlannerOutput` in hard-constraints.ts, not
+ * this type.
  */
-export type AdminAiStructuredFilterOp = "eq" | "in" | "contains";
+export type AdminAiStructuredFilterOp = "eq" | "in" | "contains" | "gte" | "excludes";
 
 export type AdminAiStructuredFilter = {
   field: string;

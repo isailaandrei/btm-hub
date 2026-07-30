@@ -40,6 +40,53 @@ describe("buildAdminAiSystemPrompt", () => {
     // The old exhaustiveness framing is gone.
     expect(prompt).not.toContain("be exhaustive");
   });
+
+  it("narrows the named-cohort tag rule to existing-roster questions and adds a prospecting counterpart (Change 3, 2026-07-30)", () => {
+    const prompt = buildAdminAiSystemPrompt("global");
+
+    // Roster rule: scoped to EXISTING-pipeline questions, preserving the
+    // original "tags are authoritative" semantics.
+    expect(prompt).toContain(
+      "When the question asks about the EXISTING members, status, or roster of a named program, trip, or cohort",
+    );
+    expect(prompt).toContain(
+      "tags in the matching tag category are the authoritative cohort marker: only contacts carrying a tag in that category qualify",
+    );
+    // The old, unscoped sentence is gone — replaced, not just supplemented.
+    expect(prompt).not.toContain(
+      "When the question targets a named program, trip, or cohort, tags in the matching",
+    );
+    // Prospecting rule: the supplied cards are already pre-filtered; absence
+    // of the tag must never read as a concern.
+    expect(prompt).toContain(
+      "When the question asks to FIND NEW candidates for a named program, trip, or cohort",
+    );
+    expect(prompt).toContain(
+      "the supplied cards have ALREADY been filtered to contacts not yet tagged in that category",
+    );
+    expect(prompt).toContain(
+      "Never treat the absence of that category's tag as a concern",
+    );
+  });
+
+  it("instructs the model never to re-tighten an applied gte filter and treats a stated price as an affordability floor (Change 5, 2026-07-30)", () => {
+    const prompt = buildAdminAiSystemPrompt("global");
+
+    expect(prompt).toContain(
+      "the 'Applied filter' lines in `uncertainty` are the authoritative record",
+    );
+    expect(prompt).toContain(
+      "never convert a minimum (op `gte`) into an exact match",
+    );
+    expect(prompt).toContain("Never write your own 'Applied filter' lines");
+    expect(prompt).toContain("that price is an affordability floor for candidates");
+    expect(prompt).toContain(
+      "a budget above the price is a positive signal, never a concern",
+    );
+    expect(prompt).toContain(
+      "only a budget strictly below the price is a mismatch",
+    );
+  });
 });
 
 function makeSynthesisInput(): AdminAiSynthesisInput {

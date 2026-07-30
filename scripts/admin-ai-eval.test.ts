@@ -73,6 +73,7 @@ const QUESTION_ORDER = [
   "qualifier-trap",
   "program-cohort",
   "demographic-multi",
+  "prospecting-price",
 ] as const;
 
 // Fails loud (never silently mis-sorts) if a question's `key` isn't in
@@ -1077,4 +1078,105 @@ describe.runIf(gateEnabled).concurrent("admin-ai eval", () => {
       ).toBe(true);
     }
   }, 1_800_000);
+
+  it("prospecting-price: owner-verbatim incident question (price floor · prospecting · 'at least N') (Change 3-5, owner-approved 2026-07-30)", async (ctx) => {
+    if (skipIfNoKey(ctx)) return;
+    // Owner-verbatim question (typos kept) — the Jul 30 2026 live incident that
+    // produced this plan.
+    const question =
+      "I look for a canditate who could join coral catch on a price of 3000EUR. who is already filming a bit, not necessarly professional yet, but not a beginner either. good diving, bouyancy of at least 7-8. avaiable this year to travel. focus on conservation, ideally wants to work in that field.";
+
+    // Runtime-derived, never hardcoded: ANY tag in CORAL, any status
+    // (including Declined-only) counts as "already in the pipeline".
+    const tagged = idsMatching(
+      records,
+      (rec) => tagsInCategory(rec, CORAL).length > 0,
+    );
+    const taggedSet = new Set(tagged);
+    // "at least 7-8" must ground the FULL >=7 buoyancy_skill option set, same
+    // runtime-truth discipline as Q11's AGE_RANGES derivation.
+    const buoyancyOptions = getFieldEntry("buoyancy_skill")?.options ?? [];
+    const expectedBuoyancy = buoyancyOptions.filter((o) => Number(o) >= 7);
+
+    // Non-empty truth sets, or the forbidden/grounding checks below are
+    // vacuous (same discipline as structured-fact/program-cohort).
+    expect(
+      tagged.length,
+      "already-tagged '26 Coral Catch' set should be non-empty",
+    ).toBeGreaterThan(0);
+    expect(
+      expectedBuoyancy.length,
+      "buoyancy_skill registry options >=7 should be non-empty",
+    ).toBeGreaterThan(0);
+
+    const out = await runPipeline(question);
+    const union = unionIds(out.response);
+    const violations = tagged.filter((id) => union.has(id));
+    const rescuedViolations = out.diagnostics.rescuedIds.filter((id) =>
+      taggedSet.has(id),
+    );
+    const buoyancyConstraint = (out.diagnostics.plan?.fieldConstraints ?? []).find(
+      (c) => c.field === "buoyancy_skill",
+    );
+    const buoyancyValues = (
+      Array.isArray(buoyancyConstraint?.value)
+        ? buoyancyConstraint.value
+        : [buoyancyConstraint?.value]
+    )
+      .filter((v): v is string => typeof v === "string")
+      .sort();
+
+    record(
+      {
+        key: "prospecting-price",
+        truthIds: [],
+        question,
+        truthCount: null,
+        recall: null,
+        shortlistPrecision: null,
+        forbiddenViolations: violations,
+        expectEmpty: null,
+        expectEmptyPass: null,
+        advisory: [
+          "budget above the price must never appear as a concern (judgment — check the JSON by eye)",
+          "shortlist should be non-empty if untagged qualifying contacts exist",
+        ],
+      },
+      out,
+    );
+
+    expect(
+      out.diagnostics.plan?.prospectingCategory,
+      "planner must ground CORAL as prospectingCategory",
+    ).toBe(CORAL);
+    expect(
+      out.diagnostics.plan?.budgetMin,
+      "planner must ground the stated price as a 3000 budget floor",
+    ).toBe(3000);
+    expect(
+      buoyancyConstraint,
+      "planner must emit a buoyancy_skill field constraint",
+    ).toBeDefined();
+    expect(
+      buoyancyValues,
+      "'at least 7-8' must ground the FULL >=7 buoyancy_skill option set, never just 7/8",
+    ).toEqual(expectedBuoyancy.sort());
+    // NOT asserted (ranked question, not enumerationOnly — same reasoning as
+    // program-cohort's long comment): recall, shortlist non-emptiness,
+    // judgment quality (buoyancy/diving/conservation fit, budget-as-positive
+    // framing). Those are structural/judgment checks left to the advisory
+    // strings and a by-eye JSON read, not hard assertions.
+    expect(
+      violations,
+      "already-tagged (any status, incl. Declined-only) contacts must appear NOWHERE in the answer — prospecting excludes deterministically",
+    ).toEqual([]);
+    expect(
+      rescuedViolations,
+      "prospecting drops must never be rescued — being in the pipeline is definitive",
+    ).toEqual([]);
+    expect(
+      out.diagnostics.prefilteredCount,
+      "the prefilter must exclude AT LEAST every already-tagged contact",
+    ).toBeLessThanOrEqual(records.length - tagged.length);
+  }, 600_000);
 });

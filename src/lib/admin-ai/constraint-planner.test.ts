@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildPlannerCatalog,
   buildPlannerUserPrompt,
+  planHasConstraints,
   runConstraintPlanner,
   validatePlan,
   type PlannerCatalog,
@@ -204,6 +205,7 @@ describe("plannerOutputSchema", () => {
     ).toBe(true);
     expect(plannerOutputSchema.parse({})).toEqual({
       tagConstraint: null,
+      prospectingCategory: null,
       programConstraint: null,
       budgetMin: null,
       fieldConstraints: [],
@@ -657,6 +659,109 @@ describe("validatePlan", () => {
     expect(
       droppedParts.filter((p) => p.includes("not an exact vocabulary item")),
     ).toHaveLength(2);
+  });
+
+  // --- Prospecting constraint (Change 3, owner-approved 2026-07-30) ---
+
+  it("grounds a prospecting category equal to a whole tag-category name (trim/case-insensitive), keeping canonical casing", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({ prospectingCategory: "  26 coral catch  " }),
+      catalog, // catalog.tagCategories[0].name === "26 Coral Catch"
+    );
+    expect(plan.prospectingCategory).toBe("26 Coral Catch");
+    expect(droppedParts).toEqual([]);
+  });
+
+  it("drops a prospecting category absent from the tag-category catalog, disclosed as unknown", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({ prospectingCategory: "Nonexistent Cohort" }),
+      catalog,
+    );
+    expect(plan.prospectingCategory).toBeNull();
+    expect(
+      droppedParts.some(
+        (p) => p.includes("prospecting category") && p.includes("unknown"),
+      ),
+    ).toBe(true);
+  });
+
+  it("passes through a null prospecting category untouched", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({ prospectingCategory: null }),
+      catalog,
+    );
+    expect(plan.prospectingCategory).toBeNull();
+    expect(droppedParts).toEqual([]);
+  });
+
+  it("prefers tagConstraint over prospectingCategory when both name the SAME category (inclusion is the safer failure direction)", () => {
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        tagConstraint: { category: "26 Coral Catch", includeStatuses: ["Interested"] },
+        prospectingCategory: "26 Coral Catch",
+      }),
+      catalog,
+    );
+    expect(plan.tagConstraint).toEqual({
+      category: "26 Coral Catch",
+      includeStatuses: ["Interested"],
+    });
+    expect(plan.prospectingCategory).toBeNull();
+    expect(
+      droppedParts.some(
+        (p) => p.includes("prospecting for") && p.includes("ignored"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps prospectingCategory when tagConstraint names a DIFFERENT category", () => {
+    const twoCategoryCatalog: PlannerCatalog = {
+      tagCategories: [
+        { name: "26 Coral Catch", tags: ["Interested", "Declined"] },
+        { name: "26 Maldives ScubaSpa", tags: ["Interested", "Declined"] },
+      ],
+      fields: [],
+      programs: [],
+    };
+    const { plan, droppedParts } = validatePlan(
+      plannerOutputSchema.parse({
+        tagConstraint: {
+          category: "26 Maldives ScubaSpa",
+          includeStatuses: ["Interested"],
+        },
+        prospectingCategory: "26 Coral Catch",
+      }),
+      twoCategoryCatalog,
+    );
+    expect(plan.tagConstraint?.category).toBe("26 Maldives ScubaSpa");
+    expect(plan.prospectingCategory).toBe("26 Coral Catch");
+    expect(droppedParts).toEqual([]);
+  });
+});
+
+describe("planHasConstraints", () => {
+  it("is false when the plan has no constraints at all", () => {
+    expect(
+      planHasConstraints(plannerOutputSchema.parse({})),
+    ).toBe(false);
+  });
+
+  it("is true when ONLY prospectingCategory is set", () => {
+    expect(
+      planHasConstraints(
+        plannerOutputSchema.parse({ prospectingCategory: "26 Coral Catch" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is true when only tagConstraint is set (unaffected by the new field)", () => {
+    expect(
+      planHasConstraints(
+        plannerOutputSchema.parse({
+          tagConstraint: { category: "26 Coral Catch", includeStatuses: [] },
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

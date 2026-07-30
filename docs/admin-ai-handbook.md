@@ -40,16 +40,19 @@ question
   │     One cheap completeJson call maps the question onto a catalog built
   │     from live data: tag categories + statuses, option-backed fields,
   │     list-valued fields (top-30 observed values). Output: a validated plan
-  │     {tagConstraint, budgetMin, fieldConstraints, enumerationOnly}.
-  │     validatePlan DROPS (with disclosure) any constraint whose value is not
-  │     a WHOLE vocabulary item, and normalizes ops to `contains`.
+  │     {tagConstraint, prospectingCategory, budgetMin, fieldConstraints,
+  │     enumerationOnly}. `prospectingCategory` marks a FIND-NEW-CANDIDATES
+  │     question ("who could join X") and is mutually exclusive with
+  │     `tagConstraint` on the same category. validatePlan DROPS (with
+  │     disclosure) any constraint whose value is not a WHOLE vocabulary item,
+  │     and normalizes ops to `contains`.
   │
   ├─ 2. DETERMINISTIC PREFILTER (hard-constraints.ts, applyPlannedConstraints)
   │     Tags are authoritative membership (declined-only excluded by default,
   │     included when the question asks about declines). Budget parses the
   │     budget field + conversation facts. Field filters substring-match
-  │     stored values. Contacts dropped by FIELD/BUDGET (never TAG) form the
-  │     RESCUE POOL.
+  │     stored values. Contacts dropped by FIELD/BUDGET (never TAG, and never
+  │     a prospecting exclusion) form the RESCUE POOL.
   │
   ├─ 3. MAP SCAN (map-scan.ts) — skipped if ≤30 prefiltered cards
   │     30-card chunks, parallel completeJson extraction at temperature 0,
@@ -124,7 +127,11 @@ window_end within 45 days OR event_date within 14 days of passing)` — see §6.
    uncertainty. An empty answer names the closest candidates and their gaps
    rather than returning blank. The "Applied filter — N excluded" line is how
    the owner caught the equipment bug in one glance: disclosure is the
-   product's immune system.
+   product's immune system. The disclosure's own wording must be honest too —
+   a budget floor rendered in the query plan as `op: "eq"` taught the model
+   "exactly 3000" instead of "at least 3000" (the Jul 30 2026 incident behind
+   the price-floor/prospecting/numeric-scale fixes): the immune system fails
+   if its own signal lies.
 
 5. **Measure, don't vibe.** Every prompt/architecture/model change is gated by
    the eval suite (§4) with before/after scorecards. Live failures become eval
@@ -163,7 +170,7 @@ RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrency=3 scripts/admin-ai-eval.test
 ```
 
 ~$0.30–0.45 and ~5 min per run against the LIVE DB + DeepSeek (keys from
-`.env.development.local`). 9 questions, each encoding an owner-approved
+`.env.development.local`). 12 questions, each encoding an owner-approved
 product rule — the table lives in `docs/admin-ai-eval-contract.md`; change a
 rule there ONLY with the owner.
 

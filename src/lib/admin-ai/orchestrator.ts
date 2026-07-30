@@ -619,11 +619,20 @@ function planToStructuredFilters(plan: PlannerOutput): AdminAiStructuredFilter[]
       value: plan.tagConstraint.includeStatuses,
     });
   }
+  if (plan.prospectingCategory) {
+    // Mirrors the tagConstraint entry's category-as-field pattern above —
+    // `field` names the tag CATEGORY being prospected, not a catalog field.
+    filters.push({ field: plan.prospectingCategory, op: "excludes", value: [] });
+  }
   if (plan.programConstraint) {
     filters.push({ field: "program", op: "eq", value: plan.programConstraint });
   }
   if (plan.budgetMin !== null) {
-    filters.push({ field: "budget", op: "eq", value: String(plan.budgetMin) });
+    // "gte", not "eq": the budget is an affordability FLOOR, not an exact
+    // match — an "eq" reading here once got embedded verbatim into the
+    // synthesis prompt and taught the model "exactly 3000" (owner incident,
+    // 2026-07-30).
+    filters.push({ field: "budget", op: "gte", value: String(plan.budgetMin) });
   }
   for (const fieldConstraint of plan.fieldConstraints) {
     filters.push({
@@ -646,9 +655,12 @@ function legacyToStructuredFilters(
     filters.push({ field: "program", op: "eq", value: constraints.program });
   }
   if (constraints.budgetMin !== undefined) {
+    // "gte" for the same reason as planToStructuredFilters above: the legacy
+    // path applies the identical budgetValueMeetsMinimum floor, and this
+    // rendering reaches the synthesis prompt and the persisted plan.
     filters.push({
       field: "budget",
-      op: "eq",
+      op: "gte",
       value: String(constraints.budgetMin),
     });
   }
@@ -681,6 +693,12 @@ function disclosePlannerPrefilter(
     result = appendUncertainty(
       result,
       `${applied.droppedByProgram.length} ${label} excluded because they have no '${plan.programConstraint}' application.`,
+    );
+  }
+  if (plan.prospectingCategory && applied.droppedByProspecting.length > 0) {
+    result = appendUncertainty(
+      result,
+      `Prospecting: ${applied.droppedByProspecting.length} contact(s) already tagged in '${plan.prospectingCategory}' excluded — the question asks for new candidates; ask for the '${plan.prospectingCategory}' roster to see the existing pipeline.`,
     );
   }
   if (plan.budgetMin !== null && applied.droppedByBudget.length > 0) {
@@ -793,10 +811,11 @@ function buildPlannerPrefilter(
   run: PlannerRun,
 ): GlobalPrefilter {
   const applied = applyPlannedConstraints(records, run.plan);
-  // Rescue pool = contacts dropped by FIELD or BUDGET (not TAG, not PROGRAM).
-  // Sequential filtering means these two lists are exactly the non-tag,
-  // non-program drops. Program drops are definitive (not-having-applied is
-  // never a "maybe") and must NEVER be rescued.
+  // Rescue pool = contacts dropped by FIELD or BUDGET (not TAG, not PROGRAM,
+  // not PROSPECTING). Sequential filtering means these two lists are exactly
+  // the non-tag/non-program/non-prospecting drops. Program and prospecting
+  // drops are both definitive (not-having-applied, or already being in the
+  // pipeline, is never a "maybe") and must NEVER be rescued.
   const rescueIds = new Set([...applied.droppedByField, ...applied.droppedByBudget]);
   const rescuePool = records.filter((record) => rescueIds.has(record.contact.id));
   return {
@@ -815,6 +834,7 @@ function buildPlannerPrefilter(
         droppedParts: run.droppedParts,
         droppedByTag: applied.droppedByTag.length,
         droppedByProgram: applied.droppedByProgram.length,
+        droppedByProspecting: applied.droppedByProspecting.length,
         droppedByBudget: applied.droppedByBudget.length,
         droppedByField: applied.droppedByField.length,
       },

@@ -13,6 +13,7 @@ import type { ContactCardRecord } from "@/lib/data/contact-cards";
 function plan(partial: Partial<PlannerOutput>): PlannerOutput {
   return {
     tagConstraint: null,
+    prospectingCategory: null,
     programConstraint: null,
     budgetMin: null,
     fieldConstraints: [],
@@ -135,10 +136,24 @@ describe("admin AI hard constraints", () => {
     ).toEqual({ budgetMin: 12500 });
   });
 
-  it("only accepts budget bands whose lower bound meets the requested minimum", () => {
+  it("accepts a budget bracket whose TOP (max) meets the requested floor — price is an affordability floor, owner-approved 2026-07-30", () => {
+    // Real BUDGETS option strings (src/lib/academy/forms/common/options.ts),
+    // verbatim via the field registry's `budget` entry.
+    expect(
+      budgetValueMeetsMinimum("Moderate budget (1,000 - 3,000 €/USD)", 3000),
+    ).toBe(true);
+    expect(
+      budgetValueMeetsMinimum("Moderate budget (1,000 - 3,000 €/USD)", 3001),
+    ).toBe(false);
+    // A bracket whose min already equals the floor: the whole range affords it.
+    expect(
+      budgetValueMeetsMinimum("Advanced budget (3,000 - 6,000 €/USD)", 3000),
+    ).toBe(true);
+    // Exact-top boundary: max === floor still qualifies (was `false` under the
+    // retired min-based reading).
     expect(
       budgetValueMeetsMinimum("Advanced budget (3,000 - 6,000 €/USD)", 6000),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       budgetValueMeetsMinimum("Professional budget (6,000 - 12,000 €/USD)", 6000),
     ).toBe(true);
@@ -146,9 +161,15 @@ describe("admin AI hard constraints", () => {
       budgetValueMeetsMinimum("All-In budget (>12,000 €/USD)", 6000),
     ).toBe(true);
     expect(budgetValueMeetsMinimum("~$8k", 6000)).toBe(true);
-    expect(budgetValueMeetsMinimum("Small budget (under 1,000 €/USD)", 6000)).toBe(
-      false,
-    );
+    // A bracket entirely below the floor still fails.
+    expect(
+      budgetValueMeetsMinimum("Small budget (under 1,000 €/USD)", 3000),
+    ).toBe(false);
+    // Negative-vocabulary free text fails regardless of the number present.
+    expect(budgetValueMeetsMinimum("under 3k", 3000)).toBe(false);
+    // Missing / garbage values never match.
+    expect(budgetValueMeetsMinimum(undefined, 3000)).toBe(false);
+    expect(budgetValueMeetsMinimum("no numbers here", 3000)).toBe(false);
   });
 
   it("drops shortlist AND additionalMatches outside the allowed contact ids", () => {
@@ -606,5 +627,48 @@ describe("applyPlannedConstraints", () => {
     );
     expect(result.records.map((r) => r.contact.id)).toEqual(["advanced"]);
     expect(result.droppedByField).toEqual(["beginner"]);
+  });
+
+  // --- Prospecting constraint (Change 3, owner-approved 2026-07-30) ---
+
+  it("excludes records tagged in the prospecting category at ANY status, including Declined-only; untagged records pass", () => {
+    const records = [
+      statusRecord("interested", "26 Coral Catch", ["Interested"]),
+      statusRecord("declined", "26 Coral Catch", ["Declined"]),
+      statusRecord("joining", "26 Coral Catch", ["Joining"]),
+      statusRecord("untagged", "Some Other Cohort", ["Interested"]),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({ prospectingCategory: "26 Coral Catch" }),
+    );
+    expect(result.records.map((r) => r.contact.id)).toEqual(["untagged"]);
+    expect(result.droppedByProspecting.sort()).toEqual(
+      ["declined", "interested", "joining"].sort(),
+    );
+    // Drops land ONLY in droppedByProspecting, never conflated with the other
+    // constraints' drop lists.
+    expect(result.droppedByTag).toEqual([]);
+    expect(result.droppedByProgram).toEqual([]);
+    expect(result.droppedByBudget).toEqual([]);
+    expect(result.droppedByField).toEqual([]);
+  });
+
+  it("applies prospecting AFTER tag/program but BEFORE budget/field, so downstream filters only see un-prospected records", () => {
+    const records = [
+      statusRecord("already-tagged", "26 Coral Catch", ["Potential Candidate"]),
+      recordWithAnswers("new-candidate", {
+        budget: "Small budget (under 1,000 €/USD)",
+      }),
+    ];
+    const result = applyPlannedConstraints(
+      records,
+      plan({ prospectingCategory: "26 Coral Catch", budgetMin: 6000 }),
+    );
+    expect(result.droppedByProspecting).toEqual(["already-tagged"]);
+    // The prospected-out record never reaches the budget stage; only the
+    // remaining "new-candidate" record does, and fails on budget as expected.
+    expect(result.droppedByBudget).toEqual(["new-candidate"]);
+    expect(result.records).toEqual([]);
   });
 });
