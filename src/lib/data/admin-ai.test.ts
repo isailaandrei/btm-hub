@@ -361,6 +361,113 @@ describe("createAdminAiMessage", () => {
 });
 
 // ===========================================================================
+// updateAdminAiMessage
+// ===========================================================================
+
+describe("updateAdminAiMessage", () => {
+  let mock: Harness;
+  beforeEach(async () => {
+    mock = await freshHarness();
+  });
+
+  it("updates content/status/plan/response/metadata on the given message id", async () => {
+    mock.mockQueryResult({ id: "m1" });
+    const { updateAdminAiMessage } = await import("./admin-ai");
+    const { requireAdmin } = await import("@/lib/auth/require-admin");
+    const queryPlan = {
+      mode: "global_search" as const,
+      structuredFilters: [],
+      textFocus: ["ocean"],
+      requestedLimit: 20,
+    };
+    const responseJson = { uncertainty: [] };
+
+    await updateAdminAiMessage({
+      messageId: "m1",
+      content: "answer",
+      status: "complete",
+      queryPlan,
+      responseJson,
+      modelMetadata: { model: "m", latencyMs: 123 },
+    });
+
+    expect(vi.mocked(requireAdmin)).toHaveBeenCalledTimes(1);
+    expect(mock.client.from).toHaveBeenCalledWith("admin_ai_messages");
+    expect(mock.query.update).toHaveBeenCalledWith({
+      content: "answer",
+      status: "complete",
+      query_plan: queryPlan,
+      response_json: responseJson,
+      model_metadata: { model: "m", latencyMs: 123 },
+    });
+    expect(mock.query.eq).toHaveBeenCalledWith("id", "m1");
+  });
+
+  it("defaults optional jsonb fields to null", async () => {
+    mock.mockQueryResult({ id: "m1" });
+    const { updateAdminAiMessage } = await import("./admin-ai");
+    await updateAdminAiMessage({
+      messageId: "m1",
+      content: "",
+      status: "running",
+    });
+    expect(mock.query.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query_plan: null,
+        response_json: null,
+        model_metadata: null,
+      }),
+    );
+  });
+
+  it("throws on DB error", async () => {
+    mock.mockQueryResult(null, { message: "boom" });
+    const { updateAdminAiMessage } = await import("./admin-ai");
+    await expect(
+      updateAdminAiMessage({ messageId: "m1", content: "x", status: "failed" }),
+    ).rejects.toThrow(/boom/);
+  });
+});
+
+// ===========================================================================
+// getAdminAiMessageStatus
+// ===========================================================================
+
+describe("getAdminAiMessageStatus", () => {
+  let mock: Harness;
+  beforeEach(async () => {
+    mock = await freshHarness();
+  });
+
+  it("selects only id/status/thread_id and maps to camelCase", async () => {
+    mock.mockQueryResult({ id: "m1", status: "running", thread_id: "t1" });
+    const { getAdminAiMessageStatus } = await import("./admin-ai");
+    const { requireAdmin } = await import("@/lib/auth/require-admin");
+
+    const result = await getAdminAiMessageStatus("m1");
+
+    expect(vi.mocked(requireAdmin)).toHaveBeenCalledTimes(1);
+    expect(mock.client.from).toHaveBeenCalledWith("admin_ai_messages");
+    expect(mock.query.select).toHaveBeenCalledWith("id, status, thread_id");
+    expect(mock.query.eq).toHaveBeenCalledWith("id", "m1");
+    expect(result).toEqual({ id: "m1", status: "running", threadId: "t1" });
+  });
+
+  it("returns null when the message does not exist", async () => {
+    mock.mockQueryResult(null);
+    const { getAdminAiMessageStatus } = await import("./admin-ai");
+    const result = await getAdminAiMessageStatus("missing");
+    expect(result).toBeNull();
+  });
+
+  it("throws on DB error", async () => {
+    mock.mockQueryResult(null, { message: "boom" });
+    const { getAdminAiMessageStatus } = await import("./admin-ai");
+    await expect(getAdminAiMessageStatus("m1")).rejects.toThrow(/boom/);
+  });
+});
+
+// ===========================================================================
 // createAdminAiCitations
 // ===========================================================================
 

@@ -11,6 +11,7 @@ vi.mock("./provider", () => ({
 vi.mock("@/lib/data/admin-ai", () => ({
   createAdminAiMessage: vi.fn(),
   createAdminAiCitations: vi.fn(),
+  updateAdminAiMessage: vi.fn(),
 }));
 
 vi.mock("@/lib/data/contact-cards", () => ({
@@ -1110,6 +1111,211 @@ describe("runAdminAiAnalysis (map-reduce scan)", () => {
     expect(dataMod.createAdminAiMessage).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed" }),
     );
+  });
+});
+
+// ===========================================================================
+// assistantMessageId threading (start-and-poll ask flow, docs/plans/
+// admin-ai-start-and-poll.md): every persist site UPDATES the given
+// placeholder row instead of inserting a new one. Callers that omit the id
+// (all tests above) keep proving insert behavior is unchanged.
+// ===========================================================================
+
+describe("runAdminAiAnalysis (assistantMessageId threading, start-and-poll)", () => {
+  const PLACEHOLDER_ID = "66666666-6666-4666-8666-666666666666";
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("updates the placeholder row in place on global completion instead of inserting", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        shortlist: [
+          {
+            contactId: CONTACT_ID,
+            contactName: "Marina Costa",
+            whyFit: ["Match."],
+            concerns: [],
+            citations: [],
+          },
+        ],
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.updateAdminAiMessage).mockResolvedValue(undefined);
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who fits?",
+      assistantMessageId: PLACEHOLDER_ID,
+    });
+
+    expect(dataMod.createAdminAiMessage).not.toHaveBeenCalled();
+    expect(dataMod.updateAdminAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: PLACEHOLDER_ID, status: "complete" }),
+    );
+    expect(result.assistantMessageId).toBe(PLACEHOLDER_ID);
+    expect(result.status).toBe("complete");
+  });
+
+  it("updates the placeholder row (not insert) when the provider is unavailable", async () => {
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([]);
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => false,
+      getUnavailableReason: () => "Admin AI is not configured yet.",
+      generate: vi.fn(),
+    });
+    vi.mocked(dataMod.updateAdminAiMessage).mockResolvedValue(undefined);
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who fits?",
+      assistantMessageId: PLACEHOLDER_ID,
+    });
+
+    expect(dataMod.createAdminAiMessage).not.toHaveBeenCalled();
+    expect(dataMod.updateAdminAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: PLACEHOLDER_ID, status: "failed" }),
+    );
+    expect(result.status).toBe("failed");
+    expect(result.assistantMessageId).toBe(PLACEHOLDER_ID);
+  });
+
+  it("updates the placeholder failed and the thrown error carries the same id when synthesis throws", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(providerMod.getAdminAiScanMode).mockReturnValue("single");
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: vi.fn().mockRejectedValue(new Error("provider exploded")),
+    });
+    vi.mocked(dataMod.updateAdminAiMessage).mockResolvedValue(undefined);
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    await expect(
+      runAdminAiAnalysis({
+        scope: "global",
+        threadId: "thread-1",
+        question: "who fits?",
+        assistantMessageId: PLACEHOLDER_ID,
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("provider exploded"),
+      assistantMessageId: PLACEHOLDER_ID,
+    });
+
+    expect(dataMod.createAdminAiMessage).not.toHaveBeenCalled();
+    expect(dataMod.updateAdminAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: PLACEHOLDER_ID, status: "failed" }),
+    );
+  });
+
+  it("updates the placeholder row in place for an insufficient-evidence response", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(cardDataMod.loadEligibleContactCardRecords).mockResolvedValue([]);
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate: vi.fn(),
+    });
+    vi.mocked(dataMod.updateAdminAiMessage).mockResolvedValue(undefined);
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "global",
+      threadId: "thread-1",
+      question: "who fits?",
+      assistantMessageId: PLACEHOLDER_ID,
+    });
+
+    expect(dataMod.createAdminAiMessage).not.toHaveBeenCalled();
+    expect(dataMod.updateAdminAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: PLACEHOLDER_ID, status: "complete" }),
+    );
+    expect(result.status).toBe("complete");
+  });
+
+  it("updates the placeholder row in place on contact-scope completion", async () => {
+    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+    const providerMod = await import("./provider");
+    const dataMod = await import("@/lib/data/admin-ai");
+    const cardDataMod = await import("@/lib/data/contact-cards");
+
+    vi.mocked(cardDataMod.loadContactCardRecords).mockResolvedValue([
+      makeRecord(CONTACT_ID),
+    ]);
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        uncertainty: [],
+        contactAssessment: {
+          inferredQualities: ["Motivated."],
+          concerns: [],
+          citations: [],
+        },
+      } as AdminAiResponse,
+      modelMetadata: {},
+    });
+    vi.mocked(providerMod.getAdminAiProvider).mockReturnValue({
+      isConfigured: () => true,
+      getUnavailableReason: () => null,
+      generate,
+    });
+    vi.mocked(dataMod.updateAdminAiMessage).mockResolvedValue(undefined);
+
+    const { runAdminAiAnalysis } = await import("./orchestrator");
+    const result = await runAdminAiAnalysis({
+      scope: "contact",
+      threadId: "thread-1",
+      question: "how does this contact look?",
+      contactId: CONTACT_ID,
+      assistantMessageId: PLACEHOLDER_ID,
+    });
+
+    expect(dataMod.createAdminAiMessage).not.toHaveBeenCalled();
+    expect(dataMod.updateAdminAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: PLACEHOLDER_ID, status: "complete" }),
+    );
+    expect(result.assistantMessageId).toBe(PLACEHOLDER_ID);
   });
 });
 

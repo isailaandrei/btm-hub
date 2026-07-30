@@ -182,7 +182,13 @@ export type AdminAiThread = {
 };
 
 export type AdminAiMessageRole = "user" | "assistant";
-export type AdminAiMessageStatus = "complete" | "failed";
+// NOTE: "running" is a placeholder status for the start-and-poll ask flow
+// (docs/plans/admin-ai-start-and-poll.md) — a message is inserted "running"
+// then updated in place once the analysis completes. The admin_ai_messages
+// table's CHECK constraint (20260415000001_admin_ai_analyst.sql) only allows
+// 'complete'/'failed' as of this writing; a migration adding 'running' is
+// required before this type is accurate at the DB layer.
+export type AdminAiMessageStatus = "complete" | "failed" | "running";
 
 /** Row shape of `admin_ai_messages`. */
 export type AdminAiMessage = {

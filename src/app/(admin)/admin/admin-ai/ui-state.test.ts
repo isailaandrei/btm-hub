@@ -26,4 +26,22 @@ describe("admin AI UI states", () => {
     expect(panel).toContain("bg-white");
     expect(panel).toContain("shadow-sm");
   });
+
+  // Start-and-poll ask flow (docs/plans/admin-ai-start-and-poll.md): the
+  // action returns a "running" placeholder immediately, so the thread view
+  // needs its own thinking bubble distinct from the ask box's pending pill.
+  it("renders a running-message bubble with a spinner in the message list", () => {
+    const source = readFileSync(MESSAGE_LIST_PATH, "utf8");
+
+    expect(source).toContain("Loader2");
+    expect(source).toContain('role="status"');
+    expect(source).toContain("Analyzing —");
+    expect(source).toContain("animate-spin");
+  });
+
+  it("surfaces the client-side stall guard after 8 minutes of awaiting", () => {
+    const source = readFileSync(QUESTION_FORM_PATH, "utf8");
+
+    expect(source).toContain("Still running after 8 minutes");
+  });
 });

@@ -51,7 +51,7 @@ const adminAiStructuredFieldSchema = z
 // Server action input schemas
 // ---------------------------------------------------------------------------
 
-/** Input payload for the `askAdminAiQuestion` server action. */
+/** Input payload for the `startAdminAiQuestion` server action. */
 export const adminAiAskInputSchema = z
   .object({
     scope: adminAiScopeSchema,

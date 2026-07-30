@@ -13,6 +13,7 @@ const ASSISTANT_MESSAGE_ID = "55555555-5555-4555-8555-555555555555";
 
 const mockCreateAdminAiThread = vi.fn();
 const mockCreateAdminAiMessage = vi.fn();
+const mockUpdateAdminAiMessage = vi.fn();
 const mockGetAdminAiThreadDetail = vi.fn();
 const mockRenameAdminAiThread = vi.fn();
 const mockDeleteAdminAiThread = vi.fn();
@@ -22,9 +23,15 @@ const mockRevalidatePath = vi.fn();
 const mockGetAdminAiProviderAvailability = vi.fn();
 const mockRequireAdmin = vi.fn();
 
+// Captures the callback `startAdminAiQuestion` schedules via `after()` so
+// tests can invoke the continuation explicitly and independently of the
+// action's own (immediate) return.
+let capturedAfter: (() => Promise<void>) | null = null;
+
 vi.mock("@/lib/data/admin-ai", () => ({
   createAdminAiThread: mockCreateAdminAiThread,
   createAdminAiMessage: mockCreateAdminAiMessage,
+  updateAdminAiMessage: mockUpdateAdminAiMessage,
   getAdminAiThreadDetail: mockGetAdminAiThreadDetail,
   listAdminAiThreadSummaries: mockListAdminAiThreadSummaries,
   renameAdminAiThread: mockRenameAdminAiThread,
@@ -33,8 +40,6 @@ vi.mock("@/lib/data/admin-ai", () => ({
 
 vi.mock("@/lib/admin-ai/orchestrator", () => ({
   runAdminAiAnalysis: mockRunAdminAiAnalysis,
-  describeAssistantResponse: (response: { shortlist?: { contactName: string }[] }) =>
-    response.shortlist?.[0]?.contactName ?? "Admin AI response.",
 }));
 
 vi.mock("@/lib/admin-ai/provider", () => ({
@@ -47,6 +52,12 @@ vi.mock("@/lib/auth/require-admin", () => ({
 
 vi.mock("next/cache", () => ({
   revalidatePath: mockRevalidatePath,
+}));
+
+vi.mock("next/server", () => ({
+  after: vi.fn((cb: () => Promise<void>) => {
+    capturedAfter = cb;
+  }),
 }));
 
 function makePlan(): AdminAiQueryPlan {
@@ -134,11 +145,21 @@ function enableEvidence() {
   vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "1");
 }
 
-describe("askAdminAiQuestion", () => {
+describe("startAdminAiQuestion", () => {
+  const INITIAL_STATE = {
+    errors: null,
+    message: null,
+    success: false,
+    thread: null,
+    messages: null,
+  } as const;
+
   beforeEach(() => {
     vi.resetModules();
+    capturedAfter = null;
     mockCreateAdminAiThread.mockReset();
     mockCreateAdminAiMessage.mockReset();
+    mockUpdateAdminAiMessage.mockReset();
     mockRunAdminAiAnalysis.mockReset();
     mockRevalidatePath.mockReset();
     mockGetAdminAiProviderAvailability.mockReset();
@@ -161,63 +182,53 @@ describe("askAdminAiQuestion", () => {
       model: null,
     });
 
-    const { askAdminAiQuestion } = await import("./actions");
+    const { startAdminAiQuestion } = await import("./actions");
     const formData = new FormData();
     formData.set("scope", "global");
     formData.set("question", "Find strong candidates");
 
-    const result = await askAdminAiQuestion(
-      {
-        errors: null,
-        message: null,
-        success: false,
-        thread: null,
-        messages: null,
-      },
-      formData,
-    );
+    const result = await startAdminAiQuestion(INITIAL_STATE, formData);
 
     expect(mockCreateAdminAiThread).not.toHaveBeenCalled();
     expect(mockCreateAdminAiMessage).not.toHaveBeenCalled();
     expect(mockRunAdminAiAnalysis).not.toHaveBeenCalled();
+    expect(capturedAfter).toBeNull();
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/not configured/i);
   });
 
-  it("creates a new thread when no threadId is provided", async () => {
-    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
-    mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
-    mockRunAdminAiAnalysis.mockResolvedValue({
-      status: "complete",
-      assistantMessageId: ASSISTANT_MESSAGE_ID,
-      queryPlan: makePlan(),
-      response: makeResponse(),
-      citations: [],
-      modelMetadata: null,
-      error: null,
-    });
+  it("returns validation errors without creating a thread, message, or continuation", async () => {
+    const { startAdminAiQuestion } = await import("./actions");
+    const formData = new FormData();
+    formData.set("scope", "global");
+    // "question" omitted — fails adminAiAskInputSchema's min(1).
 
-    const { askAdminAiQuestion } = await import("./actions");
+    const result = await startAdminAiQuestion(INITIAL_STATE, formData);
+
+    expect(result.errors).not.toBeNull();
+    expect(result.success).toBe(false);
+    expect(mockCreateAdminAiThread).not.toHaveBeenCalled();
+    expect(mockCreateAdminAiMessage).not.toHaveBeenCalled();
+    expect(capturedAfter).toBeNull();
+  });
+
+  it("resolves promptly with a running placeholder while analysis is still pending, and schedules the continuation", async () => {
+    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
+    mockCreateAdminAiMessage
+      .mockResolvedValueOnce({ id: USER_MESSAGE_ID })
+      .mockResolvedValueOnce({ id: ASSISTANT_MESSAGE_ID });
+    // Never resolves within this test — proves the action does not await it.
+    mockRunAdminAiAnalysis.mockReturnValue(new Promise(() => {}));
+
+    const { startAdminAiQuestion } = await import("./actions");
     const formData = new FormData();
     formData.set("scope", "global");
     formData.set("question", "Find strong candidates");
 
-    const result = await askAdminAiQuestion(
-      {
-        errors: null,
-        message: null,
-        success: false,
-        thread: null,
-        messages: null,
-      },
-      formData,
-    );
+    const result = await startAdminAiQuestion(INITIAL_STATE, formData);
 
-    expect(mockCreateAdminAiThread).toHaveBeenCalledWith({
-      scope: "global",
-      title: "Find strong candidates",
-    });
-    expect(mockCreateAdminAiMessage).toHaveBeenCalledWith(
+    expect(mockCreateAdminAiMessage).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         threadId: THREAD_ID,
         role: "user",
@@ -225,103 +236,115 @@ describe("askAdminAiQuestion", () => {
         status: "complete",
       }),
     );
-    expect(mockRunAdminAiAnalysis).toHaveBeenCalledWith({
-      scope: "global",
-      threadId: THREAD_ID,
-      question: "Find strong candidates",
-      contactId: undefined,
-    });
+    expect(mockCreateAdminAiMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        threadId: THREAD_ID,
+        role: "assistant",
+        status: "running",
+        content: "",
+      }),
+    );
+    expect(result.errors).toBeNull();
+    expect(result.message).toBeNull();
     expect(result.success).toBe(true);
     expect(result.thread?.id).toBe(THREAD_ID);
     expect(result.messages).toHaveLength(2);
+    expect(result.messages?.[1]).toEqual(
+      expect.objectContaining({
+        id: ASSISTANT_MESSAGE_ID,
+        status: "running",
+        content: "",
+        response: null,
+        citations: [],
+      }),
+    );
+    expect(capturedAfter).toBeTypeOf("function");
+    expect(mockRunAdminAiAnalysis).not.toHaveBeenCalled();
   });
 
-  it("omits local assistant citations from the returned answer when evidence is disabled", async () => {
-    vi.stubEnv("ADMIN_AI_INCLUDE_EVIDENCE", "0");
+  it("continuation calls runAdminAiAnalysis with the placeholder id, then revalidates the contact page", async () => {
     mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
-    mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
+    mockCreateAdminAiMessage
+      .mockResolvedValueOnce({ id: USER_MESSAGE_ID })
+      .mockResolvedValueOnce({ id: ASSISTANT_MESSAGE_ID });
     mockRunAdminAiAnalysis.mockResolvedValue({
       status: "complete",
       assistantMessageId: ASSISTANT_MESSAGE_ID,
       queryPlan: makePlan(),
       response: makeResponse(),
-      citations: [
-        {
-          claim_key: "shortlist.0.whyFit.0",
-          source_type: "application_answer",
-          source_id: "source-1",
-          contact_id: CONTACT_ID,
-          application_id: null,
-          source_label: "ultimate_vision",
-          snippet: "voice of the ocean",
-        },
-      ],
-      modelMetadata: null,
-      error: null,
-    });
-
-    const { askAdminAiQuestion } = await import("./actions");
-    const formData = new FormData();
-    formData.set("scope", "global");
-    formData.set("question", "Find strong candidates");
-
-    const result = await askAdminAiQuestion(
-      {
-        errors: null,
-        message: null,
-        success: false,
-        thread: null,
-        messages: null,
-      },
-      formData,
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.messages?.[1]?.citations).toEqual([]);
-  });
-
-  it("accepts contact-scoped seeded UUIDs that match the app-wide validator", async () => {
-    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
-    mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
-    mockRunAdminAiAnalysis.mockResolvedValue({
-      status: "complete",
-      assistantMessageId: ASSISTANT_MESSAGE_ID,
-      queryPlan: {
-        mode: "contact_synthesis",
-        contactId: SEEDED_CONTACT_ID,
-        structuredFilters: [],
-        textFocus: ["motivation"],
-        requestedLimit: 1,
-      },
-      response: {
-        contactAssessment: {
-          inferredQualities: ["Appears motivated."],
-          concerns: [],
-          citations: [],
-        },
-        uncertainty: [],
-      },
       citations: [],
       modelMetadata: null,
       error: null,
     });
 
-    const { askAdminAiQuestion } = await import("./actions");
+    const { startAdminAiQuestion } = await import("./actions");
+    const formData = new FormData();
+    formData.set("scope", "contact");
+    formData.set("contactId", CONTACT_ID);
+    formData.set("question", "Summarize this contact");
+
+    await startAdminAiQuestion(INITIAL_STATE, formData);
+    expect(capturedAfter).toBeTypeOf("function");
+    expect(mockRunAdminAiAnalysis).not.toHaveBeenCalled();
+
+    await capturedAfter!();
+
+    expect(mockRunAdminAiAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "contact",
+        threadId: THREAD_ID,
+        question: "Summarize this contact",
+        contactId: CONTACT_ID,
+        assistantMessageId: ASSISTANT_MESSAGE_ID,
+      }),
+    );
+    expect(mockRevalidatePath).toHaveBeenCalledWith(`/admin/contacts/${CONTACT_ID}`);
+    // Success path never hits the continuation's last-resort failure write.
+    expect(mockUpdateAdminAiMessage).not.toHaveBeenCalled();
+  });
+
+  it("continuation marks the placeholder failed via updateAdminAiMessage when analysis rejects without its own assistantMessageId", async () => {
+    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
+    mockCreateAdminAiMessage
+      .mockResolvedValueOnce({ id: USER_MESSAGE_ID })
+      .mockResolvedValueOnce({ id: ASSISTANT_MESSAGE_ID });
+    mockRunAdminAiAnalysis.mockRejectedValue(new Error("boom, unattributed failure"));
+    mockUpdateAdminAiMessage.mockResolvedValue(undefined);
+
+    const { startAdminAiQuestion } = await import("./actions");
+    const formData = new FormData();
+    formData.set("scope", "global");
+    formData.set("question", "Find strong candidates");
+
+    await startAdminAiQuestion(INITIAL_STATE, formData);
+    await capturedAfter!();
+
+    expect(mockUpdateAdminAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: ASSISTANT_MESSAGE_ID,
+        status: "failed",
+        content: expect.stringContaining("boom"),
+      }),
+    );
+    // Cleanup still runs even though the continuation's try block threw.
+    expect(mockRevalidatePath).not.toHaveBeenCalled(); // global scope never revalidates a path
+  });
+
+  it("accepts contact-scoped seeded UUIDs that match the app-wide validator", async () => {
+    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
+    mockCreateAdminAiMessage
+      .mockResolvedValueOnce({ id: USER_MESSAGE_ID })
+      .mockResolvedValueOnce({ id: ASSISTANT_MESSAGE_ID });
+    mockRunAdminAiAnalysis.mockReturnValue(new Promise(() => {}));
+
+    const { startAdminAiQuestion } = await import("./actions");
     const formData = new FormData();
     formData.set("scope", "contact");
     formData.set("contactId", SEEDED_CONTACT_ID);
     formData.set("question", "Summarize this contact");
 
-    const result = await askAdminAiQuestion(
-      {
-        errors: null,
-        message: null,
-        success: false,
-        thread: null,
-        messages: null,
-      },
-      formData,
-    );
+    const result = await startAdminAiQuestion(INITIAL_STATE, formData);
 
     expect(result.errors).toBeNull();
     expect(mockCreateAdminAiThread).toHaveBeenCalledWith({
@@ -329,28 +352,16 @@ describe("askAdminAiQuestion", () => {
       contactId: SEEDED_CONTACT_ID,
       title: "Summarize this contact",
     });
-    expect(mockRunAdminAiAnalysis).toHaveBeenCalledWith({
-      scope: "contact",
-      threadId: THREAD_ID,
-      question: "Summarize this contact",
-      contactId: SEEDED_CONTACT_ID,
-    });
     expect(result.success).toBe(true);
   });
 
-  it("appends to an existing owned thread when threadId is provided", async () => {
-    mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
-    mockRunAdminAiAnalysis.mockResolvedValue({
-      status: "complete",
-      assistantMessageId: ASSISTANT_MESSAGE_ID,
-      queryPlan: makePlan(),
-      response: makeResponse(),
-      citations: [],
-      modelMetadata: null,
-      error: null,
-    });
+  it("appends to an existing owned thread when threadId is provided (no new thread created)", async () => {
+    mockCreateAdminAiMessage
+      .mockResolvedValueOnce({ id: USER_MESSAGE_ID })
+      .mockResolvedValueOnce({ id: ASSISTANT_MESSAGE_ID });
+    mockRunAdminAiAnalysis.mockReturnValue(new Promise(() => {}));
 
-    const { askAdminAiQuestion } = await import("./actions");
+    const { startAdminAiQuestion } = await import("./actions");
     const formData = new FormData();
     formData.set("scope", "contact");
     formData.set("contactId", CONTACT_ID);
@@ -359,70 +370,21 @@ describe("askAdminAiQuestion", () => {
     formData.set("threadCreatedAt", "2026-04-15T00:00:00Z");
     formData.set("question", "Summarize this contact");
 
-    const result = await askAdminAiQuestion(
-      {
-        errors: null,
-        message: null,
-        success: false,
-        thread: null,
-        messages: null,
-      },
-      formData,
-    );
+    const result = await startAdminAiQuestion(INITIAL_STATE, formData);
 
     expect(mockCreateAdminAiThread).not.toHaveBeenCalled();
-    expect(mockCreateAdminAiMessage).toHaveBeenCalledWith(
+    expect(mockCreateAdminAiMessage).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         threadId: THREAD_ID,
         role: "user",
         content: "Summarize this contact",
       }),
     );
-    expect(mockRunAdminAiAnalysis).toHaveBeenCalledWith({
-      scope: "contact",
-      threadId: THREAD_ID,
-      question: "Summarize this contact",
-      contactId: CONTACT_ID,
-    });
     expect(result.success).toBe(true);
     expect(result.thread?.id).toBe(THREAD_ID);
     expect(result.thread?.title).toBe("Existing contact synthesis");
     expect(result.thread?.createdAt).toBe("2026-04-15T00:00:00Z");
-  });
-
-  it("returns a failure state and still includes the failed assistant message when analysis throws", async () => {
-    mockCreateAdminAiThread.mockResolvedValue({ id: THREAD_ID });
-    mockCreateAdminAiMessage.mockResolvedValue({ id: USER_MESSAGE_ID });
-    const failure = Object.assign(new Error("Provider returned unknown evidence id: missing-evidence"), {
-      assistantMessageId: ASSISTANT_MESSAGE_ID,
-    });
-    mockRunAdminAiAnalysis.mockRejectedValue(failure);
-
-    const { askAdminAiQuestion } = await import("./actions");
-    const formData = new FormData();
-    formData.set("scope", "global");
-    formData.set("question", "Find strong candidates");
-
-    const result = await askAdminAiQuestion(
-      {
-        errors: null,
-        message: null,
-        success: false,
-        thread: null,
-        messages: null,
-      },
-      formData,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.message).toMatch(/missing-evidence/i);
-    expect(result.messages).toHaveLength(2);
-    expect(result.messages?.[1]).toEqual(
-      expect.objectContaining({
-        id: ASSISTANT_MESSAGE_ID,
-        status: "failed",
-      }),
-    );
   });
 });
 

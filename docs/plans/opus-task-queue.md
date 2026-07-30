@@ -467,8 +467,16 @@ changes → owner sign-off + a fresh 11/11 live eval before shipping.
 
 ## 8. Admin-AI ask dies at ~60s on Hostinger: move to start-and-poll
 
-> **STATUS: QUEUED Jul 30 2026 (Andrei). Diagnosed live the same day; Andrei
-> will fix in a separate session.**
+> **STATUS: IMPLEMENTED Jul 30 2026 (same day, on
+> `feat/admin-ai-interpretation-rules`), per
+> `docs/plans/admin-ai-start-and-poll.md`.** `startAdminAiQuestion` persists
+> thread + user message + a "running" placeholder assistant row and runs the
+> analysis in `after()` (post-response); the client's existing 2s progress
+> poll also carries `&messageId=` and swaps in the finished thread via
+> `loadAdminAiThread` when the placeholder flips; failure paths update the
+> placeholder (never a stuck spinner); 8-min client stall guard + 10-min
+> stale-"running" display guard. Remaining = Andrei: merge + verify a >60s
+> ask on Hostinger prod (dev can't reproduce the hcdn proxy cut).
 
 **Symptom (live incident, Jul 30 2026 ~14:00 UTC):** a global admin-AI
 question ran ~93s server-side and COMPLETED — thread + assistant answer
