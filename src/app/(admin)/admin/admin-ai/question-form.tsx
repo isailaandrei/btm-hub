@@ -39,15 +39,26 @@ type Awaiting = {
 // Copy rule: counts must never read as coverage limits. Every contact in the
 // corpus is examined by the scan; "flagged" is the scan's OUTPUT. An admin
 // once read "164 candidates" as "only 164 of 308 were analyzed" — hence the
-// explicit contact total on every line.
+// explicit contact total on every line. Corollary (Jul 31 2026): when a
+// deterministic constraint excluded contacts BEFORE the scan, "all N" reads as
+// a miscount of the database ("292 scanned but we have 312") — so exclusions
+// are named with the corpus total, never hidden.
 function describeProgress(progress: AdminAiProgressSnapshot): string {
+  const excluded = progress.excludedTotal ?? 0;
+  const excludedNote = excluded
+    ? ` — ${excluded} excluded (${progress.excludedReason ?? "by the question's filters"})`
+    : "";
+  const scannedTotal = (contactTotal: number): string =>
+    excluded
+      ? `${contactTotal} of ${contactTotal + excluded} contacts`
+      : `all ${contactTotal} contacts`;
   switch (progress.stage) {
     case "planning":
       return "Planning constraints...";
     case "scanning": {
       const total =
         progress.contactTotal !== undefined
-          ? `all ${progress.contactTotal} contacts`
+          ? scannedTotal(progress.contactTotal)
           : "contacts";
       const chunks =
         progress.chunkTotal !== undefined
@@ -56,7 +67,7 @@ function describeProgress(progress: AdminAiProgressSnapshot): string {
       const flagged = progress.candidateCount
         ? ` — ${progress.candidateCount} flagged so far`
         : "";
-      return `Scanning ${total}${chunks}${flagged}...`;
+      return `Scanning ${total}${chunks}${flagged}${excludedNote}...`;
     }
     case "analyzing": {
       if (
@@ -64,7 +75,7 @@ function describeProgress(progress: AdminAiProgressSnapshot): string {
         progress.contactTotal &&
         progress.candidateCount < progress.contactTotal
       ) {
-        return `Analyzing ${progress.candidateCount} flagged candidates (all ${progress.contactTotal} contacts were scanned)...`;
+        return `Analyzing ${progress.candidateCount} flagged candidates (${scannedTotal(progress.contactTotal)} were scanned${excludedNote})...`;
       }
       return progress.candidateCount
         ? `Analyzing ${progress.candidateCount} contacts...`

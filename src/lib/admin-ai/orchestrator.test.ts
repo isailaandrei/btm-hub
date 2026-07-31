@@ -2169,11 +2169,13 @@ describe("runAdminAiAnalysis (prospecting constraint, Change 3, owner-approved 2
     });
     vi.mocked(dataMod.createAdminAiMessage).mockResolvedValue({ id: "assistant-1" });
 
+    const onProgress = vi.fn();
     const { runAdminAiAnalysis } = await import("./orchestrator");
     await runAdminAiAnalysis({
       scope: "global",
       threadId: "thread-1",
       question: "I look for a candidate who could join coral catch.",
+      onProgress,
     });
 
     const generateArg = generate.mock.calls[0]![0] as {
@@ -2186,6 +2188,16 @@ describe("runAdminAiAnalysis (prospecting constraint, Change 3, owner-approved 2
     expect(generateArg.queryPlan.structuredFilters).toEqual([
       { field: "26 Coral Catch", op: "excludes", value: [] },
     ]);
+    // Progress must carry the pre-scan exclusion so the UI's scanned total
+    // can't read as a miscount of the corpus (1 scanned of a 2-contact corpus).
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "analyzing",
+        contactTotal: 1,
+        excludedTotal: 1,
+        excludedReason: "already in '26 Coral Catch'",
+      }),
+    );
   });
 
   it("discloses prospecting drops with the 'already tagged in' text", async () => {

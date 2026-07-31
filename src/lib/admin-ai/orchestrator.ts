@@ -28,7 +28,10 @@ import {
   type AdminAiProvider,
 } from "./provider";
 import { MAP_CHUNK_SIZE, runMapScan, type MapScanResult } from "./map-scan";
-import type { AdminAiProgressCallback } from "./progress";
+import type {
+  AdminAiProgressCallback,
+  AdminAiProgressEvent,
+} from "./progress";
 import type { PlannerOutput } from "./schemas";
 import { adminAiResponseSchema } from "./schemas";
 import { retrieveConversationEvidence } from "@/lib/conversations/retrieval";
@@ -957,6 +960,33 @@ async function computeGlobalPrefilter(input: {
   return buildLegacyPrefilter(input.records, input.question);
 }
 
+/**
+ * Progress-display fields for contacts the scan will NEVER read — dropped by a
+ * definitive deterministic constraint (prospecting / tag cohort / program)
+ * before the map. Spreadable into progress events: empty when nothing was
+ * excluded (the "all N contacts" copy stays), else the count plus a short
+ * reason when a single constraint explains the gap. Display-only by contract —
+ * progress must never affect the answer.
+ */
+function describeScanExclusion(input: {
+  corpusTotal: number;
+  scannedTotal: number;
+  plan: PlannerOutput | null;
+}): Pick<AdminAiProgressEvent, "excludedTotal" | "excludedReason"> {
+  const excludedTotal = input.corpusTotal - input.scannedTotal;
+  if (excludedTotal <= 0) return {};
+  const plan = input.plan;
+  let excludedReason: string | undefined;
+  if (plan?.prospectingCategory) {
+    excludedReason = `already in '${plan.prospectingCategory}'`;
+  } else if (plan?.tagConstraint) {
+    excludedReason = `outside the '${plan.tagConstraint.category}' cohort`;
+  } else if (plan?.programConstraint) {
+    excludedReason = `no '${plan.programConstraint}' application`;
+  }
+  return { excludedTotal, ...(excludedReason ? { excludedReason } : {}) };
+}
+
 const PIPELINE_USAGE_KEYS = [
   "prompt_cache_hit_tokens",
   "prompt_cache_miss_tokens",
@@ -1221,6 +1251,16 @@ export async function runGlobalSynthesis(input: {
     evidenceCount: allowedEvidence.length,
   });
 
+  // Definitive pre-scan exclusions (prospecting/tag/program drops): surfaced on
+  // every progress event so the UI's scanned total can't read as a miscount of
+  // the corpus (312 contacts, 292 scanned = 20 already in the prospected
+  // category — live confusion Jul 31 2026).
+  const scanExclusion = describeScanExclusion({
+    corpusTotal: records.length,
+    scannedTotal: cards.length + rescueCards.length,
+    plan: prefilter.plan,
+  });
+
   let synthesisCards = cards;
   let synthesisChatEvidence = chatEvidence;
   let scanMetadata: MapScanResult["scanMetadata"] | null = null;
@@ -1269,6 +1309,7 @@ export async function runGlobalSynthesis(input: {
               chunkTotal,
               contactTotal: scanContactTotal,
               candidateCount: candidatesSoFar,
+              ...scanExclusion,
             });
           }
         : undefined;
@@ -1277,6 +1318,7 @@ export async function runGlobalSynthesis(input: {
         chunksDone: 0,
         chunkTotal,
         contactTotal: scanContactTotal,
+        ...scanExclusion,
       });
       const [mainResult, rescueResult] = await Promise.all([
         runMain
@@ -1401,6 +1443,7 @@ export async function runGlobalSynthesis(input: {
     stage: "analyzing",
     candidateCount: synthesisCards.length,
     contactTotal: cards.length + rescueCards.length,
+    ...scanExclusion,
   });
   const { response: rawResponse, modelMetadata } = await provider.generate({
     question,

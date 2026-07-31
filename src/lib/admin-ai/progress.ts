@@ -28,6 +28,16 @@ export interface AdminAiProgressEvent {
    * read; `candidateCount` is the subset the scan flagged, not coverage.
    */
   contactTotal?: number;
+  /**
+   * Contacts the scan will NEVER read: dropped by a definitive deterministic
+   * constraint (prospecting/tag/program) before the map. Without this the UI's
+   * "all N contacts" reads as a miscount of the database whenever N is smaller
+   * than the corpus (live confusion, Jul 31 2026: 292 scanned vs 312 total
+   * because 20 were already tagged in the prospected category). Omitted when 0.
+   */
+  excludedTotal?: number;
+  /** Short human label for WHY (e.g. "already in '26 Coral Catch'"). */
+  excludedReason?: string;
   /** Candidates flagged so far / being analyzed. */
   candidateCount?: number;
 }
