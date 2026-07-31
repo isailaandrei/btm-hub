@@ -2,9 +2,9 @@
 
 One page: what each eval question asserts and the product rule it encodes.
 Every rule here is a decision Andrei owns — veto or amend any line and the
-suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrency=3 scripts/admin-ai-eval.test.ts --disableConsoleIntercept` (~$0.30). The 11 questions run concurrently (capped at 3) — do not raise the cap: each question already fans out ~11-15 parallel DeepSeek calls, so 3 concurrent questions can burst to ~45 in-flight provider calls and risks 429/5xx rate limiting.
+suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrency=3 scripts/admin-ai-eval.test.ts --disableConsoleIntercept` (~$0.30). The 12 questions run concurrently (capped at 3) — do not raise the cap: each question already fans out ~11-15 parallel DeepSeek calls, so 3 concurrent questions can burst to ~45 in-flight provider calls and risks 429/5xx rate limiting.
 
-## The 11 questions
+## The 12 questions
 
 | # | Key | Question (gist) | Hard assertions | Product rule encoded |
 |---|-----|-----------------|-----------------|----------------------|
@@ -19,6 +19,7 @@ suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrenc
 | 9 | qualifier-trap | Most underwater-filmmaking experience in Coral Catch cohort, "should own professional equipment" | **No field constraint fires** (`fieldConstraints` empty); prefilter stops at the cohort; shortlist ⊆ cohort; ranked | Quality adjectives (professional, experienced, advanced…) are ranking criteria, never hard filters. From the Jul 6 live over-filtering incident |
 | 10 | program-cohort | "Filter through the internship applicants, for the ones with most experience above water." (owner verbatim) | `plan.programConstraint === "internship"`; prefilter narrows to EXACTLY the internship cohort (count equality — program drops are never rescued); shortlist ⊆ cohort; ranked by matchStrength. **Full-cohort union recall is NOT asserted**: this is a RANKED question, not `enumerationOnly`, so cohort members with zero above-water evidence legitimately never surface in shortlist∪additionalMatches; "above water" judgment quality is also **not asserted** | Program membership (`applications.program`) is a hard, tag-class constraint: deterministic, status-agnostic, and its drops are disclosed but NEVER routed through the field/budget rescue pool. Enumeration-completeness (code-appending every prefiltered member the model dropped) applies only to `enumerationOnly` plans — a ranking phrasing like this one is not, so full recall is correctly NOT guaranteed here. *(Eval-truth-bug fixed 2026-07-09: a live run showed union recall 0.226 while the prefilter/cohort-boundary guarantees held — the original assertion wrongly demanded roster-completeness on a ranking question; see handbook §4 step 3, "eval-truth bug" class.)* |
 | 11 | demographic-multi | "Which female applicants are aged \<lower bound of bucket1\> to \<upper bound of bucket2\>?" — question text built at runtime from the registry's first two adjacent `AGE_RANGES` buckets | `fieldConstraints` contain `gender` grounded to the female option AND `age` grounded to **BOTH** buckets as an array; prefilter ≤ truth (raw internship numeric ages need the rescue path); union recall 1.0 | A field constraint grounds to one OR MORE whole vocabulary items — a question whose criterion spans multiple options (an age range crossing buckets) must ground every matching item, never just the first |
+| 12 | prospecting-price | Owner-verbatim (typos kept): "I look for a canditate who could join coral catch on a price of 3000EUR... bouyancy of at least 7-8..." — the Jul 30 2026 live incident that produced this plan | `plan.prospectingCategory === CORAL`; `plan.budgetMin === 3000`; the `buoyancy_skill` field constraint's value-set equals every option ≥7 (never just "7"/"8"); already-tagged contacts (any status, incl. Declined-only) appear **nowhere** in shortlist∪additionalMatches; prospecting drops never appear in `rescuedIds`; prefilter excludes at least every already-tagged contact. **Not asserted** (ranked, not `enumerationOnly`, same reasoning as program-cohort): recall, shortlist non-emptiness, judgment quality — advisory-only | Prospecting excludes ALL statuses (incl. Declined) of the named category's existing taggees, deterministically and never rescued; a stated program/trip price is an affordability FLOOR — a budget bracket qualifies at-or-below its TOP, never "exactly"; "at least N" on a numeric-scale field grounds every option ≥ N, never just the literally-named number(s) |
 
 ## Standing rules the suite enforces (approve / veto each)
 
@@ -43,7 +44,10 @@ suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrenc
    matches per chunk surface with their gaps named. Double-gated so broad
    queries can't inflate.
 7. **Budget minimums** parse the budget field + conversation facts; "under /
-   below / limited" fail; missing budget now goes through the rescue scan (rule 4).
+   below / limited" fail; a dash-range bracket qualifies when the asked floor
+   fits AT OR BELOW the bracket's TOP, not its minimum — price is an
+   affordability floor, never an exact match *(Andrei owner-approved
+   2026-07-30)*; missing budget still goes through the rescue scan (rule 4).
 8. **Strong evidence is never trimmed; weak evidence may be capped (60) with
    disclosure.** Map candidates are strength-graded (`strong` = evidence
    directly satisfies the question's core criterion; `weak` = real quotable
@@ -70,6 +74,19 @@ suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrenc
     only when NO item grounds is the whole constraint dropped. The applier
     matches when a record's field value(s) intersect the constraint's value
     set. *(Andrei owner-approved 2026-07-09.)*
+11. **Prospecting is a hard, tag-class constraint, but EXCLUSIONARY rather
+    than inclusive.** A question that asks to find NEW candidates for a named
+    program, trip, or cohort ("who could join X") grounds
+    `prospectingCategory` against the same tag-category vocabulary as
+    `tagConstraint`, but instead of requiring a tag it EXCLUDES every contact
+    who already carries one in that category, at ANY status (Interested,
+    Potential Candidate, Joining, AND Declined) — being in the pipeline
+    already answers the question, so the exclusion is deterministic and
+    never rescued. Mutually exclusive with `tagConstraint` on the same
+    category: when a question reads as both a prospecting ask and an
+    existing-roster ask for the same category, `tagConstraint` wins
+    (inclusion is the safer failure direction) and the prospecting reading is
+    dropped with disclosure. *(Andrei owner-approved 2026-07-30.)*
 
 ## Open questions (not yet decided — flag if you care)
 

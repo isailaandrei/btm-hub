@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { isAdminAiEvidenceEnabled } from "@/lib/admin-ai/feature-flags";
 import {
@@ -15,10 +16,7 @@ import {
   type AdminAiProgressReporter,
 } from "@/lib/admin-ai/progress";
 import { validateUUID } from "@/lib/validation-helpers";
-import {
-  describeAssistantResponse,
-  runAdminAiAnalysis,
-} from "@/lib/admin-ai/orchestrator";
+import { runAdminAiAnalysis } from "@/lib/admin-ai/orchestrator";
 import {
   createAdminAiMessage,
   createAdminAiThread,
@@ -26,9 +24,9 @@ import {
   getAdminAiThreadDetail,
   listAdminAiThreadSummaries,
   renameAdminAiThread,
+  updateAdminAiMessage,
 } from "@/lib/data/admin-ai";
 import type {
-  AdminAiCitationRow,
   AdminAiMessageSummary,
   AdminAiThreadSummary,
 } from "@/types/admin-ai";
@@ -104,34 +102,6 @@ function serializeThreadSummary(input: {
   };
 }
 
-function buildLocalCitationRows(input: {
-  messageId: string;
-  createdAt: string;
-  citations: Array<{
-    claim_key: string;
-    source_type: AdminAiCitationRow["source_type"];
-    source_id: string;
-    contact_id: string;
-    application_id: string | null;
-    source_label: string;
-    snippet: string;
-  }>;
-}): AdminAiCitationRow[] {
-  if (!isAdminAiEvidenceEnabled()) return [];
-  return input.citations.map((citation, index) => ({
-    id: `${input.messageId}-citation-${index}`,
-    message_id: input.messageId,
-    claim_key: citation.claim_key,
-    source_type: citation.source_type,
-    source_id: citation.source_id,
-    contact_id: citation.contact_id,
-    application_id: citation.application_id,
-    source_label: citation.source_label,
-    snippet: citation.snippet,
-    created_at: input.createdAt,
-  }));
-}
-
 function serializeThreadDetail(detail: Awaited<ReturnType<typeof getAdminAiThreadDetail>>) {
   const includeEvidence = isAdminAiEvidenceEnabled();
   return {
@@ -159,7 +129,19 @@ function serializeThreadDetail(detail: Awaited<ReturnType<typeof getAdminAiThrea
   };
 }
 
-export async function askAdminAiQuestion(
+/**
+ * Starts an admin AI ask and returns almost immediately: the thread/user
+ * message/placeholder assistant message are persisted synchronously, then the
+ * actual analysis runs AFTER the response is sent (`after()`, from
+ * "next/server") so this Server Action never holds the connection open for
+ * the 7-170s the full pipeline can take. Hostinger's front proxy kills
+ * responses held past ~60s, which the client would see as a hard error even
+ * though Node kept working and persisted the answer anyway (live incident
+ * Jul 30 2026) — returning early and polling for completion sidesteps that
+ * proxy entirely. The client polls GET /api/admin-ai/progress?...&messageId=
+ * for the placeholder's status and loads the finished thread once it flips.
+ */
+export async function startAdminAiQuestion(
   prevState: AdminAiAskFormState,
   formData: FormData,
 ): Promise<AdminAiAskFormState> {
@@ -211,36 +193,59 @@ export async function askAdminAiQuestion(
     });
     threadId = created.id;
   }
+  const resolvedThreadId = threadId;
 
   const userMessage = await createAdminAiMessage({
-    threadId,
+    threadId: resolvedThreadId,
     role: "user",
     content: parsed.data.question,
     status: "complete",
   });
 
+  // Placeholder assistant row: inserted "running", then UPDATED in place by
+  // the continuation below (success or failure) so the client can poll one
+  // stable message id rather than waiting for a new row to appear.
+  const placeholder = await createAdminAiMessage({
+    threadId: resolvedThreadId,
+    role: "assistant",
+    content: "",
+    status: "running",
+  });
+
   const thread = serializeThreadSummary({
-    id: threadId,
+    id: resolvedThreadId,
     scope: parsed.data.scope,
     contactId: parsed.data.contactId,
     title:
-      prevState.thread?.id === threadId
+      prevState.thread?.id === resolvedThreadId
         ? prevState.thread.title
         : existingThreadMetadata?.title ?? threadTitle,
     createdAt:
-      prevState.thread?.id === threadId
+      prevState.thread?.id === resolvedThreadId
         ? prevState.thread.createdAt
         : existingThreadMetadata?.createdAt ?? now,
     updatedAt: now,
   });
 
+  const placeholderMessage: AdminAiMessageSummary = {
+    id: placeholder.id,
+    threadId: resolvedThreadId,
+    role: "assistant",
+    status: "running",
+    content: "",
+    createdAt: new Date().toISOString(),
+    queryPlan: null,
+    response: null,
+    citations: [],
+  };
+
   const baseMessages: AdminAiMessageSummary[] = [
-    ...(prevState.thread?.id === threadId && prevState.messages
+    ...(prevState.thread?.id === resolvedThreadId && prevState.messages
       ? prevState.messages
       : []),
     {
       id: userMessage.id,
-      threadId,
+      threadId: resolvedThreadId,
       role: "user",
       status: "complete",
       content: parsed.data.question,
@@ -252,8 +257,9 @@ export async function askAdminAiQuestion(
   ];
 
   // Stage progress (global answers only): the client passes a self-generated
-  // UUID and polls GET /api/admin-ai/progress while awaiting this action. Best-effort
-  // by contract — an invalid id degrades to no progress, never to a failure.
+  // UUID and polls GET /api/admin-ai/progress while the continuation below
+  // runs. Best-effort by contract — an invalid id degrades to no progress,
+  // never to a failure.
   let progressReporter: AdminAiProgressReporter | null = null;
   const rawProgressId = formData.get("progressId");
   if (typeof rawProgressId === "string" && rawProgressId && parsed.data.scope === "global") {
@@ -265,102 +271,66 @@ export async function askAdminAiQuestion(
     }
   }
 
-  try {
-    const analysis = await runAdminAiAnalysis({
-      scope: parsed.data.scope,
-      threadId,
-      question: parsed.data.question,
-      contactId: parsed.data.contactId,
-      onProgress: progressReporter?.report,
-    });
+  const scope = parsed.data.scope;
+  const question = parsed.data.question;
+  const contactId = parsed.data.contactId;
+  const placeholderId = placeholder.id;
 
-    const assistantCreatedAt = new Date().toISOString();
-    const assistantMessage: AdminAiMessageSummary = {
-      id: analysis.assistantMessageId,
-      threadId,
-      role: "assistant",
-      status: analysis.status,
-      content: analysis.response
-        ? describeAssistantResponse(analysis.response)
-        : analysis.error ?? "Admin AI failed.",
-      createdAt: assistantCreatedAt,
-      queryPlan: analysis.queryPlan,
-      response: analysis.response,
-      citations: buildLocalCitationRows({
-        messageId: analysis.assistantMessageId,
-        createdAt: assistantCreatedAt,
-        citations: analysis.citations,
-      }),
-    };
-
-    revalidateAdminAiViews(parsed.data.scope, parsed.data.contactId);
-    adminAiDebugLog("ask-action-result", {
-      scope: parsed.data.scope,
-      status: analysis.status,
-      assistantMessageId: analysis.assistantMessageId,
-      citationCount: analysis.citations.length,
-      hasStructuredResponse: Boolean(analysis.response),
-    });
-
-    return {
-      errors: null,
-      message: analysis.error,
-      success: analysis.status === "complete",
-      thread,
-      messages: [...baseMessages, assistantMessage],
-    };
-  } catch (error) {
-    const assistantMessageId =
-      typeof error === "object" &&
-      error !== null &&
-      "assistantMessageId" in error &&
-      typeof error.assistantMessageId === "string"
-        ? error.assistantMessageId
-        : crypto.randomUUID();
-
-    revalidateAdminAiViews(parsed.data.scope, parsed.data.contactId);
-    adminAiDebugLog("ask-action-failed", {
-      scope: parsed.data.scope,
-      assistantMessageId,
-      error: error instanceof Error ? error.message : "Admin AI analysis failed.",
-    });
-
-    return {
-      errors: null,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Admin AI analysis failed.",
-      success: false,
-      thread,
-      messages: [
-        ...baseMessages,
-        {
-          id: assistantMessageId,
-          threadId,
-          role: "assistant",
+  after(async () => {
+    try {
+      const analysis = await runAdminAiAnalysis({
+        scope,
+        threadId: resolvedThreadId,
+        question,
+        contactId,
+        assistantMessageId: placeholderId,
+        onProgress: progressReporter?.report,
+      });
+      adminAiDebugLog("ask-continuation-done", {
+        threadId: resolvedThreadId,
+        status: analysis.status,
+      });
+    } catch (error) {
+      // Last-resort failure write so the placeholder can never stay
+      // "running" after a caught error. persistSynthesisFailure (inside
+      // runAdminAiAnalysis) already updates it for pipeline errors; this
+      // covers everything else (e.g. a throw before persistence runs at all).
+      console.error("[admin-ai] ask continuation failed", error);
+      adminAiDebugLog("ask-action-failed", {
+        scope,
+        assistantMessageId: placeholderId,
+        error: error instanceof Error ? error.message : "Admin AI analysis failed.",
+      });
+      try {
+        await updateAdminAiMessage({
+          messageId: placeholderId,
           status: "failed",
           content:
-            error instanceof Error
-              ? error.message
-              : "Admin AI analysis failed.",
-          createdAt: new Date().toISOString(),
-          queryPlan: null,
-          response: null,
-          citations: [],
-        },
-      ],
-    };
-  } finally {
-    // Fire-and-forget cleanup; the polling client stops when this action
-    // resolves, so a lingering row is cosmetic at worst.
-    if (progressReporter) void progressReporter.clear();
-  }
+            error instanceof Error ? error.message : "Admin AI analysis failed.",
+        });
+      } catch (persistError) {
+        console.error("[admin-ai] failed to mark placeholder failed", persistError);
+      }
+    } finally {
+      revalidateAdminAiViews(scope, contactId);
+      if (progressReporter) void progressReporter.clear();
+    }
+  });
+
+  return {
+    errors: null,
+    message: null,
+    success: true,
+    thread,
+    messages: [...baseMessages, placeholderMessage],
+  };
 }
 
 // NOTE: progress polling deliberately has NO server action — React serializes
 // server actions per client, so a poll action would queue behind the pending
-// ask and never run mid-answer. The client polls GET /api/admin-ai/progress.
+// ask/continuation and never run until it resolves. The client polls
+// GET /api/admin-ai/progress for both the stage snapshot and (via
+// `&messageId=`) the placeholder's completion status.
 
 export async function loadGlobalAdminAiPanelData(): Promise<AdminAiPanelData> {
   await requireAdmin();

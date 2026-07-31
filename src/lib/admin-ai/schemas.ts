@@ -32,7 +32,7 @@ const adminAiModeSchema = z.enum([
   "contact_synthesis",
 ]);
 
-const adminAiFilterOpSchema = z.enum(["eq", "in", "contains"]);
+const adminAiFilterOpSchema = z.enum(["eq", "in", "contains", "gte", "excludes"]);
 
 /**
  * Structured filter field enum. We derive it from the runtime
@@ -51,7 +51,7 @@ const adminAiStructuredFieldSchema = z
 // Server action input schemas
 // ---------------------------------------------------------------------------
 
-/** Input payload for the `askAdminAiQuestion` server action. */
+/** Input payload for the `startAdminAiQuestion` server action. */
 export const adminAiAskInputSchema = z
   .object({
     scope: adminAiScopeSchema,
@@ -197,6 +197,12 @@ export const plannerOutputSchema = z.object({
     })
     .nullable()
     .default(null),
+  // Prospecting: the question asks to FIND NEW candidates for a program/cohort
+  // ("who could join X", "find candidates for X"). Contacts ALREADY tagged in
+  // this category (ANY status, including Declined — owner decision Jul 30 2026)
+  // are excluded deterministically and never rescued: being in the pipeline is
+  // definitive. Mutually exclusive with tagConstraint on the same category.
+  prospectingCategory: z.string().nullable().default(null),
   // Program-cohort membership, parallel to `tagConstraint` but NEVER routed
   // through the field-constraint rescue pool: not having applied to a program
   // is definitive (not a "maybe"), so a drop here is never second-guessed by

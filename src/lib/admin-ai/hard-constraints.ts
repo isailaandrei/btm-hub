@@ -167,6 +167,17 @@ function extractBudgetAmounts(value: string): number[] {
   return amounts;
 }
 
+/**
+ * True when a stored budget VALUE meets a requested minimum. Price is an
+ * affordability FLOOR (owner decision 2026-07-30): a dash-range bracket
+ * qualifies when the floor fits AT OR BELOW the bracket's TOP (its max) — a
+ * "Moderate (1,000 - 3,000)" bracket satisfies a 3000 floor because that
+ * budget can afford a 3000 price, while a bracket entirely below the floor
+ * (e.g. "Small (under 1,000)") still fails. A budget above the floor is a
+ * positive, never a mismatch. Negative-vocabulary values ("under X", "below
+ * X", "limited", "no financial means") always fail regardless of any number
+ * present.
+ */
 export function budgetValueMeetsMinimum(
   value: unknown,
   minimum: number,
@@ -181,7 +192,7 @@ export function budgetValueMeetsMinimum(
   if (amounts.length === 0) return false;
 
   if (/[–-]/.test(value) && amounts.length >= 2) {
-    return Math.min(...amounts) >= minimum;
+    return Math.max(...amounts) >= minimum;
   }
 
   if (/\b(?:over|above|more than|greater than|all-in)\b|>/.test(normalized)) {
@@ -374,6 +385,12 @@ export type PlannedFilterResult = {
   droppedByTag: string[];
   /** Program-cohort drops — like `droppedByTag`, never rescued (see below). */
   droppedByProgram: string[];
+  /**
+   * Prospecting drops: contacts already carrying a tag (any status, including
+   * Declined) in `plan.prospectingCategory`. Like `droppedByTag`/
+   * `droppedByProgram`, definitive and never rescued.
+   */
+  droppedByProspecting: string[];
   droppedByBudget: string[];
   droppedByField: string[];
 };
@@ -492,6 +509,7 @@ export function applyPlannedConstraints(
 ): PlannedFilterResult {
   const droppedByTag: string[] = [];
   const droppedByProgram: string[] = [];
+  const droppedByProspecting: string[] = [];
   const droppedByBudget: string[] = [];
   const droppedByField: string[] = [];
   let current = records;
@@ -521,6 +539,25 @@ export function applyPlannedConstraints(
     current = kept;
   }
 
+  // Prospecting exclusion: applied AFTER tag/program constraints and BEFORE
+  // budget/field constraints, so dropped ids never reach those stages and so
+  // never enter the rescue pool the caller (orchestrator.ts) builds from
+  // THEIR drops. ANY tag in the category, any status (including Declined), is
+  // definitive — being already in the pipeline for this cohort answers
+  // "could they join" on its own, so this is never rescued either.
+  if (plan.prospectingCategory) {
+    const prospectingCategory = plan.prospectingCategory;
+    const kept: ContactCardRecord[] = [];
+    for (const record of current) {
+      if (recordHasTagInCategory(record, prospectingCategory)) {
+        droppedByProspecting.push(record.contact.id);
+      } else {
+        kept.push(record);
+      }
+    }
+    current = kept;
+  }
+
   if (plan.budgetMin !== null) {
     const budgetMin = plan.budgetMin;
     const kept: ContactCardRecord[] = [];
@@ -544,6 +581,7 @@ export function applyPlannedConstraints(
     records: current,
     droppedByTag,
     droppedByProgram,
+    droppedByProspecting,
     droppedByBudget,
     droppedByField,
   };

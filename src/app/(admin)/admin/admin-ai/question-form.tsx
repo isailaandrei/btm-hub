@@ -1,12 +1,19 @@
 "use client";
 
 import { ArrowUp, Loader2 } from "lucide-react";
-import { useActionState, useEffect, useRef, useState } from "react";
+import {
+  startTransition,
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { AdminAiProviderAvailability } from "@/lib/admin-ai/provider";
 import type { AdminAiProgressSnapshot } from "@/lib/admin-ai/progress";
+import type { AdminAiMessageStatus } from "@/types/admin-ai";
 import { cn } from "@/lib/utils";
 import type { AdminAiAskFormState } from "./actions";
-import { askAdminAiQuestion } from "./actions";
+import { loadAdminAiThread, startAdminAiQuestion } from "./actions";
 
 const INITIAL_STATE: AdminAiAskFormState = {
   errors: null,
@@ -17,6 +24,17 @@ const INITIAL_STATE: AdminAiAskFormState = {
 };
 
 const PROGRESS_POLL_INTERVAL_MS = 2000;
+// Client-side stall guard (display-only, never fabricates a failure into the
+// thread): if the continuation hasn't resolved after this long, the server
+// likely restarted mid-run — stop polling and tell the admin to check back.
+const AWAITING_STALL_MS = 8 * 60 * 1000;
+
+type Awaiting = {
+  threadId: string;
+  messageId: string;
+  progressId: string;
+  startedAt: number;
+};
 
 // Copy rule: counts must never read as coverage limits. Every contact in the
 // corpus is examined by the scan; "flagged" is the scan's OUTPUT. An admin
@@ -71,7 +89,7 @@ export function QuestionForm({
   variant?: "hero" | "compact";
 }) {
   const [state, formAction, isPending] = useActionState(
-    askAdminAiQuestion,
+    startAdminAiQuestion,
     INITIAL_STATE,
   );
   const handledRef = useRef<string | null>(null);
@@ -85,34 +103,77 @@ export function QuestionForm({
     id: string;
     snapshot: AdminAiProgressSnapshot;
   } | null>(null);
+  // Set once the start action resolves with a "running" placeholder (the
+  // analysis keeps going in the background via Next's `after()`); cleared
+  // once the completion poll below observes a terminal status. `progressId`
+  // is captured here so the stage-progress poll keeps watching the SAME row
+  // the continuation reports under — see the rotation guard further down.
+  const [awaiting, setAwaiting] = useState<Awaiting | null>(null);
+  const [stalled, setStalled] = useState(false);
   const isUnavailable = !providerAvailability.isConfigured;
-  const disabled = isPending || isUnavailable;
+  const disabled = isPending || Boolean(awaiting) || isUnavailable;
   const unavailableReason =
     providerAvailability.unavailableReason ?? "Admin AI is not configured yet.";
+  const activePollId = awaiting?.progressId ?? progressId;
   const progress =
-    isPending && polled?.id === progressId ? polled.snapshot : null;
+    (isPending || awaiting) && polled?.id === activePollId ? polled.snapshot : null;
 
-  // Poll the stage-progress row while a GLOBAL answer is running. Best-effort:
-  // poll errors are logged and skipped (the spinner alone is the fallback).
-  // Polling MUST go through a plain GET route, not a server action — React
-  // serializes server actions per client, so an action-based poll queues
-  // behind the pending ask and never runs until the answer resolves.
+  // Poll GET /api/admin-ai/progress while pending AND while awaiting the
+  // background continuation. Two independent things ride this one poll:
+  // the stage snapshot (global scope only, exactly as before) and — new —
+  // the placeholder message's completion status (both scopes: a contact-scope
+  // ask can time out on Hostinger just as easily as a global one). Polling
+  // MUST go through a plain GET route, not a server action — React serializes
+  // server actions per client, so an action-based poll queues behind the
+  // pending ask/continuation and never runs until it resolves.
   useEffect(() => {
-    if (!isPending || scope !== "global") return;
-    const pollId = progressId;
+    if (!isPending && !awaiting) return;
+    const pollProgressId = awaiting?.progressId ?? progressId;
+    const pollMessageId = awaiting?.messageId ?? null;
+    const pollThreadId = awaiting?.threadId ?? null;
+    const pollStartedAt = awaiting?.startedAt ?? null;
     let active = true;
     const interval = setInterval(() => {
-      fetch(`/api/admin-ai/progress?id=${encodeURIComponent(pollId)}`, {
+      const params = new URLSearchParams({ id: pollProgressId });
+      if (pollMessageId) params.set("messageId", pollMessageId);
+      fetch(`/api/admin-ai/progress?${params.toString()}`, {
         cache: "no-store",
       })
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json() as Promise<{
             snapshot: AdminAiProgressSnapshot | null;
+            assistantMessage?: { id: string; status: AdminAiMessageStatus } | null;
           }>;
         })
-        .then(({ snapshot }) => {
-          if (active && snapshot) setPolled({ id: pollId, snapshot });
+        .then(({ snapshot, assistantMessage }) => {
+          if (!active) return;
+          if (scope === "global" && snapshot) {
+            setPolled({ id: pollProgressId, snapshot });
+          }
+          if (!pollMessageId || !pollThreadId || pollStartedAt === null) return;
+          if (assistantMessage && assistantMessage.status !== "running") {
+            const finalStatus = assistantMessage.status;
+            startTransition(async () => {
+              try {
+                const detail = await loadAdminAiThread(pollThreadId);
+                onResolved({
+                  errors: null,
+                  message: null,
+                  success: finalStatus === "complete",
+                  thread: detail.thread,
+                  messages: detail.messages,
+                });
+              } finally {
+                setAwaiting(null);
+                setStalled(false);
+                setProgressId(crypto.randomUUID());
+              }
+            });
+          } else if (Date.now() - pollStartedAt > AWAITING_STALL_MS) {
+            setStalled(true);
+            setAwaiting(null);
+          }
         })
         .catch((error) => {
           console.warn("Admin AI progress poll failed", error);
@@ -122,7 +183,7 @@ export function QuestionForm({
       active = false;
       clearInterval(interval);
     };
-  }, [isPending, progressId, scope]);
+  }, [awaiting, isPending, onResolved, progressId, scope]);
 
   const resolvedSignature =
     state.thread && state.messages
@@ -133,11 +194,19 @@ export function QuestionForm({
           state.message ?? "",
         ].join(":")
       : null;
+  const lastMessage = state.messages?.at(-1) ?? null;
+  // A "start" resolution hands back a running placeholder as the last
+  // message — the analysis isn't done, it's still running in the background.
+  const isStartResolution = state.success && lastMessage?.status === "running";
 
   // Render-time state adjustment (not an effect): rotate the progress id once
-  // per resolved ask so the next submission polls a fresh row.
+  // per resolved ask so the next submission polls a fresh row. Skipped for a
+  // "start" resolution — that ask isn't finished, and rotating now would
+  // orphan the progressId the background continuation is still reporting
+  // stage updates under (the awaiting-entry effect below rotates it later,
+  // once the completion poll actually observes a terminal status).
   const [rotatedFor, setRotatedFor] = useState<string | null>(null);
-  if (resolvedSignature && rotatedFor !== resolvedSignature) {
+  if (resolvedSignature && rotatedFor !== resolvedSignature && !isStartResolution) {
     setRotatedFor(resolvedSignature);
     setProgressId(crypto.randomUUID());
   }
@@ -147,7 +216,16 @@ export function QuestionForm({
     if (handledRef.current === resolvedSignature) return;
     handledRef.current = resolvedSignature;
     onResolved(state);
-  }, [onResolved, resolvedSignature, state]);
+    if (isStartResolution && state.thread && lastMessage) {
+      setAwaiting({
+        threadId: state.thread.id,
+        messageId: lastMessage.id,
+        progressId,
+        startedAt: Date.now(),
+      });
+      setStalled(false);
+    }
+  }, [isStartResolution, lastMessage, onResolved, progressId, resolvedSignature, state]);
 
   function submitOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || disabled) return;
@@ -181,7 +259,7 @@ export function QuestionForm({
           {state.message}
         </p>
       )}
-      {isPending && (
+      {(isPending || awaiting) && (
         <div
           role="status"
           aria-live="polite"
@@ -193,6 +271,13 @@ export function QuestionForm({
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
           <span>{progress ? describeProgress(progress) : "AI is thinking"}</span>
         </div>
+      )}
+      {stalled && (
+        <p className={cn("mt-2 text-sm text-destructive", isHero && "text-center")}>
+          Still running after 8 minutes — the server may have restarted.
+          Reopen the thread from Past questions in a bit; if it never
+          completes, re-ask.
+        </p>
       )}
     </>
   );
@@ -232,7 +317,7 @@ export function QuestionForm({
             isHero ? "bottom-3 right-3 size-10" : "bottom-2.5 right-2.5 size-8",
           )}
         >
-          {isPending ? (
+          {isPending || awaiting ? (
             <Loader2 className={cn("animate-spin", isHero ? "size-5" : "size-4")} />
           ) : (
             <ArrowUp className={isHero ? "size-5" : "size-4"} />

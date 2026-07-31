@@ -229,6 +229,66 @@ export async function createAdminAiMessage(input: {
   return { id: row.id };
 }
 
+/**
+ * Update an existing assistant message in place — the counterpart to
+ * `createAdminAiMessage` for the start-and-poll ask flow: a placeholder row is
+ * inserted "running" up front, then this updates the SAME row once the
+ * analysis completes (or fails), so the client's poll can watch one message id
+ * transition status instead of a new row appearing.
+ */
+export async function updateAdminAiMessage(input: {
+  messageId: string;
+  content: string;
+  status: AdminAiMessageStatus;
+  queryPlan?: AdminAiQueryPlan | null;
+  responseJson?: AdminAiResponse | null;
+  modelMetadata?: Record<string, unknown> | null;
+}): Promise<void> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("admin_ai_messages")
+    .update({
+      content: input.content,
+      status: input.status,
+      query_plan: input.queryPlan ?? null,
+      response_json: input.responseJson ?? null,
+      model_metadata: input.modelMetadata ?? null,
+    })
+    .eq("id", input.messageId);
+
+  if (error) {
+    throw new Error(`Failed to update admin AI message: ${error.message}`);
+  }
+}
+
+/**
+ * Lightweight status poll target — the progress route calls this on every
+ * 2s tick, so it selects only `id`/`status`/`thread_id`, never the full
+ * thread (content, plan, citations only get fetched once via
+ * `loadAdminAiThread` after the poll observes a terminal status).
+ */
+export async function getAdminAiMessageStatus(
+  messageId: string,
+): Promise<{ id: string; status: AdminAiMessageStatus; threadId: string } | null> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("admin_ai_messages")
+    .select("id, status, thread_id")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load admin AI message status: ${error.message}`);
+  }
+  if (!data) return null;
+  const row = data as { id: string; status: AdminAiMessageStatus; thread_id: string };
+  return { id: row.id, status: row.status, threadId: row.thread_id };
+}
+
 export async function createAdminAiCitations(input: {
   messageId: string;
   citations: AdminAiCitationDraft[];

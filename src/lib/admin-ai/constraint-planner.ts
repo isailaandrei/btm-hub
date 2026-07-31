@@ -175,12 +175,14 @@ export function buildPlannerSystemPrompt(): string {
     "You are a query-constraint planner for a CRM admin AI.",
     "Extract ONLY the constraints the question makes EXPLICIT and exclusionary. When a detail is a ranking preference, a nice-to-have, or unstated, it is NOT a constraint.",
     "Use ONLY category names, tag names, field keys, and program names that appear in the supplied catalog, copied verbatim (exact casing). Never invent names.",
-    'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "programConstraint": "string" | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string" | ["string"]}], "enumerationOnly": boolean, "notes": "string"}.',
+    'Output valid JSON matching this contract: {"tagConstraint": {"category": "string", "includeStatuses": ["string"]} | null, "prospectingCategory": "string" | null, "programConstraint": "string" | null, "budgetMin": number | null, "fieldConstraints": [{"field": "string", "op": "contains" | "eq", "value": "string" | ["string"]}], "enumerationOnly": boolean, "notes": "string"}.',
     'Tag rules: "interested / potential candidates for X" → includeStatuses ["Interested","Potential Candidate"]; "who is joining X" → ["Joining"]; "who declined X" → ["Declined"]; a cohort named with NO status qualifier → includeStatuses [] (code applies the default).',
+    'Prospecting rule: when the question asks to FIND / source / discover NEW candidates FOR a program, trip, or cohort — "who could join X", "find a candidate for X", "who might qualify for X", "who should we approach for X" — set `prospectingCategory` to the catalog tag category that tracks X, copied VERBATIM from the catalog. Do NOT set `tagConstraint` for that category. Contrast: questions about the EXISTING pipeline — "who is interested in X", "who declined X", "list the X candidates" — use `tagConstraint`, never `prospectingCategory`. Never set both for the same category.',
     'Program rules: when the question names a program cohort — "X applicants", "X candidates", "people who applied to X", "the X program" — for an X that is one of the catalog\'s `programs` values, set `programConstraint` to that program copied VERBATIM from `programs`. Program membership means the contact has an application in that program, independent of its status. Do NOT set programConstraint for a program mentioned only incidentally (e.g. comparing programs) or for a value not present in `programs`.',
     "Budget: set budgetMin only when the question states an explicit minimum spend.",
     'Field constraints: emit one ONLY for a catalog field. Each value MUST be one of that field\'s listed `options` (option-backed) or `values` (list-valued) items copied VERBATIM IN FULL — e.g. emit "Advanced Freediver", never "advanced"; emit "Professional video camera", never "professional". A word or fragment that merely appears inside a longer item does NOT ground a constraint. If no listed item expresses the user\'s criterion, emit NO constraint — the evidence scan handles it.',
     'When a question\'s criterion spans MULTIPLE options of the SAME field — an age range crossing more than one bucket ("aged 20 to 30"), several nationalities, several equipment items — list ALL matching options verbatim as a JSON array in `value` (e.g. `["18-24","25-34"]`), never just one. Emitting only the first matching option silently narrows the cohort. Use a single string `value` only when exactly one option applies. Always use `op: "contains"` regardless of whether `value` is a string or an array.',
+    'Numeric-scale rule: for a field whose options form a numeric scale (e.g. ratings "1"–"10"), a stated minimum — "at least N", "N+", "N or above/better", including a hedged minimum like "at least 7-8" whose minimum is the LOWER number — grounds EVERY option ≥ that minimum, listed verbatim as an array (e.g. "at least 7" → `["7","8","9","10"]`). A stated maximum grounds every option ≤ it. Emitting only the literally mentioned numbers silently narrows the cohort.',
     "Quality adjectives and level qualifiers — professional, experienced, advanced, good, high-end, serious, strong, and the like — are NEVER field-constraint values. A requirement phrased as a QUALITY of something (e.g. 'professional equipment', 'extensive experience', 'own their own professional gear') is a ranking/judgment criterion for the analyst, not a filter — leave it out even if the word appears inside a catalog vocabulary item.",
     "Criteria described only in prose — topics, experiences, anything narrated in essay answers — are NOT constraints; the evidence scan handles them. Catalog fields (option-backed or list-valued) are the ONLY fields you may filter on; never emit a fieldConstraint for a field absent from the catalog.",
     "Ranking preferences such as 'most experienced' or 'strongest' are NOT constraints — leave them out.",
@@ -237,6 +239,35 @@ export function validatePlan(
       }
       tagConstraint = { category: category.name, includeStatuses };
     }
+  }
+
+  // Prospecting: grounded against `catalog.tagCategories` the SAME way as
+  // `tagConstraint.category` (a category name, not a tag name). Mutually
+  // exclusive with `tagConstraint` on the SAME category: if both name it, the
+  // question also reads as an existing-pipeline roster, and inclusion is the
+  // safer failure direction, so `tagConstraint` wins and prospecting is dropped.
+  let prospectingCategory = plan.prospectingCategory;
+  if (prospectingCategory) {
+    const normalized = prospectingCategory.trim().toLowerCase();
+    const category = catalog.tagCategories.find(
+      (c) => c.name.trim().toLowerCase() === normalized,
+    );
+    if (!category) {
+      droppedParts.push(`prospecting category '${prospectingCategory}' (unknown)`);
+      prospectingCategory = null;
+    } else {
+      prospectingCategory = category.name;
+    }
+  }
+  if (
+    prospectingCategory &&
+    tagConstraint &&
+    tagConstraint.category.toLowerCase() === prospectingCategory.toLowerCase()
+  ) {
+    droppedParts.push(
+      `prospecting for '${prospectingCategory}' ignored: question also reads as a roster of that category`,
+    );
+    prospectingCategory = null;
   }
 
   // Program constraint: the SAME whole-vocabulary-item rule as tags/fields, but
@@ -321,7 +352,7 @@ export function validatePlan(
   }
 
   return {
-    plan: { ...plan, tagConstraint, programConstraint, fieldConstraints },
+    plan: { ...plan, tagConstraint, prospectingCategory, programConstraint, fieldConstraints },
     droppedParts,
   };
 }
@@ -365,6 +396,7 @@ export async function runConstraintPlanner(input: {
 export function planHasConstraints(plan: PlannerOutput): boolean {
   return (
     plan.tagConstraint !== null ||
+    plan.prospectingCategory !== null ||
     plan.programConstraint !== null ||
     plan.budgetMin !== null ||
     plan.fieldConstraints.length > 0

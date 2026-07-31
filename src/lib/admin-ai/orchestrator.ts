@@ -35,6 +35,7 @@ import { retrieveConversationEvidence } from "@/lib/conversations/retrieval";
 import {
   createAdminAiCitations,
   createAdminAiMessage,
+  updateAdminAiMessage,
 } from "@/lib/data/admin-ai";
 import {
   loadContactCardRecords,
@@ -44,6 +45,7 @@ import {
 import type {
   AdminAiAdditionalMatch,
   AdminAiCitationDraft,
+  AdminAiMessageStatus,
   AdminAiQueryPlan,
   AdminAiResponse,
   AdminAiScope,
@@ -408,22 +410,61 @@ function stripEvidenceAnchors(text: string): string {
   return text.replace(/\s+\[e\d+\]/g, "");
 }
 
+/**
+ * Single persistence entry point for every assistant-message write in this
+ * file: updates the row in place when `assistantMessageId` is provided (the
+ * start-and-poll flow's "running" placeholder gets filled in), inserts a new
+ * row otherwise. Callers that never pass an id get byte-identical behavior to
+ * before this helper existed — the eval harness and any caller that omits it
+ * are unaffected.
+ */
+async function persistAssistantMessage(input: {
+  threadId: string;
+  assistantMessageId?: string;
+  content: string;
+  status: AdminAiMessageStatus;
+  queryPlan: AdminAiQueryPlan;
+  responseJson?: AdminAiResponse | null;
+  modelMetadata?: Record<string, unknown> | null;
+}): Promise<string> {
+  if (input.assistantMessageId) {
+    await updateAdminAiMessage({
+      messageId: input.assistantMessageId,
+      content: input.content,
+      status: input.status,
+      queryPlan: input.queryPlan,
+      responseJson: input.responseJson ?? null,
+      modelMetadata: input.modelMetadata ?? null,
+    });
+    return input.assistantMessageId;
+  }
+  const { id } = await createAdminAiMessage({
+    threadId: input.threadId,
+    role: "assistant",
+    content: input.content,
+    status: input.status,
+    queryPlan: input.queryPlan,
+    responseJson: input.responseJson ?? null,
+    modelMetadata: input.modelMetadata ?? null,
+  });
+  return id;
+}
+
 async function persistFailedAssistantMessage(input: {
   threadId: string;
   content: string;
   queryPlan: AdminAiQueryPlan;
   modelMetadata?: Record<string, unknown> | null;
+  assistantMessageId?: string;
 }): Promise<string> {
-  const { id } = await createAdminAiMessage({
+  return persistAssistantMessage({
     threadId: input.threadId,
-    role: "assistant",
+    assistantMessageId: input.assistantMessageId,
     content: input.content,
     status: "failed",
     queryPlan: input.queryPlan,
-    responseJson: null,
     modelMetadata: input.modelMetadata ?? null,
   });
-  return id;
 }
 
 async function persistInsufficientResponse(input: {
@@ -431,11 +472,12 @@ async function persistInsufficientResponse(input: {
   queryPlan: AdminAiQueryPlan;
   response: AdminAiResponse;
   reason: string;
+  assistantMessageId?: string;
 }): Promise<RunAdminAiAnalysisResult> {
   const metadata = { source: "system", reason: input.reason };
-  const { id } = await createAdminAiMessage({
+  const id = await persistAssistantMessage({
     threadId: input.threadId,
-    role: "assistant",
+    assistantMessageId: input.assistantMessageId,
     content: describeAssistantResponse(input.response),
     status: "complete",
     queryPlan: input.queryPlan,
@@ -619,11 +661,20 @@ function planToStructuredFilters(plan: PlannerOutput): AdminAiStructuredFilter[]
       value: plan.tagConstraint.includeStatuses,
     });
   }
+  if (plan.prospectingCategory) {
+    // Mirrors the tagConstraint entry's category-as-field pattern above —
+    // `field` names the tag CATEGORY being prospected, not a catalog field.
+    filters.push({ field: plan.prospectingCategory, op: "excludes", value: [] });
+  }
   if (plan.programConstraint) {
     filters.push({ field: "program", op: "eq", value: plan.programConstraint });
   }
   if (plan.budgetMin !== null) {
-    filters.push({ field: "budget", op: "eq", value: String(plan.budgetMin) });
+    // "gte", not "eq": the budget is an affordability FLOOR, not an exact
+    // match — an "eq" reading here once got embedded verbatim into the
+    // synthesis prompt and taught the model "exactly 3000" (owner incident,
+    // 2026-07-30).
+    filters.push({ field: "budget", op: "gte", value: String(plan.budgetMin) });
   }
   for (const fieldConstraint of plan.fieldConstraints) {
     filters.push({
@@ -646,9 +697,12 @@ function legacyToStructuredFilters(
     filters.push({ field: "program", op: "eq", value: constraints.program });
   }
   if (constraints.budgetMin !== undefined) {
+    // "gte" for the same reason as planToStructuredFilters above: the legacy
+    // path applies the identical budgetValueMeetsMinimum floor, and this
+    // rendering reaches the synthesis prompt and the persisted plan.
     filters.push({
       field: "budget",
-      op: "eq",
+      op: "gte",
       value: String(constraints.budgetMin),
     });
   }
@@ -681,6 +735,12 @@ function disclosePlannerPrefilter(
     result = appendUncertainty(
       result,
       `${applied.droppedByProgram.length} ${label} excluded because they have no '${plan.programConstraint}' application.`,
+    );
+  }
+  if (plan.prospectingCategory && applied.droppedByProspecting.length > 0) {
+    result = appendUncertainty(
+      result,
+      `Prospecting: ${applied.droppedByProspecting.length} contact(s) already tagged in '${plan.prospectingCategory}' excluded — the question asks for new candidates; ask for the '${plan.prospectingCategory}' roster to see the existing pipeline.`,
     );
   }
   if (plan.budgetMin !== null && applied.droppedByBudget.length > 0) {
@@ -793,10 +853,11 @@ function buildPlannerPrefilter(
   run: PlannerRun,
 ): GlobalPrefilter {
   const applied = applyPlannedConstraints(records, run.plan);
-  // Rescue pool = contacts dropped by FIELD or BUDGET (not TAG, not PROGRAM).
-  // Sequential filtering means these two lists are exactly the non-tag,
-  // non-program drops. Program drops are definitive (not-having-applied is
-  // never a "maybe") and must NEVER be rescued.
+  // Rescue pool = contacts dropped by FIELD or BUDGET (not TAG, not PROGRAM,
+  // not PROSPECTING). Sequential filtering means these two lists are exactly
+  // the non-tag/non-program/non-prospecting drops. Program and prospecting
+  // drops are both definitive (not-having-applied, or already being in the
+  // pipeline, is never a "maybe") and must NEVER be rescued.
   const rescueIds = new Set([...applied.droppedByField, ...applied.droppedByBudget]);
   const rescuePool = records.filter((record) => rescueIds.has(record.contact.id));
   return {
@@ -815,6 +876,7 @@ function buildPlannerPrefilter(
         droppedParts: run.droppedParts,
         droppedByTag: applied.droppedByTag.length,
         droppedByProgram: applied.droppedByProgram.length,
+        droppedByProspecting: applied.droppedByProspecting.length,
         droppedByBudget: applied.droppedByBudget.length,
         droppedByField: applied.droppedByField.length,
       },
@@ -1490,7 +1552,12 @@ export async function runGlobalSynthesis(input: {
 }
 
 async function persistSynthesisFailure(
-  input: { scope: AdminAiScope; threadId: string; queryPlan: AdminAiQueryPlan },
+  input: {
+    scope: AdminAiScope;
+    threadId: string;
+    queryPlan: AdminAiQueryPlan;
+    assistantMessageId?: string;
+  },
   error: unknown,
 ): Promise<never> {
   adminAiDebugLog("raw-card-synthesis-failed", {
@@ -1503,6 +1570,7 @@ async function persistSynthesisFailure(
     content: message,
     queryPlan: input.queryPlan,
     modelMetadata: { source: "system", reason: "analysis_failed" },
+    assistantMessageId: input.assistantMessageId,
   });
   throw Object.assign(error instanceof Error ? error : new Error(message), {
     assistantMessageId,
@@ -1516,6 +1584,10 @@ async function runCardSynthesis(input: {
   threadId: string;
   records: ContactCardRecord[];
   onProgress?: AdminAiProgressCallback;
+  /** When provided (start-and-poll flow), every persist below updates this
+   * row in place instead of inserting a new one. Absent for the eval harness
+   * and any other caller that still awaits the full analysis. */
+  assistantMessageId?: string;
 }): Promise<RunAdminAiAnalysisResult> {
   const includeEvidence = isAdminAiEvidenceEnabled();
   const provider = getAdminAiProvider();
@@ -1526,6 +1598,7 @@ async function runCardSynthesis(input: {
       content: reason,
       queryPlan: input.queryPlan,
       modelMetadata: { source: "system", reason: "provider_not_configured" },
+      assistantMessageId: input.assistantMessageId,
     });
     return {
       status: "failed",
@@ -1554,11 +1627,12 @@ async function runCardSynthesis(input: {
           queryPlan: input.queryPlan,
           response: result.response,
           reason: result.reason ?? "insufficient",
+          assistantMessageId: input.assistantMessageId,
         });
       }
-      const { id } = await createAdminAiMessage({
+      const id = await persistAssistantMessage({
         threadId: input.threadId,
-        role: "assistant",
+        assistantMessageId: input.assistantMessageId,
         content: describeAssistantResponse(result.response),
         status: "complete",
         queryPlan: input.queryPlan,
@@ -1579,7 +1653,12 @@ async function runCardSynthesis(input: {
       };
     } catch (error) {
       return persistSynthesisFailure(
-        { scope: "global", threadId: input.threadId, queryPlan: input.queryPlan },
+        {
+          scope: "global",
+          threadId: input.threadId,
+          queryPlan: input.queryPlan,
+          assistantMessageId: input.assistantMessageId,
+        },
         error,
       );
     }
@@ -1636,6 +1715,7 @@ async function runCardSynthesis(input: {
       queryPlan: input.queryPlan,
       response,
       reason: "no_raw_card_evidence",
+      assistantMessageId: input.assistantMessageId,
     });
   }
 
@@ -1702,6 +1782,7 @@ async function runCardSynthesis(input: {
         queryPlan: input.queryPlan,
         response: insufficient,
         reason: "ungrounded_raw_card_contact_assessment",
+        assistantMessageId: input.assistantMessageId,
       });
     }
 
@@ -1722,9 +1803,9 @@ async function runCardSynthesis(input: {
       ...(droppedEvidenceIds.length > 0 ? { droppedEvidenceIds } : {}),
     };
 
-    const { id } = await createAdminAiMessage({
+    const id = await persistAssistantMessage({
       threadId: input.threadId,
-      role: "assistant",
+      assistantMessageId: input.assistantMessageId,
       content: describeAssistantResponse(response),
       status: "complete",
       queryPlan: input.queryPlan,
@@ -1750,7 +1831,12 @@ async function runCardSynthesis(input: {
     };
   } catch (error) {
     return persistSynthesisFailure(
-      { scope: "contact", threadId: input.threadId, queryPlan: input.queryPlan },
+      {
+        scope: "contact",
+        threadId: input.threadId,
+        queryPlan: input.queryPlan,
+        assistantMessageId: input.assistantMessageId,
+      },
       error,
     );
   }
@@ -1763,6 +1849,8 @@ export async function runAdminAiAnalysis(input: {
   contactId?: string;
   /** Stage-progress hook; only the global (map-reduce) path reports stages. */
   onProgress?: AdminAiProgressCallback;
+  /** See `runCardSynthesis` — start-and-poll placeholder to update in place. */
+  assistantMessageId?: string;
 }): Promise<RunAdminAiAnalysisResult> {
   const queryPlan = buildCardQueryPlan({
     scope: input.scope,
@@ -1783,6 +1871,7 @@ export async function runAdminAiAnalysis(input: {
       queryPlan,
       threadId: input.threadId,
       records,
+      assistantMessageId: input.assistantMessageId,
     });
   }
 
@@ -1794,5 +1883,6 @@ export async function runAdminAiAnalysis(input: {
     threadId: input.threadId,
     records,
     onProgress: input.onProgress,
+    assistantMessageId: input.assistantMessageId,
   });
 }
