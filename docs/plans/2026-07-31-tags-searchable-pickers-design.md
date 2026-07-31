@@ -44,8 +44,10 @@ context (a bare "Interested" ×10 is meaningless).
    **discriminated result**, never thrown errors — Next.js masks
    server-thrown error messages in production, and the house rule is
    user-errors-return, unexpected-errors-throw.
-8. (Andrei, after POC) Picker **browse mode shows categories collapsed** —
-   tags appear only after expanding a category; search auto-expands matches.
+8. (Andrei, after POC — twice) Categories render **collapsed everywhere,
+   including search results, on both surfaces**: searching only narrows
+   *which* categories appear; tags always require an explicit expand.
+   Expansion state resets when a popover closes.
 
 ## 1. Shared matching helper
 
@@ -82,13 +84,15 @@ Consequences of the rule (test cases):
 `contacts-filters.tsx` only; all new state is local; props unchanged.
 
 - Search input at the top of the popover, autofocused when it opens.
-- Empty query → current behavior exactly (collapsible category sections,
-  checkbox rows, "N selected" counts).
-- Non-empty query → replace the browse list with `searchTags` results:
-  every matched category rendered expanded with its matching tags as the
-  same checkbox rows (toggling calls the existing `onTagToggle`).
+- Empty query → current behavior (collapsible category sections, checkbox
+  rows, "N selected" counts).
+- Non-empty query → the same collapsible sections, narrowed to
+  `searchTags` matches: matched categories stay **collapsed**; expanding
+  one shows its matching tags as the usual checkbox rows (toggling calls
+  the existing `onTagToggle`). The "N selected" badge counts over the
+  whole category, not just the matched subset.
 - No-match state: muted "No tags match \<query\>" line.
-- Query resets when the popover closes.
+- Query and expansion state reset when the popover closes.
 - Selected-tag chips row under the toolbar: unchanged.
 
 ## 3. Contact detail — Tags card
@@ -113,7 +117,8 @@ data flow, `persistToProvider`, SSR seeding all unchanged).
   - **Search mode**: matching runs over **all** tags with assigned rows
     hidden at render (not excluded from the input) so a group doesn't
     vanish under the cursor when its last matching tag gets assigned
-    mid-multi-add; matched groups render auto-expanded with plain headers.
+    mid-multi-add; matched categories render **collapsed** just like
+    browse mode — searching narrows the list, never expands it.
     Name-matched categories with no surviving tag rows are appended via
     `categoryNameMatches` so their quick-create row stays reachable.
   - Click a tag → instant optimistic assign through the existing paths
@@ -194,11 +199,13 @@ thrown failure → inline generic + refetch. No silent fallbacks anywhere.
   omitted.
 - `contacts-filters.test.tsx` (extend): typing narrows to grouped matches;
   checkbox toggle still fires `onTagToggle`; closing resets the query;
-  empty-query browse mode still renders categories collapsed.
+  empty-query browse mode still renders categories collapsed; search
+  results stay collapsed and expand per category; close resets expansions.
 - `contact-tag-manager.test.tsx` (rewrite affected parts): only categories
   with assigned tags render; empty state shows Add button + hint; collapsed
-  browse mode reveals tags on expand; search auto-expands and matches
-  category names; group stays visible after assigning its last match;
+  browse mode reveals tags on expand; search narrows to matching categories
+  (still collapsed) and matches category names; group stays visible after
+  assigning its last match;
   clicking assigns (action called, picker stays open) + provider rollback;
   quick-create success seeds provider caches; duplicate stays inline;
   created_not_assigned toasts and seeds the tag; Escape collapses only the

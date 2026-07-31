@@ -279,11 +279,16 @@ describe("ContactTagManager", () => {
     expect(rollbackSpy).toHaveBeenCalled();
   });
 
-  it("auto-expands matches when searching, matching category names", async () => {
+  it("narrows to matching categories when searching, still collapsed", async () => {
     renderManager();
     await openPicker();
     await typeInto(pickerSearchInput(), "azores");
 
+    expect(findButton("26 Azores Nikon Project")).toBeDefined();
+    expect(findButton("Status")).toBeUndefined();
+    expect(findButton("Joining")).toBeUndefined();
+
+    await expandCategory("26 Azores Nikon Project");
     expect(findButton("Joining")).toBeDefined();
     expect(findButton("First")).toBeUndefined();
     expect(findButton("Second")).toBeUndefined();
@@ -294,6 +299,7 @@ describe("ContactTagManager", () => {
     renderManager({ persistToProvider: true });
     await openPicker();
     await typeInto(pickerSearchInput(), "first");
+    await expandCategory("Status");
 
     await act(async () => {
       getButton("First").click();

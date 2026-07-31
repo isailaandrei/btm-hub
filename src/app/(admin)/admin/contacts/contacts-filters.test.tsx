@@ -218,30 +218,49 @@ describe("ContactsFilters", () => {
     });
   }
 
-  it("shows matching tags grouped and expanded when searching by tag name", async () => {
+  async function expandCategory(categoryId: string) {
+    const header = document.body.querySelector(
+      `[data-testid="contacts-filter-category-${categoryId}"]`,
+    );
+    expect(header).not.toBeNull();
+    await act(async () => {
+      header?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+  it("narrows to matching categories when searching, still collapsed", async () => {
     renderFilters();
     await openTagsPopover();
     await typeTagSearch("advanced");
 
     expect(document.body.textContent).toContain("Level");
+    expect(document.body.textContent).not.toContain("Advanced");
+    expect(document.body.textContent).not.toContain("Role");
+
+    await expandCategory("category-level");
     expect(document.body.textContent).toContain("Advanced");
     expect(document.body.textContent).not.toContain("Filmmaker");
   });
 
-  it("includes a category's whole group when the search hits the category name", async () => {
+  it("matches a category by name and reveals its tags only on expand", async () => {
     renderFilters();
     await openTagsPopover();
     await typeTagSearch("role");
 
+    expect(document.body.textContent).toContain("Role");
+    expect(document.body.textContent).not.toContain("Filmmaker");
+    expect(document.body.textContent).not.toContain("Level");
+
+    await expandCategory("category-role");
     expect(document.body.textContent).toContain("Filmmaker");
-    expect(document.body.textContent).not.toContain("Advanced");
   });
 
-  it("toggles a tag from search results", async () => {
+  it("toggles a tag from expanded search results", async () => {
     const onTagToggle = vi.fn();
     renderFilters({ onTagToggle });
     await openTagsPopover();
     await typeTagSearch("advanced");
+    await expandCategory("category-level");
 
     const checkbox = document.body.querySelector('[role="checkbox"]');
     expect(checkbox).not.toBeNull();
@@ -262,13 +281,14 @@ describe("ContactsFilters", () => {
     expect(document.body.textContent).not.toContain("Advanced");
   });
 
-  it("resets the search when the popover closes", async () => {
+  it("resets the search and expansions when the popover closes", async () => {
     renderFilters();
     const filtersButton = await openTagsPopover();
     await typeTagSearch("advanced");
+    await expandCategory("category-level");
     expect(document.body.textContent).toContain("Advanced");
 
-    // Close and reopen: browse mode again, categories collapsed.
+    // Close and reopen: browse mode again, everything collapsed.
     await act(async () => {
       filtersButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });

@@ -88,6 +88,14 @@ export const ContactsFilters = memo(function ContactsFilters({
     }
     return map;
   }, [tags]);
+  // Searching narrows WHICH categories show; they render collapsed either
+  // way — expanding is always an explicit click.
+  const displayGroups =
+    tagSearchGroups ??
+    tagCategories.flatMap((category) => {
+      const categoryTags = tagsByCategoryId.get(category.id) ?? [];
+      return categoryTags.length > 0 ? [{ category, tags: categoryTags }] : [];
+    });
   const categoriesById = useMemo(
     () => new Map(tagCategories.map((category) => [category.id, category])),
     [tagCategories],
@@ -132,7 +140,10 @@ export const ContactsFilters = memo(function ContactsFilters({
           {tagCategories.length > 0 && (
             <Popover
               onOpenChange={(open) => {
-                if (!open) setTagSearch("");
+                if (!open) {
+                  setTagSearch("");
+                  setExpandedCategoryIds(new Set());
+                }
               }}
             >
               <PopoverTrigger asChild>
@@ -178,48 +189,19 @@ export const ContactsFilters = memo(function ContactsFilters({
                   />
                 </div>
                 <div className="max-h-96 overflow-y-auto p-2">
-                  {tagSearchGroups !== null ? (
-                    tagSearchGroups.length === 0 ? (
-                      <p className="px-2 py-2 text-xs text-muted-foreground">
-                        No tags match &ldquo;{trimmedTagSearch}&rdquo;
-                      </p>
-                    ) : (
-                      tagSearchGroups.map((group) => (
-                        <section
-                          key={group.category.id}
-                          className="border-b border-border/60 py-2 first:pt-1 last:border-0"
-                        >
-                          <p className="px-2 pb-1 text-xs font-medium text-foreground">
-                            {group.category.name}
-                          </p>
-                          <div className="space-y-0.5 pl-2">
-                            {group.tags.map((tag) => (
-                              <FilterTagRow
-                                key={tag.id}
-                                tag={tag}
-                                colorClass={
-                                  TAG_COLOR_CLASSES[
-                                    group.category.color ?? "blue"
-                                  ] ?? ""
-                                }
-                                isActive={selectedTagIdsSet.has(tag.id)}
-                                disabled={disabled}
-                                onToggle={() => onTagToggle(tag.id)}
-                              />
-                            ))}
-                          </div>
-                        </section>
-                      ))
-                    )
+                  {tagSearchGroups !== null && tagSearchGroups.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-muted-foreground">
+                      No tags match &ldquo;{trimmedTagSearch}&rdquo;
+                    </p>
                   ) : (
-                  tagCategories.map((category) => {
-                    const categoryTags = tagsByCategoryId.get(category.id) ?? [];
-                    if (categoryTags.length === 0) return null;
+                  displayGroups.map(({ category, tags: groupTags }) => {
                     const color = category.color ?? "blue";
                     const colorClass = TAG_COLOR_CLASSES[color] ?? "";
-                    const activeCount = categoryTags.filter((tag) =>
-                      selectedTagIdsSet.has(tag.id),
-                    ).length;
+                    // Count over the whole category, not just search matches,
+                    // so the badge stays truthful while narrowed.
+                    const activeCount = (
+                      tagsByCategoryId.get(category.id) ?? []
+                    ).filter((tag) => selectedTagIdsSet.has(tag.id)).length;
                     const isExpanded = expandedCategoryIds.has(category.id);
                     const tagListId = `contacts-filter-tags-${category.id}`;
 
@@ -269,7 +251,7 @@ export const ContactsFilters = memo(function ContactsFilters({
                             id={tagListId}
                             className="mt-1 space-y-0.5 pl-2"
                           >
-                            {categoryTags.map((tag) => (
+                            {groupTags.map((tag) => (
                               <FilterTagRow
                                 key={tag.id}
                                 tag={tag}

@@ -164,9 +164,9 @@ export function ContactTagManager({
   // Picker body. Matching runs over ALL tags — assigned rows are hidden at
   // render instead of excluded from the input, so a group doesn't vanish
   // under the cursor when its last matching tag gets assigned mid-multi-add.
-  // Browse mode lists every category collapsed (tags only after expanding —
-  // 13 program categories × 5 tags laid out flat is exactly the clutter this
-  // picker replaces); search mode auto-expands its matches, plus name-matched
+  // Every category renders collapsed — searching only narrows WHICH
+  // categories show, never expands them (tags laid out flat is exactly the
+  // clutter this picker replaces). Search results include name-matched
   // zero-tag categories so their quick-create row stays reachable.
   const trimmedSearch = pickerSearch.trim();
   const isSearching = trimmedSearch.length > 0;
@@ -428,8 +428,7 @@ export function ContactTagManager({
                     TAG_COLOR_CLASSES[group.category.color ?? "blue"] ?? "";
                   const isCreatingHere =
                     creatingCategoryId === group.category.id;
-                  const isExpanded =
-                    isSearching || expandedCategoryIds.has(group.category.id);
+                  const isExpanded = expandedCategoryIds.has(group.category.id);
                   const availableTags = group.tags.filter(
                     (tag) => !assignedTagIds.has(tag.id),
                   );
@@ -438,39 +437,33 @@ export function ContactTagManager({
                       key={group.category.id}
                       className="border-b border-border/60 py-1.5 first:pt-0.5 last:border-0"
                     >
-                      {isSearching ? (
-                        <p className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                      <button
+                        type="button"
+                        aria-expanded={isExpanded}
+                        onClick={() =>
+                          toggleCategoryExpanded(group.category.id)
+                        }
+                        className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
+                      >
+                        <span className="min-w-0 text-xs font-semibold text-muted-foreground">
                           {group.category.name}
-                        </p>
-                      ) : (
-                        <button
-                          type="button"
-                          aria-expanded={isExpanded}
-                          onClick={() =>
-                            toggleCategoryExpanded(group.category.id)
-                          }
-                          className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
+                        </span>
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className={`shrink-0 text-muted-foreground transition-transform ${
+                            isExpanded ? "rotate-180" : ""
+                          }`}
                         >
-                          <span className="min-w-0 text-xs font-semibold text-muted-foreground">
-                            {group.category.name}
-                          </span>
-                          <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className={`shrink-0 text-muted-foreground transition-transform ${
-                              isExpanded ? "rotate-180" : ""
-                            }`}
-                          >
-                            <path d="m6 9 6 6 6-6" />
-                          </svg>
-                        </button>
-                      )}
+                          <path d="m6 9 6 6 6-6" />
+                        </svg>
+                      </button>
                       {isExpanded && (
                       <div className="space-y-0.5">
                         {availableTags.map((tag) => (
