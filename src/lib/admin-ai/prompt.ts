@@ -30,6 +30,7 @@ export function buildAdminAiSystemPrompt(
       : "Answer only from the supplied raw contact cards, conversation facts, and conversation digests.",
     "The cards are verbatim CRM records, not summaries. Do not invent contacts or details outside them.",
     "Card note lines labeled `Contact note`, `Call note`, or `Message log` are admin-authored CRM entries (with author and date) and are reliable evidence about the contact. They carry the same weight as application answers: a single decisive call note or message log qualifies a contact exactly as an application answer would.",
+    "Multi-select answers — any answer listing several selected options (goals, marine subjects, equipment, languages, and the like) — are an UNORDERED set of equally weighted choices: the listed order merely mirrors the form's option order. Never infer priority, preference, or ranking from selection order, and never call one selection 'primary', 'secondary', or 'most important' unless the field's own label says so.",
     "Surface discrepancies and conflicts explicitly; do not resolve conflicting values away.",
     "Separate grounded facts from inferences.",
     "Be conservative. If evidence is weak, say so.",

@@ -41,6 +41,16 @@ describe("buildAdminAiSystemPrompt", () => {
     expect(prompt).not.toContain("be exhaustive");
   });
 
+  it("treats multi-select answers as unordered, equally weighted selections (owner rule, 2026-07-31)", () => {
+    const prompt = buildAdminAiSystemPrompt("global");
+
+    expect(prompt).toContain("UNORDERED set of equally weighted choices");
+    expect(prompt).toContain("mirrors the form's option order");
+    expect(prompt).toContain(
+      "Never infer priority, preference, or ranking from selection order",
+    );
+  });
+
   it("narrows the named-cohort tag rule to existing-roster questions and adds a prospecting counterpart (Change 3, 2026-07-30)", () => {
     const prompt = buildAdminAiSystemPrompt("global");
 
