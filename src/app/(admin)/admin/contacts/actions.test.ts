@@ -19,6 +19,7 @@ vi.mock("@/lib/auth/require-admin", () => ({
 
 const mockUpdateContact = vi.fn();
 const mockAssignTag = vi.fn();
+const mockCreateTag = vi.fn();
 const mockUnassignTag = vi.fn();
 const mockBulkAssignTags = vi.fn();
 const mockBulkUnassignTags = vi.fn();
@@ -29,6 +30,7 @@ const mockRevalidatePath = vi.fn();
 vi.mock("@/lib/data/contacts", () => ({
   updateContact: mockUpdateContact,
   assignTag: mockAssignTag,
+  createTag: mockCreateTag,
   unassignTag: mockUnassignTag,
   bulkAssignTags: mockBulkAssignTags,
   bulkUnassignTags: mockBulkUnassignTags,
@@ -70,6 +72,7 @@ const {
   updatePreferences,
   bulkAssignTag,
   bulkUnassignTag,
+  createAndAssignContactTag,
   editContact,
   deleteApplication,
   loadContactEmailSection,
@@ -179,6 +182,98 @@ describe("bulkAssignTag", () => {
   it("does nothing for empty array", async () => {
     await bulkAssignTag([], VALID_UUID);
     expect(mockBulkAssignTags).not.toHaveBeenCalled();
+  });
+});
+
+describe("createAndAssignContactTag", () => {
+  const CATEGORY_UUID = "770e8400-e29b-41d4-a716-446655440002";
+  const createdTag = {
+    id: "880e8400-e29b-41d4-a716-446655440003",
+    category_id: CATEGORY_UUID,
+    name: "Joining",
+    sort_order: 3,
+    updated_at: "2026-07-31T00:00:00Z",
+  };
+
+  beforeEach(() => {
+    mockRevalidatePath.mockReset();
+    mockCreateTag.mockReset().mockResolvedValue(createdTag);
+    mockAssignTag.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("returns invalid_input for a bad contact UUID", async () => {
+    await expect(
+      createAndAssignContactTag("nope", CATEGORY_UUID, "Joining"),
+    ).resolves.toMatchObject({ ok: false, code: "invalid_input" });
+    expect(mockCreateTag).not.toHaveBeenCalled();
+  });
+
+  it("returns invalid_input for a bad category UUID", async () => {
+    await expect(
+      createAndAssignContactTag(VALID_UUID, "nope", "Joining"),
+    ).resolves.toMatchObject({ ok: false, code: "invalid_input" });
+    expect(mockCreateTag).not.toHaveBeenCalled();
+  });
+
+  it("returns invalid_input for an empty name without touching the DB", async () => {
+    await expect(
+      createAndAssignContactTag(VALID_UUID, CATEGORY_UUID, "   "),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "invalid_input",
+      message: "Tag name is required",
+    });
+    expect(mockCreateTag).not.toHaveBeenCalled();
+    expect(mockAssignTag).not.toHaveBeenCalled();
+  });
+
+  it("creates, assigns, revalidates all contact pages, and returns the tag", async () => {
+    await expect(
+      createAndAssignContactTag(VALID_UUID, CATEGORY_UUID, "  Joining  "),
+    ).resolves.toEqual({ ok: true, tag: createdTag });
+    expect(mockCreateTag).toHaveBeenCalledWith(CATEGORY_UUID, "Joining");
+    expect(mockAssignTag).toHaveBeenCalledWith(VALID_UUID, createdTag.id);
+    expect(mockRevalidatePath).toHaveBeenCalledWith(
+      "/admin/contacts/[id]",
+      "page",
+    );
+  });
+
+  it("returns duplicate_name with the friendly message", async () => {
+    mockCreateTag.mockRejectedValue(
+      new Error('duplicate key value violates unique constraint "tags_key"'),
+    );
+    await expect(
+      createAndAssignContactTag(VALID_UUID, CATEGORY_UUID, "Joining"),
+    ).resolves.toEqual({
+      ok: false,
+      code: "duplicate_name",
+      message: "A tag with that name already exists in this category.",
+    });
+    expect(mockAssignTag).not.toHaveBeenCalled();
+  });
+
+  it("returns created_not_assigned with the tag when the assign step fails", async () => {
+    mockAssignTag.mockRejectedValue(new Error("boom"));
+    const result = await createAndAssignContactTag(
+      VALID_UUID,
+      CATEGORY_UUID,
+      "Joining",
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "created_not_assigned",
+      tag: createdTag,
+    });
+    expect(mockRevalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rethrows unexpected create failures", async () => {
+    mockCreateTag.mockRejectedValue(new Error("connection reset"));
+    await expect(
+      createAndAssignContactTag(VALID_UUID, CATEGORY_UUID, "Joining"),
+    ).rejects.toThrow("connection reset");
+    expect(mockAssignTag).not.toHaveBeenCalled();
   });
 });
 

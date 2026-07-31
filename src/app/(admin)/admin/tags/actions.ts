@@ -12,6 +12,7 @@ import {
   deleteTag,
 } from "@/lib/data/contacts";
 import { TAG_COLOR_VALUES } from "../constants";
+import { isDuplicateTagError } from "@/lib/admin/tags/errors";
 
 const tagCategorySchema = z.object({
   name: z
@@ -56,10 +57,7 @@ function normalizeTagColor(color: string | null): string | null {
 }
 
 function mapTagMutationError(error: unknown, duplicateMessage: string): string {
-  if (
-    error instanceof Error &&
-    /duplicate|already exists|unique/i.test(error.message)
-  ) {
+  if (isDuplicateTagError(error)) {
     return duplicateMessage;
   }
   return error instanceof Error

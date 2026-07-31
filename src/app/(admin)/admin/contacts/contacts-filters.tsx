@@ -6,7 +6,35 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TAG_COLOR_CLASSES } from "../constants";
+import { searchTags } from "../tag-search";
 import { ColumnPicker } from "./column-picker";
+
+function FilterTagRow({
+  tag,
+  colorClass,
+  isActive,
+  disabled,
+  onToggle,
+}: {
+  tag: Tag;
+  colorClass: string;
+  isActive: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label
+      className={`flex items-center gap-2 rounded-md px-2 py-1 ${
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted"
+      }`}
+    >
+      <Checkbox checked={isActive} disabled={disabled} onCheckedChange={onToggle} />
+      <Badge variant="outline" className={`pointer-events-none ${colorClass}`}>
+        {tag.name}
+      </Badge>
+    </label>
+  );
+}
 
 interface ContactsFiltersProps {
   search: string;
@@ -41,6 +69,15 @@ export const ContactsFilters = memo(function ContactsFilters({
   );
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(
     () => new Set(),
+  );
+  const [tagSearch, setTagSearch] = useState("");
+  const trimmedTagSearch = tagSearch.trim();
+  const tagSearchGroups = useMemo(
+    () =>
+      trimmedTagSearch
+        ? searchTags(tagCategories, tags, trimmedTagSearch)
+        : null,
+    [tagCategories, tags, trimmedTagSearch],
   );
   const tagsByCategoryId = useMemo(() => {
     const map = new Map<string, Tag[]>();
@@ -93,7 +130,11 @@ export const ContactsFilters = memo(function ContactsFilters({
           />
 
           {tagCategories.length > 0 && (
-            <Popover>
+            <Popover
+              onOpenChange={(open) => {
+                if (!open) setTagSearch("");
+              }}
+            >
               <PopoverTrigger asChild>
                 <button
                   type="button"
@@ -124,8 +165,54 @@ export const ContactsFilters = memo(function ContactsFilters({
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-72 p-0" align="start">
+                <div className="border-b border-border/60 p-2">
+                  <input
+                    type="text"
+                    value={tagSearch}
+                    disabled={disabled}
+                    onChange={(e) => setTagSearch(e.target.value)}
+                    placeholder="Search tags..."
+                    aria-label="Search tags"
+                    data-testid="contacts-filter-tag-search"
+                    className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
                 <div className="max-h-96 overflow-y-auto p-2">
-                  {tagCategories.map((category) => {
+                  {tagSearchGroups !== null ? (
+                    tagSearchGroups.length === 0 ? (
+                      <p className="px-2 py-2 text-xs text-muted-foreground">
+                        No tags match &ldquo;{trimmedTagSearch}&rdquo;
+                      </p>
+                    ) : (
+                      tagSearchGroups.map((group) => (
+                        <section
+                          key={group.category.id}
+                          className="border-b border-border/60 py-2 first:pt-1 last:border-0"
+                        >
+                          <p className="px-2 pb-1 text-xs font-medium text-foreground">
+                            {group.category.name}
+                          </p>
+                          <div className="space-y-0.5 pl-2">
+                            {group.tags.map((tag) => (
+                              <FilterTagRow
+                                key={tag.id}
+                                tag={tag}
+                                colorClass={
+                                  TAG_COLOR_CLASSES[
+                                    group.category.color ?? "blue"
+                                  ] ?? ""
+                                }
+                                isActive={selectedTagIdsSet.has(tag.id)}
+                                disabled={disabled}
+                                onToggle={() => onTagToggle(tag.id)}
+                              />
+                            ))}
+                          </div>
+                        </section>
+                      ))
+                    )
+                  ) : (
+                  tagCategories.map((category) => {
                     const categoryTags = tagsByCategoryId.get(category.id) ?? [];
                     if (categoryTags.length === 0) return null;
                     const color = category.color ?? "blue";
@@ -182,36 +269,22 @@ export const ContactsFilters = memo(function ContactsFilters({
                             id={tagListId}
                             className="mt-1 space-y-0.5 pl-2"
                           >
-                            {categoryTags.map((tag) => {
-                              const isActive = selectedTagIdsSet.has(tag.id);
-                              return (
-                                <label
-                                  key={tag.id}
-                                  className={`flex items-center gap-2 rounded-md px-2 py-1 ${
-                                    disabled
-                                      ? "cursor-not-allowed opacity-60"
-                                      : "cursor-pointer hover:bg-muted"
-                                  }`}
-                                >
-                                  <Checkbox
-                                    checked={isActive}
-                                    disabled={disabled}
-                                    onCheckedChange={() => onTagToggle(tag.id)}
-                                  />
-                                  <Badge
-                                    variant="outline"
-                                    className={`pointer-events-none ${colorClass}`}
-                                  >
-                                    {tag.name}
-                                  </Badge>
-                                </label>
-                              );
-                            })}
+                            {categoryTags.map((tag) => (
+                              <FilterTagRow
+                                key={tag.id}
+                                tag={tag}
+                                colorClass={colorClass}
+                                isActive={selectedTagIdsSet.has(tag.id)}
+                                disabled={disabled}
+                                onToggle={() => onTagToggle(tag.id)}
+                              />
+                            ))}
                           </div>
                         )}
                       </section>
                     );
-                  })}
+                  })
+                  )}
                 </div>
               </PopoverContent>
             </Popover>

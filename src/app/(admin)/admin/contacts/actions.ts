@@ -10,9 +10,15 @@ import {
   unassignTag,
   bulkAssignTags,
   bulkUnassignTags,
+  createTag,
   deleteApplication as deleteApplicationData,
   getContactById,
 } from "@/lib/data/contacts";
+import type { Tag } from "@/types/database";
+import {
+  DUPLICATE_TAG_MESSAGE,
+  isDuplicateTagError,
+} from "@/lib/admin/tags/errors";
 import {
   excludeContactEmail,
   getActiveSuppressionForContact,
@@ -78,6 +84,68 @@ export async function unassignContactTag(contactId: string, tagId: string) {
   validateUUID(tagId);
   await unassignTag(contactId, tagId);
   revalidatePath(`/admin/contacts/${contactId}`);
+}
+
+type CreateAndAssignContactTagResult =
+  | { ok: true; tag: Tag }
+  | { ok: false; code: "invalid_input" | "duplicate_name"; message: string }
+  | { ok: false; code: "created_not_assigned"; message: string; tag: Tag };
+
+/**
+ * Quick-create from the contact page's tag picker: creating a tag there
+ * always means "and put it on this contact", so both happen in one action.
+ *
+ * Expected failures come back as a discriminated result — never thrown —
+ * because Next.js masks server-thrown error messages in production. Only
+ * unexpected failures throw. The created tag is returned (even on
+ * created_not_assigned) so the client can seed its caches without waiting
+ * for a refetch.
+ */
+export async function createAndAssignContactTag(
+  contactId: string,
+  categoryId: string,
+  name: string,
+): Promise<CreateAndAssignContactTagResult> {
+  try {
+    validateUUID(contactId);
+    validateUUID(categoryId);
+  } catch {
+    return {
+      ok: false,
+      code: "invalid_input",
+      message: "Invalid contact or category. Refresh and try again.",
+    };
+  }
+  const trimmed = name.trim().slice(0, 100);
+  if (!trimmed) {
+    return { ok: false, code: "invalid_input", message: "Tag name is required" };
+  }
+
+  let tag: Tag;
+  try {
+    tag = await createTag(categoryId, trimmed);
+  } catch (error) {
+    if (isDuplicateTagError(error)) {
+      return { ok: false, code: "duplicate_name", message: DUPLICATE_TAG_MESSAGE };
+    }
+    throw error;
+  }
+
+  try {
+    await assignTag(contactId, tag.id);
+  } catch {
+    return {
+      ok: false,
+      code: "created_not_assigned",
+      message: `Tag "${trimmed}" was created but could not be assigned. Try selecting it from the list.`,
+      tag,
+    };
+  }
+
+  // A new tag changes every contact page's picker seed, not just this one —
+  // same blanket revalidation the /admin/tags mutations use.
+  revalidatePath("/admin/contacts/[id]", "page");
+  return { ok: true, tag };
 }
 
 // Resolve the contact's email server-side rather than trusting the client.

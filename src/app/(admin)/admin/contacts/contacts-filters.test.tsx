@@ -56,7 +56,10 @@ describe("ContactsFilters", () => {
     };
   }
 
-  function renderFilters({ disabled = false }: { disabled?: boolean } = {}) {
+  function renderFilters({
+    disabled = false,
+    onTagToggle = () => undefined,
+  }: { disabled?: boolean; onTagToggle?: (tagId: string) => void } = {}) {
     act(() => {
       root.render(
         <ContactsFilters
@@ -82,7 +85,7 @@ describe("ContactsFilters", () => {
           visibleColumns={[]}
           previouslySelectedColumns={[]}
           onSearchChange={() => undefined}
-          onTagToggle={() => undefined}
+          onTagToggle={onTagToggle}
           onClearTags={() => undefined}
           onColumnToggle={() => undefined}
         />,
@@ -187,5 +190,97 @@ describe("ContactsFilters", () => {
 
     expect(document.body.textContent).toContain("Filmmaker");
     expect(document.body.textContent).toContain("Advanced");
+  });
+
+  async function openTagsPopover() {
+    const filtersButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Tags"),
+    );
+    expect(filtersButton).toBeDefined();
+    await act(async () => {
+      filtersButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    return filtersButton;
+  }
+
+  async function typeTagSearch(value: string) {
+    const input = document.body.querySelector(
+      '[data-testid="contacts-filter-tag-search"]',
+    ) as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      setValue?.call(input, value);
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("shows matching tags grouped and expanded when searching by tag name", async () => {
+    renderFilters();
+    await openTagsPopover();
+    await typeTagSearch("advanced");
+
+    expect(document.body.textContent).toContain("Level");
+    expect(document.body.textContent).toContain("Advanced");
+    expect(document.body.textContent).not.toContain("Filmmaker");
+  });
+
+  it("includes a category's whole group when the search hits the category name", async () => {
+    renderFilters();
+    await openTagsPopover();
+    await typeTagSearch("role");
+
+    expect(document.body.textContent).toContain("Filmmaker");
+    expect(document.body.textContent).not.toContain("Advanced");
+  });
+
+  it("toggles a tag from search results", async () => {
+    const onTagToggle = vi.fn();
+    renderFilters({ onTagToggle });
+    await openTagsPopover();
+    await typeTagSearch("advanced");
+
+    const checkbox = document.body.querySelector('[role="checkbox"]');
+    expect(checkbox).not.toBeNull();
+    await act(async () => {
+      checkbox?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onTagToggle).toHaveBeenCalledWith("tag-advanced");
+  });
+
+  it("shows a no-match message for a query matching nothing", async () => {
+    renderFilters();
+    await openTagsPopover();
+    await typeTagSearch("zanzibar");
+
+    expect(document.body.textContent).toContain("No tags match");
+    expect(document.body.textContent).not.toContain("Filmmaker");
+    expect(document.body.textContent).not.toContain("Advanced");
+  });
+
+  it("resets the search when the popover closes", async () => {
+    renderFilters();
+    const filtersButton = await openTagsPopover();
+    await typeTagSearch("advanced");
+    expect(document.body.textContent).toContain("Advanced");
+
+    // Close and reopen: browse mode again, categories collapsed.
+    await act(async () => {
+      filtersButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      filtersButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const input = document.body.querySelector(
+      '[data-testid="contacts-filter-tag-search"]',
+    ) as HTMLInputElement | null;
+    expect(input?.value).toBe("");
+    expect(document.body.textContent).toContain("Role");
+    expect(document.body.textContent).not.toContain("Advanced");
   });
 });
