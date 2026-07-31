@@ -310,7 +310,9 @@ Plausible next levers, in rough value order:
 ### Protocol for any future change (the part Opus must actually follow)
 
 1. Read this doc and `docs/admin-ai-eval-contract.md` before coding.
-2. Run the eval BEFORE your change (baseline) and AFTER (proof). A change
+2. Run the eval BEFORE your change (baseline) and AFTER (proof) — but ONLY
+   with the owner's explicit per-run approval (ask, stating the cost; owner
+   decision 2026-07-31, see the eval contract's cost/cadence note). A change
    that can't be evaluated gets a new eval question first.
 3. Never weaken a code-side guarantee (sort, cap, append, repair, grounding,
    disclosure) to simplify a prompt — the guarantees exist because prompts

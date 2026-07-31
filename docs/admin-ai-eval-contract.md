@@ -96,5 +96,10 @@ suite changes to match. Run: `RUN_ADMIN_AI_EVAL=1 npx vitest run --maxConcurrenc
 - **Top-30 vocabulary sampling:** a rare list-field value (below rank 30) can't
   ground a prefilter; the criterion falls to the evidence scan. Benign but a
   roster for a rare value won't get the recall-1.0 guarantee.
-- **Eval cost/cadence:** ~$0.30 and ~5 min per run. Current practice: run after
-  every prompt/architecture change, before merges.
+- **Eval cost/cadence:** ~$0.50–0.65 and ~5–6 min per run at the current
+  312-contact corpus (was ~$0.30). The before/after-every-prompt-change
+  protocol defines when a run is WARRANTED, not license to launch one:
+  **every run requires Andrei's explicit per-run approval** — say what
+  changed, that the protocol calls for a run, and the cost, then wait for a
+  yes. *(Andrei owner-decision 2026-07-31: small changes were burning full
+  runs by default.)*
