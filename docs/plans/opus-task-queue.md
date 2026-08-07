@@ -540,18 +540,42 @@ run surfaces as a failed message, never a stuck spinner.
 
 ## Deploy checklist (Andrei's own actions, not coding tasks)
 
-- Prod cron scheduling for conversation digests: SQL in
-  `docs/plans/whatsapp-ingestion-runbook.md` (run AFTER the whatsapp branch is
-  deployed so the route exists).
-- Keep `OPENAI_API_KEY` OUT of prod env until OpenAI billing is topped up
-  (embeddings then backfill automatically on the next digest run).
-- Re-enable the YCloud webhook at the Hostinger cutover (dedup fix + echoes
-  handler are prerequisites — both merged).
-- Prod `maxDuration` accommodation for the 360s DeepSeek timeout on the
-  admin-ai route at deploy time.
-- After task 3 (media persistence) merges: run the media backfill promptly
-  (YCloud's 30-day retention clock is already running on existing media) and
-  schedule the `whatsapp-media-archive` cron per the runbook.
+> **STATE VERIFIED AGAINST PROD 2026-08-07** (`cron.job`,
+> `cron.job_run_details`, `conversation_media`, `conversation_embeddings`).
+> Two items are DONE, one is a deliberate hold, one is obsolete. Only the
+> `OPENAI_API_KEY` line is still waiting on an action.
+
+- ~~Prod cron scheduling for conversation digests~~ — **DONE.**
+  `conversation-digest` is jobid 3, `10 3 * * *`, active; 7/7 successful runs
+  in the 7 days to 2026-08-07, last at 03:10 UTC. All five jobs
+  (`email-drain`, `email-reconcile`, `conversation-digest`,
+  `whatsapp-media-archive`, `academy-import`) are active with zero failures
+  over that window.
+- **STILL OPEN (Andrei):** keep `OPENAI_API_KEY` OUT of prod env until OpenAI
+  billing is topped up (embeddings then backfill automatically on the next
+  digest run). Confirmed still held on 2026-08-07: `conversation_embeddings`
+  has 0 rows, so no embedding has ever been generated in prod. This is the
+  intended state — the action is adding the key once billing is funded.
+- ~~Re-enable the YCloud webhook at the Hostinger cutover~~ — **DONE** (Jul 12
+  2026 cutover; dedup fix + echoes handler both merged).
+- ~~Prod `maxDuration` accommodation for the 360s DeepSeek timeout~~ —
+  **OBSOLETE since the Hostinger cutover, no action.** `maxDuration` is only
+  written into the Next.js build output for a *deployment platform* to consume;
+  Next.js does not enforce it itself. Hostinger runs a persistent Node server
+  (`next start`), so every `export const maxDuration` in this repo — including
+  `admin/page.tsx`'s 300 — is inert there. The real ceiling on Hostinger is the
+  ~60s hcdn proxy cut, which task 8's start-and-poll addresses. This line was
+  written while prod was still Vercel.
+- ~~Media backfill + `whatsapp-media-archive` cron~~ — **DONE, with 25
+  attachments permanently lost.** Cron is jobid 4, `20 3 * * *`, 7/7 successes;
+  newest archived media 2026-08-06. Of 114 `conversation_media` rows, 89 have a
+  `storage_path` and **25 are `status='expired'`** (`attempts=1`,
+  `last_error = "Upstream 404: media expired before archiving"`). All 25 were
+  discovered in the single backfill batch on 2026-07-08 12:16 UTC and belong to
+  messages from 2026-06-17 → 2026-07-01 — YCloud's 30-day retention had already
+  elapsed before the archiver first ran. **Not recoverable**; nothing still
+  inside the retention window was missed. Treat those 25 as a known permanent
+  gap rather than a pending backfill.
 
 ## Explicitly out of queue (Andrei, Jul 7 2026)
 
